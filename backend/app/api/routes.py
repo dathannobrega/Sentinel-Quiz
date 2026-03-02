@@ -76,7 +76,7 @@ def start_session(
             db,
             payload.exam_id,
             payload.total_questions,
-            payload.question_ids,
+            None,
             payload.domains,
             payload.strategy,
             owner_user_id=current_user.id if current_user else None,

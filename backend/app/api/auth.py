@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
+from app.core.config import settings
 from app.db.session import get_db
 from app.models import User
 from app.services.auth import (
@@ -46,7 +47,7 @@ class AuthUserOut(BaseModel):
 
 class AuthTokenOut(BaseModel):
     token: str
-    token_type: str = "bearer"
+    token_type: str = "session"
     expires_at: str
     user: AuthUserOut
 
@@ -62,9 +63,36 @@ def _serialize_user(user: User) -> AuthUserOut:
     )
 
 
+def _set_auth_cookie(response: Response, token: str, expires_at: datetime) -> None:
+    domain = str(settings.auth_cookie_domain or "").strip() or None
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=token,
+        httponly=True,
+        secure=bool(settings.auth_cookie_secure or settings.is_production()),
+        samesite=str(settings.auth_cookie_samesite or "lax").strip().lower(),
+        expires=expires_at,
+        path="/",
+        domain=domain,
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    domain = str(settings.auth_cookie_domain or "").strip() or None
+    response.delete_cookie(
+        key=settings.auth_cookie_name,
+        path="/",
+        domain=domain,
+        httponly=True,
+        secure=bool(settings.auth_cookie_secure or settings.is_production()),
+        samesite=str(settings.auth_cookie_samesite or "lax").strip().lower(),
+    )
+
+
 @router.post("/register", response_model=AuthTokenOut)
 def register(
     payload: AuthRegisterIn,
+    response: Response,
     x_client_key: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
@@ -83,6 +111,7 @@ def register(
     claim_client_sessions(db, user=user, client_key=x_client_key)
     claim_client_study_state(db, user=user, client_key=x_client_key)
     token, expires_at = issue_auth_token(db, user)
+    _set_auth_cookie(response, token, expires_at)
     return AuthTokenOut(
         token=token,
         expires_at=expires_at.isoformat(),
@@ -93,6 +122,7 @@ def register(
 @router.post("/login", response_model=AuthTokenOut)
 def login(
     payload: AuthLoginIn,
+    response: Response,
     x_client_key: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
@@ -103,6 +133,7 @@ def login(
     claim_client_sessions(db, user=user, client_key=x_client_key)
     claim_client_study_state(db, user=user, client_key=x_client_key)
     token, expires_at = issue_auth_token(db, user)
+    _set_auth_cookie(response, token, expires_at)
     return AuthTokenOut(
         token=token,
         expires_at=expires_at.isoformat(),
@@ -112,13 +143,15 @@ def login(
 
 @router.post("/logout")
 def logout(
+    response: Response,
     authorization: Optional[str] = Header(default=None),
-    _: User = Depends(get_current_user_required),
+    auth_cookie: Optional[str] = Cookie(default=None, alias=settings.auth_cookie_name),
     db: Session = Depends(get_db),
 ):
-    token = parse_bearer_token(authorization)
+    token = parse_bearer_token(authorization) or str(auth_cookie or "").strip() or None
     if token:
         revoke_token(db, token)
+    _clear_auth_cookie(response)
     return {"ok": True}
 
 

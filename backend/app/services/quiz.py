@@ -19,9 +19,11 @@ from app.models import (
     StudySession,
     StudyAttempt,
 )
+from app.services.learning import upsert_question_progress
 from typing import Optional, Dict, Any
 
 PASS_THRESHOLD = 90.0
+SAFE_FEEDBACK_MAX_CHARS = 240
 
 
 def _score_percent(correct: int, total: int) -> float:
@@ -450,7 +452,7 @@ def _build_exam_question_pool(
         existing_set = set(existing)
         missing = [qid for qid in requested if qid not in existing_set]
         if missing:
-            raise ValueError(f"Question IDs not found: {', '.join(missing[:5])}")
+            raise ValueError("One or more requested questions are unavailable.")
         selected = [qid for qid in requested if qid in existing_set][:total_questions]
         return selected, "manual", {"manual": len(selected)}
 
@@ -1017,6 +1019,23 @@ def _get_correct_keys(db: Session, question_id: str) -> list[str]:
     stmt = select(Option.key).where(Option.question_id == question_id, Option.is_correct == True)
     return [r[0] for r in db.execute(stmt).all()]
 
+
+def _feedback_explanation(justification: str | None, *, is_correct: bool) -> str:
+    raw = " ".join(str(justification or "").split()).strip()
+    if raw:
+        lowered = raw.lower()
+        if any(marker in lowered for marker in ("alternativa", "correct answer", "resposta correta", "option ")):
+            raw = ""
+    if raw:
+        trimmed = raw[:SAFE_FEEDBACK_MAX_CHARS].rstrip()
+        if len(raw) > SAFE_FEEDBACK_MAX_CHARS:
+            trimmed += "..."
+        prefix = "Conceito-chave: " if is_correct else "Revise este conceito: "
+        return f"{prefix}{trimmed}"
+    if is_correct:
+        return "Resposta correta. A revisao completa continua disponivel no resumo final da sessao."
+    return "Resposta incorreta. O conceito foi registrado para revisao e a explicacao completa fica na tela final."
+
 def get_question_for_session(db: Session, session: ExamSession, position: int) -> Optional[Dict[str, Any]]:
     if position < 0 or position >= session.total_questions:
         return None
@@ -1111,6 +1130,15 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
             session.completed_at = datetime.utcnow()
 
     exp = db.get(Explanation, question_id)
+    upsert_question_progress(
+        db,
+        question_id=question_id,
+        mode="exam",
+        is_correct=is_correct,
+        owner_user_id=session.user_id,
+        owner_client_key=session.client_key,
+        confidence_level=None,
+    )
     db.flush()
     result_snapshot = _analyze_session(session, _get_session_rows(db, session.id))
     db.commit()
@@ -1118,8 +1146,7 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
     finished = session.completed_at is not None
     return {
         "is_correct": is_correct,
-        "correct_keys": correct_keys,
-        "justification": exp.justification if exp else None,
+        "justification": _feedback_explanation(exp.justification if exp else None, is_correct=is_correct),
         "progress_index": session.current_index,
         "total_questions": session.total_questions,
         "correct_count": session.correct_count,

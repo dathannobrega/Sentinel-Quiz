@@ -128,7 +128,6 @@ export interface SessionRequest {
   exam_id: string | null;
   total_questions: number;
   domains?: string[] | null;
-  question_ids?: string[] | null;
   strategy: ExamStrategy;
 }
 
@@ -136,7 +135,6 @@ export interface StudySessionRequest {
   exam_id: string | null;
   total_questions: number;
   domains?: string[] | null;
-  question_ids?: string[] | null;
   strategy: StudyStrategy;
   queue_only?: boolean;
 }
@@ -299,7 +297,6 @@ export interface SessionQuestionResponse {
 
 export interface ExamAnswerFeedback {
   is_correct: boolean;
-  correct_keys: string[];
   justification?: string | null;
   progress_index: number;
   total_questions: number;

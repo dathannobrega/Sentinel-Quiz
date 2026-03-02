@@ -310,6 +310,17 @@ export function DashboardShell() {
       );
       return;
     }
+    const maxQuestions = launchValues.mode === "study" ? 120 : 180;
+    if (launchValues.totalQuestions > maxQuestions) {
+      setLaunchNotice(
+        toDashboardNotice(
+          "warning",
+          "Quantidade acima do limite",
+          `O limite atual para ${launchValues.mode === "study" ? "study mode" : "exam mode"} é ${maxQuestions} questoes.`
+        )
+      );
+      return;
+    }
 
     setPendingAction("launch");
     setLaunchNotice(null);

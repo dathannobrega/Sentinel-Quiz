@@ -34,6 +34,12 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 O backend é responsável por processar os JSONs e servir a API.
 
 ```bash
+docker run --rm --name sentinel-pg \
+  -e POSTGRES_DB=sentinel_quiz \
+  -e POSTGRES_USER=sentinel \
+  -e POSTGRES_PASSWORD=sentinel \
+  -p 5432:5432 postgres:16-alpine
+
 cd backend
 python -m venv .venv
 
@@ -46,7 +52,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ```
 
-Por padrão, o backend faz bootstrap automático do schema (`BOOTSTRAP_SCHEMA=true`) para acelerar o ambiente local. Em produção, prefira rodar migrations com Alembic e desabilitar esse bootstrap.
+O runtime principal agora assume `PostgreSQL`. `SQLite` ficou restrito a cenários legados e migração assistida. Em produção, prefira rodar migrations com Alembic e manter `BOOTSTRAP_SCHEMA=false`.
 
 ### 2. Frontend (Next)
 
@@ -79,8 +85,10 @@ O compose local:
 - aceita sobrescrita por `.env`
 - sobe `PostgreSQL`, API e frontend Next por padrão
 - monta `./questions` em `/questions` para refletir mudanças sem rebuild
+- monta `./material` externamente em `/app/material` (os EPUBs nao vao mais baked na imagem)
 - persiste o Postgres no volume `postgres_data`
 - permite `APP_RUN_DB_MIGRATIONS=true` para executar `alembic upgrade head` antes do `uvicorn`
+- já expõe logs estruturados JSON, `X-Request-ID` e sinais básicos de abuso no backend
 
 ### 4. Docker Run Direto
 
@@ -120,9 +128,32 @@ Para Portainer, use `docker-compose.portainer.yml` como stack base:
 - troque `APP_IMAGE_NAME` e `APP_WEB_IMAGE_NAME` para as imagens publicadas no registry
 - configure as variáveis `APP_*` no painel do stack
 - mantenha o volume `postgres_data` para persistência do banco
+- monte também o diretório/volume de `material` externamente se quiser preview de referência no app
 - para schema controlado por migration, use `APP_BOOTSTRAP_SCHEMA=false` e `APP_RUN_DB_MIGRATIONS=true`
+- o default dessa stack já assume `APP_ENV=production`; se o banco for `sqlite`, a API vai recusar o boot por segurança
 
 Esse arquivo usa imagens prontas (sem `build`) e é mais adequado para ambientes gerenciados.
+
+### 6. Backup Lógico
+
+Para gerar um backup manual do banco:
+
+```bash
+DATABASE_URL="postgresql+psycopg://sentinel:sentinel@localhost:5432/sentinel_quiz" \
+./scripts/create_logical_backup.sh
+```
+
+O script suporta `PostgreSQL` (via `pg_dump`) e `SQLite` (cópia consistente do arquivo). O objetivo é fornecer um caminho operacional imediato; em produção, ainda é recomendável agendar essa rotina e testar restore periodicamente.
+
+### 7. Migrando um Banco SQLite Legado
+
+Se voce ainda tiver um banco antigo em `SQLite`, migre os dados para `PostgreSQL` antes de seguir usando a aplicacao:
+
+```bash
+python scripts/migrate_sqlite_to_postgres.py \
+  --source sqlite:///./backend/securityplus.db \
+  --target postgresql+psycopg://sentinel:sentinel@127.0.0.1:5432/sentinel_quiz
+```
 
 ---
 
@@ -133,10 +164,18 @@ O projeto depende de variáveis de ambiente para funcionar corretamente:
 | Variável | Descrição |
 | --- | --- |
 | `DATABASE_URL` | String de conexão do banco (`sqlite:///...` ou `postgresql+psycopg://...`). |
+| `APP_ENV` | Ambiente lógico (`development` ou `production`). Em `production`, o backend valida configurações inseguras antes de iniciar. |
 | `BOOTSTRAP_SCHEMA` | Quando `true`, cria/atualiza o schema base automaticamente no startup. Em produção, prefira `false` com Alembic. |
 | `ADMIN_API_KEY` | Chave para acessar operações editoriais da API e o painel `/admin`. |
+| `ALLOW_ADMIN_API_KEY` | Quando `true`, aceita `X-Admin-Key` apenas fora de produção. Em `production`, esse atalho fica desabilitado. |
 | `AUTH_TOKEN_TTL_HOURS` | Validade dos tokens bearer opacos. |
 | `AUTH_TOKEN_BYTES` | Entropia usada na geração dos tokens bearer. |
+| `AUTH_COOKIE_*` | Define o cookie HttpOnly de sessão (`sentinel_session`), usado pelo frontend novo em vez de `localStorage`. |
+| `LOG_LEVEL` | Nível de log do backend (`INFO`, `WARNING`, etc.). |
+| `LOG_JSON` | Quando `true`, emite logs estruturados em JSON, próprios para agregadores e observabilidade. |
+| `SLOW_REQUEST_THRESHOLD_MS` | Limite a partir do qual requests lentos viram warning no log. |
+| `RATE_LIMIT_*` | Limites por bucket (`public`, `auth`, `admin`). |
+| `ABUSE_*` | Sensibilidade dos sinais de scraping/abuso emitidos pelo backend. |
 | `GEMINI_API_KEY` | Sua chave de API do Google AI Studio. |
 | `GEMINI_MODEL` | Modelo utilizado (ex: `gemini-1.5-flash`). |
 | `GEMINI_TEMPERATURE` | Criatividade da IA (recomendado: 0.4 para exatidão). |
@@ -170,7 +209,7 @@ Os endpoints de estado de estudo disponíveis são:
 - `GET /api/study/sessions/{session_id}/result`
 - `GET /api/study/sessions/{session_id}/review`
 
-O frontend web agora gera e envia automaticamente `X-Client-Key` em todas as chamadas, isolando histórico e métricas por dispositivo quando o aluno ainda não criou conta. Se houver um token armazenado, ele também envia `Authorization: Bearer <token>`.
+O frontend web agora gera e envia automaticamente `X-Client-Key` em todas as chamadas, isolando histórico e métricas por dispositivo quando o aluno ainda não criou conta. A autenticacao principal do app web passou a usar cookie HttpOnly (`AUTH_COOKIE_NAME`) com `credentials: include`; o token bearer ficou apenas como compatibilidade transitória e nao e mais persistido em `localStorage`.
 
 No `study mode`, o payload de criação de sessão também aceita `strategy=standard|adaptive`. No `exam mode`, `POST /api/sessions` também aceita `strategy=standard|adaptive` para priorizar domínios fracos e revisões sem perder variedade do simulado. A rota dedicada `POST /api/study/review/sessions` usa a fila de revisão como fonte principal e pode complementar com itens futuros quando necessário. A política de revisão agora também considera repetições, lapsos, fator de facilidade e estabilidade para espaçar melhor os próximos retornos.
 

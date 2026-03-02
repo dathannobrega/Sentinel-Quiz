@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.models import User
 from app.services.auth import get_user_for_token, normalize_client_key, parse_bearer_token
@@ -12,19 +13,16 @@ from app.services.auth import get_user_for_token, normalize_client_key, parse_be
 
 def get_current_user_optional(
     authorization: Optional[str] = Header(default=None),
+    auth_cookie: Optional[str] = Cookie(default=None, alias=settings.auth_cookie_name),
     db: Session = Depends(get_db),
 ) -> User | None:
-    token = parse_bearer_token(authorization)
+    token = parse_bearer_token(authorization) or str(auth_cookie or "").strip() or None
     if not token:
         return None
 
     user = get_user_for_token(db, token)
     if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        return None
     return user
 
 

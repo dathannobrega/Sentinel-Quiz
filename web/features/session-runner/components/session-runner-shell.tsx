@@ -455,8 +455,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                 <div className="sq-list" role="list" aria-label="Alternativas">
                   {currentQuestion.options.map((option) => {
                     const isSelected = selectedKeys.includes(option.key);
-                    const isCorrect = feedback ? feedback.correct_keys.includes(option.key) : false;
-                    const isWrong = !!feedback && isSelected && !isCorrect;
+                    const isConfirmedCorrect = !!feedback && feedback.is_correct && isSelected;
+                    const isWrongSelection = !!feedback && !feedback.is_correct && isSelected;
 
                     return (
                       <button
@@ -469,16 +469,16 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         className="sq-list-item"
                         style={{
                           textAlign: "left",
-                          borderColor: isCorrect
+                          borderColor: isConfirmedCorrect
                             ? "rgba(15,157,88,0.32)"
-                            : isWrong
+                            : isWrongSelection
                               ? "rgba(209,67,67,0.28)"
                               : isSelected
                                 ? "rgba(21,122,110,0.32)"
                                 : "var(--sq-border)",
-                          background: isCorrect
+                          background: isConfirmedCorrect
                             ? "rgba(15,157,88,0.08)"
-                            : isWrong
+                            : isWrongSelection
                               ? "rgba(209,67,67,0.08)"
                               : isSelected
                                 ? "rgba(21,122,110,0.08)"

@@ -1,126 +1,22 @@
-# Production Implementation Plan
+## 0. Status atual
 
-## Execution progress
+### O que já foi fechado nas últimas fatias
 
-### Already implemented
+- Runtime principal preparado para PostgreSQL, com `docker-compose` e `Portainer` orientados a Postgres.
+- Auth do frontend principal migrada para cookie HttpOnly (`AUTH_COOKIE_*`), sem persistir bearer token em `localStorage`.
+- `X-Admin-Key` limitado a ambientes não produtivos; em produção, o fluxo esperado é RBAC via login.
+- Criação pública de sessão endurecida: a API pública não aceita mais `question_ids`.
+- Feedback imediato de `exam/study` não devolve mais `correct_keys`; o gabarito completo fica para revisão final.
+- Restrições de banco agora garantem owner escopado (`user_id` xor `client_key`) nas tabelas críticas.
+- `user_question_progress` passa a consolidar progresso por questão, reduzindo o acoplamento exclusivo a “sessão”.
+- O SRS agora considera também tempo de resposta além de confiança e histórico.
 
-- Fase 0 inicial:
-  - autenticação por token bearer opaco
-  - isolamento de sessões por usuário ou dispositivo (`X-Client-Key`)
-  - base de Alembic para migrations reais
-  - compose preparado para PostgreSQL
-- Fase 1 parcial:
-  - login/cadastro visível no frontend
-  - `user_bookmark` e `user_note` persistentes por questão
-  - migração automática de progresso local para a conta no login
-  - `study mode` dedicado com sessão própria
-  - nível de confiança por tentativa
-  - fila de revisão persistida com agendamento simples
-  - revisão diária dedicada consumindo a `review_queue`
-  - heurística adaptativa para escolher mix de vencidas x fracas x novas
-  - histórico consolidado de estudo separado do histórico de prova
-  - métricas semanais consolidadas de estudo e revisão
-  - revisão detalhada por questão dentro de cada bloco de estudo
-  - política de repetição espaçada incremental baseada no histórico do item
-  - priorização adaptativa no `exam mode` customizado
-  - evolução do agendamento para um modelo de estabilidade mais próximo de SRS
-  - recomendação semanal automática com metas de volume, revisão e ritmo diário
-  - diferenciação explícita da fila entre `due_now`, `at_risk`, `scheduled` e `mastered`
-  - projeção de carga futura da fila de revisão com forecast de 7 dias
-  - analytics editoriais por questão, domínio e prova no painel admin
-  - `question_bank` + `question_versions` + `question_version_options` com versionamento real do conteúdo
-  - fluxo editorial completo no admin: salvar rascunho, enviar para revisão, publicar e rollback com republicação segura
-  - trilha de auditoria editorial persistente e exportável
-  - rate limiting por categoria de endpoint (`public`, `auth`, `admin`) no backend
-  - frontend principal migrado para Next.js App Router, com histórico e admin consumindo APIs tipadas
+### Gaps que ainda permanecem
 
-### Próxima fatia recomendada
-
-- endurecimento operacional adicional: logs estruturados, trilha de request, detecção de scraping e política de backup
-- migração definitiva de persistência para PostgreSQL em produção, removendo dependência de SQLite no runtime principal
-- snapshots agregados por versão para analytics editoriais históricos sem custo alto em query
-
-## 1. Estado atual e gaps críticos
-
-### O que já existe
-
-- Backend em FastAPI com SQLAlchemy.
-- Banco local em SQLite.
-- Frontend principal em Next.js (App Router) + React + TypeScript.
-- Banco canônico de questões em JSON (`questions/securityplus.json` e `questions/cissp.json`) com `domain`, `difficulty`, `certification`, `tags`, `citations`.
-- Sessões de prova, revisão, histórico, insights, painel admin e analytics editoriais.
-- Study mode com sessão própria, fila de revisão, histórico dedicado, métricas semanais e revisão detalhada por bloco.
-- Banco de conteúdo versionado com auditoria e workflow editorial.
-- Preview de material referenciado e ingestão automática no startup.
-
-### O que ainda impede “produção escalável”
-
-- A autenticação básica agora existe, mas ainda faltam papéis mais granulares, políticas completas de acesso e gestão madura de conta.
-- Não existe separação multitenant, ACL granular completa, nem trilha de auditoria robusta.
-- O banco atual (SQLite) é bom para dev/single-node, não para concorrência real.
-- O versionamento editorial já existe, mas ainda faltam métricas históricas por versão e governança mais ampla de catálogo.
-- Já existe uma primeira camada de bookmarks, notas, confiança e fila de revisão persistida, mas ainda sem um modelo pedagógico avançado de repetição espaçada.
-- Já existe rate limiting básico, mas ainda faltam detecção de scraping, cache, jobs assíncronos, observabilidade completa e estratégia de backup operacionalizada.
-- O modelo atual de dados ainda é centrado em “sessão de prova”, não em “plataforma de aprendizagem”.
-
-### Decisão arquitetural recomendada antes de expandir funcionalidades
-
-- Migrar de SQLite para PostgreSQL.
-- Consolidar autenticação de usuários e evoluir os papéis (`student`, `editor`, `reviewer`, `admin`).
-- Separar claramente:
-  - domínio de conteúdo
-  - domínio de aprendizagem
-  - domínio de avaliação
-  - domínio editorial
-  - domínio de segurança/observabilidade
-- Adicionar migrations reais (`Alembic`) e remover a dependência de alterações ad-hoc de schema no startup.
-
-## 2. Arquitetura alvo para produção
-
-### Backend
-
-- FastAPI mantido, porém dividido em módulos de domínio:
-  - `content`
-  - `study`
-  - `exam`
-  - `analytics`
-  - `admin`
-  - `security`
-- SQLAlchemy + PostgreSQL.
-- Alembic para migrations versionadas.
-- Background jobs com Celery/RQ/Arq para:
-  - cálculo de analytics pesados
-  - geração de filas de revisão
-  - QA de conteúdo
-  - exportações e backups lógicos
-- Rate limiting por IP + usuário.
-- Cache para catálogos e analytics agregados.
-
-### Frontend
-
-- Manter SPA se quiser baixo custo, mas modularizar:
-  - `start`
-  - `study`
-  - `exam`
-  - `review`
-  - `analytics`
-  - `admin`
-- Se a aplicação continuar crescendo rápido, migrar para React/Next.js ou Vue/Nuxt.
-- Camada única de cliente HTTP.
-- Estado persistente por usuário, não apenas `localStorage`.
-
-### Infra
-
-- Container único é aceitável no curto prazo.
-- Para escala:
-  - `api` stateless
-  - `postgres`
-  - `redis`
-  - `worker`
-  - proxy reverso (`Traefik`/`Nginx`)
-- Armazenamento de assets/material:
-  - local apenas no curto prazo
-  - migrar para object storage no médio prazo
+- Multitenancy real e ACL por tenant ainda não existem.
+- Analytics editoriais históricos por versão ainda precisam de snapshots dedicados.
+- A trilha de auditoria está melhor (logs estruturados + editoriais), mas ainda pode evoluir para auditoria operacional persistente de segurança.
+- O desligamento definitivo de bancos SQLite legados depende da execução da migração assistida para Postgres nos ambientes antigos.
 
 ## 3. Plano por item
 

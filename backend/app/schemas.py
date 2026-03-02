@@ -25,9 +25,8 @@ class QuestionOut(BaseModel):
 
 class CreateSessionIn(BaseModel):
     exam_id: Optional[str] = Field(default=None, description="If null, mixes all exams")
-    total_questions: int = Field(default=90, ge=1, le=2000)
+    total_questions: int = Field(default=90, ge=1, le=180)
     domains: Optional[List[str]] = Field(default=None, description="Optional domain filters.")
-    question_ids: Optional[List[str]] = Field(default=None, description="Optional explicit question IDs to use (keeps order).")
     strategy: str = Field(default="standard", description="standard or adaptive.")
 
 class SessionOut(BaseModel):
@@ -58,7 +57,6 @@ class AnswerIn(BaseModel):
 
 class AnswerFeedbackOut(BaseModel):
     is_correct: bool
-    correct_keys: List[str]
     justification: Optional[str] = None
     progress_index: int
     total_questions: int
@@ -155,9 +153,8 @@ class StudyOverviewOut(BaseModel):
 
 class StudySessionCreateIn(BaseModel):
     exam_id: Optional[str] = Field(default=None, description="If null, mixes all exams")
-    total_questions: int = Field(default=30, ge=1, le=500)
+    total_questions: int = Field(default=30, ge=1, le=120)
     domains: Optional[List[str]] = Field(default=None, description="Optional domain filters.")
-    question_ids: Optional[List[str]] = Field(default=None, description="Optional explicit question IDs to use (keeps order).")
     strategy: str = Field(default="standard", description="standard, review, or adaptive.")
     queue_only: bool = Field(default=False, description="If true, use only due review items as the pool.")
 
@@ -197,7 +194,6 @@ class StudyAnswerIn(BaseModel):
 
 class StudyAnswerFeedbackOut(BaseModel):
     is_correct: bool
-    correct_keys: List[str]
     justification: Optional[str] = None
     progress_index: int
     total_questions: int

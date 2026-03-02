@@ -4,6 +4,8 @@ export const CLIENT_KEY_STORAGE_KEY = "sentinel_client_key";
 export const AUTH_TOKEN_STORAGE_KEY = "sentinel_auth_token";
 export const ADMIN_KEY_STORAGE_KEY = "sentinel_admin_api_key";
 
+let volatileAuthToken = "";
+
 function hasWindow(): boolean {
   return typeof window !== "undefined";
 }
@@ -101,7 +103,7 @@ export function getOrCreateClientKey(): string {
 }
 
 export function getStoredAuthToken(): string {
-  return readLocalStorage(AUTH_TOKEN_STORAGE_KEY).trim();
+  return volatileAuthToken.trim();
 }
 
 export function setStoredAuthToken(token: string): void {
@@ -110,11 +112,11 @@ export function setStoredAuthToken(token: string): void {
     clearStoredAuthToken();
     return;
   }
-  writeLocalStorage(AUTH_TOKEN_STORAGE_KEY, normalized);
+  volatileAuthToken = normalized;
 }
 
 export function clearStoredAuthToken(): void {
-  removeLocalStorage(AUTH_TOKEN_STORAGE_KEY);
+  volatileAuthToken = "";
 }
 
 export function getStoredAdminKey(): string {

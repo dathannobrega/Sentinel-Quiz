@@ -27,6 +27,7 @@ from app.models import (
     UserBookmark,
     UserNote,
 )
+from app.services.learning import upsert_question_progress
 from app.services.auth import normalize_client_key
 
 
@@ -36,6 +37,7 @@ QUEUE_PREVIEW_LIMIT = 5
 CONFIDENCE_LEVELS = {"low", "medium", "high"}
 WEEKLY_ANALYTICS_DEFAULT_WEEKS = 8
 REVIEW_FORECAST_DAYS = 7
+SAFE_FEEDBACK_MAX_CHARS = 240
 
 
 def _scope_label(owner_user_id: Optional[str], owner_client_key: Optional[str]) -> str:
@@ -1162,22 +1164,32 @@ def _normalize_confidence_level(value: str | None) -> str:
     return normalized
 
 
-def _quality_from_attempt(is_correct: bool, confidence_level: str) -> int:
+def _quality_from_attempt(is_correct: bool, confidence_level: str, elapsed_seconds: int | None = None) -> int:
     if not is_correct:
         return 1 if confidence_level == "high" else 2
+    quality = 5
     if confidence_level == "low":
-        return 3
-    if confidence_level == "medium":
-        return 4
-    return 5
+        quality = 3
+    elif confidence_level == "medium":
+        quality = 4
+
+    if elapsed_seconds is not None:
+        if elapsed_seconds >= 150:
+            quality = max(quality - 2, 3)
+        elif elapsed_seconds >= 90:
+            quality = max(quality - 1, 3)
+        elif elapsed_seconds <= 20 and confidence_level == "high":
+            quality = min(quality + 1, 5)
+    return quality
 
 
 def _review_policy(
     is_correct: bool,
     confidence_level: str,
     previous_item: ReviewQueueItem | None = None,
+    elapsed_seconds: int | None = None,
 ) -> dict[str, Any]:
-    quality = _quality_from_attempt(is_correct, confidence_level)
+    quality = _quality_from_attempt(is_correct, confidence_level, elapsed_seconds)
     previous_interval = max(int(previous_item.interval_days), 1) if previous_item and previous_item.interval_days else 1
     previous_repetitions = max(int(previous_item.repetition_count), 0) if previous_item else 0
     previous_lapses = max(int(previous_item.lapse_count), 0) if previous_item else 0
@@ -1278,11 +1290,12 @@ def _upsert_review_queue_item(
     is_correct: bool,
     confidence_level: str,
     attempted_at: datetime,
+    elapsed_seconds: int | None = None,
 ) -> ReviewQueueItem:
     item = db.execute(
         _owner_review_item_query(question_id, owner_user_id, owner_client_key)
     ).scalar_one_or_none()
-    srs_state = _review_policy(is_correct, confidence_level, item)
+    srs_state = _review_policy(is_correct, confidence_level, item, elapsed_seconds)
     interval_days = int(srs_state["interval_days"])
     quality = int(srs_state["quality"])
     trigger_reason = str(srs_state["trigger_reason"])
@@ -1331,6 +1344,23 @@ def _upsert_review_queue_item(
         )
     )
     return item
+
+
+def _feedback_explanation(justification: str | None, *, is_correct: bool) -> str:
+    raw = " ".join(str(justification or "").split()).strip()
+    if raw:
+        lowered = raw.lower()
+        if any(marker in lowered for marker in ("alternativa", "correct answer", "resposta correta", "option ")):
+            raw = ""
+    if raw:
+        trimmed = raw[:SAFE_FEEDBACK_MAX_CHARS].rstrip()
+        if len(raw) > SAFE_FEEDBACK_MAX_CHARS:
+            trimmed += "..."
+        prefix = "Conceito-chave: " if is_correct else "Revise este conceito: "
+        return f"{prefix}{trimmed}"
+    if is_correct:
+        return "Resposta correta. O racional completo permanece disponivel na revisao final deste bloco."
+    return "Resposta incorreta. A questao entrou na fila de revisao e o racional completo fica no resumo final."
 
 
 def _study_scope_for_session(session: StudySession) -> tuple[str | None, str | None]:
@@ -1553,7 +1583,7 @@ def _build_question_pool(
         }
         missing = [qid for qid in requested if qid not in existing]
         if missing:
-            raise ValueError(f"Question IDs not found: {', '.join(missing[:5])}")
+            raise ValueError("One or more requested questions are unavailable.")
         selected = requested[:total_questions]
         return selected, "manual", {"manual": len(selected)}
 
@@ -1848,6 +1878,17 @@ def answer_study_question(
         is_correct=is_correct,
         confidence_level=confidence,
         attempted_at=now,
+        elapsed_seconds=elapsed_seconds,
+    )
+    upsert_question_progress(
+        db,
+        question_id=question_id,
+        mode="study",
+        is_correct=is_correct,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        confidence_level=confidence,
+        attempted_at=now,
     )
 
     db.commit()
@@ -1870,8 +1911,7 @@ def answer_study_question(
 
     return {
         "is_correct": is_correct,
-        "correct_keys": correct_keys,
-        "justification": explanation.justification if explanation else None,
+        "justification": _feedback_explanation(explanation.justification if explanation else None, is_correct=is_correct),
         "progress_index": session.current_index,
         "total_questions": session.total_questions,
         "answered_count": session.answered_count,

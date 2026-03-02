@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import func, select
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -25,6 +27,7 @@ from app.models import (
     QuestionVersionOption,
     SessionAnswer,
     SessionQuestion,
+    StudySession,
     User,
 )
 from app.services.admin_analytics import build_admin_question_analytics
@@ -42,32 +45,70 @@ from app.services.ingest import ingest_questions_from_dir
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-def require_admin(
-    x_admin_key: Optional[str] = Header(default=None),
-    current_user = Depends(get_current_user_optional),
+logger = logging.getLogger("app.security.admin")
+
+
+def _admin_key_allowed(x_admin_key: Optional[str]) -> bool:
+    if x_admin_key and not settings.admin_api_key_enabled():
+        logger.warning(
+            "X-Admin-Key authentication attempt rejected",
+            extra={
+                "event": "admin_key_rejected",
+                "environment": settings.environment,
+            },
+        )
+        return False
+    if not settings.admin_api_key_enabled():
+        return False
+    return bool(x_admin_key and x_admin_key == settings.admin_api_key)
+
+
+def _require_roles(
+    *,
+    allowed_roles: set[str],
+    x_admin_key: Optional[str],
+    current_user: User | None,
 ):
-    if x_admin_key and x_admin_key == settings.admin_api_key:
+    if _admin_key_allowed(x_admin_key):
         return True
-    if current_user and current_user.is_active and current_user.role in {"admin", "editor"}:
+    if current_user and current_user.is_active and current_user.role in allowed_roles:
         return True
     if current_user:
         raise HTTPException(status_code=403, detail="Forbidden")
     raise HTTPException(status_code=401, detail="Unauthorized")
-    return True
+
+
+def require_admin(
+    x_admin_key: Optional[str] = Header(default=None),
+    current_user = Depends(get_current_user_optional),
+):
+    return _require_roles(
+        allowed_roles={"admin", "editor"},
+        x_admin_key=x_admin_key,
+        current_user=current_user,
+    )
 
 
 def require_reviewer(
     x_admin_key: Optional[str] = Header(default=None),
     current_user = Depends(get_current_user_optional),
 ):
-    if x_admin_key and x_admin_key == settings.admin_api_key:
-        return True
-    if current_user and current_user.is_active and current_user.role in {"admin", "reviewer"}:
-        return True
-    if current_user:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    raise HTTPException(status_code=401, detail="Unauthorized")
-    return True
+    return _require_roles(
+        allowed_roles={"admin", "reviewer"},
+        x_admin_key=x_admin_key,
+        current_user=current_user,
+    )
+
+
+def require_platform_admin(
+    x_admin_key: Optional[str] = Header(default=None),
+    current_user = Depends(get_current_user_optional),
+):
+    return _require_roles(
+        allowed_roles={"admin"},
+        x_admin_key=x_admin_key,
+        current_user=current_user,
+    )
 
 
 def _actor_role(current_user: User | None) -> str:
@@ -244,6 +285,23 @@ class AdminRollbackIn(BaseModel):
     reason: Optional[str] = None
 
 
+class AdminUserOut(BaseModel):
+    id: str
+    email: str
+    display_name: Optional[str] = None
+    role: str
+    is_active: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    exam_session_count: int = 0
+    study_session_count: int = 0
+
+
+class AdminUserUpdateIn(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 def _clean_citation_value(value: Any):
     if value is None:
         return None
@@ -274,7 +332,7 @@ def _clean_citation_value(value: Any):
     return None
 
 @router.post("/ingest")
-def admin_ingest(_: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_ingest(_: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
     res = ingest_questions_from_dir(db, settings.question_json_dir)
     return res
 
@@ -299,6 +357,107 @@ def admin_overview(_: bool = Depends(require_admin), db: Session = Depends(get_d
     )
 
 
+@router.get("/users", response_model=List[AdminUserOut])
+def admin_list_users(_: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
+    exam_counts = {
+        user_id: count
+        for user_id, count in db.execute(
+            select(ExamSession.user_id, func.count(ExamSession.id))
+            .where(ExamSession.user_id.is_not(None))
+            .group_by(ExamSession.user_id)
+        ).all()
+    }
+    study_counts = {
+        user_id: count
+        for user_id, count in db.execute(
+            select(StudySession.user_id, func.count(StudySession.id))
+            .where(StudySession.user_id.is_not(None))
+            .group_by(StudySession.user_id)
+        ).all()
+    }
+    users = db.execute(select(User).order_by(User.created_at.desc(), User.email.asc())).scalars().all()
+    return [
+        AdminUserOut(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            role=user.role,
+            is_active=user.is_active,
+            created_at=user.created_at.isoformat() if user.created_at else None,
+            updated_at=user.updated_at.isoformat() if user.updated_at else None,
+            exam_session_count=int(exam_counts.get(user.id, 0) or 0),
+            study_session_count=int(study_counts.get(user.id, 0) or 0),
+        )
+        for user in users
+    ]
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserOut)
+def admin_update_user(
+    user_id: str,
+    payload: AdminUserUpdateIn,
+    current_user: User | None = Depends(get_current_user_optional),
+    _: bool = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    allowed_roles = {"student", "editor", "reviewer", "admin"}
+    changed = False
+
+    if payload.role is not None:
+        normalized_role = str(payload.role or "").strip().lower()
+        if normalized_role not in allowed_roles:
+            raise HTTPException(status_code=400, detail="Invalid role.")
+        if user.role != normalized_role:
+            user.role = normalized_role
+            changed = True
+
+    if payload.is_active is not None and user.is_active != bool(payload.is_active):
+        user.is_active = bool(payload.is_active)
+        changed = True
+
+    if changed:
+        db.commit()
+        db.refresh(user)
+        logger.info(
+            "Admin updated user account",
+            extra={
+                "event": "admin_user_update",
+                "actor_user_id": current_user.id if current_user else None,
+                "target_user_id": user.id,
+                "new_role": user.role,
+                "is_active": user.is_active,
+            },
+        )
+
+    exam_session_count = int(
+        db.execute(
+            select(func.count(ExamSession.id)).where(ExamSession.user_id == user.id)
+        ).scalar_one()
+        or 0
+    )
+    study_session_count = int(
+        db.execute(
+            select(func.count(StudySession.id)).where(StudySession.user_id == user.id)
+        ).scalar_one()
+        or 0
+    )
+    return AdminUserOut(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        role=user.role,
+        is_active=user.is_active,
+        created_at=user.created_at.isoformat() if user.created_at else None,
+        updated_at=user.updated_at.isoformat() if user.updated_at else None,
+        exam_session_count=exam_session_count,
+        study_session_count=study_session_count,
+    )
+
+
 @router.get("/analytics/questions", response_model=AdminQuestionAnalyticsOut)
 def admin_question_analytics(
     limit: int = Query(default=10, ge=3, le=30),
@@ -313,7 +472,7 @@ def admin_question_analytics(
     )
 
 @router.post("/exams")
-def admin_create_exam(payload: AdminCreateExamIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_create_exam(payload: AdminCreateExamIn, _: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
     exam = db.get(Exam, payload.id)
     if not exam:
         exam = Exam(id=payload.id, title=payload.title, source=payload.source, question_count=payload.question_count)
@@ -695,7 +854,7 @@ def admin_rollback_question(
 @router.delete("/questions/{question_id}")
 def admin_delete_question(
     question_id: str,
-    _: bool = Depends(require_admin),
+    _: bool = Depends(require_platform_admin),
     current_user: User | None = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
@@ -906,7 +1065,7 @@ def _export_db(db: Session) -> Dict[str, Any]:
     }
 
 @router.get("/export")
-def admin_export_db(_: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_export_db(_: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
     payload = _export_db(db)
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     filename = f"securityplus_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"

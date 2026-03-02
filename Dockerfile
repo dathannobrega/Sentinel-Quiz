@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     MATERIAL_DIR=/app/material \
     QUESTION_JSON_DIR=/questions \
-    DATABASE_URL=sqlite:////data/securityplus.db
+    DATABASE_URL=postgresql+psycopg://sentinel:sentinel@postgres:5432/sentinel_quiz
 
 WORKDIR /app
 
@@ -21,7 +21,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY backend/app /app/app
 COPY backend/alembic /app/alembic
 COPY backend/alembic.ini /app/alembic.ini
-COPY material /app/material
 COPY questions /questions
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 

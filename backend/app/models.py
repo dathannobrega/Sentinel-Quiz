@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Text, Float
+    String, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Text, Float, CheckConstraint
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
@@ -72,6 +72,10 @@ class UserBookmark(Base):
     question: Mapped["Question"] = relationship(back_populates="bookmarks")
 
     __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_user_bookmarks_owner_scope_xor",
+        ),
         UniqueConstraint("user_id", "question_id", name="uq_user_bookmarks_user_question"),
         UniqueConstraint("client_key", "question_id", name="uq_user_bookmarks_client_question"),
     )
@@ -92,6 +96,10 @@ class UserNote(Base):
     question: Mapped["Question"] = relationship(back_populates="notes")
 
     __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_user_notes_owner_scope_xor",
+        ),
         UniqueConstraint("user_id", "question_id", name="uq_user_notes_user_question"),
         UniqueConstraint("client_key", "question_id", name="uq_user_notes_client_question"),
     )
@@ -245,6 +253,13 @@ class ExamSession(Base):
     questions: Mapped[list["SessionQuestion"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     answers: Mapped[list["SessionAnswer"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_exam_sessions_owner_scope_xor",
+        ),
+    )
+
 class SessionQuestion(Base):
     __tablename__ = "session_questions"
 
@@ -294,6 +309,13 @@ class StudySession(Base):
 
     questions: Mapped[list["StudySessionQuestion"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     attempts: Mapped[list["StudyAttempt"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_study_sessions_owner_scope_xor",
+        ),
+    )
 
 
 class StudySessionQuestion(Base):
@@ -349,6 +371,10 @@ class ReviewQueueItem(Base):
     schedules: Mapped[list["ReviewSchedule"]] = relationship(back_populates="queue_item", cascade="all, delete-orphan")
 
     __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_review_queue_owner_scope_xor",
+        ),
         UniqueConstraint("user_id", "question_id", name="uq_review_queue_user_question"),
         UniqueConstraint("client_key", "question_id", name="uq_review_queue_client_question"),
     )
@@ -365,3 +391,36 @@ class ReviewSchedule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     queue_item: Mapped["ReviewQueueItem"] = relationship(back_populates="schedules")
+
+
+class UserQuestionProgress(Base):
+    __tablename__ = "user_question_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    total_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    exam_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    study_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mastery_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    last_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="exam")
+    last_confidence_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_user_question_progress_owner_scope_xor",
+        ),
+        UniqueConstraint("user_id", "question_id", name="uq_user_question_progress_user_question"),
+        UniqueConstraint("client_key", "question_id", name="uq_user_question_progress_client_question"),
+    )

@@ -142,7 +142,7 @@ export function ExamLauncher({
               className="sq-input"
               type="number"
               min={1}
-              max={isStudy ? 500 : 2000}
+              max={isStudy ? 120 : 180}
               value={values.totalQuestions}
               onChange={(event) => onChange("totalQuestions", Number(event.target.value || 0))}
             />

@@ -673,7 +673,8 @@ export function AdminShell() {
 
       const response = await fetch(buildApiUrl("/admin/export"), {
         method: "GET",
-        headers
+        headers,
+        credentials: "include"
       });
 
       if (!response.ok) {
@@ -931,7 +932,7 @@ export function AdminShell() {
 
         <Card
           title="Acesso e manutencao"
-          subtitle="A API key fica apenas na sessao deste navegador. Se voce estiver logado como admin/editor, ela e opcional."
+          subtitle="A API key fica apenas na sessao deste navegador e deve ser tratada como atalho local. Em producao, o fluxo esperado e login com papel editorial."
           actions={
             <div className="sq-actions">
               <Button variant="ghost" size="sm" busy={activeTask === "refresh"} onClick={() => void handleRefresh()}>
@@ -951,7 +952,7 @@ export function AdminShell() {
               <Field
                 label="ADMIN_API_KEY"
                 htmlFor="admin-api-key"
-                hint="Use a chave apenas quando nao estiver autenticado com papel editorial."
+                hint="Use a chave apenas em ambiente local/dev quando nao estiver autenticado com papel editorial."
               >
                 <input
                   id="admin-api-key"

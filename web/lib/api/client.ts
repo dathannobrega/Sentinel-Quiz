@@ -105,7 +105,8 @@ async function sendRequest<T>(path: string, options: RequestOptions = {}): Promi
       ...options,
       body,
       headers,
-      signal: controller.signal
+      signal: controller.signal,
+      credentials: "include"
     });
   };
 
