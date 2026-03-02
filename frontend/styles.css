@@ -820,6 +820,136 @@ textarea{ min-height: 120px; resize: vertical; }
 .review-option.is-correct{ border-color: rgba(15, 157, 88, 0.6); background: rgba(15, 157, 88, 0.1); }
 .review-option.is-wrong{ border-color: rgba(209, 67, 67, 0.5); background: rgba(209, 67, 67, 0.1); }
 
+.dependency-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.dependency-card{
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 16px;
+  background:
+    radial-gradient(circle at top right, rgba(217, 119, 6, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(255,255,255,0.92), rgba(246,240,227,0.96));
+  box-shadow: var(--shadow-soft);
+}
+
+.dependency-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dependency-title{
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.dependency-meta{
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.dependency-focus{
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(21, 122, 110, 0.08);
+  border: 1px solid rgba(21, 122, 110, 0.16);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.dependency-copy{
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.dependency-bars{
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.dependency-row{
+  display: grid;
+  gap: 6px;
+}
+
+.dependency-row-head{
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dependency-bar-track{
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.dependency-bar-fill{
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d97706, #dc2626);
+}
+
+.dependency-row-meta{
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.review-citations{
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(21, 122, 110, 0.18);
+  background: rgba(21, 122, 110, 0.06);
+}
+
+.review-citations-title{
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.review-citation{
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.review-citation-row{
+  display: grid;
+  gap: 6px;
+}
+
+.review-citation-link{
+  width: fit-content;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-2);
+  text-decoration: none;
+}
+
+.review-citation-link:hover{
+  text-decoration: underline;
+}
+
 .toast-container{
   position: fixed;
   right: 18px;

@@ -229,9 +229,25 @@ function addOptRow(key="", text="", isCorrect=false){
   renderQuestionInsights();
 }
 
-function addCitationRow(source="", reference=""){
+function addCitationRow(citationOrSource="", maybeReference=""){
+  const citation = (citationOrSource && typeof citationOrSource === "object" && !Array.isArray(citationOrSource))
+    ? citationOrSource
+    : { source: citationOrSource, reference: maybeReference };
+  const source = citation.source || "";
+  const reference = citation.reference || "";
+  const extra = {};
+  Object.entries(citation || {}).forEach(([key, value]) => {
+    if(key === "source" || key === "reference") return;
+    if(value === null || value === undefined) return;
+    extra[key] = value;
+  });
   const wrap = document.createElement("div");
   wrap.className = "citation-row";
+  if(Object.keys(extra).length){
+    wrap.dataset.extra = JSON.stringify(extra);
+  }
+  wrap.dataset.originalSource = source;
+  wrap.dataset.originalReference = reference;
   wrap.innerHTML = `
     <input class="citeSource" type="text" placeholder="Fonte" value="${escapeHtml(source)}" />
     <input class="citeReference" type="text" placeholder="Referencia" value="${escapeHtml(reference)}" />
@@ -279,10 +295,26 @@ function collectCitations(){
     const source = row.querySelector(".citeSource").value.trim();
     const reference = row.querySelector(".citeReference").value.trim();
     if(!source && !reference) return;
-    const key = `${source.toLowerCase()}::${reference.toLowerCase()}`;
+    const citation = { source, reference };
+    const originalSource = row.dataset.originalSource || "";
+    const originalReference = row.dataset.originalReference || "";
+    if(source === originalSource && reference === originalReference && row.dataset.extra){
+      try{
+        const extra = JSON.parse(row.dataset.extra);
+        if(extra && typeof extra === "object" && !Array.isArray(extra)){
+          Object.entries(extra).forEach(([key, value]) => {
+            if(value === null || value === undefined) return;
+            citation[key] = value;
+          });
+        }
+      }catch(e){
+        // Ignore malformed preserved metadata and keep visible fields only.
+      }
+    }
+    const key = JSON.stringify(citation);
     if(seen.has(key)) return;
     seen.add(key);
-    out.push({ source, reference });
+    out.push(citation);
   });
   return out;
 }
@@ -385,7 +417,7 @@ function populateQuestionForm(question){
 
   el("citations").innerHTML = "";
   if(Array.isArray(question.citations) && question.citations.length){
-    question.citations.forEach((citation) => addCitationRow(citation.source || "", citation.reference || ""));
+    question.citations.forEach((citation) => addCitationRow(citation));
   }else{
     addCitationRow("", "");
   }

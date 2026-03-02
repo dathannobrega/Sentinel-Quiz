@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 class ExamOut(BaseModel):
     id: str
@@ -26,6 +26,7 @@ class QuestionOut(BaseModel):
 class CreateSessionIn(BaseModel):
     exam_id: Optional[str] = Field(default=None, description="If null, mixes all exams")
     total_questions: int = Field(default=90, ge=1, le=2000)
+    domains: Optional[List[str]] = Field(default=None, description="Optional domain filters.")
     question_ids: Optional[List[str]] = Field(default=None, description="Optional explicit question IDs to use (keeps order).")
 
 class SessionOut(BaseModel):
@@ -94,6 +95,7 @@ class ReviewQuestionOut(BaseModel):
     is_correct: Optional[bool] = None
     justification: Optional[str] = None
     tags: Optional[List[str]] = None
+    citations: Optional[List[Dict[str, Any]]] = None
 
 class SessionReviewOut(BaseModel):
     session: SessionHistoryOut

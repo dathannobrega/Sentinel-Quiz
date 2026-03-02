@@ -9,6 +9,8 @@ function resolveApiOrigin(){
 const API_BASE = `${resolveApiOrigin()}/api`;
 const STORAGE_KEY = "securityplus_session_id";
 const FAVORITES_KEY = "securityplus_favorites";
+const CLIENT_KEY_STORAGE_KEY = "sentinel_client_key";
+const AUTH_TOKEN_STORAGE_KEY = "sentinel_auth_token";
 
 const el = (id) => document.getElementById(id);
 
@@ -22,6 +24,97 @@ let focusReturnEl = null;
 let aiEnabled = false;
 let aiModel = null;
 let aiBusy = false;
+let domainCatalogCache = new Map();
+let weakAreaSnapshot = null;
+
+function readStorage(key){
+  try{
+    return localStorage.getItem(key);
+  }catch(e){
+    return null;
+  }
+}
+
+function writeStorage(key, value){
+  try{
+    localStorage.setItem(key, value);
+  }catch(e){
+    // Best effort only. The UI still works without persistence.
+  }
+}
+
+function removeStorage(key){
+  try{
+    localStorage.removeItem(key);
+  }catch(e){
+    // Ignore storage failures.
+  }
+}
+
+function createClientKey(){
+  if(window.crypto && typeof window.crypto.randomUUID === "function"){
+    return `web-${window.crypto.randomUUID()}`;
+  }
+  const fallback = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return `web-${fallback}`;
+}
+
+function getOrCreateClientKey(){
+  const existing = String(readStorage(CLIENT_KEY_STORAGE_KEY) || "").trim();
+  if(existing){
+    return existing;
+  }
+  const created = createClientKey();
+  writeStorage(CLIENT_KEY_STORAGE_KEY, created);
+  return created;
+}
+
+function getStoredAuthToken(){
+  return String(readStorage(AUTH_TOKEN_STORAGE_KEY) || "").trim();
+}
+
+function setStoredAuthToken(token){
+  const normalized = String(token || "").trim();
+  if(!normalized){
+    removeStorage(AUTH_TOKEN_STORAGE_KEY);
+    return "";
+  }
+  writeStorage(AUTH_TOKEN_STORAGE_KEY, normalized);
+  return normalized;
+}
+
+function clearStoredAuthToken(){
+  removeStorage(AUTH_TOKEN_STORAGE_KEY);
+}
+
+function buildApiHeaders(extraHeaders = {}){
+  const headers = new Headers(extraHeaders);
+  const clientKey = getOrCreateClientKey();
+  if(clientKey){
+    headers.set("X-Client-Key", clientKey);
+  }
+  const authToken = getStoredAuthToken();
+  if(authToken){
+    headers.set("Authorization", `Bearer ${authToken}`);
+  }
+  return headers;
+}
+
+async function apiRequest(path, options = {}){
+  const url = `${API_BASE}${path}`;
+  const send = async () => fetch(url, {
+    ...options,
+    headers: buildApiHeaders(options.headers || {})
+  });
+
+  let res = await send();
+  if(res.status === 401 && getStoredAuthToken()){
+    clearStoredAuthToken();
+    res = await send();
+  }
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 
 function setModalState(isOpen){
   document.body.classList.toggle("modal-open", isOpen);
@@ -35,19 +128,15 @@ function setModalState(isOpen){
 }
 
 async function apiGet(path){
-  const res = await fetch(`${API_BASE}${path}`);
-  if(!res.ok) throw new Error(await res.text());
-  return res.json();
+  return apiRequest(path);
 }
 
 async function apiPost(path, body){
-  const res = await fetch(`${API_BASE}${path}`, {
+  return apiRequest(path, {
     method: "POST",
     headers: { "Content-Type":"application/json" },
     body: JSON.stringify(body)
   });
-  if(!res.ok) throw new Error(await res.text());
-  return res.json();
 }
 
 function show(screenId){
@@ -92,6 +181,56 @@ function formatScore(score){
   return `${Number(score).toFixed(2)}%`;
 }
 
+function formatCitationPages(start, end){
+  if(start === null || start === undefined){
+    return "";
+  }
+  if(end !== null && end !== undefined && String(start) !== String(end)){
+    return `pp. ${start}-${end}`;
+  }
+  return `p. ${start}`;
+}
+
+function formatCitationText(citation){
+  if(!citation || typeof citation !== "object"){
+    return "";
+  }
+  const source = String(citation.source || "").trim();
+  let reference = String(citation.reference || "").trim();
+  const chapter = String(citation.chapter || "").trim();
+  const section = String(citation.section || "").trim();
+  const locator = String(citation.locator || "").trim();
+  if(!reference){
+    if(chapter && section && section.toLowerCase() !== chapter.toLowerCase()){
+      reference = `${chapter} -> ${section}`;
+    }else{
+      reference = chapter || section;
+    }
+  }
+  const pageText = formatCitationPages(citation.page_start, citation.page_end);
+  const details = [reference, pageText, locator].filter(Boolean);
+  if(source && details.length){
+    return `${source}: ${details.join(" | ")}`;
+  }
+  return source || details.join(" | ");
+}
+
+function buildMaterialPreviewUrl(citation){
+  if(!citation || typeof citation !== "object" || !citation.material_path){
+    return "";
+  }
+  const params = new URLSearchParams();
+  params.set("material_path", String(citation.material_path));
+  if(citation.locator) params.set("locator", String(citation.locator));
+  if(citation.page_start !== null && citation.page_start !== undefined){
+    params.set("page_start", String(citation.page_start));
+  }
+  if(citation.page_end !== null && citation.page_end !== undefined){
+    params.set("page_end", String(citation.page_end));
+  }
+  return `${API_BASE}/materials/preview?${params.toString()}`;
+}
+
 function escapeHtml(value){
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -115,7 +254,7 @@ function setRichText(target, value){
 
 function getFavorites(){
   try{
-    const raw = localStorage.getItem(FAVORITES_KEY);
+    const raw = readStorage(FAVORITES_KEY);
     if(!raw) return new Set();
     const parsed = JSON.parse(raw);
     if(Array.isArray(parsed)) return new Set(parsed);
@@ -126,7 +265,7 @@ function getFavorites(){
 }
 
 function setFavorites(set){
-  localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(set)));
+  writeStorage(FAVORITES_KEY, JSON.stringify(Array.from(set)));
 }
 
 function isFavorite(sessionIdValue){
@@ -243,8 +382,49 @@ async function loadExams(){
     histExam.appendChild(opt);
   });
 
+  await loadDomainOptions(sel.value || "");
   await checkResume();
   await loadHistory();
+}
+
+function renderDomainOptions(payload){
+  const subjectSelect = el("subjectSelect");
+  const hint = el("subjectHint");
+  const domains = Array.isArray(payload?.domains) ? payload.domains : [];
+  const examId = payload?.exam_id || "";
+
+  subjectSelect.innerHTML = "<option value=\"\">Todos os assuntos</option>";
+  domains.forEach((item) => {
+    const opt = document.createElement("option");
+    opt.value = item.value;
+    opt.textContent = `${item.label} (${item.question_count} questoes)`;
+    subjectSelect.appendChild(opt);
+  });
+
+  if(domains.length === 0){
+    hint.textContent = "Nao ha dominios suficientes para este filtro.";
+  }else if(examId){
+    hint.textContent = "Opcional. Restrinja a prova a um dominio da certificacao selecionada.";
+  }else{
+    hint.textContent = "Opcional. No modo misto, o filtro cruza os dominios equivalentes entre as provas.";
+  }
+}
+
+async function loadDomainOptions(examId){
+  const cacheKey = examId || "__all__";
+  if(domainCatalogCache.has(cacheKey)){
+    renderDomainOptions(domainCatalogCache.get(cacheKey));
+    return;
+  }
+  try{
+    const suffix = examId ? `?exam_id=${encodeURIComponent(examId)}` : "";
+    const payload = await apiGet(`/domains${suffix}`);
+    domainCatalogCache.set(cacheKey, payload);
+    renderDomainOptions(payload);
+  }catch(e){
+    el("subjectSelect").innerHTML = "<option value=\"\">Todos os assuntos</option>";
+    el("subjectHint").textContent = "Nao foi possivel carregar os assuntos agora.";
+  }
 }
 
 function renderQuestion(payload){
@@ -546,8 +726,9 @@ function renderMissed(items){
     const elItem = document.createElement("div");
     elItem.className = "missed-item";
     const meta = [item.domain, item.difficulty].filter(Boolean).join(" · ");
+    const label = item.question_number ? `Questao ${item.question_number}` : (item.id || "Questao");
     elItem.innerHTML = `
-      <div class="title">${escapeHtml(item.id)}${meta ? ` · ${escapeHtml(meta)}` : ""}</div>
+      <div class="title">${escapeHtml(label)}${meta ? ` · ${escapeHtml(meta)}` : ""}</div>
       <div class="body">${escapeHtml(item.prompt)}</div>
     `;
     wrap.appendChild(elItem);
@@ -596,7 +777,7 @@ async function showResult(){
   renderChips("insightPatterns", patternItems.length ? patternItems : ["Sem padroes relevantes ainda."]);
   renderStudyPlan("insightStudyPlan", res.insight?.study_plan || [], "Sem recomendacoes de estudo ainda.");
 
-  localStorage.removeItem(STORAGE_KEY);
+  removeStorage(STORAGE_KEY);
   show("screen-result");
   await loadHistory();
 }
@@ -607,7 +788,7 @@ async function beginSession(payload){
   try{
     const s = await apiPost("/sessions", payload);
     sessionId = s.id;
-    localStorage.setItem(STORAGE_KEY, sessionId);
+    writeStorage(STORAGE_KEY, sessionId);
     setScorePills(s.correct_count, s.wrong_count);
     show("screen-quiz");
     await fetchNext();
@@ -621,16 +802,21 @@ async function beginSession(payload){
 async function start(){
   const examId = el("examSelect").value || null;
   const totalQuestions = parseInt(el("totalQuestions").value || "90", 10);
-  await beginSession({ exam_id: examId, total_questions: totalQuestions });
+  const subject = el("subjectSelect").value || "";
+  const payload = { exam_id: examId, total_questions: totalQuestions };
+  if(subject){
+    payload.domains = [subject];
+  }
+  await beginSession(payload);
 }
 
 async function checkResume(){
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = readStorage(STORAGE_KEY);
   if(!stored) return;
   try{
     const state = await apiGet(`/sessions/${stored}`);
     if(state.finished){
-      localStorage.removeItem(STORAGE_KEY);
+      removeStorage(STORAGE_KEY);
       return;
     }
     const examTitle = state.exam_id ? (examMap.get(state.exam_id)?.title || state.exam_id) : "Misturar todas";
@@ -643,11 +829,11 @@ async function checkResume(){
       await fetchNext();
     };
     el("btn-discard").onclick = () => {
-      localStorage.removeItem(STORAGE_KEY);
+      removeStorage(STORAGE_KEY);
       el("continueBox").classList.add("hidden");
     };
   }catch(e){
-    localStorage.removeItem(STORAGE_KEY);
+    removeStorage(STORAGE_KEY);
   }
 }
 
@@ -672,6 +858,55 @@ function renderHeroStats(){
   el("statBestScore").textContent = formatScore(best.score_percent);
   el("statBestDate").textContent = formatDate(best.completed_at || best.created_at);
   el("statAvgScore").textContent = formatScore(avg);
+}
+
+function renderDependencyInsights(snapshot){
+  const wrap = el("dependencyInsights");
+  if(!wrap) return;
+  wrap.innerHTML = "";
+
+  const certs = Array.isArray(snapshot?.certifications) ? snapshot.certifications : [];
+  const meaningful = certs.filter(item => (item?.attempted || 0) > 0);
+  if(meaningful.length === 0){
+    wrap.innerHTML = '<div class="empty">Conclua algumas questoes para ver quais areas exigem mais estudo.</div>';
+    return;
+  }
+
+  meaningful.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "dependency-card";
+    const focus = item.focus_domain || null;
+    const domains = Array.isArray(item.domains) ? item.domains.slice(0, 4) : [];
+    const bars = domains.length ? domains.map((domain) => {
+      const weakness = Math.max(8, 100 - Number(domain.score_percent || 0));
+      const width = Math.min(100, Math.max(12, weakness));
+      return `
+        <div class="dependency-row">
+          <div class="dependency-row-head">
+            <span>${escapeHtml(domain.label || "Sem dominio")}</span>
+            <span>${domain.wrong ?? 0} erro(s)</span>
+          </div>
+          <div class="dependency-bar-track">
+            <div class="dependency-bar-fill" style="width:${width}%"></div>
+          </div>
+          <div class="dependency-row-meta">${formatScore(domain.score_percent ?? 0)} de acerto em ${domain.total ?? 0} questoes</div>
+        </div>
+      `;
+    }).join("") : '<div class="empty">Sem dominios suficientes.</div>';
+
+    card.innerHTML = `
+      <div class="dependency-head">
+        <div>
+          <div class="dependency-title">${escapeHtml(item.certification || "Sem certificacao")}</div>
+          <div class="dependency-meta">${item.attempted ?? 0} questoes respondidas · ${item.wrong ?? 0} erros</div>
+        </div>
+        <div class="dependency-focus">${focus ? escapeHtml(focus.label || "Sem dominio") : "-"}</div>
+      </div>
+      <div class="dependency-copy">${escapeHtml(item.message || "Sem historico suficiente para este track.")}</div>
+      <div class="dependency-bars">${bars}</div>
+    `;
+    wrap.appendChild(card);
+  });
 }
 
 function getHistoryFilters(){
@@ -733,10 +968,19 @@ async function loadHistory(){
   }catch(e){
     historyItems = [];
     el("historyCount").textContent = "Nao foi possivel carregar o historico.";
-    return;
   }
   renderHeroStats();
   renderHistory();
+  await loadWeakAreaSnapshot();
+}
+
+async function loadWeakAreaSnapshot(){
+  try{
+    weakAreaSnapshot = await apiGet("/analytics/weak-areas");
+  }catch(e){
+    weakAreaSnapshot = null;
+  }
+  renderDependencyInsights(weakAreaSnapshot);
 }
 
 function renderTrend(sessionIdValue){
@@ -783,6 +1027,28 @@ function renderReviewQuestions(questions){
     const tags = metaTags.length
       ? `<div class="chip-grid" style="margin-top:10px;">${metaTags.map(tag => `<div class="chip">${escapeHtml(tag)}</div>`).join("")}</div>`
       : "";
+    const citations = Array.isArray(q.citations) ? q.citations : [];
+    const citationLines = citations
+      .map((citation) => {
+        const text = formatCitationText(citation);
+        const previewUrl = buildMaterialPreviewUrl(citation);
+        return { text, previewUrl };
+      })
+      .filter((item) => item.text)
+      .slice(0, 4);
+    const citationHtml = citationLines.length
+      ? `
+        <div class="review-citations">
+          <div class="review-citations-title">Onde revisar</div>
+          ${citationLines.map((item) => `
+            <div class="review-citation-row">
+              <div class="review-citation">${escapeHtml(item.text)}</div>
+              ${item.previewUrl ? `<a class="review-citation-link" href="${escapeHtml(item.previewUrl)}" target="_blank" rel="noopener noreferrer">Abrir trecho</a>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      `
+      : "";
 
     item.innerHTML = `
       <div class="review-header">
@@ -795,6 +1061,7 @@ function renderReviewQuestions(questions){
       <div class="review-options">${optionsHtml}</div>
       <div class="muted" style="margin-top:10px;">Sua resposta: ${escapeHtml(q.selected_keys.join(", ") || "-")} · Correta: ${escapeHtml(q.correct_keys.join(", ") || "-")}</div>
       ${tags}
+      ${citationHtml}
       <div class="justification">${formatRichText(q.justification || "(Sem justificativa cadastrada.)")}</div>
     `;
     wrap.appendChild(item);
@@ -1008,11 +1275,16 @@ el("btn-retry-wrong").addEventListener("click", async () => {
 el("btn-reset").addEventListener("click", () => {
   sessionId = null;
   currentQuestion = null;
-  localStorage.removeItem(STORAGE_KEY);
+  removeStorage(STORAGE_KEY);
   location.reload();
 });
 
 el("btn-history-refresh").addEventListener("click", loadHistory);
+
+el("examSelect").addEventListener("change", () => {
+  el("subjectSelect").value = "";
+  loadDomainOptions(el("examSelect").value || "");
+});
 
 el("historySearch").addEventListener("input", renderHistory);
 el("historyExam").addEventListener("change", renderHistory);
@@ -1081,5 +1353,12 @@ el("aiCard").addEventListener("click", (ev) => {
   const message = buildQuickMessage(mode);
   sendAiRequest({ message, mode, displayMessage: label });
 });
+
+window.SentinelAuth = {
+  getToken: getStoredAuthToken,
+  setToken: setStoredAuthToken,
+  clearToken: clearStoredAuthToken,
+  getClientKey: getOrCreateClientKey
+};
 
 loadExams().catch(console.error);

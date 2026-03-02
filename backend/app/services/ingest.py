@@ -87,6 +87,36 @@ def _normalize_tags(raw_tags) -> list[str]:
     return normalized
 
 
+def _clean_citation_value(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, list):
+        cleaned_items = []
+        for item in value:
+            cleaned = _clean_citation_value(item)
+            if cleaned is not None:
+                cleaned_items.append(cleaned)
+        return cleaned_items or None
+    if isinstance(value, dict):
+        cleaned_dict = {}
+        for key, item in value.items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            cleaned = _clean_citation_value(item)
+            if cleaned is not None:
+                cleaned_dict[clean_key] = cleaned
+        return cleaned_dict or None
+    return None
+
+
 def _normalize_citations(raw_citations) -> list[dict]:
     if not raw_citations:
         return []
@@ -98,15 +128,32 @@ def _normalize_citations(raw_citations) -> list[dict]:
     for item in raw_citations:
         if not isinstance(item, dict):
             continue
-        source = str(item.get("source") or "").strip()
-        reference = str(item.get("reference") or "").strip()
-        if not source and not reference:
+        normalized_item: dict = {}
+        for key, value in item.items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            if clean_key in {"source", "reference"}:
+                cleaned = str(value or "").strip()
+            else:
+                cleaned = _clean_citation_value(value)
+            if cleaned is None:
+                continue
+            normalized_item[clean_key] = cleaned
+
+        source = str(normalized_item.get("source") or "").strip()
+        reference = str(normalized_item.get("reference") or "").strip()
+        locator = str(normalized_item.get("locator") or "").strip()
+        material_path = str(normalized_item.get("material_path") or "").strip()
+        if not source and not reference and not locator and not material_path:
             continue
-        key = (source.lower(), reference.lower())
+        normalized_item["source"] = source
+        normalized_item["reference"] = reference
+        key = json.dumps(normalized_item, ensure_ascii=False, sort_keys=True)
         if key in seen:
             continue
         seen.add(key)
-        normalized.append({"source": source, "reference": reference})
+        normalized.append(normalized_item)
     return normalized
 
 

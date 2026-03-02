@@ -75,6 +75,14 @@
               </div>
 
               <div class="field">
+                <label for="subjectSelect">Assunto</label>
+                <select id="subjectSelect">
+                  <option value="">Todos os assuntos</option>
+                </select>
+                <div class="hint" id="subjectHint">Opcional. Filtre a prova por um dominio/assunto especifico.</div>
+              </div>
+
+              <div class="field">
                 <label for="totalQuestions">Quantidade de questoes</label>
                 <input id="totalQuestions" type="number" min="1" max="360" value="90" />
                 <div class="hint">Se houver menos questoes no pool selecionado, o sistema ajusta automaticamente.</div>
@@ -117,6 +125,19 @@
                 <div class="guide-body">Reinicie apenas as erradas ou refaca a prova completa.</div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div id="dependencyMap" class="card">
+          <div class="section-header">
+            <div>
+              <h2>Mapa de dependencia por area</h2>
+              <p class="muted">Veja em quais dominios voce mais precisa revisar, separado por certificacao.</p>
+            </div>
+          </div>
+
+          <div id="dependencyInsights" class="dependency-grid">
+            <div class="empty">Conclua algumas questoes para ver quais areas exigem mais estudo.</div>
           </div>
         </div>
 

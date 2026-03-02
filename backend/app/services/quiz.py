@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, select
+from sqlalchemy import and_, false, select
 from app.models import Exam, Question, Option, Explanation, ExamSession, SessionQuestion, SessionAnswer
 from typing import Optional, Dict, Any
 
@@ -13,6 +13,36 @@ PASS_THRESHOLD = 90.0
 
 def _score_percent(correct: int, total: int) -> float:
     return round((correct / total) * 100.0, 2) if total else 0.0
+
+
+def _clean_citation_value(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, list):
+        cleaned_items = []
+        for item in value:
+            cleaned = _clean_citation_value(item)
+            if cleaned is not None:
+                cleaned_items.append(cleaned)
+        return cleaned_items or None
+    if isinstance(value, dict):
+        cleaned_dict = {}
+        for key, item in value.items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            cleaned = _clean_citation_value(item)
+            if cleaned is not None:
+                cleaned_dict[clean_key] = cleaned
+        return cleaned_dict or None
+    return None
 
 
 def _parse_tags(tags_json: str | None) -> list[str]:
@@ -46,19 +76,59 @@ def _parse_citations(citations_json: str | None) -> list[dict]:
     for item in payload:
         if not isinstance(item, dict):
             continue
-        source = str(item.get("source") or "").strip()
-        reference = str(item.get("reference") or "").strip()
-        if source or reference:
-            citations.append({"source": source, "reference": reference})
+        cleaned_item = {}
+        for key, value in item.items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            if clean_key in {"source", "reference"}:
+                cleaned = str(value or "").strip()
+            else:
+                cleaned = _clean_citation_value(value)
+            if cleaned is None:
+                continue
+            cleaned_item[clean_key] = cleaned
+        source = str(cleaned_item.get("source") or "").strip()
+        reference = str(cleaned_item.get("reference") or "").strip()
+        locator = str(cleaned_item.get("locator") or "").strip()
+        material_path = str(cleaned_item.get("material_path") or "").strip()
+        if source or reference or locator or material_path:
+            cleaned_item["source"] = source
+            cleaned_item["reference"] = reference
+            citations.append(cleaned_item)
     return citations
 
 
 def _format_citation(citation: dict) -> str:
     source = str(citation.get("source") or "").strip()
     reference = str(citation.get("reference") or "").strip()
-    if source and reference:
-        return f"{source}: {reference}"
-    return source or reference
+    chapter = str(citation.get("chapter") or "").strip()
+    section = str(citation.get("section") or "").strip()
+    locator = str(citation.get("locator") or "").strip()
+
+    if not reference:
+        if chapter and section and section.lower() != chapter.lower():
+            reference = f"{chapter} -> {section}"
+        else:
+            reference = chapter or section
+
+    page_start = citation.get("page_start")
+    page_end = citation.get("page_end")
+    page_text = ""
+    if page_start is not None and page_end is not None:
+        if str(page_start) == str(page_end):
+            page_text = f"p. {page_start}"
+        else:
+            page_text = f"pp. {page_start}-{page_end}"
+    elif page_start is not None:
+        page_text = f"p. {page_start}"
+
+    detail_parts = [part for part in [reference, page_text, locator] if part]
+    if source and detail_parts:
+        return f"{source}: {' | '.join(detail_parts)}"
+    if detail_parts:
+        return " | ".join(detail_parts)
+    return source
 
 
 def _bucket_template() -> dict:
@@ -93,6 +163,23 @@ def _top_bucket_entries(buckets: dict[str, dict], *, reverse: bool = False, limi
     else:
         items.sort(key=lambda item: (-item["wrong"], item["score_percent"], -item["total"], item["label"].lower()))
     return items[:limit]
+
+
+def _normalize_domain_filters(domains: Optional[list[str]]) -> list[str]:
+    if not domains:
+        return []
+    normalized: list[str] = []
+    seen = set()
+    for item in domains:
+        label = str(item or "").strip()
+        if not label:
+            continue
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(label)
+    return normalized
 
 
 def _get_session_rows(db: Session, session_id: str):
@@ -163,7 +250,7 @@ def _analyze_session(session: ExamSession, rows) -> dict:
 
     for idx, row in enumerate(answered_rows):
         (
-            _position,
+            position,
             qid,
             prompt,
             multi_select,
@@ -194,6 +281,7 @@ def _analyze_session(session: ExamSession, rows) -> dict:
         if not is_correct and len(missed_sample) < 10:
             missed_sample.append({
                 "id": qid,
+                "question_number": position + 1,
                 "prompt": prompt[:180] + ("..." if len(prompt) > 180 else ""),
                 "domain": domain_label,
                 "difficulty": difficulty_label,
@@ -393,7 +481,17 @@ def _analyze_session(session: ExamSession, rows) -> dict:
     }
 
 
-def create_session(db: Session, exam_id: Optional[str], total_questions: int, question_ids: Optional[list[str]] = None) -> ExamSession:
+def create_session(
+    db: Session,
+    exam_id: Optional[str],
+    total_questions: int,
+    question_ids: Optional[list[str]] = None,
+    domains: Optional[list[str]] = None,
+    owner_user_id: Optional[str] = None,
+    owner_client_key: Optional[str] = None,
+) -> ExamSession:
+    normalized_domains = _normalize_domain_filters(domains)
+
     # Fetch pool
     if question_ids:
         requested = []
@@ -420,9 +518,13 @@ def create_session(db: Session, exam_id: Optional[str], total_questions: int, qu
         stmt = select(Question.id).where(True)
         if exam_id:
             stmt = stmt.where(Question.exam_id == exam_id)
+        if normalized_domains:
+            stmt = stmt.where(Question.domain.in_(normalized_domains))
         qids = [r[0] for r in db.execute(stmt).all()]
 
     if not qids:
+        if normalized_domains:
+            raise ValueError("No questions found for the selected exam/domain.")
         raise ValueError("No questions found for the selected exam.")
 
     # Sample without replacement
@@ -436,7 +538,16 @@ def create_session(db: Session, exam_id: Optional[str], total_questions: int, qu
         selected = random.sample(qids, total_questions)
 
     sid = str(uuid.uuid4())
-    session = ExamSession(id=sid, exam_id=exam_id, total_questions=total_questions, current_index=0, correct_count=0, wrong_count=0)
+    session = ExamSession(
+        id=sid,
+        exam_id=exam_id,
+        user_id=owner_user_id,
+        client_key=None if owner_user_id else owner_client_key,
+        total_questions=total_questions,
+        current_index=0,
+        correct_count=0,
+        wrong_count=0,
+    )
     db.add(session)
     db.flush()
 
@@ -446,6 +557,116 @@ def create_session(db: Session, exam_id: Optional[str], total_questions: int, qu
     db.commit()
     db.refresh(session)
     return session
+
+
+def build_domain_catalog(db: Session, exam_id: Optional[str] = None) -> dict:
+    stmt = select(Question.domain, Question.certification).where(Question.domain.is_not(None))
+    if exam_id:
+        stmt = stmt.where(Question.exam_id == exam_id)
+
+    buckets: dict[str, dict] = {}
+    for domain, certification in db.execute(stmt).all():
+        label = str(domain or "").strip()
+        if not label:
+            continue
+        bucket = buckets.setdefault(label, {"question_count": 0, "certifications": set()})
+        bucket["question_count"] += 1
+        cert_label = str(certification or "").strip()
+        if cert_label:
+            bucket["certifications"].add(cert_label)
+
+    domains = []
+    for label, data in buckets.items():
+        certifications = sorted(data["certifications"])
+        display_label = label
+        if not exam_id and len(certifications) > 1:
+            display_label = f"{label} ({', '.join(certifications)})"
+        domains.append({
+            "value": label,
+            "label": display_label,
+            "question_count": data["question_count"],
+            "certifications": certifications,
+        })
+
+    domains.sort(key=lambda item: (-item["question_count"], item["label"].lower()))
+    return {"exam_id": exam_id, "domains": domains}
+
+
+def build_weak_area_snapshot(db: Session) -> dict:
+    return build_weak_area_snapshot_for_owner(db)
+
+
+def build_weak_area_snapshot_for_owner(
+    db: Session,
+    owner_user_id: Optional[str] = None,
+    owner_client_key: Optional[str] = None,
+) -> dict:
+    certification_rows = db.execute(
+        select(Question.certification).where(Question.certification.is_not(None))
+    ).all()
+    certifications = sorted({
+        str(certification or "").strip()
+        for (certification,) in certification_rows
+        if str(certification or "").strip()
+    })
+
+    buckets_by_cert: dict[str, dict[str, dict]] = {
+        certification: {}
+        for certification in certifications
+    }
+
+    stmt = (
+        select(
+            Question.certification,
+            Question.domain,
+            SessionAnswer.is_correct,
+        )
+        .join(SessionAnswer, SessionAnswer.question_id == Question.id)
+        .join(ExamSession, ExamSession.id == SessionAnswer.session_id)
+        .where(ExamSession.completed_at.is_not(None))
+    )
+    if owner_user_id:
+        stmt = stmt.where(ExamSession.user_id == owner_user_id)
+    elif owner_client_key:
+        stmt = stmt.where(
+            ExamSession.user_id.is_(None),
+            ExamSession.client_key == owner_client_key,
+        )
+    else:
+        stmt = stmt.where(false())
+
+    rows = db.execute(stmt).all()
+
+    for certification, domain, is_correct in rows:
+        cert_label = str(certification or "Sem certificacao").strip() or "Sem certificacao"
+        domain_label = str(domain or "Sem dominio").strip() or "Sem dominio"
+        domain_bucket = buckets_by_cert.setdefault(cert_label, {}).setdefault(domain_label, _bucket_template())
+        _update_bucket(domain_bucket, bool(is_correct))
+
+    items = []
+    for certification in sorted(buckets_by_cert):
+        domain_buckets = _sorted_buckets(buckets_by_cert.get(certification, {}))
+        weakest_domains = _top_bucket_entries(domain_buckets, limit=5)
+        attempted = sum(bucket["total"] for bucket in domain_buckets.values())
+        wrong = sum(bucket["wrong"] for bucket in domain_buckets.values())
+        focus_domain = weakest_domains[0] if weakest_domains else None
+        if attempted and focus_domain:
+            message = (
+                f"Maior necessidade de estudo em {focus_domain['label']} "
+                f"({focus_domain['wrong']} erro(s) em {focus_domain['total']} questoes)."
+            )
+        else:
+            message = "Sem historico suficiente para este track."
+        items.append({
+            "certification": certification,
+            "attempted": attempted,
+            "wrong": wrong,
+            "focus_domain": focus_domain,
+            "domains": weakest_domains,
+            "message": message,
+        })
+
+    return {"certifications": items}
 
 def _get_correct_keys(db: Session, question_id: str) -> list[str]:
     stmt = select(Option.key).where(Option.question_id == question_id, Option.is_correct == True)

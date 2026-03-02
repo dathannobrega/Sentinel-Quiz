@@ -1,16 +1,39 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${APP_POSTGRES_DB:-sentinel_quiz}
+      POSTGRES_USER: ${APP_POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:-sentinel}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_POSTGRES_USER:-sentinel} -d ${APP_POSTGRES_DB:-sentinel_quiz}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   api:
     container_name: ${APP_CONTAINER_NAME:-sentinel-quiz}
     image: ${APP_IMAGE_NAME:-ghcr.io/owner/sentinel-quiz:latest}
     pull_policy: always
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "${APP_PORT:-8000}:8000"
     environment:
       QUESTION_JSON_DIR: /questions
-      DATABASE_URL: sqlite:////data/securityplus.db
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://sentinel:sentinel@postgres:5432/sentinel_quiz}
+      BOOTSTRAP_SCHEMA: ${APP_BOOTSTRAP_SCHEMA:-true}
+      RUN_DB_MIGRATIONS: ${APP_RUN_DB_MIGRATIONS:-false}
       FRONTEND_DIR: /app/frontend
+      MATERIAL_DIR: /app/material
       ADMIN_API_KEY: ${APP_ADMIN_API_KEY:-change-me}
+      AUTH_TOKEN_TTL_HOURS: ${APP_AUTH_TOKEN_TTL_HOURS:-168}
+      AUTH_TOKEN_BYTES: ${APP_AUTH_TOKEN_BYTES:-32}
       CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:8000,http://localhost:8000}
       GEMINI_ENABLE: ${APP_GEMINI_ENABLE:-true}
       GEMINI_API_KEY: ${APP_GEMINI_API_KEY:-}
@@ -28,3 +51,4 @@ services:
 
 volumes:
   db_data:
+  postgres_data:

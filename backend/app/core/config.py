@@ -8,9 +8,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     question_json_dir: str = Field(default="../questions", alias="QUESTION_JSON_DIR")
+    material_dir: str = Field(default="../material", alias="MATERIAL_DIR")
     database_url: str = Field(default="sqlite:///./securityplus.db", alias="DATABASE_URL")
+    bootstrap_schema: bool = Field(default=True, alias="BOOTSTRAP_SCHEMA")
     admin_api_key: str = Field(default="change-me", alias="ADMIN_API_KEY")
     frontend_dir: str = Field(default="../frontend", alias="FRONTEND_DIR")
+    auth_token_ttl_hours: int = Field(default=168, alias="AUTH_TOKEN_TTL_HOURS")
+    auth_token_bytes: int = Field(default=32, alias="AUTH_TOKEN_BYTES")
 
     cors_origins: str = Field(default="http://127.0.0.1:5500,http://localhost:5500", alias="CORS_ORIGINS")
 

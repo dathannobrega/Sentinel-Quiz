@@ -10,7 +10,9 @@ from app.db.base import Base
 from app.db.migrations import ensure_compat_schema
 from app.api.routes import router as api_router
 from app.api.admin import router as admin_router
+from app.api.auth import router as auth_router
 from app.services.ingest import ingest_questions_from_dir
+from app.services.materials import resolve_material_dir
 
 app = FastAPI(title="Sentinel Quiz API", version="1.0.0")
 
@@ -22,9 +24,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# create tables
-Base.metadata.create_all(bind=engine)
-ensure_compat_schema(engine)
+if settings.bootstrap_schema:
+    Base.metadata.create_all(bind=engine)
+    ensure_compat_schema(engine)
 
 @app.on_event("startup")
 def on_startup():
@@ -37,6 +39,11 @@ def on_startup():
 
 app.include_router(api_router)
 app.include_router(admin_router)
+app.include_router(auth_router)
+
+material_path = resolve_material_dir()
+if material_path and material_path.is_dir():
+    app.mount("/materials", StaticFiles(directory=str(material_path), html=False), name="materials")
 
 frontend_path = Path(settings.frontend_dir)
 if not frontend_path.is_absolute():

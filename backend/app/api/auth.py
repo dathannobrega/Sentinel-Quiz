@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user_required
+from app.db.session import get_db
+from app.models import User
+from app.services.auth import (
+    authenticate_user,
+    claim_client_sessions,
+    create_user,
+    issue_auth_token,
+    parse_bearer_token,
+    revoke_token,
+)
+
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+class AuthRegisterIn(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=200)
+    display_name: Optional[str] = Field(default=None, max_length=255)
+
+
+class AuthLoginIn(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AuthUserOut(BaseModel):
+    id: str
+    email: str
+    display_name: Optional[str] = None
+    role: str
+    is_active: bool
+    created_at: str
+
+
+class AuthTokenOut(BaseModel):
+    token: str
+    token_type: str = "bearer"
+    expires_at: str
+    user: AuthUserOut
+
+
+def _serialize_user(user: User) -> AuthUserOut:
+    return AuthUserOut(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        role=user.role,
+        is_active=user.is_active,
+        created_at=user.created_at.isoformat() if isinstance(user.created_at, datetime) else "",
+    )
+
+
+@router.post("/register", response_model=AuthTokenOut)
+def register(
+    payload: AuthRegisterIn,
+    x_client_key: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    try:
+        user = create_user(
+            db,
+            email=payload.email,
+            password=payload.password,
+            display_name=payload.display_name,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 409 if "already registered" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    claim_client_sessions(db, user=user, client_key=x_client_key)
+    token, expires_at = issue_auth_token(db, user)
+    return AuthTokenOut(
+        token=token,
+        expires_at=expires_at.isoformat(),
+        user=_serialize_user(user),
+    )
+
+
+@router.post("/login", response_model=AuthTokenOut)
+def login(
+    payload: AuthLoginIn,
+    x_client_key: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = authenticate_user(db, email=payload.email, password=payload.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials.")
+
+    claim_client_sessions(db, user=user, client_key=x_client_key)
+    token, expires_at = issue_auth_token(db, user)
+    return AuthTokenOut(
+        token=token,
+        expires_at=expires_at.isoformat(),
+        user=_serialize_user(user),
+    )
+
+
+@router.post("/logout")
+def logout(
+    authorization: Optional[str] = Header(default=None),
+    _: User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    token = parse_bearer_token(authorization)
+    if token:
+        revoke_token(db, token)
+    return {"ok": True}
+
+
+@router.get("/me", response_model=AuthUserOut)
+def me(current_user: User = Depends(get_current_user_required)):
+    return _serialize_user(current_user)

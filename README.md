@@ -8,14 +8,15 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 
 ## ✨ Funcionalidades Principais
 
-* **Ingestão Dinâmica:** Importação automática de arquivos JSON (`./questions/`) para SQLite no startup.
+* **Ingestão Dinâmica:** Importação automática de arquivos JSON (`./questions/`) para banco SQL no startup (`SQLite` em dev ou `PostgreSQL` em produção).
 * **Simulado Realista:** Interface SPA configurada para 90 questões com feedback imediato e insights finais.
-* **Painel Admin:** Gerenciamento de provas e questões via API Key.
+* **Painel Admin:** Gerenciamento de provas e questões via API Key ou usuário autenticado com papel editorial.
 * **Tutor IA (Gemini):** Integração com Google Gemini para explicar conceitos e dar pistas, garantindo que o usuário aprenda o "porquê" em vez de apenas decorar.
+* **Sessões Isoladas:** Histórico, analytics e revisão ficam escopados por usuário autenticado ou por dispositivo (`X-Client-Key`) para evitar vazamento de progresso entre alunos.
 
 ## 🚀 Tecnologias
 
-- **Backend:** Python, FastAPI, SQLAlchemy, SQLite.
+- **Backend:** Python, FastAPI, SQLAlchemy, PostgreSQL/SQLite, Alembic.
 - **Frontend:** JavaScript (Vanilla/SPA), CSS3, HTML5.
 - **IA:** Google Generative AI SDK.
 
@@ -38,6 +39,8 @@ cp ../.env.example .env
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ```
+
+Por padrão, o backend faz bootstrap automático do schema (`BOOTSTRAP_SCHEMA=true`) para acelerar o ambiente local. Em produção, prefira rodar migrations com Alembic e desabilitar esse bootstrap.
 
 ### 2. Frontend
 
@@ -66,8 +69,10 @@ A aplicação ficará disponível em `http://127.0.0.1:8000`.
 O compose local:
 - usa defaults seguros mesmo sem `.env`
 - aceita sobrescrita por `.env`
+- sobe `PostgreSQL` junto com a API por padrão
 - monta `./questions` em `/questions` para refletir mudanças sem rebuild
-- persiste o SQLite no volume `db_data`
+- persiste o Postgres no volume `postgres_data`
+- permite `APP_RUN_DB_MIGRATIONS=true` para executar `alembic upgrade head` antes do `uvicorn`
 
 ### 4. Docker Run Direto
 
@@ -78,12 +83,16 @@ docker build -t sentinel-quiz:local .
 docker run -d \
   --name sentinel-quiz \
   -p 8000:8000 \
-  --env-file .env.docker.example \
-  -v sentinel_quiz_data:/data \
+  -e DATABASE_URL=postgresql+psycopg://sentinel:sentinel@SEU_POSTGRES:5432/sentinel_quiz \
+  -e ADMIN_API_KEY=change-me \
+  -e BOOTSTRAP_SCHEMA=false \
+  -e RUN_DB_MIGRATIONS=true \
   sentinel-quiz:local
 ```
 
-Se quiser montar um arquivo `.env` dentro do container, defina `APP_ENV_FILE` apontando para esse caminho montado.
+Se quiser montar um arquivo `.env` dentro do container, ele deve usar as variáveis reais da aplicação (`DATABASE_URL`, `ADMIN_API_KEY`, etc.). Depois monte esse arquivo e defina `APP_ENV_FILE` apontando para o caminho interno montado.
+Para `docker run` com SQLite em vez de Postgres, mantenha o default de `DATABASE_URL` e monte `-v sentinel_quiz_data:/data`.
+O entrypoint também entende variáveis prefixadas com `APP_`, então você pode reaproveitar `.env.docker.example` em `docker run` se preferir esse formato.
 
 ### 5. Portainer
 
@@ -91,7 +100,8 @@ Para Portainer, use `docker-compose.portainer.yml` como stack base:
 
 - troque `APP_IMAGE_NAME` para a imagem publicada no registry
 - configure as variáveis `APP_*` no painel do stack
-- mantenha o volume `db_data` para persistência
+- mantenha o volume `postgres_data` para persistência do banco
+- para schema controlado por migration, use `APP_BOOTSTRAP_SCHEMA=false` e `APP_RUN_DB_MIGRATIONS=true`
 
 Esse arquivo usa imagem pronta (sem `build`) e é mais adequado para ambientes gerenciados.
 
@@ -103,7 +113,11 @@ O projeto depende de variáveis de ambiente para funcionar corretamente:
 
 | Variável | Descrição |
 | --- | --- |
+| `DATABASE_URL` | String de conexão do banco (`sqlite:///...` ou `postgresql+psycopg://...`). |
+| `BOOTSTRAP_SCHEMA` | Quando `true`, cria/atualiza o schema base automaticamente no startup. Em produção, prefira `false` com Alembic. |
 | `ADMIN_API_KEY` | Chave para acessar `frontend/admin.html`. |
+| `AUTH_TOKEN_TTL_HOURS` | Validade dos tokens bearer opacos. |
+| `AUTH_TOKEN_BYTES` | Entropia usada na geração dos tokens bearer. |
 | `GEMINI_API_KEY` | Sua chave de API do Google AI Studio. |
 | `GEMINI_MODEL` | Modelo utilizado (ex: `gemini-1.5-flash`). |
 | `GEMINI_TEMPERATURE` | Criatividade da IA (recomendado: 0.4 para exatidão). |
@@ -111,6 +125,26 @@ O projeto depende de variáveis de ambiente para funcionar corretamente:
 > **Nota sobre o Tutor:** O prompt do sistema está configurado para nunca revelar a alternativa correta diretamente, agindo estritamente como um mentor acadêmico.
 
 Para containers, prefira usar as variáveis `APP_*` descritas em `.env.docker.example`; o `docker-compose.yml` converte essas variáveis para o runtime interno da aplicação.
+
+### Autenticação e Escopo
+
+Os endpoints de autenticação disponíveis são:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+O frontend web agora gera e envia automaticamente `X-Client-Key` em todas as chamadas, isolando histórico e métricas por dispositivo quando o aluno ainda não criou conta. Se houver um token armazenado, ele também envia `Authorization: Bearer <token>`.
+
+Sem tela de login dedicada, você ainda pode integrar autenticação via navegador com o helper global:
+
+```js
+window.SentinelAuth.setToken("SEU_TOKEN");
+window.SentinelAuth.getClientKey();
+```
+
+Ao fazer `login` ou `register` com o mesmo `X-Client-Key`, as sessões anônimas daquele dispositivo são automaticamente associadas ao usuário.
 
 ---
 
@@ -174,3 +208,18 @@ O workflow `/.github/workflows/docker-publish.yml` faz build e publish da imagem
 - manualmente via `workflow_dispatch`
 
 As tags geradas incluem branch, tag, SHA e `latest` na branch padrão.
+
+## 🗃️ Migrations
+
+O projeto agora inclui Alembic em `backend/alembic/` com uma migration baseline para autenticação e escopo de sessões.
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+Fluxo recomendado em produção:
+
+1. Definir `DATABASE_URL` para PostgreSQL.
+2. Rodar `alembic upgrade head`.
+3. Subir a aplicação com `BOOTSTRAP_SCHEMA=false`.
