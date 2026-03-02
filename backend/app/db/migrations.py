@@ -17,11 +17,19 @@ EXAM_SESSION_COLUMN_DDL = {
     "client_key": "ALTER TABLE exam_sessions ADD COLUMN client_key VARCHAR(64)",
 }
 
+STUDY_SESSION_COLUMN_DDL = {
+    "selection_strategy": "ALTER TABLE study_sessions ADD COLUMN selection_strategy VARCHAR(24) NOT NULL DEFAULT 'standard'",
+    "selection_mix_json": "ALTER TABLE study_sessions ADD COLUMN selection_mix_json TEXT",
+}
+
 COMPAT_INDEX_DDL = {
     "exam_sessions": [
         "CREATE INDEX IF NOT EXISTS ix_exam_sessions_user_id ON exam_sessions (user_id)",
         "CREATE INDEX IF NOT EXISTS ix_exam_sessions_client_key ON exam_sessions (client_key)",
         "CREATE INDEX IF NOT EXISTS ix_exam_sessions_completed_at ON exam_sessions (completed_at)",
+    ],
+    "study_sessions": [
+        "CREATE INDEX IF NOT EXISTS ix_study_sessions_selection_strategy ON study_sessions (selection_strategy)",
     ],
     "auth_tokens": [
         "CREATE INDEX IF NOT EXISTS ix_auth_tokens_user_id ON auth_tokens (user_id)",
@@ -54,6 +62,15 @@ def ensure_compat_schema(engine: Engine) -> None:
             if name not in existing_session_columns
         )
         statements.extend(COMPAT_INDEX_DDL["exam_sessions"])
+
+    if "study_sessions" in table_names:
+        existing_study_columns = {col["name"] for col in inspector.get_columns("study_sessions")}
+        statements.extend(
+            STUDY_SESSION_COLUMN_DDL[name]
+            for name in STUDY_SESSION_COLUMN_DDL
+            if name not in existing_study_columns
+        )
+        statements.extend(COMPAT_INDEX_DDL["study_sessions"])
 
     if "auth_tokens" in table_names:
         statements.extend(COMPAT_INDEX_DDL["auth_tokens"])

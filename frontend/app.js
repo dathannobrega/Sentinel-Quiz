@@ -8,6 +8,7 @@ function resolveApiOrigin(){
 
 const API_BASE = `${resolveApiOrigin()}/api`;
 const STORAGE_KEY = "securityplus_session_id";
+const STUDY_STORAGE_KEY = "securityplus_study_session_id";
 const FAVORITES_KEY = "securityplus_favorites";
 const CLIENT_KEY_STORAGE_KEY = "sentinel_client_key";
 const AUTH_TOKEN_STORAGE_KEY = "sentinel_auth_token";
@@ -19,6 +20,7 @@ let lastCompletedSessionId = null;
 let currentQuestion = null;
 let examMap = new Map();
 let historyItems = [];
+let studyHistoryItems = [];
 let activeReview = null;
 let focusReturnEl = null;
 let aiEnabled = false;
@@ -26,6 +28,18 @@ let aiModel = null;
 let aiBusy = false;
 let domainCatalogCache = new Map();
 let weakAreaSnapshot = null;
+let currentUser = null;
+let studyOverview = null;
+let reviewQueueSnapshot = null;
+let currentStudyState = null;
+let currentStudyQuestionId = null;
+let studyStateDirty = false;
+let fallbackClientKey = "";
+let fallbackAuthToken = "";
+let currentSessionMode = "exam";
+let currentStudyStrategy = "standard";
+let lastCompletedSessionMode = "exam";
+let questionStartedAt = null;
 
 function readStorage(key){
   try{
@@ -62,19 +76,30 @@ function createClientKey(){
 function getOrCreateClientKey(){
   const existing = String(readStorage(CLIENT_KEY_STORAGE_KEY) || "").trim();
   if(existing){
+    fallbackClientKey = existing;
     return existing;
   }
+  if(fallbackClientKey){
+    return fallbackClientKey;
+  }
   const created = createClientKey();
+  fallbackClientKey = created;
   writeStorage(CLIENT_KEY_STORAGE_KEY, created);
   return created;
 }
 
 function getStoredAuthToken(){
-  return String(readStorage(AUTH_TOKEN_STORAGE_KEY) || "").trim();
+  const stored = String(readStorage(AUTH_TOKEN_STORAGE_KEY) || "").trim();
+  if(stored){
+    fallbackAuthToken = stored;
+    return stored;
+  }
+  return fallbackAuthToken;
 }
 
 function setStoredAuthToken(token){
   const normalized = String(token || "").trim();
+  fallbackAuthToken = normalized;
   if(!normalized){
     removeStorage(AUTH_TOKEN_STORAGE_KEY);
     return "";
@@ -84,6 +109,7 @@ function setStoredAuthToken(token){
 }
 
 function clearStoredAuthToken(){
+  fallbackAuthToken = "";
   removeStorage(AUTH_TOKEN_STORAGE_KEY);
 }
 
@@ -110,10 +136,27 @@ async function apiRequest(path, options = {}){
   let res = await send();
   if(res.status === 401 && getStoredAuthToken()){
     clearStoredAuthToken();
+    handleAuthTokenCleared();
     res = await send();
   }
-  if(!res.ok) throw new Error(await res.text());
+  if(!res.ok) throw new Error(await parseErrorResponse(res));
   return res.json();
+}
+
+async function parseErrorResponse(res){
+  const body = await res.text();
+  if(!body){
+    return `HTTP ${res.status}`;
+  }
+  try{
+    const parsed = JSON.parse(body);
+    if(parsed && typeof parsed.detail === "string" && parsed.detail.trim()){
+      return parsed.detail.trim();
+    }
+  }catch(e){
+    // Ignore JSON parse errors and fall back to raw text.
+  }
+  return body;
 }
 
 function setModalState(isOpen){
@@ -137,6 +180,72 @@ async function apiPost(path, body){
     headers: { "Content-Type":"application/json" },
     body: JSON.stringify(body)
   });
+}
+
+async function apiPut(path, body){
+  return apiRequest(path, {
+    method: "PUT",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify(body)
+  });
+}
+
+function getSessionStorageKey(mode){
+  return mode === "study" ? STUDY_STORAGE_KEY : STORAGE_KEY;
+}
+
+function isStudyMode(mode = currentSessionMode){
+  return mode === "study";
+}
+
+function currentSessionApiBase(mode = currentSessionMode){
+  return isStudyMode(mode) ? "/study/sessions" : "/sessions";
+}
+
+function getSelectedMode(){
+  const value = el("modeSelect")?.value || "exam";
+  return value === "study" ? "study" : "exam";
+}
+
+function clearStoredSession(mode){
+  removeStorage(getSessionStorageKey(mode));
+}
+
+function writeStoredSession(mode, id){
+  writeStorage(getSessionStorageKey(mode), id);
+}
+
+function updateModeUi(mode = getSelectedMode()){
+  const isStudy = mode === "study";
+  el("btn-start").textContent = isStudy ? "Comecar estudo" : "Comecar";
+  el("btn-start-review-queue").classList.toggle("hidden", !isStudy);
+  el("studyStrategyField").classList.toggle("hidden", !isStudy);
+  el("confidenceSelect").disabled = !isStudy;
+  el("studyStrategySelect").disabled = !isStudy;
+  el("modeHint").textContent = isStudy
+    ? "Study mode registra confianca, gera fila de revisao e permite blocos adaptativos."
+    : "Exam mode simula prova, sem feedback de confianca influenciando a fila.";
+  el("confidenceHint").textContent = isStudy
+    ? "Usado no study mode para agendar a proxima revisao."
+    : "No exam mode a confianca nao altera o fluxo da prova.";
+  if(!isStudy){
+    el("confidenceSelect").value = "medium";
+    el("studyStrategySelect").value = "standard";
+  }
+}
+
+function resetStudyEditorUi(){
+  currentStudyQuestionId = null;
+  currentStudyState = null;
+  studyStateDirty = false;
+  el("studyBookmark").checked = false;
+  el("studyNote").value = "";
+  el("confidenceSelect").value = "medium";
+  el("studySyncBadge").textContent = "Aguardando";
+  el("studyNotice").textContent = "";
+  el("studyScopeCopy").textContent = currentUser
+    ? "Este status fica salvo na sua conta e sincroniza com outros dispositivos."
+    : "Este status fica salvo somente neste dispositivo ate voce entrar em uma conta.";
 }
 
 function show(screenId){
@@ -179,6 +288,14 @@ function formatDuration(seconds){
 function formatScore(score){
   if(score === null || score === undefined) return "-";
   return `${Number(score).toFixed(2)}%`;
+}
+
+function formatStudyStrategy(strategy){
+  const normalized = String(strategy || "standard").toLowerCase();
+  if(normalized === "adaptive") return "Adaptativa";
+  if(normalized === "review") return "Revisao diaria";
+  if(normalized === "manual") return "Manual";
+  return "Padrao";
 }
 
 function formatCitationPages(start, end){
@@ -292,6 +409,337 @@ function showToast(message){
   setTimeout(() => toast.remove(), 3200);
 }
 
+function formatDeviceKeyLabel(){
+  const clientKey = getOrCreateClientKey();
+  if(!clientKey) return "-";
+  if(clientKey.length <= 22) return clientKey;
+  return `${clientKey.slice(0, 10)}...${clientKey.slice(-8)}`;
+}
+
+function handleAuthTokenCleared(){
+  currentUser = null;
+  studyOverview = null;
+  reviewQueueSnapshot = null;
+  renderAccountCard();
+}
+
+function renderRecentStudyList(targetId, items, emptyMessage){
+  const wrap = el(targetId);
+  if(!wrap) return;
+  wrap.innerHTML = "";
+  if(!Array.isArray(items) || items.length === 0){
+    wrap.className = "stack-list empty";
+    wrap.textContent = emptyMessage;
+    return;
+  }
+  wrap.className = "stack-list";
+  items.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "stack-item";
+    const excerpt = item.excerpt ? `<div class="meta">${escapeHtml(item.excerpt)}</div>` : "";
+    row.innerHTML = `
+      <div>
+        <div class="title">${escapeHtml(item.prompt || item.question_id || "Questao")}</div>
+        ${excerpt}
+      </div>
+      <div class="meta">${formatDate(item.updated_at)}</div>
+    `;
+    wrap.appendChild(row);
+  });
+}
+
+function renderAccountCard(){
+  const mode = studyOverview?.scope || (currentUser ? "user" : "device");
+  const modeBadge = el("accountModeBadge");
+  const subtitle = el("accountSubtitle");
+  if(modeBadge){
+    modeBadge.textContent = mode === "user" ? "Conta sincronizada" : "Dispositivo local";
+  }
+  if(subtitle){
+    subtitle.textContent = currentUser
+      ? "Seu progresso agora esta sincronizado com a conta atual."
+      : "Entre para sincronizar progresso entre dispositivos ou continue com o historico local deste navegador.";
+  }
+
+  const guest = el("accountGuest");
+  const userPane = el("accountUser");
+  if(currentUser){
+    guest.classList.add("hidden");
+    userPane.classList.remove("hidden");
+    el("accountName").textContent = currentUser.display_name || currentUser.email || "Usuario";
+    el("accountEmail").textContent = currentUser.email || "-";
+    el("accountRole").textContent = currentUser.role || "student";
+  }else{
+    guest.classList.remove("hidden");
+    userPane.classList.add("hidden");
+  }
+  el("accountDeviceMeta").textContent = `Dispositivo atual: ${formatDeviceKeyLabel()}`;
+
+  el("accountBookmarkCount").textContent = String(studyOverview?.bookmark_count ?? 0);
+  el("accountNoteCount").textContent = String(studyOverview?.note_count ?? 0);
+  el("accountDueReviewCount").textContent = String(studyOverview?.due_review_count ?? 0);
+  renderRecentStudyList("accountRecentBookmarks", studyOverview?.recent_bookmarks || [], "Nenhum bookmark salvo ainda.");
+  renderRecentStudyList("accountRecentNotes", studyOverview?.recent_notes || [], "Nenhuma nota salva ainda.");
+  renderRecentStudyList("accountDueReviews", studyOverview?.due_reviews || [], "Nenhuma revisao vencida no momento.");
+  const queueBtn = el("btn-start-review-queue");
+  if(queueBtn){
+    const dueCount = Number(studyOverview?.due_review_count || 0);
+    const totalQueued = Number(reviewQueueSnapshot?.total_count || dueCount || 0);
+    queueBtn.disabled = totalQueued <= 0;
+    queueBtn.textContent = dueCount > 0 ? `Revisao diaria (${dueCount} vencidas)` : "Revisao diaria";
+  }
+}
+
+async function loadReviewQueueSnapshot(silent = true){
+  try{
+    reviewQueueSnapshot = await apiGet("/study/review/queue");
+  }catch(e){
+    reviewQueueSnapshot = null;
+    if(!silent){
+      el("accountNotice").textContent = `Nao foi possivel carregar a fila de revisao: ${e.message}`;
+    }
+  }
+}
+
+async function loadStudyOverview(silent = false){
+  try{
+    studyOverview = await apiGet("/study/overview");
+    await loadReviewQueueSnapshot(true);
+  }catch(e){
+    studyOverview = {
+      scope: currentUser ? "user" : "device",
+      bookmark_count: 0,
+      note_count: 0,
+      due_review_count: 0,
+      next_due_at: null,
+      recent_bookmarks: [],
+      recent_notes: [],
+      due_reviews: []
+    };
+    reviewQueueSnapshot = null;
+    if(!silent){
+      el("accountNotice").textContent = `Nao foi possivel carregar o resumo de estudo: ${e.message}`;
+    }
+  }
+  renderAccountCard();
+}
+
+async function loadAuthState(){
+  const token = getStoredAuthToken();
+  if(!token){
+    currentUser = null;
+    await loadStudyOverview(true);
+    renderAccountCard();
+    return;
+  }
+
+  try{
+    currentUser = await apiGet("/auth/me");
+    el("accountNotice").textContent = "Conta autenticada. O progresso desta sessao fica vinculado ao seu perfil.";
+  }catch(e){
+    clearStoredAuthToken();
+    currentUser = null;
+    el("accountNotice").textContent = "Sessao anterior expirada. Continuando com o escopo local deste dispositivo.";
+  }
+  await loadStudyOverview(true);
+  renderAccountCard();
+}
+
+function clearAuthForms(){
+  ["loginEmail", "loginPassword", "registerName", "registerEmail", "registerPassword"].forEach((id) => {
+    const node = el(id);
+    if(node) node.value = "";
+  });
+}
+
+async function applyAuthSuccess(payload, successMessage){
+  if(!payload || !payload.token || !payload.user){
+    throw new Error("Resposta de autenticacao invalida.");
+  }
+  setStoredAuthToken(payload.token);
+  currentUser = payload.user;
+  clearAuthForms();
+  el("accountNotice").textContent = successMessage;
+  await loadStudyOverview(true);
+  renderAccountCard();
+  await checkResume();
+  await loadHistory();
+}
+
+async function submitLogin(ev){
+  ev.preventDefault();
+  const email = (el("loginEmail").value || "").trim();
+  const password = el("loginPassword").value || "";
+  if(!email || !password){
+    el("accountNotice").textContent = "Informe email e senha para entrar.";
+    return;
+  }
+  try{
+    const payload = await apiPost("/auth/login", { email, password });
+    await applyAuthSuccess(payload, "Login concluido. Suas sessoes e notas locais foram sincronizadas quando aplicavel.");
+    showToast("Conta conectada.");
+  }catch(e){
+    el("accountNotice").textContent = `Falha no login: ${e.message}`;
+  }
+}
+
+async function submitRegister(ev){
+  ev.preventDefault();
+  const displayName = (el("registerName").value || "").trim();
+  const email = (el("registerEmail").value || "").trim();
+  const password = el("registerPassword").value || "";
+  if(!email || !password){
+    el("accountNotice").textContent = "Preencha ao menos email e senha para criar a conta.";
+    return;
+  }
+  try{
+    const payload = await apiPost("/auth/register", {
+      display_name: displayName || null,
+      email,
+      password
+    });
+    await applyAuthSuccess(payload, "Conta criada. O progresso deste dispositivo foi associado ao novo usuario.");
+    showToast("Conta criada.");
+  }catch(e){
+    el("accountNotice").textContent = `Falha ao criar conta: ${e.message}`;
+  }
+}
+
+async function logoutCurrentUser(){
+  try{
+    await apiRequest("/auth/logout", { method: "POST" });
+  }catch(e){
+    // Best effort. Token may already be invalid.
+  }
+  clearStoredAuthToken();
+  currentUser = null;
+  el("accountNotice").textContent = "Sessao encerrada. O app voltou ao escopo local deste dispositivo.";
+  await loadStudyOverview(true);
+  renderAccountCard();
+  await checkResume();
+  await loadHistory();
+}
+
+function refreshStudyMeta(statusMessage){
+  const scope = currentStudyState?.scope || (currentUser ? "user" : "device");
+  el("studyScopeCopy").textContent = scope === "user"
+    ? "Este status fica salvo na sua conta e sincroniza com outros dispositivos."
+    : "Este status fica salvo somente neste dispositivo ate voce entrar em uma conta.";
+
+  const badge = el("studySyncBadge");
+  if(studyStateDirty){
+    badge.textContent = "Pendente";
+  }else if(currentStudyState?.updated_at){
+    badge.textContent = "Salvo";
+  }else{
+    badge.textContent = "Sem registros";
+  }
+
+  const message = statusMessage
+    || (studyStateDirty
+      ? "Voce tem alteracoes nao salvas nesta questao."
+      : currentStudyState?.updated_at
+        ? `Ultima sincronizacao em ${formatDateTime(currentStudyState.updated_at)}.`
+        : "Nenhum bookmark ou nota salvos para esta questao ainda.");
+  el("studyNotice").textContent = message;
+}
+
+function applyStudyStateToForm(state, statusMessage){
+  currentStudyState = state || {
+    question_id: currentQuestion?.id || "",
+    bookmarked: false,
+    note_text: null,
+    updated_at: null,
+    scope: currentUser ? "user" : "device"
+  };
+  studyStateDirty = false;
+  el("studyBookmark").checked = !!currentStudyState.bookmarked;
+  el("studyNote").value = currentStudyState.note_text || "";
+  refreshStudyMeta(statusMessage);
+}
+
+function resetStudyStateForQuestion(questionId){
+  currentStudyQuestionId = questionId;
+  applyStudyStateToForm({
+    question_id: questionId,
+    bookmarked: false,
+    note_text: null,
+    updated_at: null,
+    scope: currentUser ? "user" : "device"
+  }, "Carregando status de estudo...");
+  el("studySyncBadge").textContent = "Carregando";
+}
+
+function markStudyStateDirty(){
+  studyStateDirty = true;
+  refreshStudyMeta();
+}
+
+async function loadCurrentQuestionStudyState(questionId){
+  if(!questionId){
+    return;
+  }
+  resetStudyStateForQuestion(questionId);
+  try{
+    const state = await apiGet(`/study/questions/${questionId}/state`);
+    if(currentStudyQuestionId !== questionId){
+      return;
+    }
+    applyStudyStateToForm(state);
+  }catch(e){
+    if(currentStudyQuestionId !== questionId){
+      return;
+    }
+    applyStudyStateToForm({
+      question_id: questionId,
+      bookmarked: false,
+      note_text: null,
+      updated_at: null,
+      scope: currentUser ? "user" : "device"
+    }, `Nao foi possivel carregar o status de estudo: ${e.message}`);
+    el("studySyncBadge").textContent = "Erro";
+  }
+}
+
+async function saveCurrentStudyState({ silent = false } = {}){
+  if(!currentQuestion){
+    return true;
+  }
+  const questionId = currentQuestion.id;
+  const payload = {
+    bookmarked: !!el("studyBookmark").checked,
+    note_text: (el("studyNote").value || "").trim() || null
+  };
+  try{
+    const state = await apiPut(`/study/questions/${questionId}/state`, payload);
+    if(currentQuestion?.id !== questionId){
+      return true;
+    }
+    applyStudyStateToForm(state);
+    await loadStudyOverview(true);
+    if(!silent){
+      showToast("Status de estudo salvo.");
+    }
+    return true;
+  }catch(e){
+    if(currentQuestion?.id === questionId){
+      el("studySyncBadge").textContent = "Erro";
+      el("studyNotice").textContent = `Erro ao salvar: ${e.message}`;
+    }
+    if(!silent){
+      showToast("Nao foi possivel salvar o status de estudo.");
+    }
+    return false;
+  }
+}
+
+async function ensureStudyStateSaved(){
+  if(!studyStateDirty){
+    return true;
+  }
+  return saveCurrentStudyState({ silent: true });
+}
+
 function setAiAvailability(enabled, model){
   const card = el("aiCard");
   if(!card) return;
@@ -382,6 +830,17 @@ async function loadExams(){
     histExam.appendChild(opt);
   });
 
+  const studyHistExam = el("studyHistoryExam");
+  studyHistExam.innerHTML = "<option value=\"\">Todas</option>";
+  exams.forEach(ex => {
+    const opt = document.createElement("option");
+    opt.value = ex.id;
+    opt.textContent = ex.title;
+    studyHistExam.appendChild(opt);
+  });
+
+  updateModeUi(getSelectedMode());
+  await loadAuthState();
   await loadDomainOptions(sel.value || "");
   await checkResume();
   await loadHistory();
@@ -429,12 +888,16 @@ async function loadDomainOptions(examId){
 
 function renderQuestion(payload){
   currentQuestion = payload.question;
+  questionStartedAt = Date.now();
   const idx = payload.progress_index + 1;
   const total = payload.total_questions;
 
   el("pill-progress").textContent = `Questao ${idx}/${total}`;
   el("qtitle").textContent = `Questao ${idx}`;
   el("qsub").textContent = currentQuestion.multi_select ? "Selecione TODAS as alternativas corretas." : "Selecione a alternativa correta.";
+  el("pill-target").textContent = isStudyMode()
+    ? `${formatStudyStrategy(currentStudyStrategy)} · revisao imediata`
+    : "Meta: >= 90%";
   el("qtext").textContent = currentQuestion.prompt;
   setProgress(idx, total);
 
@@ -466,6 +929,9 @@ function renderQuestion(payload){
   const firstInput = form.querySelector("input");
   if(firstInput) firstInput.focus();
   resetAiPanel();
+  loadCurrentQuestionStudyState(currentQuestion.id).catch((err) => {
+    el("studyNotice").textContent = `Nao foi possivel carregar o status de estudo: ${err.message}`;
+  });
 }
 
 function selectedKeys(){
@@ -474,7 +940,7 @@ function selectedKeys(){
 }
 
 async function fetchNext(){
-  const payload = await apiGet(`/sessions/${sessionId}/next`);
+  const payload = await apiGet(`${currentSessionApiBase()}/${sessionId}/next`);
   if(payload.finished){
     await showResult();
     return;
@@ -526,6 +992,8 @@ function showFeedback(fb, selected){
   if(live.message) liveBits.push(live.message);
   if(live.remaining_questions !== undefined) liveBits.push(`Restantes: ${live.remaining_questions}`);
   if(live.current_correct_streak !== undefined) liveBits.push(`Streak atual: ${live.current_correct_streak}`);
+  if(fb.next_review_at) liveBits.push(`Rever em: ${formatDateTime(fb.next_review_at)}`);
+  if(fb.review_due_count !== undefined && isStudyMode()) liveBits.push(`Fila vencida: ${fb.review_due_count}`);
   if(liveBits.length){
     liveWrap.textContent = liveBits.join(" | ");
     liveWrap.classList.remove("hidden");
@@ -736,19 +1204,30 @@ function renderMissed(items){
 }
 
 async function showResult(){
-  const res = await apiGet(`/sessions/${sessionId}/result`);
+  const res = await apiGet(`${currentSessionApiBase()}/${sessionId}/result`);
   lastCompletedSessionId = res.session_id;
+  lastCompletedSessionMode = currentSessionMode;
+  const studyMode = isStudyMode();
+  const studyStrategy = formatStudyStrategy(res.strategy);
 
   el("resScore").textContent = `${res.score_percent.toFixed(2)}%`;
   el("resCorrect").textContent = String(res.correct_count);
   el("resWrong").textContent = String(res.wrong_count);
-  el("resStatus").textContent = res.passed ? "APROVADO (>= 90%)" : "REPROVADO (< 90%)";
+  el("resStatus").textContent = studyMode
+    ? "ESTUDO CONCLUIDO"
+    : (res.passed ? "APROVADO (>= 90%)" : "REPROVADO (< 90%)");
 
   const summary = res.insight?.summary || {};
   const weakest = Array.isArray(res.insight?.weakest_domains) ? res.insight.weakest_domains[0] : null;
-  el("resultSubtitle").textContent = weakest
-    ? `Area com mais erros: ${weakest.label} (${weakest.wrong} erro(s)).`
-    : "Veja seu desempenho geral e os principais insights.";
+  if(studyMode){
+    el("resultSubtitle").textContent = res.review_due_count
+      ? `${studyStrategy} concluida. Sua fila tem ${res.review_due_count} revisao(oes) vencida(s).`
+      : `${studyStrategy} concluida. Continue alimentando a fila de revisao com consistencia.`;
+  }else{
+    el("resultSubtitle").textContent = weakest
+      ? `Area com mais erros: ${weakest.label} (${weakest.wrong} erro(s)).`
+      : "Veja seu desempenho geral e os principais insights.";
+  }
   el("resDuration").textContent = formatDuration(summary.duration_seconds);
 
   renderInsightCards("insightSummary", [
@@ -777,19 +1256,32 @@ async function showResult(){
   renderChips("insightPatterns", patternItems.length ? patternItems : ["Sem padroes relevantes ainda."]);
   renderStudyPlan("insightStudyPlan", res.insight?.study_plan || [], "Sem recomendacoes de estudo ainda.");
 
-  removeStorage(STORAGE_KEY);
+  clearStoredSession(currentSessionMode);
+  currentQuestion = null;
+  currentStudyQuestionId = null;
+  studyStateDirty = false;
+  questionStartedAt = null;
+  el("btn-review").classList.toggle("hidden", studyMode);
+  el("btn-retry-wrong").classList.toggle("hidden", studyMode);
+  el("btn-restart").textContent = studyMode ? "Novo bloco" : "Nova prova";
   show("screen-result");
+  await loadStudyOverview(true);
   await loadHistory();
 }
 
-async function beginSession(payload){
+async function beginSession(payload, mode = "exam", startPath = null){
+  currentSessionMode = mode === "study" ? "study" : "exam";
   el("startNotice").textContent = "";
   el("quizNotice").textContent = "";
   try{
-    const s = await apiPost("/sessions", payload);
+    const targetPath = startPath || `${currentSessionApiBase(currentSessionMode)}`;
+    const s = await apiPost(targetPath, payload);
     sessionId = s.id;
-    writeStorage(STORAGE_KEY, sessionId);
+    currentStudyStrategy = currentSessionMode === "study" ? (s.selection_strategy || payload.strategy || "standard") : "standard";
+    writeStoredSession(currentSessionMode, sessionId);
+    clearStoredSession(currentSessionMode === "study" ? "exam" : "study");
     setScorePills(s.correct_count, s.wrong_count);
+    resetStudyEditorUi();
     show("screen-quiz");
     await fetchNext();
     return true;
@@ -799,42 +1291,82 @@ async function beginSession(payload){
   }
 }
 
+function getRequestedTotal(defaultValue){
+  const parsed = parseInt(el("totalQuestions").value || "", 10);
+  if(Number.isFinite(parsed) && parsed > 0){
+    return parsed;
+  }
+  return defaultValue;
+}
+
 async function start(){
+  const mode = getSelectedMode();
   const examId = el("examSelect").value || null;
-  const totalQuestions = parseInt(el("totalQuestions").value || "90", 10);
+  const totalQuestions = getRequestedTotal(mode === "study" ? 30 : 90);
   const subject = el("subjectSelect").value || "";
   const payload = { exam_id: examId, total_questions: totalQuestions };
+  if(mode === "study"){
+    payload.strategy = el("studyStrategySelect").value || "standard";
+  }
   if(subject){
     payload.domains = [subject];
   }
-  await beginSession(payload);
+  await beginSession(payload, mode);
+}
+
+async function startDueReviewSession(){
+  const examId = el("examSelect").value || null;
+  const defaultTotal = Number(reviewQueueSnapshot?.recommended_batch_size || 10) || 10;
+  const totalQuestions = getRequestedTotal(defaultTotal);
+  const subject = el("subjectSelect").value || "";
+  const payload = { exam_id: examId, total_questions: totalQuestions, strategy: "review", queue_only: true };
+  if(subject){
+    payload.domains = [subject];
+  }
+  await beginSession(payload, "study", "/study/review/sessions");
 }
 
 async function checkResume(){
-  const stored = readStorage(STORAGE_KEY);
-  if(!stored) return;
-  try{
-    const state = await apiGet(`/sessions/${stored}`);
-    if(state.finished){
-      removeStorage(STORAGE_KEY);
-      return;
-    }
-    const examTitle = state.exam_id ? (examMap.get(state.exam_id)?.title || state.exam_id) : "Misturar todas";
-    el("continueMeta").textContent = `Prova: ${examTitle} · Questao ${state.current_index + 1}/${state.total_questions} · Acertos ${state.correct_count}`;
-    el("continueBox").classList.remove("hidden");
-    el("btn-continue").onclick = async () => {
-      sessionId = stored;
-      setScorePills(state.correct_count, state.wrong_count);
-      show("screen-quiz");
-      await fetchNext();
-    };
-    el("btn-discard").onclick = () => {
-      removeStorage(STORAGE_KEY);
-      el("continueBox").classList.add("hidden");
-    };
-  }catch(e){
-    removeStorage(STORAGE_KEY);
+  const candidates = [
+    { mode: "study", id: readStorage(STUDY_STORAGE_KEY) },
+    { mode: "exam", id: readStorage(STORAGE_KEY) }
+  ].filter((item) => !!item.id);
+  if(candidates.length === 0){
+    el("continueBox").classList.add("hidden");
+    return;
   }
+
+  for(const candidate of candidates){
+    try{
+      const state = await apiGet(`${currentSessionApiBase(candidate.mode)}/${candidate.id}`);
+      if(state.finished){
+        clearStoredSession(candidate.mode);
+        continue;
+      }
+      const examTitle = state.exam_id ? (examMap.get(state.exam_id)?.title || state.exam_id) : "Misturar todas";
+      const label = candidate.mode === "study" ? "Estudo" : "Prova";
+      const strategyMeta = candidate.mode === "study" ? ` · ${formatStudyStrategy(state.selection_strategy)}` : "";
+      el("continueMeta").textContent = `${label}: ${examTitle}${strategyMeta} · Questao ${state.current_index + 1}/${state.total_questions} · Acertos ${state.correct_count}`;
+      el("continueBox").classList.remove("hidden");
+      el("btn-continue").onclick = async () => {
+        currentSessionMode = candidate.mode;
+        currentStudyStrategy = candidate.mode === "study" ? (state.selection_strategy || "standard") : "standard";
+        sessionId = candidate.id;
+        setScorePills(state.correct_count, state.wrong_count);
+        show("screen-quiz");
+        await fetchNext();
+      };
+      el("btn-discard").onclick = () => {
+        clearStoredSession(candidate.mode);
+        el("continueBox").classList.add("hidden");
+      };
+      return;
+    }catch(e){
+      clearStoredSession(candidate.mode);
+    }
+  }
+
+  el("continueBox").classList.add("hidden");
 }
 
 function renderHeroStats(){
@@ -962,6 +1494,84 @@ function renderHistory(){
   });
 }
 
+function getStudyHistoryFilters(){
+  const query = (el("studyHistorySearch").value || "").toLowerCase();
+  const exam = el("studyHistoryExam").value || "";
+  const strategy = el("studyHistoryStrategy").value || "";
+  const minScore = el("studyHistoryMinScore").value ? parseFloat(el("studyHistoryMinScore").value) : null;
+  return { query, exam, strategy, minScore };
+}
+
+function renderStudyHistorySummary(items){
+  const total = items.length;
+  const avgScore = total ? items.reduce((sum, item) => sum + (item.score_percent || 0), 0) / total : 0;
+  const timedItems = items.filter(item => item.avg_seconds_per_question !== null && item.avg_seconds_per_question !== undefined);
+  const avgPace = timedItems.length
+    ? timedItems.reduce((sum, item) => sum + (item.avg_seconds_per_question || 0), 0) / timedItems.length
+    : null;
+  const lowConfidence = items.reduce((sum, item) => sum + (item.confidence_low || 0), 0);
+  const reviewBlocks = items.filter(item => item.selection_strategy === "review").length;
+  renderInsightCards("studyHistorySummary", [
+    { label: "Blocos concluidos", value: total },
+    { label: "Score medio", value: total ? formatScore(avgScore) : "-" },
+    { label: "Baixa confianca", value: lowConfidence },
+    { label: "Tempo medio/questao", value: avgPace !== null ? `${avgPace.toFixed(1)}s` : "-" },
+    { label: "Revisoes diarias", value: reviewBlocks }
+  ]);
+}
+
+function renderStudyHistory(){
+  const list = el("studyHistoryList");
+  const empty = el("studyHistoryEmpty");
+  const filters = getStudyHistoryFilters();
+  const filtered = studyHistoryItems.filter(item => {
+    const title = (item.exam_title || item.exam_id || "Misturar todas").toLowerCase();
+    const id = (item.id || "").toLowerCase();
+    const strategyLabel = formatStudyStrategy(item.selection_strategy).toLowerCase();
+    if(filters.query && !title.includes(filters.query) && !id.includes(filters.query) && !strategyLabel.includes(filters.query)) return false;
+    if(filters.exam && item.exam_id !== filters.exam) return false;
+    if(filters.strategy && item.selection_strategy !== filters.strategy) return false;
+    if(filters.minScore !== null && (item.score_percent ?? 0) < filters.minScore) return false;
+    return true;
+  });
+
+  el("studyHistoryCount").textContent = `${filtered.length} bloco(s) no historico de estudo`;
+  renderStudyHistorySummary(filtered);
+  list.innerHTML = "";
+
+  if(filtered.length === 0){
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+
+  filtered.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "history-item";
+    const examTitle = item.exam_title || (item.exam_id ? item.exam_id : "Misturar todas");
+    const weakest = Array.isArray(item.weakest_domains) ? item.weakest_domains.slice(0, 3) : [];
+    const mix = item.selection_mix && typeof item.selection_mix === "object"
+      ? Object.entries(item.selection_mix).filter(([, amount]) => Number(amount) > 0).map(([label, amount]) => `${label}: ${amount}`).join(" | ")
+      : "";
+    const weakChips = weakest.length
+      ? `<div class="chip-grid" style="margin-top:10px;">${weakest.map(label => `<div class="chip">${escapeHtml(label)}</div>`).join("")}</div>`
+      : "";
+    row.innerHTML = `
+      <div>
+        <div class="history-title">${escapeHtml(examTitle)}</div>
+        <div class="history-meta">${formatDate(item.completed_at || item.created_at)} · ${formatStudyStrategy(item.selection_strategy)} · ${item.total_questions} questoes · ${formatScore(item.score_percent)} · ${item.confidence_low || 0} chutei</div>
+        ${mix ? `<div class="history-meta">${escapeHtml(mix)}</div>` : ""}
+        ${weakChips}
+      </div>
+      <div class="history-actions">
+        <span class="badge badge-outline">${formatStudyStrategy(item.selection_strategy)}</span>
+        <span class="badge">${item.avg_seconds_per_question !== null && item.avg_seconds_per_question !== undefined ? `${item.avg_seconds_per_question}s` : "-"}</span>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+}
+
 async function loadHistory(){
   try{
     historyItems = await apiGet("/sessions/history?limit=200");
@@ -972,6 +1582,17 @@ async function loadHistory(){
   renderHeroStats();
   renderHistory();
   await loadWeakAreaSnapshot();
+  await loadStudyHistory();
+}
+
+async function loadStudyHistory(){
+  try{
+    studyHistoryItems = await apiGet("/study/history?limit=200");
+  }catch(e){
+    studyHistoryItems = [];
+    el("studyHistoryCount").textContent = "Nao foi possivel carregar o historico de estudo.";
+  }
+  renderStudyHistory();
 }
 
 async function loadWeakAreaSnapshot(){
@@ -1213,6 +1834,20 @@ function exportReview(){
 }
 
 el("btn-start").addEventListener("click", start);
+el("btn-start-review-queue").addEventListener("click", startDueReviewSession);
+el("loginForm").addEventListener("submit", submitLogin);
+el("registerForm").addEventListener("submit", submitRegister);
+el("btn-logout").addEventListener("click", logoutCurrentUser);
+el("studyBookmark").addEventListener("change", markStudyStateDirty);
+el("studyNote").addEventListener("input", markStudyStateDirty);
+el("btn-study-save").addEventListener("click", () => saveCurrentStudyState());
+el("btn-study-reload").addEventListener("click", () => {
+  if(!currentQuestion){
+    refreshStudyMeta("Nenhuma questao ativa agora.");
+    return;
+  }
+  loadCurrentQuestionStudyState(currentQuestion.id);
+});
 
 el("optionsForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -1226,11 +1861,20 @@ el("optionsForm").addEventListener("submit", async (ev) => {
   el("quizNotice").textContent = "";
 
   try{
-    const fb = await apiPost(`/sessions/${sessionId}/answer`, {
+    const payload = {
       question_id: currentQuestion.id,
       selected_keys: keys
-    });
+    };
+    if(isStudyMode()){
+      const elapsedSeconds = questionStartedAt ? Math.max(0, Math.round((Date.now() - questionStartedAt) / 1000)) : null;
+      payload.confidence_level = el("confidenceSelect").value || "medium";
+      payload.elapsed_seconds = elapsedSeconds;
+    }
+    const fb = await apiPost(`${currentSessionApiBase()}/${sessionId}/answer`, payload);
     showFeedback(fb, keys);
+    if(isStudyMode()){
+      await loadStudyOverview(true);
+    }
   }catch(e){
     el("quizNotice").textContent = `Erro: ${e.message}`;
   }
@@ -1243,6 +1887,10 @@ el("optionsForm").addEventListener("change", (ev) => {
 });
 
 el("btn-next").addEventListener("click", async () => {
+  const saved = await ensureStudyStateSaved();
+  if(!saved){
+    return;
+  }
   if(el("btn-next").textContent.toLowerCase().includes("resultado")){
     await showResult();
     return;
@@ -1253,10 +1901,21 @@ el("btn-next").addEventListener("click", async () => {
 el("btn-restart").addEventListener("click", () => {
   sessionId = null;
   currentQuestion = null;
+  currentSessionMode = getSelectedMode();
+  currentStudyStrategy = "standard";
+  questionStartedAt = null;
+  resetStudyEditorUi();
+  el("btn-review").classList.remove("hidden");
+  el("btn-retry-wrong").classList.remove("hidden");
+  el("btn-restart").textContent = "Nova prova";
   show("screen-start");
 });
 
 el("btn-review").addEventListener("click", () => {
+  if(lastCompletedSessionMode !== "exam"){
+    showToast("A revisao detalhada por modal ainda se aplica apenas ao exam mode.");
+    return;
+  }
   if(!lastCompletedSessionId){
     showToast("Nenhuma revisao disponivel.");
     return;
@@ -1265,6 +1924,10 @@ el("btn-review").addEventListener("click", () => {
 });
 
 el("btn-retry-wrong").addEventListener("click", async () => {
+  if(lastCompletedSessionMode !== "exam"){
+    await startDueReviewSession();
+    return;
+  }
   if(!lastCompletedSessionId){
     showToast("Nenhuma revisao disponivel.");
     return;
@@ -1275,11 +1938,16 @@ el("btn-retry-wrong").addEventListener("click", async () => {
 el("btn-reset").addEventListener("click", () => {
   sessionId = null;
   currentQuestion = null;
-  removeStorage(STORAGE_KEY);
+  clearStoredSession("exam");
+  clearStoredSession("study");
   location.reload();
 });
 
 el("btn-history-refresh").addEventListener("click", loadHistory);
+el("btn-study-history-refresh").addEventListener("click", loadStudyHistory);
+el("modeSelect").addEventListener("change", () => {
+  updateModeUi(getSelectedMode());
+});
 
 el("examSelect").addEventListener("change", () => {
   el("subjectSelect").value = "";
@@ -1291,6 +1959,10 @@ el("historyExam").addEventListener("change", renderHistory);
 el("historyMinScore").addEventListener("change", renderHistory);
 el("historyFrom").addEventListener("change", renderHistory);
 el("historyTo").addEventListener("change", renderHistory);
+el("studyHistorySearch").addEventListener("input", renderStudyHistory);
+el("studyHistoryExam").addEventListener("change", renderStudyHistory);
+el("studyHistoryStrategy").addEventListener("change", renderStudyHistory);
+el("studyHistoryMinScore").addEventListener("change", renderStudyHistory);
 
 el("historyList").addEventListener("click", (ev) => {
   const btn = ev.target.closest("button[data-action]");
@@ -1356,9 +2028,24 @@ el("aiCard").addEventListener("click", (ev) => {
 
 window.SentinelAuth = {
   getToken: getStoredAuthToken,
-  setToken: setStoredAuthToken,
-  clearToken: clearStoredAuthToken,
-  getClientKey: getOrCreateClientKey
+  setToken: async (token) => {
+    setStoredAuthToken(token);
+    await loadAuthState();
+    await checkResume();
+    await loadHistory();
+    return getStoredAuthToken();
+  },
+  clearToken: async () => {
+    clearStoredAuthToken();
+    handleAuthTokenCleared();
+    await loadStudyOverview(true);
+    await checkResume();
+    await loadHistory();
+  },
+  getClientKey: getOrCreateClientKey,
+  getUser: () => currentUser,
+  logout: logoutCurrentUser,
+  refresh: loadAuthState
 };
 
 loadExams().catch(console.error);

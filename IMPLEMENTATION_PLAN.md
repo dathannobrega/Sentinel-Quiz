@@ -1,5 +1,32 @@
 # Production Implementation Plan
 
+## Execution progress
+
+### Already implemented
+
+- Fase 0 inicial:
+  - autenticação por token bearer opaco
+  - isolamento de sessões por usuário ou dispositivo (`X-Client-Key`)
+  - base de Alembic para migrations reais
+  - compose preparado para PostgreSQL
+- Fase 1 parcial:
+  - login/cadastro visível no frontend
+  - `user_bookmark` e `user_note` persistentes por questão
+  - migração automática de progresso local para a conta no login
+  - `study mode` dedicado com sessão própria
+  - nível de confiança por tentativa
+  - fila de revisão persistida com agendamento simples
+  - revisão diária dedicada consumindo a `review_queue`
+  - heurística adaptativa para escolher mix de vencidas x fracas x novas
+  - histórico consolidado de estudo separado do histórico de prova
+
+### Próxima fatia recomendada
+
+- métricas semanais consolidadas de estudo e revisão
+- priorização adaptativa também no `exam mode` customizado
+- política de repetição espaçada mais rica (não apenas `1d/3d/7d`)
+- histórico detalhado por questão dentro de cada bloco de estudo
+
 ## 1. Estado atual e gaps críticos
 
 ### O que já existe
@@ -13,7 +40,7 @@
 
 ### O que ainda impede “produção escalável”
 
-- Não existe conceito de usuário autenticado.
+- A autenticação básica agora existe, mas ainda faltam papéis mais granulares, políticas completas de acesso e gestão madura de conta.
 - Não existe separação multitenant, ACL granular, nem trilha de auditoria robusta.
 - O banco atual (SQLite) é bom para dev/single-node, não para concorrência real.
 - Não há versionamento de conteúdo, workflow editorial ou aprovação.
@@ -24,7 +51,7 @@
 ### Decisão arquitetural recomendada antes de expandir funcionalidades
 
 - Migrar de SQLite para PostgreSQL.
-- Introduzir autenticação de usuários e papéis (`student`, `editor`, `reviewer`, `admin`).
+- Consolidar autenticação de usuários e evoluir os papéis (`student`, `editor`, `reviewer`, `admin`).
 - Separar claramente:
   - domínio de conteúdo
   - domínio de aprendizagem

@@ -327,6 +327,82 @@ textarea{ min-height: 120px; resize: vertical; }
 .notice-title{ font-weight: 700; font-family: var(--font-display); margin-bottom: 6px; }
 .notice-body{ color: var(--muted); font-size: 13px; }
 
+.account-card{
+  background:
+    radial-gradient(420px 220px at 100% 0%, rgba(29, 78, 216, 0.08), transparent 65%),
+    radial-gradient(360px 240px at 0% 100%, rgba(21, 122, 110, 0.08), transparent 62%),
+    var(--surface);
+}
+
+.account-shell{
+  margin-top: 14px;
+  align-items: flex-start;
+}
+
+.account-auth-grid{
+  align-items: flex-start;
+}
+
+.account-pane{
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255,255,255,.78);
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+}
+
+.account-user-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+}
+
+.account-user-name{
+  font-size: 20px;
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+
+.account-side{
+  display:grid;
+  gap: 14px;
+}
+
+.account-metrics{
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.account-lists{
+  align-items: flex-start;
+}
+
+.toggle-card{
+  display:grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items:flex-start;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 14px;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.toggle-card input{
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.study-card{
+  background:
+    radial-gradient(420px 220px at 100% 0%, rgba(21, 122, 110, 0.08), transparent 60%),
+    var(--surface);
+}
+
 .badge-row{
   display:flex;
   flex-wrap:wrap;
@@ -683,6 +759,7 @@ textarea{ min-height: 120px; resize: vertical; }
 }
 
 .history-list{ display:grid; gap: 12px; margin-top: 16px; }
+#studyHistorySummary{ margin-top: 16px; }
 
 .history-item{
   display:grid;

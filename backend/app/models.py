@@ -41,6 +41,8 @@ class User(Base):
 
     sessions: Mapped[list["ExamSession"]] = relationship(back_populates="owner")
     tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    bookmarks: Mapped[list["UserBookmark"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    notes: Mapped[list["UserNote"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 class AuthToken(Base):
     __tablename__ = "auth_tokens"
@@ -54,6 +56,45 @@ class AuthToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     user: Mapped["User"] = relationship(back_populates="tokens")
+
+
+class UserBookmark(Base):
+    __tablename__ = "user_bookmarks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped["User | None"] = relationship(back_populates="bookmarks")
+    question: Mapped["Question"] = relationship(back_populates="bookmarks")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "question_id", name="uq_user_bookmarks_user_question"),
+        UniqueConstraint("client_key", "question_id", name="uq_user_bookmarks_client_question"),
+    )
+
+
+class UserNote(Base):
+    __tablename__ = "user_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped["User | None"] = relationship(back_populates="notes")
+    question: Mapped["Question"] = relationship(back_populates="notes")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "question_id", name="uq_user_notes_user_question"),
+        UniqueConstraint("client_key", "question_id", name="uq_user_notes_client_question"),
+    )
 
 class Question(Base):
     __tablename__ = "questions"
@@ -72,6 +113,8 @@ class Question(Base):
     exam: Mapped["Exam"] = relationship(back_populates="questions")
     options: Mapped[list["Option"]] = relationship(back_populates="question", cascade="all, delete-orphan")
     explanation: Mapped["Explanation"] = relationship(back_populates="question", cascade="all, delete-orphan", uselist=False)
+    bookmarks: Mapped[list["UserBookmark"]] = relationship(back_populates="question", cascade="all, delete-orphan")
+    notes: Mapped[list["UserNote"]] = relationship(back_populates="question", cascade="all, delete-orphan")
 
 class Option(Base):
     __tablename__ = "options"
@@ -142,3 +185,91 @@ class SessionAnswer(Base):
     session: Mapped["ExamSession"] = relationship(back_populates="answers")
 
     __table_args__ = (UniqueConstraint("session_id", "question_id", name="uq_session_question_answer"),)
+
+
+class StudySession(Base):
+    __tablename__ = "study_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+    exam_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    selection_strategy: Mapped[str] = mapped_column(String(24), nullable=False, default="standard", index=True)
+    selection_mix_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    current_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    answered_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    questions: Mapped[list["StudySessionQuestion"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    attempts: Mapped[list["StudyAttempt"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+
+
+class StudySessionQuestion(Base):
+    __tablename__ = "study_session_questions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("study_sessions.id", ondelete="CASCADE"), nullable=False)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    session: Mapped["StudySession"] = relationship(back_populates="questions")
+
+    __table_args__ = (UniqueConstraint("session_id", "position", name="uq_study_session_position"),)
+
+
+class StudyAttempt(Base):
+    __tablename__ = "study_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("study_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    selected_keys: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    confidence_level: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
+    elapsed_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    answered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    session: Mapped["StudySession"] = relationship(back_populates="attempts")
+
+    __table_args__ = (UniqueConstraint("session_id", "question_id", name="uq_study_attempt_session_question"),)
+
+
+class ReviewQueueItem(Base):
+    __tablename__ = "review_queue"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    due_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    last_outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="wrong")
+    confidence_level: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    schedules: Mapped[list["ReviewSchedule"]] = relationship(back_populates="queue_item", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "question_id", name="uq_review_queue_user_question"),
+        UniqueConstraint("client_key", "question_id", name="uq_review_queue_client_question"),
+    )
+
+
+class ReviewSchedule(Base):
+    __tablename__ = "review_schedule"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    review_queue_id: Mapped[int] = mapped_column(Integer, ForeignKey("review_queue.id", ondelete="CASCADE"), nullable=False, index=True)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    trigger_reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    queue_item: Mapped["ReviewQueueItem"] = relationship(back_populates="schedules")

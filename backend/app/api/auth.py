@@ -18,6 +18,7 @@ from app.services.auth import (
     parse_bearer_token,
     revoke_token,
 )
+from app.services.study import claim_client_study_state
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -80,6 +81,7 @@ def register(
         raise HTTPException(status_code=status_code, detail=detail)
 
     claim_client_sessions(db, user=user, client_key=x_client_key)
+    claim_client_study_state(db, user=user, client_key=x_client_key)
     token, expires_at = issue_auth_token(db, user)
     return AuthTokenOut(
         token=token,
@@ -99,6 +101,7 @@ def login(
         raise HTTPException(status_code=401, detail="Invalid credentials.")
 
     claim_client_sessions(db, user=user, client_key=x_client_key)
+    claim_client_study_state(db, user=user, client_key=x_client_key)
     token, expires_at = issue_auth_token(db, user)
     return AuthTokenOut(
         token=token,

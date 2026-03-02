@@ -11,6 +11,7 @@ from app.db.migrations import ensure_compat_schema
 from app.api.routes import router as api_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.study import router as study_router
 from app.services.ingest import ingest_questions_from_dir
 from app.services.materials import resolve_material_dir
 
@@ -40,6 +41,7 @@ def on_startup():
 app.include_router(api_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
+app.include_router(study_router)
 
 material_path = resolve_material_dir()
 if material_path and material_path.is_dir():

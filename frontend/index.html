@@ -19,6 +19,7 @@
         </div>
       </div>
       <nav class="nav">
+        <a href="#accountCard" class="link">Conta</a>
         <a href="#history" class="link">Historico</a>
         <a href="admin.html" class="link">Admin</a>
         <button id="btn-reset" class="link link-button" type="button">Reset</button>
@@ -57,6 +58,105 @@
           </div>
         </div>
 
+        <div id="accountCard" class="card account-card">
+          <div class="section-header">
+            <div>
+              <h2>Conta e sincronizacao</h2>
+              <p class="muted" id="accountSubtitle">Entre para sincronizar progresso entre dispositivos ou continue com o historico local deste navegador.</p>
+            </div>
+            <span class="badge badge-outline" id="accountModeBadge">Dispositivo local</span>
+          </div>
+          <div class="notice" id="accountNotice" role="status" aria-live="polite"></div>
+
+          <div class="grid two account-shell">
+            <div>
+              <div id="accountGuest" class="grid two account-auth-grid">
+                <form id="loginForm" class="account-pane">
+                  <h3>Entrar</h3>
+                  <div class="field">
+                    <label for="loginEmail">Email</label>
+                    <input id="loginEmail" type="text" inputmode="email" autocomplete="email" />
+                  </div>
+                  <div class="field">
+                    <label for="loginPassword">Senha</label>
+                    <input id="loginPassword" type="password" autocomplete="current-password" />
+                  </div>
+                  <div class="actions">
+                    <button id="btn-login" class="btn btn-primary" type="submit">Entrar</button>
+                  </div>
+                </form>
+
+                <form id="registerForm" class="account-pane">
+                  <h3>Criar conta</h3>
+                  <div class="field">
+                    <label for="registerName">Nome</label>
+                    <input id="registerName" type="text" autocomplete="name" />
+                  </div>
+                  <div class="field">
+                    <label for="registerEmail">Email</label>
+                    <input id="registerEmail" type="text" inputmode="email" autocomplete="email" />
+                  </div>
+                  <div class="field">
+                    <label for="registerPassword">Senha</label>
+                    <input id="registerPassword" type="password" autocomplete="new-password" maxlength="200" />
+                    <div class="hint">Minimo de 8 caracteres.</div>
+                  </div>
+                  <div class="actions">
+                    <button id="btn-register" class="btn btn-secondary" type="submit">Criar conta</button>
+                  </div>
+                </form>
+              </div>
+
+              <div id="accountUser" class="account-pane hidden">
+                <div class="account-user-head">
+                  <div>
+                    <div class="account-user-name" id="accountName">-</div>
+                    <div class="muted" id="accountEmail">-</div>
+                  </div>
+                  <span class="badge" id="accountRole">student</span>
+                </div>
+                <div class="muted" id="accountDeviceMeta">Dispositivo: -</div>
+                <div class="actions">
+                  <button id="btn-logout" class="btn btn-ghost" type="button">Sair</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="account-side">
+              <div class="insight-grid account-metrics">
+                <div class="insight-card">
+                  <div class="label">Bookmarks</div>
+                  <div class="value" id="accountBookmarkCount">0</div>
+                </div>
+                <div class="insight-card">
+                  <div class="label">Notas</div>
+                  <div class="value" id="accountNoteCount">0</div>
+                </div>
+                <div class="insight-card">
+                  <div class="label">Revisoes vencidas</div>
+                  <div class="value" id="accountDueReviewCount">0</div>
+                </div>
+              </div>
+
+              <div class="grid two account-lists">
+                <div>
+                  <div class="field-label">Bookmarks recentes</div>
+                  <div id="accountRecentBookmarks" class="stack-list empty">Nenhum bookmark salvo ainda.</div>
+                </div>
+                <div>
+                  <div class="field-label">Notas recentes</div>
+                  <div id="accountRecentNotes" class="stack-list empty">Nenhuma nota salva ainda.</div>
+                </div>
+              </div>
+
+              <div>
+                <div class="field-label">Fila de revisao</div>
+                <div id="accountDueReviews" class="stack-list empty">Nenhuma revisao vencida no momento.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="grid two">
           <div class="card">
             <div class="section-header">
@@ -83,6 +183,24 @@
               </div>
 
               <div class="field">
+                <label for="modeSelect">Modo</label>
+                <select id="modeSelect">
+                  <option value="exam">Exam mode (simulado)</option>
+                  <option value="study">Study mode (aprendizado)</option>
+                </select>
+                <div class="hint" id="modeHint">Exam mode simula prova. Study mode registra confianca e abastece a fila de revisao.</div>
+              </div>
+
+              <div class="field hidden" id="studyStrategyField">
+                <label for="studyStrategySelect">Estrategia do study mode</label>
+                <select id="studyStrategySelect">
+                  <option value="standard">Bloco padrao (distribuido)</option>
+                  <option value="adaptive">Bloco adaptativo (vencidas + fracas + novas)</option>
+                </select>
+                <div class="hint" id="studyStrategyHint">O modo adaptativo mistura fila vencida, dominios fracos e questoes novas no mesmo bloco.</div>
+              </div>
+
+              <div class="field">
                 <label for="totalQuestions">Quantidade de questoes</label>
                 <input id="totalQuestions" type="number" min="1" max="360" value="90" />
                 <div class="hint">Se houver menos questoes no pool selecionado, o sistema ajusta automaticamente.</div>
@@ -91,6 +209,7 @@
 
             <div class="actions">
               <button id="btn-start" class="btn btn-primary" type="button">Comecar</button>
+              <button id="btn-start-review-queue" class="btn btn-ghost" type="button">Revisao diaria</button>
             </div>
             <div class="notice" id="startNotice" role="status" aria-live="polite"></div>
 
@@ -190,6 +309,60 @@
 
           <div id="historyList" class="history-list"></div>
         </div>
+
+        <div id="studyHistory" class="card">
+          <div class="section-header">
+            <div>
+              <h2>Historico de estudo</h2>
+              <p class="muted" id="studyHistoryCount">Carregando blocos de estudo...</p>
+            </div>
+            <div class="actions">
+              <button id="btn-study-history-refresh" class="btn btn-ghost" type="button">Atualizar</button>
+            </div>
+          </div>
+
+          <div class="insight-grid" id="studyHistorySummary"></div>
+
+          <div class="filters">
+            <div class="field">
+              <label for="studyHistorySearch">Buscar</label>
+              <input id="studyHistorySearch" type="text" placeholder="Buscar por prova, estrategia ou ID" />
+            </div>
+            <div class="field">
+              <label for="studyHistoryExam">Prova</label>
+              <select id="studyHistoryExam">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="studyHistoryStrategy">Estrategia</label>
+              <select id="studyHistoryStrategy">
+                <option value="">Todas</option>
+                <option value="standard">Padrao</option>
+                <option value="adaptive">Adaptativa</option>
+                <option value="review">Revisao diaria</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="studyHistoryMinScore">Score minimo</label>
+              <select id="studyHistoryMinScore">
+                <option value="">Qualquer</option>
+                <option value="60">60%+</option>
+                <option value="70">70%+</option>
+                <option value="80">80%+</option>
+                <option value="90">90%+</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="studyHistoryEmpty" class="empty hidden">
+            <div class="empty-title">Nenhum bloco de estudo encontrado</div>
+            <div class="empty-body">Conclua um bloco de study mode ou uma revisao diaria para acompanhar sua evolucao aqui.</div>
+          </div>
+
+          <div id="studyHistoryList" class="history-list"></div>
+        </div>
       </section>
 
       <section id="screen-quiz" class="screen hidden">
@@ -233,6 +406,47 @@
               <div class="feedback-inline hidden" id="fbInsight"></div>
             </div>
           </div>
+        </div>
+
+        <div class="card study-card" id="studyCard">
+          <div class="section-header">
+            <div>
+              <h3>Revisao persistente desta questao</h3>
+              <div class="muted" id="studyScopeCopy">Salvo no dispositivo atual.</div>
+            </div>
+            <span class="badge badge-outline" id="studySyncBadge">Aguardando</span>
+          </div>
+
+          <label class="toggle-card" for="studyBookmark">
+            <input id="studyBookmark" type="checkbox" />
+            <div>
+              <div class="guide-title">Marcar para revisar depois</div>
+              <div class="guide-body">Use este marcador para separar conceitos que merecem segunda passada.</div>
+            </div>
+          </label>
+
+          <div class="field">
+            <label for="confidenceSelect" id="studyConfidenceField">Nivel de confianca desta resposta</label>
+            <select id="confidenceSelect">
+              <option value="low">Chutei</option>
+              <option value="medium" selected>Razoavel</option>
+              <option value="high">Tenho certeza</option>
+            </select>
+            <div class="hint" id="confidenceHint">Usado apenas no study mode para agendar a proxima revisao.</div>
+          </div>
+
+          <div class="field">
+            <label for="studyNote">Nota pessoal</label>
+            <textarea id="studyNote" rows="4" maxlength="4000" placeholder="Anote o conceito, a pegadinha, o motivo do erro ou o que revisar depois."></textarea>
+            <div class="hint" id="studyHint">As notas ficam ligadas a esta questao e acompanham a sua conta ou este dispositivo.</div>
+          </div>
+
+          <div class="actions">
+            <button id="btn-study-save" class="btn btn-secondary" type="button">Salvar status de estudo</button>
+            <button id="btn-study-reload" class="btn btn-ghost" type="button">Recarregar</button>
+          </div>
+
+          <div class="notice" id="studyNotice" role="status" aria-live="polite"></div>
         </div>
 
         <div class="card ai-card" id="aiCard">

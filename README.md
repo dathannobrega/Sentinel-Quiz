@@ -10,9 +10,12 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 
 * **Ingestão Dinâmica:** Importação automática de arquivos JSON (`./questions/`) para banco SQL no startup (`SQLite` em dev ou `PostgreSQL` em produção).
 * **Simulado Realista:** Interface SPA configurada para 90 questões com feedback imediato e insights finais.
+* **Study Mode Dedicado:** Blocos de aprendizado separados do simulado, com feedback imediato, nível de confiança, sessão adaptativa e agendamento de revisão.
 * **Painel Admin:** Gerenciamento de provas e questões via API Key ou usuário autenticado com papel editorial.
 * **Tutor IA (Gemini):** Integração com Google Gemini para explicar conceitos e dar pistas, garantindo que o usuário aprenda o "porquê" em vez de apenas decorar.
 * **Sessões Isoladas:** Histórico, analytics e revisão ficam escopados por usuário autenticado ou por dispositivo (`X-Client-Key`) para evitar vazamento de progresso entre alunos.
+* **Conta e Estado de Estudo:** Login/cadastro web com sincronização de bookmarks e notas por questão, inclusive com migração automática do progresso local ao entrar na conta.
+* **Revisão Diária e Histórico de Estudo:** A fila de revisão pode gerar blocos dedicados e a aplicação mantém histórico próprio de estudo, separado do histórico de simulados.
 
 ## 🚀 Tecnologias
 
@@ -135,9 +138,25 @@ Os endpoints de autenticação disponíveis são:
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 
+Os endpoints de estado de estudo disponíveis são:
+
+- `GET /api/study/overview`
+- `GET /api/study/questions/{question_id}/state`
+- `PUT /api/study/questions/{question_id}/state`
+- `POST /api/study/sessions`
+- `POST /api/study/review/sessions`
+- `GET /api/study/review/queue`
+- `GET /api/study/history`
+- `GET /api/study/sessions/{session_id}`
+- `GET /api/study/sessions/{session_id}/next`
+- `POST /api/study/sessions/{session_id}/answer`
+- `GET /api/study/sessions/{session_id}/result`
+
 O frontend web agora gera e envia automaticamente `X-Client-Key` em todas as chamadas, isolando histórico e métricas por dispositivo quando o aluno ainda não criou conta. Se houver um token armazenado, ele também envia `Authorization: Bearer <token>`.
 
-Sem tela de login dedicada, você ainda pode integrar autenticação via navegador com o helper global:
+No `study mode`, o payload de criação de sessão também aceita `strategy=standard|adaptive`. A rota dedicada `POST /api/study/review/sessions` usa a fila de revisão como fonte principal e pode complementar com itens futuros quando necessário.
+
+Além da tela de login dedicada, você ainda pode integrar autenticação via navegador com o helper global:
 
 ```js
 window.SentinelAuth.setToken("SEU_TOKEN");
@@ -145,6 +164,8 @@ window.SentinelAuth.getClientKey();
 ```
 
 Ao fazer `login` ou `register` com o mesmo `X-Client-Key`, as sessões anônimas daquele dispositivo são automaticamente associadas ao usuário.
+O mesmo fluxo também consolida bookmarks e notas salvas localmente para a conta autenticada.
+Agora esse merge também preserva sessões de estudo e itens da fila de revisão daquele dispositivo.
 
 ---
 

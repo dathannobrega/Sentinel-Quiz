@@ -110,3 +110,144 @@ class TutorResponse(BaseModel):
     message: str
     blocked: bool = False
     model: Optional[str] = None
+
+
+class StudyStateIn(BaseModel):
+    bookmarked: bool = False
+    note_text: Optional[str] = Field(default=None, max_length=4000)
+
+
+class StudyStateOut(BaseModel):
+    question_id: str
+    bookmarked: bool
+    note_text: Optional[str] = None
+    updated_at: Optional[str] = None
+    scope: str
+
+
+class StudyOverviewItemOut(BaseModel):
+    question_id: str
+    prompt: str
+    updated_at: Optional[str] = None
+    excerpt: Optional[str] = None
+
+
+class StudyOverviewOut(BaseModel):
+    scope: str
+    bookmark_count: int
+    note_count: int
+    due_review_count: int = 0
+    next_due_at: Optional[str] = None
+    recent_bookmarks: List[StudyOverviewItemOut]
+    recent_notes: List[StudyOverviewItemOut]
+    due_reviews: List[StudyOverviewItemOut] = Field(default_factory=list)
+
+
+class StudySessionCreateIn(BaseModel):
+    exam_id: Optional[str] = Field(default=None, description="If null, mixes all exams")
+    total_questions: int = Field(default=30, ge=1, le=500)
+    domains: Optional[List[str]] = Field(default=None, description="Optional domain filters.")
+    question_ids: Optional[List[str]] = Field(default=None, description="Optional explicit question IDs to use (keeps order).")
+    strategy: str = Field(default="standard", description="standard, review, or adaptive.")
+    queue_only: bool = Field(default=False, description="If true, use only due review items as the pool.")
+
+
+class StudySessionOut(BaseModel):
+    id: str
+    exam_id: Optional[str]
+    selection_strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
+    total_questions: int
+    current_index: int
+    answered_count: int
+    correct_count: int
+    wrong_count: int
+    finished: bool = False
+
+
+class StudySessionStateOut(BaseModel):
+    id: str
+    exam_id: Optional[str]
+    selection_strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
+    total_questions: int
+    current_index: int
+    answered_count: int
+    correct_count: int
+    wrong_count: int
+    finished: bool
+
+
+class StudyAnswerIn(BaseModel):
+    question_id: str
+    selected_keys: List[str]
+    confidence_level: str = Field(default="medium")
+    elapsed_seconds: Optional[int] = Field(default=None, ge=0, le=86400)
+
+
+class StudyAnswerFeedbackOut(BaseModel):
+    is_correct: bool
+    correct_keys: List[str]
+    justification: Optional[str] = None
+    progress_index: int
+    total_questions: int
+    answered_count: int
+    correct_count: int
+    wrong_count: int
+    finished: bool
+    confidence_level: str
+    next_review_at: Optional[str] = None
+    review_due_count: int = 0
+    insight: Optional[dict] = None
+
+
+class StudyResultOut(BaseModel):
+    session_id: str
+    total_questions: int
+    answered_count: int
+    correct_count: int
+    wrong_count: int
+    score_percent: float
+    mode: str = "study"
+    strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
+    review_due_count: int = 0
+    insight: dict
+
+
+class StudyHistoryOut(BaseModel):
+    id: str
+    exam_id: Optional[str]
+    exam_title: Optional[str] = None
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    selection_strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
+    total_questions: int
+    answered_count: int
+    correct_count: int
+    wrong_count: int
+    score_percent: float
+    avg_seconds_per_question: Optional[float] = None
+    confidence_low: int = 0
+    confidence_medium: int = 0
+    confidence_high: int = 0
+    weakest_domains: List[str] = Field(default_factory=list)
+
+
+class ReviewQueueEntryOut(BaseModel):
+    question_id: str
+    prompt: str
+    due_at: Optional[str] = None
+    state: str
+    overdue_days: int = 0
+    domain: Optional[str] = None
+    certification: Optional[str] = None
+
+
+class ReviewQueueSnapshotOut(BaseModel):
+    due_count: int
+    total_count: int
+    next_due_at: Optional[str] = None
+    recommended_batch_size: int = 0
+    items: List[ReviewQueueEntryOut] = Field(default_factory=list)
