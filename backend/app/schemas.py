@@ -27,17 +27,32 @@ class CreateSessionIn(BaseModel):
     exam_id: Optional[str] = Field(default=None, description="If null, mixes all exams")
     total_questions: int = Field(default=90, ge=1, le=180)
     domains: Optional[List[str]] = Field(default=None, description="Optional domain filters.")
+    difficulties: Optional[List[str]] = Field(default=None, description="Optional difficulty filters.")
+    tags: Optional[List[str]] = Field(default=None, description="Optional tag filters.")
+    bookmarked_only: bool = False
+    notes_only: bool = False
+    incorrect_only: bool = False
+    unseen_only: bool = False
+    low_confidence_only: bool = False
     strategy: str = Field(default="standard", description="standard or adaptive.")
+    time_limit_minutes: Optional[int] = Field(default=None, ge=1, le=360)
 
 class SessionOut(BaseModel):
     id: str
     exam_id: Optional[str]
     selection_strategy: str = "standard"
     selection_mix: Dict[str, int] = Field(default_factory=dict)
+    active_filters: Dict[str, Any] = Field(default_factory=dict)
     total_questions: int
     current_index: int
     correct_count: int
     wrong_count: int
+    time_limit_seconds: Optional[int] = None
+    remaining_seconds: Optional[int] = None
+    expires_at: Optional[str] = None
+    paused: bool = False
+    pause_count: int = 0
+    auto_submitted: bool = False
     finished: bool = False
 
 class SessionStateOut(BaseModel):
@@ -45,10 +60,17 @@ class SessionStateOut(BaseModel):
     exam_id: Optional[str]
     selection_strategy: str = "standard"
     selection_mix: Dict[str, int] = Field(default_factory=dict)
+    active_filters: Dict[str, Any] = Field(default_factory=dict)
     total_questions: int
     current_index: int
     correct_count: int
     wrong_count: int
+    time_limit_seconds: Optional[int] = None
+    remaining_seconds: Optional[int] = None
+    expires_at: Optional[str] = None
+    paused: bool = False
+    pause_count: int = 0
+    auto_submitted: bool = False
     finished: bool
 
 class AnswerIn(BaseModel):
@@ -75,6 +97,9 @@ class ResultOut(BaseModel):
     pass_threshold_percent: float
     strategy: str = "standard"
     selection_mix: Dict[str, int] = Field(default_factory=dict)
+    time_limit_seconds: Optional[int] = None
+    time_spent_seconds: Optional[int] = None
+    timed_out: bool = False
     insight: dict
 
 class SessionHistoryOut(BaseModel):
@@ -155,8 +180,16 @@ class StudySessionCreateIn(BaseModel):
     exam_id: Optional[str] = Field(default=None, description="If null, mixes all exams")
     total_questions: int = Field(default=30, ge=1, le=120)
     domains: Optional[List[str]] = Field(default=None, description="Optional domain filters.")
+    difficulties: Optional[List[str]] = Field(default=None, description="Optional difficulty filters.")
+    tags: Optional[List[str]] = Field(default=None, description="Optional tag filters.")
+    bookmarked_only: bool = False
+    notes_only: bool = False
+    incorrect_only: bool = False
+    unseen_only: bool = False
+    low_confidence_only: bool = False
     strategy: str = Field(default="standard", description="standard, review, or adaptive.")
     queue_only: bool = Field(default=False, description="If true, use only due review items as the pool.")
+    review_states: Optional[List[str]] = Field(default=None, description="Optional review queue states for review sessions.")
 
 
 class StudySessionOut(BaseModel):
@@ -246,16 +279,20 @@ class ReviewQueueEntryOut(BaseModel):
     prompt: str
     due_at: Optional[str] = None
     state: str
+    is_overdue: bool = False
     overdue_days: int = 0
     domain: Optional[str] = None
     certification: Optional[str] = None
     repetition_count: int = 0
     stability_score: float = 0.0
     ease_factor: float = 2.5
+    bookmarked: bool = False
+    has_note: bool = False
 
 
 class ReviewQueueStateBreakdownOut(BaseModel):
     due_now: int = 0
+    overdue: int = 0
     at_risk: int = 0
     scheduled: int = 0
     mastered: int = 0
@@ -282,6 +319,7 @@ class ReviewQueueSnapshotOut(BaseModel):
     state_breakdown: ReviewQueueStateBreakdownOut = Field(default_factory=ReviewQueueStateBreakdownOut)
     upcoming_load: List[ReviewQueueForecastDayOut] = Field(default_factory=list)
     goals: ReviewQueueGoalOut = Field(default_factory=ReviewQueueGoalOut)
+    applied_filters: Dict[str, Any] = Field(default_factory=dict)
     items: List[ReviewQueueEntryOut] = Field(default_factory=list)
 
 

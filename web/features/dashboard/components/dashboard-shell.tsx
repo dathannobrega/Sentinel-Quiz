@@ -45,10 +45,18 @@ const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
 const DEFAULT_LAUNCH_FORM: LaunchFormValues = {
   examId: "",
   domain: "",
+  difficultyQuery: "",
+  tagQuery: "",
+  bookmarkedOnly: false,
+  notesOnly: false,
+  incorrectOnly: false,
+  unseenOnly: false,
+  lowConfidenceOnly: false,
   mode: "exam",
   examStrategy: "standard",
   studyStrategy: "standard",
-  totalQuestions: 90
+  totalQuestions: 90,
+  timeLimitMinutes: 90
 };
 
 function toDashboardNotice(
@@ -71,6 +79,14 @@ function readErrorMessage(error: unknown): string {
 
 function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
+}
+
+function parseCsvFilter(value: string): string[] | null {
+  const items = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length ? items : null;
 }
 
 function computeHeroStats(history: SessionHistoryItem[], dueReviewCount: number) {
@@ -262,12 +278,20 @@ export function DashboardShell() {
       );
       return;
     }
+    if (launchValues.mode === "exam" && (launchValues.timeLimitMinutes < 5 || launchValues.timeLimitMinutes > 360)) {
+      setLaunchNotice(
+        toDashboardNotice("warning", "Tempo invalido", "O simulado precisa de um timer entre 5 e 360 minutos.")
+      );
+      return;
+    }
 
     setPendingAction("launch");
     setLaunchNotice(null);
 
     try {
       const domains = launchValues.domain ? [launchValues.domain] : null;
+      const difficulties = parseCsvFilter(launchValues.difficultyQuery);
+      const tags = parseCsvFilter(launchValues.tagQuery);
       let session: SessionResponse;
 
       if (launchValues.mode === "study") {
@@ -275,6 +299,13 @@ export function DashboardShell() {
           exam_id: launchValues.examId || null,
           total_questions: launchValues.totalQuestions,
           domains,
+          difficulties,
+          tags,
+          bookmarked_only: launchValues.bookmarkedOnly,
+          notes_only: launchValues.notesOnly,
+          incorrect_only: launchValues.incorrectOnly,
+          unseen_only: launchValues.unseenOnly,
+          low_confidence_only: launchValues.lowConfidenceOnly,
           strategy: launchValues.studyStrategy,
           queue_only: false
         };
@@ -284,6 +315,14 @@ export function DashboardShell() {
           exam_id: launchValues.examId || null,
           total_questions: launchValues.totalQuestions,
           domains,
+          difficulties,
+          tags,
+          bookmarked_only: launchValues.bookmarkedOnly,
+          notes_only: launchValues.notesOnly,
+          incorrect_only: launchValues.incorrectOnly,
+          unseen_only: launchValues.unseenOnly,
+          low_confidence_only: launchValues.lowConfidenceOnly,
+          time_limit_minutes: launchValues.timeLimitMinutes,
           strategy: launchValues.examStrategy
         };
         session = await apiClient.post<SessionResponse>("/sessions", payload);

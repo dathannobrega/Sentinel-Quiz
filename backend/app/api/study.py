@@ -147,8 +147,16 @@ def start_study_session(
             payload.total_questions,
             None,
             payload.domains,
+            payload.difficulties,
+            payload.tags,
+            payload.bookmarked_only,
+            payload.notes_only,
+            payload.incorrect_only,
+            payload.unseen_only,
+            payload.low_confidence_only,
             payload.strategy,
             payload.queue_only,
+            payload.review_states,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
         )
@@ -172,8 +180,16 @@ def start_daily_review_session(
             payload.total_questions,
             None,
             payload.domains,
+            payload.difficulties,
+            payload.tags,
+            payload.bookmarked_only,
+            payload.notes_only,
+            payload.incorrect_only,
+            payload.unseen_only,
+            payload.low_confidence_only,
             "review",
             True,
+            payload.review_states,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
         )
@@ -185,6 +201,10 @@ def start_daily_review_session(
 @router.get("/review/queue", response_model=ReviewQueueSnapshotOut)
 def review_queue_snapshot(
     exam_id: str | None = None,
+    review_states: list[str] | None = Query(default=None),
+    bookmarked_only: bool = Query(default=False),
+    notes_only: bool = Query(default=False),
+    limit: int = Query(12, ge=1, le=100),
     current_user: User | None = Depends(get_current_user_optional),
     client_key: str | None = Depends(get_client_key),
     db: Session = Depends(get_db),
@@ -197,6 +217,10 @@ def review_queue_snapshot(
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
             exam_id=normalized_exam_id or None,
+            review_states=review_states,
+            bookmarked_only=bookmarked_only,
+            notes_only=notes_only,
+            limit=limit,
         )
     )
 

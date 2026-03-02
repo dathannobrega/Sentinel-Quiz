@@ -10,7 +10,6 @@ on:
       - "Dockerfile"
       - "docker/**"
       - "backend/**"
-      - "frontend/**"
       - "web/**"
       - "material/**"
       - "questions/**"

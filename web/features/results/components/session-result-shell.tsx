@@ -281,7 +281,27 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
                 <span className="sq-muted">{mode === "study" ? "Respondidas" : "Questoes"}</span>
                 <strong>{"answered_count" in result ? result.answered_count : result.total_questions}</strong>
               </div>
+              {examResult?.time_spent_seconds !== undefined && examResult?.time_spent_seconds !== null ? (
+                <div className="sq-metric-card">
+                  <span className="sq-muted">Tempo usado</span>
+                  <strong>{Math.max(Math.round(examResult.time_spent_seconds / 60), 1)} min</strong>
+                </div>
+              ) : null}
+              {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (
+                <div className="sq-metric-card">
+                  <span className="sq-muted">Limite</span>
+                  <strong>{Math.max(Math.round(examResult.time_limit_seconds / 60), 1)} min</strong>
+                </div>
+              ) : null}
             </div>
+
+            {examResult?.timed_out ? (
+              <StatusBanner
+                tone="warning"
+                title="Simulado encerrado por tempo"
+                message="O backend aplicou auto-submit quando o cronometro zerou. Revise primeiro os itens errados e os que ficaram sem resposta."
+              />
+            ) : null}
 
             {insightLines.length ? (
               <div className="sq-chip-row">

@@ -128,15 +128,31 @@ export interface SessionRequest {
   exam_id: string | null;
   total_questions: number;
   domains?: string[] | null;
+  difficulties?: string[] | null;
+  tags?: string[] | null;
+  bookmarked_only?: boolean;
+  notes_only?: boolean;
+  incorrect_only?: boolean;
+  unseen_only?: boolean;
+  low_confidence_only?: boolean;
   strategy: ExamStrategy;
+  time_limit_minutes?: number | null;
 }
 
 export interface StudySessionRequest {
   exam_id: string | null;
   total_questions: number;
   domains?: string[] | null;
+  difficulties?: string[] | null;
+  tags?: string[] | null;
+  bookmarked_only?: boolean;
+  notes_only?: boolean;
+  incorrect_only?: boolean;
+  unseen_only?: boolean;
+  low_confidence_only?: boolean;
   strategy: StudyStrategy;
   queue_only?: boolean;
+  review_states?: string[] | null;
 }
 
 export interface SessionResponse {
@@ -144,11 +160,18 @@ export interface SessionResponse {
   exam_id: string | null;
   selection_strategy: string;
   selection_mix: Record<string, number>;
+  active_filters?: Record<string, unknown>;
   total_questions: number;
   current_index: number;
   correct_count: number;
   wrong_count: number;
   answered_count?: number;
+  time_limit_seconds?: number | null;
+  remaining_seconds?: number | null;
+  expires_at?: string | null;
+  paused?: boolean;
+  pause_count?: number;
+  auto_submitted?: boolean;
   finished: boolean;
 }
 
@@ -191,16 +214,20 @@ export interface ReviewQueueEntry {
   prompt: string;
   due_at?: string | null;
   state: string;
+  is_overdue: boolean;
   overdue_days: number;
   domain?: string | null;
   certification?: string | null;
   repetition_count: number;
   stability_score: number;
   ease_factor: number;
+  bookmarked: boolean;
+  has_note: boolean;
 }
 
 export interface ReviewQueueStateBreakdown {
   due_now: number;
+  overdue: number;
   at_risk: number;
   scheduled: number;
   mastered: number;
@@ -227,6 +254,7 @@ export interface ReviewQueueSnapshot {
   state_breakdown: ReviewQueueStateBreakdown;
   upcoming_load: ReviewQueueForecastDay[];
   goals: ReviewQueueGoals;
+  applied_filters: Record<string, unknown>;
   items: ReviewQueueEntry[];
 }
 
@@ -323,6 +351,9 @@ export interface ExamResult {
   pass_threshold_percent: number;
   strategy: string;
   selection_mix: Record<string, number>;
+  time_limit_seconds?: number | null;
+  time_spent_seconds?: number | null;
+  timed_out?: boolean;
   insight: Record<string, unknown>;
 }
 

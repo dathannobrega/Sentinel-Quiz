@@ -12,6 +12,9 @@
 - O SRS agora considera também tempo de resposta além de confiança e histórico.
 - Analytics editoriais agora podem gerar snapshots históricos por `question_version`, permitindo comparar dificuldade e atrito ao longo do tempo.
 - Como o produto ainda não entrou em produção, a cadeia de migrations foi consolidada em um baseline único alinhado ao schema atual.
+- `Exam mode` agora roda com timer real no backend, pausa controlada e auto-submit por timeout.
+- `Custom quiz` já aceita filtros combináveis por domínio, dificuldade, tags, erradas, marcadas, novas, notas e baixa confiança.
+- A inbox de revisão agora suporta recortes por “vence hoje”, “atrasadas”, “em risco”, bookmarks e notas.
 
 ### Gaps que ainda permanecem
 

@@ -279,6 +279,28 @@ def build_study_overview(
     }
 
 
+def _classify_review_queue_item(
+    *,
+    due_at: datetime | None,
+    repetition_count: int,
+    stability_score: float,
+    ease_factor: float,
+    now: datetime,
+) -> tuple[str, int, bool]:
+    overdue_days = 0
+    is_overdue = False
+    state = "scheduled"
+    if due_at and due_at <= now:
+        state = "due_now"
+        overdue_days = max(int((now - due_at).total_seconds() // 86400), 0)
+        is_overdue = overdue_days > 0
+    elif due_at and (due_at - now) <= timedelta(days=2):
+        state = "at_risk"
+    elif repetition_count >= 5 and stability_score >= 18 and ease_factor >= 2.55:
+        state = "mastered"
+    return state, overdue_days, is_overdue
+
+
 def build_review_queue_snapshot(
     db: Session,
     *,
@@ -286,9 +308,13 @@ def build_review_queue_snapshot(
     owner_client_key: Optional[str] = None,
     exam_id: Optional[str] = None,
     domains: Optional[list[str]] = None,
+    review_states: Optional[list[str]] = None,
+    bookmarked_only: bool = False,
+    notes_only: bool = False,
     limit: int = 12,
 ) -> dict[str, Any]:
     normalized_domains = _normalize_domain_filters(domains)
+    normalized_states = _normalize_review_state_filters(review_states)
     queue_rows = _review_queue_candidates(
         db,
         owner_user_id=owner_user_id,
@@ -296,15 +322,26 @@ def build_review_queue_snapshot(
         exam_id=exam_id,
         domains=normalized_domains,
     )
+    all_bookmark_ids = _owner_bookmark_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    )
+    all_note_ids = _owner_note_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    )
+    bookmark_ids = all_bookmark_ids if bookmarked_only else set()
+    note_ids = all_note_ids if notes_only else set()
     now = datetime.utcnow()
-    due_rows = [row for row in queue_rows if row.get("due_at") and row["due_at"] <= now]
-    next_due_at = None
-    if queue_rows:
-        first_due = queue_rows[0].get("due_at")
-        next_due_at = first_due.isoformat() if first_due else None
-
     state_breakdown = {
         "due_now": 0,
+        "overdue": 0,
         "at_risk": 0,
         "scheduled": 0,
         "mastered": 0,
@@ -312,37 +349,42 @@ def build_review_queue_snapshot(
     forecast_days: list[dict[str, Any]] = []
     today = now.date()
 
-    def classify_queue_state(
-        *,
-        due_at: datetime | None,
-        repetition_count: int,
-        stability_score: float,
-        ease_factor: float,
-    ) -> tuple[str, int]:
-        overdue_days = 0
-        state = "scheduled"
-        if due_at and due_at <= now:
-            state = "due_now"
-            overdue_days = max(int((now - due_at).total_seconds() // 86400), 0)
-        elif due_at and (due_at - now) <= timedelta(days=2):
-            state = "at_risk"
-        elif repetition_count >= 5 and stability_score >= 18 and ease_factor >= 2.55:
-            state = "mastered"
-        return state, overdue_days
-
+    filtered_rows: list[dict[str, Any]] = []
     items: list[dict[str, Any]] = []
     for row in queue_rows:
         due_at = row.get("due_at")
         repetition_count = int(row.get("repetition_count") or 0)
         stability_score = float(row.get("stability_score") or 0.0)
         ease_factor = float(row.get("ease_factor") or 2.5)
-        state, overdue_days = classify_queue_state(
+        state, overdue_days, is_overdue = _classify_review_queue_item(
             due_at=due_at,
             repetition_count=repetition_count,
             stability_score=stability_score,
             ease_factor=ease_factor,
+            now=now,
         )
+        if bookmarked_only and row["question_id"] not in bookmark_ids:
+            continue
+        if notes_only and row["question_id"] not in note_ids:
+            continue
+        if normalized_states:
+            matched = False
+            for requested_state in normalized_states:
+                if requested_state == "overdue" and is_overdue:
+                    matched = True
+                    break
+                if requested_state == "due_today" and state == "due_now" and not is_overdue:
+                    matched = True
+                    break
+                if requested_state == state:
+                    matched = True
+                    break
+            if not matched:
+                continue
+        filtered_rows.append(row)
         state_breakdown[state] = int(state_breakdown.get(state, 0)) + 1
+        if is_overdue:
+            state_breakdown["overdue"] = int(state_breakdown.get("overdue", 0)) + 1
         if len(items) >= max(limit, 1):
             continue
         items.append({
@@ -350,19 +392,28 @@ def build_review_queue_snapshot(
             "prompt": _truncate_text(row.get("prompt") or "", 120),
             "due_at": due_at.isoformat() if due_at else None,
             "state": state,
+            "is_overdue": is_overdue,
             "overdue_days": overdue_days,
             "domain": row.get("domain"),
             "certification": row.get("certification"),
             "repetition_count": repetition_count,
             "stability_score": round(stability_score, 2),
             "ease_factor": round(ease_factor, 2),
+            "bookmarked": row["question_id"] in all_bookmark_ids,
+            "has_note": row["question_id"] in all_note_ids,
         })
+
+    due_rows = [row for row in filtered_rows if row.get("due_at") and row["due_at"] <= now]
+    next_due_at = None
+    if filtered_rows:
+        first_due = filtered_rows[0].get("due_at")
+        next_due_at = first_due.isoformat() if first_due else None
 
     due_count = len(due_rows)
     at_risk_count = int(state_breakdown["at_risk"])
     recommended_batch_size = min(max(due_count, 0), 20)
-    if recommended_batch_size == 0 and queue_rows:
-        recommended_batch_size = min(len(queue_rows), 10)
+    if recommended_batch_size == 0 and filtered_rows:
+        recommended_batch_size = min(len(filtered_rows), 10)
 
     for offset in range(REVIEW_FORECAST_DAYS):
         target_date = today + timedelta(days=offset)
@@ -370,7 +421,7 @@ def build_review_queue_snapshot(
         due_for_day = 0
         at_risk_for_day = 0
 
-        for row in queue_rows:
+        for row in filtered_rows:
             due_at = row.get("due_at")
             if not due_at:
                 continue
@@ -392,14 +443,14 @@ def build_review_queue_snapshot(
     daily_review_target = 0
     weekly_review_target = 0
     new_question_budget = 0
-    if queue_rows:
+    if filtered_rows:
         daily_review_target = min(max(due_count + math.ceil(at_risk_count / 2), 6), 25)
-        weekly_review_target = min(max(due_count + at_risk_count + math.ceil(len(queue_rows) * 0.15), daily_review_target), 140)
+        weekly_review_target = min(max(due_count + at_risk_count + math.ceil(len(filtered_rows) * 0.15), daily_review_target), 140)
         new_question_budget = max(min(weekly_review_target - max(due_count + at_risk_count, 0), 30), 0)
 
     return {
         "due_count": due_count,
-        "total_count": len(queue_rows),
+        "total_count": len(filtered_rows),
         "next_due_at": next_due_at,
         "recommended_batch_size": recommended_batch_size,
         "state_breakdown": state_breakdown,
@@ -408,6 +459,11 @@ def build_review_queue_snapshot(
             "daily_review_target": daily_review_target,
             "weekly_review_target": weekly_review_target,
             "new_question_budget": new_question_budget,
+        },
+        "applied_filters": {
+            "review_states": normalized_states,
+            "bookmarked_only": bool(bookmarked_only),
+            "notes_only": bool(notes_only),
         },
         "items": items,
     }
@@ -1020,10 +1076,10 @@ def claim_client_study_state(db: Session, *, user: User, client_key: str | None)
     }
 
 
-def _normalize_domain_filters(domains: list[str] | None) -> list[str]:
+def _normalize_text_filters(values: list[str] | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
-    for value in domains or []:
+    for value in values or []:
         label = str(value or "").strip()
         if not label:
             continue
@@ -1031,6 +1087,31 @@ def _normalize_domain_filters(domains: list[str] | None) -> list[str]:
         if lowered in seen:
             continue
         seen.add(lowered)
+        normalized.append(label)
+    return normalized
+
+
+def _normalize_domain_filters(domains: list[str] | None) -> list[str]:
+    return _normalize_text_filters(domains)
+
+
+def _normalize_difficulty_filters(difficulties: list[str] | None) -> list[str]:
+    return _normalize_text_filters(difficulties)
+
+
+def _normalize_tag_filters(tags: list[str] | None) -> list[str]:
+    return _normalize_text_filters(tags)
+
+
+def _normalize_review_state_filters(states: list[str] | None) -> list[str]:
+    allowed = {"due_today", "overdue", "at_risk", "scheduled", "mastered", "due_now"}
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in states or []:
+        label = str(value or "").strip().lower()
+        if label not in allowed or label in seen:
+            continue
+        seen.add(label)
         normalized.append(label)
     return normalized
 
@@ -1367,19 +1448,201 @@ def _study_scope_for_session(session: StudySession) -> tuple[str | None, str | N
     return session.user_id, None if session.user_id else session.client_key
 
 
+def _owner_bookmark_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    stmt = select(UserBookmark.question_id, Question.exam_id, Question.domain).join(Question, Question.id == UserBookmark.question_id)
+    stmt = _apply_owner_filters(stmt, UserBookmark, owner_user_id, owner_client_key)
+    question_ids: set[str] = set()
+    for question_id, question_exam_id, question_domain in db.execute(stmt).all():
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        question_ids.add(question_id)
+    return question_ids
+
+
+def _owner_note_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    stmt = select(UserNote.question_id, Question.exam_id, Question.domain).join(Question, Question.id == UserNote.question_id)
+    stmt = _apply_owner_filters(stmt, UserNote, owner_user_id, owner_client_key)
+    question_ids: set[str] = set()
+    for question_id, question_exam_id, question_domain in db.execute(stmt).all():
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        question_ids.add(question_id)
+    return question_ids
+
+
+def _owner_incorrect_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    incorrect: set[str] = set()
+
+    study_stmt = (
+        select(StudyAttempt.question_id, StudyAttempt.is_correct, Question.exam_id, Question.domain)
+        .join(StudySession, StudySession.id == StudyAttempt.session_id)
+        .join(Question, Question.id == StudyAttempt.question_id)
+    )
+    study_stmt = _apply_owner_filters(study_stmt, StudySession, owner_user_id, owner_client_key)
+    for question_id, is_correct, question_exam_id, question_domain in db.execute(study_stmt).all():
+        if bool(is_correct):
+            continue
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        incorrect.add(question_id)
+
+    exam_stmt = (
+        select(SessionAnswer.question_id, SessionAnswer.is_correct, Question.exam_id, Question.domain)
+        .join(ExamSession, ExamSession.id == SessionAnswer.session_id)
+        .join(Question, Question.id == SessionAnswer.question_id)
+    )
+    exam_stmt = _apply_owner_filters(exam_stmt, ExamSession, owner_user_id, owner_client_key)
+    for question_id, is_correct, question_exam_id, question_domain in db.execute(exam_stmt).all():
+        if bool(is_correct):
+            continue
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        incorrect.add(question_id)
+
+    return incorrect
+
+
+def _owner_low_confidence_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    stmt = (
+        select(StudyAttempt.question_id, StudyAttempt.confidence_level, Question.exam_id, Question.domain)
+        .join(StudySession, StudySession.id == StudyAttempt.session_id)
+        .join(Question, Question.id == StudyAttempt.question_id)
+    )
+    stmt = _apply_owner_filters(stmt, StudySession, owner_user_id, owner_client_key)
+    question_ids: set[str] = set()
+    for question_id, confidence_level, question_exam_id, question_domain in db.execute(stmt).all():
+        if str(confidence_level or "").strip().lower() != "low":
+            continue
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        question_ids.add(question_id)
+    return question_ids
+
+
 def _filtered_question_rows(
     db: Session,
     *,
     exam_id: Optional[str],
     domains: Optional[list[str]],
+    difficulties: Optional[list[str]] = None,
+    tags: Optional[list[str]] = None,
+    owner_user_id: Optional[str] = None,
+    owner_client_key: Optional[str] = None,
+    bookmarked_only: bool = False,
+    notes_only: bool = False,
+    incorrect_only: bool = False,
+    unseen_only: bool = False,
+    low_confidence_only: bool = False,
 ) -> list[tuple[str, str | None]]:
     normalized_domains = _normalize_domain_filters(domains)
-    stmt = select(Question.id, Question.domain).where(True)
+    normalized_difficulties = _normalize_difficulty_filters(difficulties)
+    normalized_tags = {item.lower() for item in _normalize_tag_filters(tags)}
+
+    stmt = select(Question.id, Question.domain, Question.tags_json).where(True)
     if exam_id:
         stmt = stmt.where(Question.exam_id == exam_id)
     if normalized_domains:
         stmt = stmt.where(Question.domain.in_(normalized_domains))
-    return db.execute(stmt).all()
+    if normalized_difficulties:
+        stmt = stmt.where(Question.difficulty.in_(normalized_difficulties))
+
+    bookmark_ids = _owner_bookmark_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if bookmarked_only else set()
+    note_ids = _owner_note_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if notes_only else set()
+    incorrect_ids = _owner_incorrect_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if incorrect_only else set()
+    seen_ids = _owner_seen_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if unseen_only else set()
+    low_confidence_ids = _owner_low_confidence_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if low_confidence_only else set()
+
+    rows: list[tuple[str, str | None]] = []
+    for question_id, domain, tags_json in db.execute(stmt).all():
+        if normalized_tags:
+            question_tags = {item.lower() for item in _parse_tags(tags_json)}
+            if not question_tags.intersection(normalized_tags):
+                continue
+        if bookmarked_only and question_id not in bookmark_ids:
+            continue
+        if notes_only and question_id not in note_ids:
+            continue
+        if incorrect_only and question_id not in incorrect_ids:
+            continue
+        if unseen_only and question_id in seen_ids:
+            continue
+        if low_confidence_only and question_id not in low_confidence_ids:
+            continue
+        rows.append((question_id, domain))
+
+    return rows
 
 
 def _owner_study_attempts_query(
@@ -1557,12 +1820,21 @@ def _build_question_pool(
     total_questions: int,
     question_ids: Optional[list[str]],
     domains: Optional[list[str]],
+    difficulties: Optional[list[str]],
+    tags: Optional[list[str]],
+    bookmarked_only: bool,
+    notes_only: bool,
+    incorrect_only: bool,
+    unseen_only: bool,
+    low_confidence_only: bool,
     strategy: str,
     queue_only: bool,
+    review_states: Optional[list[str]],
     owner_user_id: Optional[str],
     owner_client_key: Optional[str],
 ) -> tuple[list[str], str, dict[str, int]]:
     normalized_domains = _normalize_domain_filters(domains)
+    normalized_review_states = _normalize_review_state_filters(review_states)
     resolved_strategy = _normalize_strategy(strategy, queue_only)
 
     if question_ids:
@@ -1587,7 +1859,20 @@ def _build_question_pool(
         selected = requested[:total_questions]
         return selected, "manual", {"manual": len(selected)}
 
-    question_rows = _filtered_question_rows(db, exam_id=exam_id, domains=normalized_domains)
+    question_rows = _filtered_question_rows(
+        db,
+        exam_id=exam_id,
+        domains=normalized_domains,
+        difficulties=difficulties,
+        tags=tags,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        bookmarked_only=bookmarked_only,
+        notes_only=notes_only,
+        incorrect_only=incorrect_only,
+        unseen_only=unseen_only,
+        low_confidence_only=low_confidence_only,
+    )
     qids = [qid for qid, _domain in question_rows]
     if not qids:
         if normalized_domains:
@@ -1597,17 +1882,68 @@ def _build_question_pool(
     if total_questions > len(qids):
         total_questions = len(qids)
 
+    now = datetime.utcnow()
+    bookmark_ids = _owner_bookmark_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if bookmarked_only else set()
+    note_ids = _owner_note_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if notes_only else set()
+
+    def _filter_queue_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        filtered_rows: list[dict[str, Any]] = []
+        for row in rows:
+            state, overdue_days, is_overdue = _classify_review_queue_item(
+                due_at=row.get("due_at"),
+                repetition_count=int(row.get("repetition_count") or 0),
+                stability_score=float(row.get("stability_score") or 0.0),
+                ease_factor=float(row.get("ease_factor") or 2.5),
+                now=now,
+            )
+            question_id = row["question_id"]
+            if bookmarked_only and question_id not in bookmark_ids:
+                continue
+            if notes_only and question_id not in note_ids:
+                continue
+            if normalized_review_states:
+                matched = False
+                for requested_state in normalized_review_states:
+                    if requested_state == "overdue" and is_overdue:
+                        matched = True
+                        break
+                    if requested_state == "due_today" and state == "due_now" and not is_overdue:
+                        matched = True
+                        break
+                    if requested_state == state:
+                        matched = True
+                        break
+                if not matched:
+                    continue
+            filtered_row = dict(row)
+            filtered_row["computed_state"] = state
+            filtered_row["overdue_days"] = overdue_days
+            filtered_row["is_overdue"] = is_overdue
+            filtered_rows.append(filtered_row)
+        return filtered_rows
+
     if resolved_strategy == "review":
-        queue_rows = _review_queue_candidates(
+        queue_rows = _filter_queue_rows(_review_queue_candidates(
             db,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
             exam_id=exam_id,
             domains=normalized_domains,
-        )
+        ))
         if not queue_rows:
             raise ValueError("No review items found for the selected filters.")
-        now = datetime.utcnow()
         due_now = [row["question_id"] for row in queue_rows if row["due_at"] and row["due_at"] <= now]
         upcoming = [row["question_id"] for row in queue_rows if not row["due_at"] or row["due_at"] > now]
         selected = _dedupe_question_ids(due_now)[:total_questions]
@@ -1623,14 +1959,13 @@ def _build_question_pool(
         return selected, resolved_strategy, mix
 
     if resolved_strategy == "adaptive":
-        queue_rows = _review_queue_candidates(
+        queue_rows = _filter_queue_rows(_review_queue_candidates(
             db,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
             exam_id=exam_id,
             domains=normalized_domains,
-        )
-        now = datetime.utcnow()
+        ))
         due_now = _dedupe_question_ids([
             row["question_id"] for row in queue_rows if row["due_at"] and row["due_at"] <= now
         ])
@@ -1720,8 +2055,16 @@ def create_study_session(
     total_questions: int,
     question_ids: Optional[list[str]] = None,
     domains: Optional[list[str]] = None,
+    difficulties: Optional[list[str]] = None,
+    tags: Optional[list[str]] = None,
+    bookmarked_only: bool = False,
+    notes_only: bool = False,
+    incorrect_only: bool = False,
+    unseen_only: bool = False,
+    low_confidence_only: bool = False,
     strategy: str = "standard",
     queue_only: bool = False,
+    review_states: Optional[list[str]] = None,
     owner_user_id: Optional[str] = None,
     owner_client_key: Optional[str] = None,
 ) -> StudySession:
@@ -1731,8 +2074,16 @@ def create_study_session(
         total_questions=total_questions,
         question_ids=question_ids,
         domains=domains,
+        difficulties=difficulties,
+        tags=tags,
+        bookmarked_only=bookmarked_only,
+        notes_only=notes_only,
+        incorrect_only=incorrect_only,
+        unseen_only=unseen_only,
+        low_confidence_only=low_confidence_only,
         strategy=strategy,
         queue_only=queue_only,
+        review_states=review_states,
         owner_user_id=owner_user_id,
         owner_client_key=owner_client_key,
     )

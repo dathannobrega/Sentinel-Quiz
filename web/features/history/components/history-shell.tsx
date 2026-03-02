@@ -32,6 +32,7 @@ const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
   recommended_batch_size: 0,
   state_breakdown: {
     due_now: 0,
+    overdue: 0,
     at_risk: 0,
     scheduled: 0,
     mastered: 0
@@ -42,6 +43,7 @@ const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
     weekly_review_target: 0,
     new_question_budget: 0
   },
+  applied_filters: {},
   items: []
 };
 
@@ -89,8 +91,11 @@ function resolveStudyResultHref(item: StudyHistoryItem): string {
 }
 
 function describeQueueState(item: ReviewQueueSnapshot["items"][number]): string {
+  if (item.is_overdue) {
+    return `atrasada ha ${item.overdue_days} dia(s)`;
+  }
   if (item.state === "due_now") {
-    return item.overdue_days > 0 ? `vencida ha ${item.overdue_days} dia(s)` : "vence hoje";
+    return "vence hoje";
   }
   if (item.state === "at_risk") {
     return "vence em ate 48h";
@@ -99,6 +104,30 @@ function describeQueueState(item: ReviewQueueSnapshot["items"][number]): string 
     return "ja consolidada";
   }
   return item.due_at ? `agendada para ${formatDateTime(item.due_at)}` : "agendada";
+}
+
+function buildReviewQueueQuery(
+  examId: string,
+  reviewState: string,
+  bookmarksOnly: boolean,
+  notesOnly: boolean
+): string {
+  const params = new URLSearchParams();
+  if (examId) {
+    params.set("exam_id", examId);
+  }
+  if (reviewState) {
+    params.append("review_states", reviewState);
+  }
+  if (bookmarksOnly) {
+    params.set("bookmarked_only", "true");
+  }
+  if (notesOnly) {
+    params.set("notes_only", "true");
+  }
+  params.set("limit", "12");
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export function HistoryShell() {
@@ -117,6 +146,9 @@ export function HistoryShell() {
   const [selectedExamId, setSelectedExamId] = useState("");
   const [minimumScore, setMinimumScore] = useState("0");
   const [searchValue, setSearchValue] = useState("");
+  const [reviewStateFilter, setReviewStateFilter] = useState("");
+  const [reviewBookmarksOnly, setReviewBookmarksOnly] = useState(false);
+  const [reviewNotesOnly, setReviewNotesOnly] = useState(false);
 
   const deferredSearch = useDeferredValue(searchValue);
   const normalizedSearch = normalizeSearch(deferredSearch);
@@ -131,7 +163,9 @@ export function HistoryShell() {
       apiClient.get<SessionHistoryItem[]>("/sessions/history?limit=80"),
       apiClient.get<StudyHistoryItem[]>("/study/history?limit=80"),
       apiClient.get<StudyWeeklyAnalytics>("/study/analytics/weekly?weeks=8"),
-      apiClient.get<ReviewQueueSnapshot>("/study/review/queue")
+      apiClient.get<ReviewQueueSnapshot>(
+        `/study/review/queue${buildReviewQueueQuery(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly)}`
+      )
     ]);
 
     const failed: string[] = [];
@@ -181,6 +215,24 @@ export function HistoryShell() {
   useEffect(() => {
     void load();
   }, []);
+
+  const refreshReviewQueue = useEffectEvent(async () => {
+    try {
+      const snapshot = await apiClient.get<ReviewQueueSnapshot>(
+        `/study/review/queue${buildReviewQueueQuery(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly)}`
+      );
+      setReviewQueue(snapshot);
+    } catch (error) {
+      setPageNotice(readHistoryError(error));
+    }
+  });
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    void refreshReviewQueue();
+  }, [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, isLoading]);
 
   const filteredExamHistory = useMemo(() => {
     return examHistory.filter((item) => {
@@ -232,8 +284,16 @@ export function HistoryShell() {
         exam_id: selectedExamId || null,
         total_questions: Math.max(reviewQueue.recommended_batch_size || 10, 1),
         domains: null,
+        difficulties: null,
+        tags: null,
+        bookmarked_only: reviewBookmarksOnly,
+        notes_only: reviewNotesOnly,
+        incorrect_only: false,
+        unseen_only: false,
+        low_confidence_only: false,
         strategy: "review",
-        queue_only: true
+        queue_only: true,
+        review_states: reviewStateFilter ? [reviewStateFilter] : null
       };
 
       const response = await apiClient.post<SessionResponse>("/study/review/sessions", payload);
@@ -361,6 +421,10 @@ export function HistoryShell() {
                 <strong>{reviewStateBreakdown.at_risk}</strong>
               </div>
               <div className="sq-metric-card">
+                <span className="sq-muted">Atrasadas</span>
+                <strong>{reviewStateBreakdown.overdue || 0}</strong>
+              </div>
+              <div className="sq-metric-card">
                 <span className="sq-muted">Dominadas</span>
                 <strong>{reviewStateBreakdown.mastered}</strong>
               </div>
@@ -465,6 +529,41 @@ export function HistoryShell() {
               </Button>
             }
           >
+            <div className="sq-form-grid" style={{ marginBottom: "var(--sq-space-4)" }}>
+              <Field label="Recorte" htmlFor="review-state-filter">
+                <select
+                  id="review-state-filter"
+                  className="sq-select"
+                  value={reviewStateFilter}
+                  onChange={(event) => setReviewStateFilter(event.target.value)}
+                >
+                  <option value="">Tudo</option>
+                  <option value="due_today">Vence hoje</option>
+                  <option value="overdue">Atrasadas</option>
+                  <option value="at_risk">Em risco</option>
+                  <option value="scheduled">Agendadas</option>
+                  <option value="mastered">Dominadas</option>
+                </select>
+              </Field>
+
+              <Field label="Refino" htmlFor="review-bookmark-toggle" hint="Aplique contexto do seu caderno pessoal.">
+                <div style={{ display: "flex", gap: "var(--sq-space-4)", flexWrap: "wrap", minHeight: "44px", alignItems: "center" }}>
+                  <label id="review-bookmark-toggle" style={{ display: "flex", alignItems: "center", gap: "var(--sq-space-2)", fontWeight: 700 }}>
+                    <input
+                      type="checkbox"
+                      checked={reviewBookmarksOnly}
+                      onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
+                    />
+                    So marcadas
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "var(--sq-space-2)", fontWeight: 700 }}>
+                    <input type="checkbox" checked={reviewNotesOnly} onChange={(event) => setReviewNotesOnly(event.target.checked)} />
+                    So com nota
+                  </label>
+                </div>
+              </Field>
+            </div>
+
             {reviewQueue.items.length ? (
               <div className="sq-list">
                 {reviewQueue.items.slice(0, 6).map((item) => (
@@ -473,6 +572,12 @@ export function HistoryShell() {
                     <div className="sq-list-meta">
                       {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item)}
                     </div>
+                    {(item.bookmarked || item.has_note) ? (
+                      <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-2)" }}>
+                        {item.bookmarked ? <span className="sq-chip">bookmark</span> : null}
+                        {item.has_note ? <span className="sq-chip">nota</span> : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

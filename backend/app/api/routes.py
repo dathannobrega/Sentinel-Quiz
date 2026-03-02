@@ -22,7 +22,10 @@ from app.services.quiz import (
     compute_result,
     build_domain_catalog,
     build_weak_area_snapshot_for_owner,
+    pause_exam_session,
+    resume_exam_session,
     serialize_exam_session,
+    sync_exam_session_state,
 )
 from app.services.gemini import ask_gemini, GeminiDisabled, GeminiError
 from app.services.materials import build_material_preview
@@ -78,7 +81,15 @@ def start_session(
             payload.total_questions,
             None,
             payload.domains,
+            payload.difficulties,
+            payload.tags,
+            payload.bookmarked_only,
+            payload.notes_only,
+            payload.incorrect_only,
+            payload.unseen_only,
+            payload.low_confidence_only,
             payload.strategy,
+            payload.time_limit_minutes,
             owner_user_id=current_user.id if current_user else None,
             owner_client_key=None if current_user else client_key,
         )
@@ -97,7 +108,21 @@ def _selection_mix(selection_mix_json: str | None) -> dict:
         payload = json.loads(selection_mix_json)
     except (TypeError, ValueError):
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    raw_mix = payload.get("_selection_mix") if isinstance(payload.get("_selection_mix"), dict) else payload
+    if not isinstance(raw_mix, dict):
+        return {}
+    cleaned = {}
+    for key, value in raw_mix.items():
+        label = str(key or "").strip()
+        if not label or label.startswith("_"):
+            continue
+        try:
+            cleaned[label] = max(int(value), 0)
+        except (TypeError, ValueError):
+            continue
+    return cleaned
 
 
 def _scope_session_history(stmt, current_user: User | None, client_key: str | None):
@@ -170,6 +195,7 @@ def get_session_state(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
+    sync_exam_session_state(db, session)
     return SessionStateOut(**serialize_exam_session(session))
 
 @router.get("/sessions/{session_id}/next")
@@ -180,10 +206,43 @@ def get_next_question(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
+    sync_exam_session_state(db, session)
+    if session.completed_at is not None:
+        return {"finished": True}
     q = get_question_for_session(db, session, session.current_index)
     if q is None:
         return {"finished": True}
     return {"finished": False, "question": q, "progress_index": session.current_index, "total_questions": session.total_questions}
+
+
+@router.post("/sessions/{session_id}/pause", response_model=SessionStateOut)
+def pause_session(
+    session_id: str,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    try:
+        updated = pause_exam_session(db, session)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return SessionStateOut(**serialize_exam_session(updated))
+
+
+@router.post("/sessions/{session_id}/resume", response_model=SessionStateOut)
+def resume_session(
+    session_id: str,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    try:
+        updated = resume_exam_session(db, session)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return SessionStateOut(**serialize_exam_session(updated))
 
 @router.post("/sessions/{session_id}/answer", response_model=AnswerFeedbackOut)
 def submit_answer(
@@ -198,7 +257,10 @@ def submit_answer(
         fb = answer_question(db, session, payload.question_id, payload.selected_keys)
         return AnswerFeedbackOut(**fb)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        detail = str(e)
+        if "auto-submitted" in detail or "paused" in detail.lower():
+            raise HTTPException(status_code=409, detail=detail)
+        raise HTTPException(status_code=400, detail=detail)
 
 @router.get("/sessions/{session_id}/result", response_model=ResultOut)
 def get_result(
@@ -208,6 +270,7 @@ def get_result(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
+    sync_exam_session_state(db, session)
     return ResultOut(**compute_result(db, session))
 
 @router.get("/sessions/{session_id}/review", response_model=SessionReviewOut)
@@ -218,6 +281,7 @@ def get_review(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
+    sync_exam_session_state(db, session)
     if session.completed_at is None:
         raise HTTPException(status_code=400, detail="Session not completed.")
     exam = db.get(Exam, session.exam_id) if session.exam_id else None

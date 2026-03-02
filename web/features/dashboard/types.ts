@@ -11,8 +11,16 @@ export interface DashboardNotice {
 export interface LaunchFormValues {
   examId: string;
   domain: string;
+  difficultyQuery: string;
+  tagQuery: string;
+  bookmarkedOnly: boolean;
+  notesOnly: boolean;
+  incorrectOnly: boolean;
+  unseenOnly: boolean;
+  lowConfidenceOnly: boolean;
   mode: SessionMode;
   examStrategy: ExamStrategy;
   studyStrategy: "standard" | "adaptive";
   totalQuestions: number;
+  timeLimitMinutes: number;
 }

@@ -71,6 +71,19 @@ function buildLiveFeedbackBits(mode: RunnerMode, feedback: ExamAnswerFeedback | 
   return bits;
 }
 
+function formatRemainingTime(totalSeconds: number | null | undefined): string {
+  if (typeof totalSeconds !== "number" || !Number.isFinite(totalSeconds) || totalSeconds < 0) {
+    return "--:--";
+  }
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps) {
   const router = useRouter();
   const sessionBasePath = resolveSessionBasePath(mode);
@@ -78,6 +91,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   const [isBootLoading, setIsBootLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const [isTogglingPause, setIsTogglingPause] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
 
@@ -98,6 +112,21 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   const questionNumber = (questionState?.progress_index ?? 0) + 1;
   const totalQuestions = questionState?.total_questions ?? sessionState?.total_questions ?? 0;
   const isStudyMode = mode === "study";
+  const isExamMode = mode === "exam";
+  const isExamPaused = isExamMode && !!sessionState?.paused && !sessionState?.finished;
+
+  const refreshSessionState = useEffectEvent(async (): Promise<SessionResponse | null> => {
+    const response = await apiClient.get<SessionResponse>(`${sessionBasePath}/${sessionId}`);
+    setSessionState(response);
+    if (response.finished) {
+      clearSessionId(mode);
+      startTransition(() => {
+        router.replace(resolveResultHref(mode, sessionId));
+      });
+      return null;
+    }
+    return response;
+  });
 
   const boot = useEffectEvent(async () => {
     setIsBootLoading(true);
@@ -163,6 +192,35 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   useEffect(() => {
     void boot();
   }, [sessionId, mode]);
+
+  useEffect(() => {
+    if (!isExamMode || !sessionState || sessionState.finished || sessionState.paused) {
+      return;
+    }
+    if ((sessionState.remaining_seconds ?? 0) <= 0) {
+      clearSessionId(mode);
+      startTransition(() => {
+        router.replace(resolveResultHref(mode, sessionId));
+      });
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setSessionState((current) => {
+        if (!current || current.finished || current.paused || typeof current.remaining_seconds !== "number") {
+          return current;
+        }
+        return {
+          ...current,
+          remaining_seconds: Math.max(current.remaining_seconds - 1, 0)
+        };
+      });
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [isExamMode, mode, router, sessionId, sessionState?.finished, sessionState?.paused, sessionState?.remaining_seconds]);
 
   const loadCurrentStudyState = useEffectEvent(async (questionId: string) => {
     setIsStudyStateLoading(true);
@@ -282,7 +340,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
     };
   }, [sessionState]);
 
-  const canSubmit = selectedKeys.length > 0 && !feedback && !isSubmitting && !!currentQuestion;
+  const canSubmit = selectedKeys.length > 0 && !feedback && !isSubmitting && !!currentQuestion && !isExamPaused;
   const feedbackBits = feedback ? buildLiveFeedbackBits(mode, feedback) : [];
 
   const strategyLabel = useMemo(() => {
@@ -297,7 +355,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   }, [sessionState?.selection_strategy]);
 
   function toggleSelection(optionKey: string) {
-    if (!currentQuestion || feedback) {
+    if (!currentQuestion || feedback || isExamPaused) {
       return;
     }
 
@@ -357,9 +415,47 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
           : current
       );
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        const detail = error.message.toLowerCase();
+        if (detail.includes("time limit") || detail.includes("auto-submitted")) {
+          await refreshSessionState();
+          return;
+        }
+        await refreshSessionState();
+      }
       setPageNotice(readRunnerError(error));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handlePauseToggle() {
+    if (!isExamMode || !sessionState || sessionState.finished) {
+      return;
+    }
+
+    setIsTogglingPause(true);
+    setPageNotice(null);
+
+    try {
+      const endpoint = sessionState.paused ? "resume" : "pause";
+      const response = await apiClient.post<SessionResponse>(`${sessionBasePath}/${sessionId}/${endpoint}`);
+      setSessionState(response);
+      if (!response.paused) {
+        setQuestionStartedAt(Date.now());
+      }
+      setPageNotice(
+        response.paused
+          ? "Simulado pausado. O cronometro ficou congelado dentro do limite configurado."
+          : "Simulado retomado. O cronometro voltou a contar."
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        await refreshSessionState();
+      }
+      setPageNotice(readRunnerError(error));
+    } finally {
+      setIsTogglingPause(false);
     }
   }
 
@@ -411,6 +507,11 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
             </div>
           </div>
           <div className="sq-inline-actions">
+            {isExamMode ? (
+              <Button variant="ghost" size="sm" busy={isTogglingPause} onClick={() => void handlePauseToggle()}>
+                {isExamPaused ? "Retomar" : "Pausar"}
+              </Button>
+            ) : null}
             <Link href="/dashboard">Dashboard</Link>
             <Link href="/history">Historico</Link>
             <Link href="/admin">Admin</Link>
@@ -425,15 +526,29 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
               : "Selecione uma alternativa."
           }
           actions={
-            <span className="sq-chip">
-              {mode === "study"
-                ? `${sessionState?.answered_count ?? 0} respondidas`
-                : `${sessionState?.correct_count ?? 0} acertos · ${sessionState?.wrong_count ?? 0} erros`}
-            </span>
+            <div className="sq-chip-row">
+              <span className="sq-chip">
+                {mode === "study"
+                  ? `${sessionState?.answered_count ?? 0} respondidas`
+                  : `${sessionState?.correct_count ?? 0} acertos · ${sessionState?.wrong_count ?? 0} erros`}
+              </span>
+              {isExamMode ? (
+                <span className="sq-chip">
+                  {isExamPaused ? "Pausado" : "Tempo"} {formatRemainingTime(sessionState?.remaining_seconds)}
+                </span>
+              ) : null}
+            </div>
           }
         >
           <div className="sq-surface-block">
             {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
+            {isExamPaused ? (
+              <StatusBanner
+                tone="neutral"
+                title="Simulado pausado"
+                message="As respostas ficam bloqueadas enquanto a pausa controlada estiver ativa."
+              />
+            ) : null}
 
             {currentQuestion ? (
               <>
@@ -465,7 +580,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         role={currentQuestion.multi_select ? "checkbox" : "radio"}
                         aria-checked={isSelected}
                         onClick={() => toggleSelection(option.key)}
-                        disabled={!!feedback}
+                        disabled={!!feedback || isExamPaused}
                         className="sq-list-item"
                         style={{
                           textAlign: "left",
@@ -638,7 +753,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                   <Button
                     variant="ghost"
                     busy={isAdvancing}
-                    disabled={!feedback || isStudyStateSaving}
+                    disabled={!feedback || isStudyStateSaving || isExamPaused}
                     onClick={() => void goNext()}
                   >
                     {feedback?.finished ? "Ver resultado" : "Proxima questao"}

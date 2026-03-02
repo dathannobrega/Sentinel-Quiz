@@ -4,7 +4,7 @@ import json
 import math
 import random
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, false, select
 from app.models import (
@@ -18,12 +18,21 @@ from app.models import (
     ReviewQueueItem,
     StudySession,
     StudyAttempt,
+    UserBookmark,
+    UserNote,
 )
 from app.services.learning import upsert_question_progress
 from typing import Optional, Dict, Any
 
 PASS_THRESHOLD = 90.0
 SAFE_FEEDBACK_MAX_CHARS = 240
+DEFAULT_EXAM_SECONDS_PER_QUESTION = 75
+MIN_EXAM_TIME_LIMIT_SECONDS = 300
+DEFAULT_EXAM_PAUSE_LIMIT = 2
+DEFAULT_EXAM_MAX_PAUSE_SECONDS = 300
+SELECTION_MIX_KEY = "_selection_mix"
+SESSION_CONFIG_KEY = "_session_config"
+ACTIVE_FILTERS_KEY = "_active_filters"
 
 
 def _score_percent(correct: int, total: int) -> float:
@@ -180,12 +189,12 @@ def _top_bucket_entries(buckets: dict[str, dict], *, reverse: bool = False, limi
     return items[:limit]
 
 
-def _normalize_domain_filters(domains: Optional[list[str]]) -> list[str]:
-    if not domains:
+def _normalize_text_filters(values: Optional[list[str]]) -> list[str]:
+    if not values:
         return []
     normalized: list[str] = []
     seen = set()
-    for item in domains:
+    for item in values:
         label = str(item or "").strip()
         if not label:
             continue
@@ -197,6 +206,18 @@ def _normalize_domain_filters(domains: Optional[list[str]]) -> list[str]:
     return normalized
 
 
+def _normalize_domain_filters(domains: Optional[list[str]]) -> list[str]:
+    return _normalize_text_filters(domains)
+
+
+def _normalize_difficulty_filters(difficulties: Optional[list[str]]) -> list[str]:
+    return _normalize_text_filters(difficulties)
+
+
+def _normalize_tag_filters(tags: Optional[list[str]]) -> list[str]:
+    return _normalize_text_filters(tags)
+
+
 def _normalize_strategy(value: str | None) -> str:
     normalized = str(value or "standard").strip().lower()
     if normalized not in {"standard", "adaptive"}:
@@ -204,11 +225,9 @@ def _normalize_strategy(value: str | None) -> str:
     return normalized
 
 
-def _serialize_selection_mix(selection_mix: dict[str, int] | None) -> str | None:
-    if not selection_mix:
-        return None
+def _sanitize_selection_mix(selection_mix: dict[str, int] | None) -> dict[str, int]:
     cleaned: dict[str, int] = {}
-    for key, value in selection_mix.items():
+    for key, value in (selection_mix or {}).items():
         label = str(key or "").strip()
         if not label:
             continue
@@ -216,32 +235,188 @@ def _serialize_selection_mix(selection_mix: dict[str, int] | None) -> str | None
             cleaned[label] = max(int(value), 0)
         except (TypeError, ValueError):
             continue
-    if not cleaned:
-        return None
-    return json.dumps(cleaned, ensure_ascii=True, sort_keys=True)
+    return cleaned
 
 
-def _parse_selection_mix(selection_mix_json: str | None) -> dict[str, int]:
+def _normalize_active_filters(
+    *,
+    domains: Optional[list[str]] = None,
+    difficulties: Optional[list[str]] = None,
+    tags: Optional[list[str]] = None,
+    bookmarked_only: bool = False,
+    notes_only: bool = False,
+    incorrect_only: bool = False,
+    unseen_only: bool = False,
+    low_confidence_only: bool = False,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    normalized_domains = _normalize_domain_filters(domains)
+    normalized_difficulties = _normalize_difficulty_filters(difficulties)
+    normalized_tags = _normalize_tag_filters(tags)
+    if normalized_domains:
+        payload["domains"] = normalized_domains
+    if normalized_difficulties:
+        payload["difficulties"] = normalized_difficulties
+    if normalized_tags:
+        payload["tags"] = normalized_tags
+    if bookmarked_only:
+        payload["bookmarked_only"] = True
+    if notes_only:
+        payload["notes_only"] = True
+    if incorrect_only:
+        payload["incorrect_only"] = True
+    if unseen_only:
+        payload["unseen_only"] = True
+    if low_confidence_only:
+        payload["low_confidence_only"] = True
+    return payload
+
+
+def _default_session_config(total_questions: int) -> dict[str, Any]:
+    return {
+        "time_limit_seconds": max(int(total_questions or 0) * DEFAULT_EXAM_SECONDS_PER_QUESTION, MIN_EXAM_TIME_LIMIT_SECONDS),
+        "pause_limit": DEFAULT_EXAM_PAUSE_LIMIT,
+        "max_pause_seconds": DEFAULT_EXAM_MAX_PAUSE_SECONDS,
+        "paused_at": None,
+        "paused_total_seconds": 0,
+        "pause_count": 0,
+        "auto_submitted": False,
+    }
+
+
+def _serialize_session_payload(
+    selection_mix: dict[str, int] | None,
+    *,
+    session_config: dict[str, Any] | None = None,
+    active_filters: dict[str, Any] | None = None,
+) -> str | None:
+    cleaned_mix = _sanitize_selection_mix(selection_mix)
+    cleaned_config = dict(session_config or {})
+    cleaned_filters = dict(active_filters or {})
+    if not cleaned_config and not cleaned_filters:
+        if not cleaned_mix:
+            return None
+        return json.dumps(cleaned_mix, ensure_ascii=True, sort_keys=True)
+
+    payload: dict[str, Any] = {
+        SELECTION_MIX_KEY: cleaned_mix,
+        SESSION_CONFIG_KEY: cleaned_config,
+        ACTIVE_FILTERS_KEY: cleaned_filters,
+    }
+    return json.dumps(payload, ensure_ascii=True, sort_keys=True)
+
+
+def _parse_session_payload(selection_mix_json: str | None) -> tuple[dict[str, int], dict[str, Any], dict[str, Any]]:
     if not selection_mix_json:
-        return {}
+        return {}, {}, {}
     try:
         payload = json.loads(selection_mix_json)
     except (TypeError, ValueError):
-        return {}
+        return {}, {}, {}
     if not isinstance(payload, dict):
-        return {}
-    parsed: dict[str, int] = {}
-    for key, value in payload.items():
-        label = str(key or "").strip()
-        if not label:
-            continue
-        try:
-            parsed[label] = max(int(value), 0)
-        except (TypeError, ValueError):
-            continue
-    return parsed
+        return {}, {}, {}
+
+    if SELECTION_MIX_KEY in payload or SESSION_CONFIG_KEY in payload or ACTIVE_FILTERS_KEY in payload:
+        raw_mix = payload.get(SELECTION_MIX_KEY)
+        raw_config = payload.get(SESSION_CONFIG_KEY)
+        raw_filters = payload.get(ACTIVE_FILTERS_KEY)
+    else:
+        raw_mix = payload
+        raw_config = {}
+        raw_filters = {}
+
+    parsed_mix: dict[str, int] = {}
+    if isinstance(raw_mix, dict):
+        for key, value in raw_mix.items():
+            label = str(key or "").strip()
+            if not label:
+                continue
+            try:
+                parsed_mix[label] = max(int(value), 0)
+            except (TypeError, ValueError):
+                continue
+
+    parsed_config = raw_config if isinstance(raw_config, dict) else {}
+    parsed_filters = raw_filters if isinstance(raw_filters, dict) else {}
+    return parsed_mix, parsed_config, parsed_filters
 
 
+def _parse_selection_mix(selection_mix_json: str | None) -> dict[str, int]:
+    parsed_mix, _parsed_config, _parsed_filters = _parse_session_payload(selection_mix_json)
+    return parsed_mix
+
+
+def _parse_session_config(selection_mix_json: str | None) -> dict[str, Any]:
+    _parsed_mix, parsed_config, _parsed_filters = _parse_session_payload(selection_mix_json)
+    return parsed_config
+
+
+def _parse_active_filters(selection_mix_json: str | None) -> dict[str, Any]:
+    _parsed_mix, _parsed_config, parsed_filters = _parse_session_payload(selection_mix_json)
+    return parsed_filters
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _effective_session_config(session: ExamSession, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    source = dict(config or _parse_session_config(session.selection_mix_json))
+    defaults = _default_session_config(session.total_questions)
+    merged = {**defaults, **source}
+    merged["time_limit_seconds"] = max(int(merged.get("time_limit_seconds") or defaults["time_limit_seconds"]), MIN_EXAM_TIME_LIMIT_SECONDS)
+    merged["pause_limit"] = max(int(merged.get("pause_limit") or defaults["pause_limit"]), 0)
+    merged["max_pause_seconds"] = max(int(merged.get("max_pause_seconds") or defaults["max_pause_seconds"]), 0)
+    merged["paused_total_seconds"] = max(int(merged.get("paused_total_seconds") or 0), 0)
+    merged["pause_count"] = max(int(merged.get("pause_count") or 0), 0)
+    merged["auto_submitted"] = bool(merged.get("auto_submitted"))
+    merged["paused_at"] = str(merged.get("paused_at") or "").strip() or None
+    return merged
+
+
+def _build_exam_timing_metadata(
+    session: ExamSession,
+    *,
+    now: datetime | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    reference_now = now or datetime.utcnow()
+    effective_now = session.completed_at if session.completed_at and session.completed_at < reference_now else reference_now
+    effective_config = _effective_session_config(session, config)
+    paused_at = _parse_iso_datetime(effective_config.get("paused_at"))
+    active_pause_seconds = 0
+    paused = False
+    if paused_at:
+        elapsed_pause = max(int((reference_now - paused_at).total_seconds()), 0)
+        granted_pause = min(elapsed_pause, effective_config["max_pause_seconds"])
+        if elapsed_pause < effective_config["max_pause_seconds"]:
+            paused = session.completed_at is None
+            active_pause_seconds = granted_pause
+        else:
+            active_pause_seconds = effective_config["max_pause_seconds"]
+    total_paused_seconds = max(int(effective_config["paused_total_seconds"]), 0) + active_pause_seconds
+    elapsed_seconds = max(int((effective_now - session.created_at).total_seconds()) - total_paused_seconds, 0)
+    time_limit_seconds = int(effective_config["time_limit_seconds"])
+    remaining_seconds = max(time_limit_seconds - elapsed_seconds, 0)
+    expires_at = None
+    if not paused:
+        expires_at = (session.created_at + timedelta(seconds=time_limit_seconds + total_paused_seconds)).isoformat()
+
+    return {
+        "time_limit_seconds": time_limit_seconds,
+        "remaining_seconds": remaining_seconds,
+        "expires_at": expires_at,
+        "paused": paused,
+        "pause_count": int(effective_config["pause_count"]),
+        "auto_submitted": bool(effective_config.get("auto_submitted")),
+        "time_spent_seconds": elapsed_seconds,
+    }
 def _apply_owner_filters(stmt, model, owner_user_id: Optional[str], owner_client_key: Optional[str]):
     if owner_user_id:
         return stmt.where(model.user_id == owner_user_id)
@@ -250,19 +425,201 @@ def _apply_owner_filters(stmt, model, owner_user_id: Optional[str], owner_client
     return stmt.where(false())
 
 
+def _owner_bookmark_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    stmt = select(UserBookmark.question_id, Question.exam_id, Question.domain).join(Question, Question.id == UserBookmark.question_id)
+    stmt = _apply_owner_filters(stmt, UserBookmark, owner_user_id, owner_client_key)
+    rows = set()
+    for question_id, question_exam_id, question_domain in db.execute(stmt).all():
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        rows.add(question_id)
+    return rows
+
+
+def _owner_note_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    stmt = select(UserNote.question_id, Question.exam_id, Question.domain).join(Question, Question.id == UserNote.question_id)
+    stmt = _apply_owner_filters(stmt, UserNote, owner_user_id, owner_client_key)
+    rows = set()
+    for question_id, question_exam_id, question_domain in db.execute(stmt).all():
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        rows.add(question_id)
+    return rows
+
+
+def _owner_incorrect_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    incorrect: set[str] = set()
+
+    exam_stmt = (
+        select(SessionAnswer.question_id, SessionAnswer.is_correct, Question.exam_id, Question.domain)
+        .join(ExamSession, ExamSession.id == SessionAnswer.session_id)
+        .join(Question, Question.id == SessionAnswer.question_id)
+    )
+    exam_stmt = _apply_owner_filters(exam_stmt, ExamSession, owner_user_id, owner_client_key)
+    for question_id, is_correct, question_exam_id, question_domain in db.execute(exam_stmt).all():
+        if bool(is_correct):
+            continue
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        incorrect.add(question_id)
+
+    study_stmt = (
+        select(StudyAttempt.question_id, StudyAttempt.is_correct, Question.exam_id, Question.domain)
+        .join(StudySession, StudySession.id == StudyAttempt.session_id)
+        .join(Question, Question.id == StudyAttempt.question_id)
+    )
+    study_stmt = _apply_owner_filters(study_stmt, StudySession, owner_user_id, owner_client_key)
+    for question_id, is_correct, question_exam_id, question_domain in db.execute(study_stmt).all():
+        if bool(is_correct):
+            continue
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        incorrect.add(question_id)
+
+    return incorrect
+
+
+def _owner_low_confidence_question_ids(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    exam_id: Optional[str],
+    domains: Optional[list[str]],
+) -> set[str]:
+    normalized_domains = _normalize_domain_filters(domains)
+    stmt = (
+        select(StudyAttempt.question_id, StudyAttempt.confidence_level, Question.exam_id, Question.domain)
+        .join(StudySession, StudySession.id == StudyAttempt.session_id)
+        .join(Question, Question.id == StudyAttempt.question_id)
+    )
+    stmt = _apply_owner_filters(stmt, StudySession, owner_user_id, owner_client_key)
+    rows = set()
+    for question_id, confidence_level, question_exam_id, question_domain in db.execute(stmt).all():
+        if str(confidence_level or "").strip().lower() != "low":
+            continue
+        if exam_id and question_exam_id != exam_id:
+            continue
+        if normalized_domains and question_domain not in normalized_domains:
+            continue
+        rows.add(question_id)
+    return rows
+
+
 def _filtered_question_rows(
     db: Session,
     *,
     exam_id: Optional[str],
     domains: Optional[list[str]],
+    difficulties: Optional[list[str]] = None,
+    tags: Optional[list[str]] = None,
+    owner_user_id: Optional[str] = None,
+    owner_client_key: Optional[str] = None,
+    bookmarked_only: bool = False,
+    notes_only: bool = False,
+    incorrect_only: bool = False,
+    unseen_only: bool = False,
+    low_confidence_only: bool = False,
 ) -> list[tuple[str, str | None]]:
     normalized_domains = _normalize_domain_filters(domains)
-    stmt = select(Question.id, Question.domain).where(True)
+    normalized_difficulties = _normalize_difficulty_filters(difficulties)
+    normalized_tags = {item.lower() for item in _normalize_tag_filters(tags)}
+
+    stmt = select(Question.id, Question.domain, Question.tags_json).where(True)
     if exam_id:
         stmt = stmt.where(Question.exam_id == exam_id)
     if normalized_domains:
         stmt = stmt.where(Question.domain.in_(normalized_domains))
-    return db.execute(stmt).all()
+    if normalized_difficulties:
+        stmt = stmt.where(Question.difficulty.in_(normalized_difficulties))
+
+    bookmark_ids = _owner_bookmark_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if bookmarked_only else set()
+    note_ids = _owner_note_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if notes_only else set()
+    incorrect_ids = _owner_incorrect_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if incorrect_only else set()
+    seen_ids = _owner_seen_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if unseen_only else set()
+    low_confidence_ids = _owner_low_confidence_question_ids(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        exam_id=exam_id,
+        domains=normalized_domains,
+    ) if low_confidence_only else set()
+
+    rows: list[tuple[str, str | None]] = []
+    for question_id, domain, tags_json in db.execute(stmt).all():
+        if normalized_tags:
+            question_tags = {item.lower() for item in _parse_tags(tags_json)}
+            if not question_tags.intersection(normalized_tags):
+                continue
+        if bookmarked_only and question_id not in bookmark_ids:
+            continue
+        if notes_only and question_id not in note_ids:
+            continue
+        if incorrect_only and question_id not in incorrect_ids:
+            continue
+        if unseen_only and question_id in seen_ids:
+            continue
+        if low_confidence_only and question_id not in low_confidence_ids:
+            continue
+        rows.append((question_id, domain))
+
+    return rows
 
 
 def _owner_seen_question_ids(
@@ -428,6 +785,13 @@ def _build_exam_question_pool(
     total_questions: int,
     question_ids: Optional[list[str]],
     domains: Optional[list[str]],
+    difficulties: Optional[list[str]],
+    tags: Optional[list[str]],
+    bookmarked_only: bool,
+    notes_only: bool,
+    incorrect_only: bool,
+    unseen_only: bool,
+    low_confidence_only: bool,
     strategy: str,
     owner_user_id: Optional[str],
     owner_client_key: Optional[str],
@@ -456,7 +820,20 @@ def _build_exam_question_pool(
         selected = [qid for qid in requested if qid in existing_set][:total_questions]
         return selected, "manual", {"manual": len(selected)}
 
-    question_rows = _filtered_question_rows(db, exam_id=exam_id, domains=normalized_domains)
+    question_rows = _filtered_question_rows(
+        db,
+        exam_id=exam_id,
+        domains=normalized_domains,
+        difficulties=difficulties,
+        tags=tags,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        bookmarked_only=bookmarked_only,
+        notes_only=notes_only,
+        incorrect_only=incorrect_only,
+        unseen_only=unseen_only,
+        low_confidence_only=low_confidence_only,
+    )
     qids = [qid for qid, _domain in question_rows]
     if not qids:
         if normalized_domains:
@@ -852,7 +1229,15 @@ def create_session(
     total_questions: int,
     question_ids: Optional[list[str]] = None,
     domains: Optional[list[str]] = None,
+    difficulties: Optional[list[str]] = None,
+    tags: Optional[list[str]] = None,
+    bookmarked_only: bool = False,
+    notes_only: bool = False,
+    incorrect_only: bool = False,
+    unseen_only: bool = False,
+    low_confidence_only: bool = False,
     strategy: str = "standard",
+    time_limit_minutes: Optional[int] = None,
     owner_user_id: Optional[str] = None,
     owner_client_key: Optional[str] = None,
 ) -> ExamSession:
@@ -862,11 +1247,31 @@ def create_session(
         total_questions=total_questions,
         question_ids=question_ids,
         domains=domains,
+        difficulties=difficulties,
+        tags=tags,
+        bookmarked_only=bookmarked_only,
+        notes_only=notes_only,
+        incorrect_only=incorrect_only,
+        unseen_only=unseen_only,
+        low_confidence_only=low_confidence_only,
         strategy=strategy,
         owner_user_id=owner_user_id,
         owner_client_key=owner_client_key,
     )
     total_questions = len(selected)
+    active_filters = _normalize_active_filters(
+        domains=domains,
+        difficulties=difficulties,
+        tags=tags,
+        bookmarked_only=bookmarked_only,
+        notes_only=notes_only,
+        incorrect_only=incorrect_only,
+        unseen_only=unseen_only,
+        low_confidence_only=low_confidence_only,
+    )
+    session_config = _default_session_config(total_questions)
+    if time_limit_minutes:
+        session_config["time_limit_seconds"] = max(int(time_limit_minutes) * 60, MIN_EXAM_TIME_LIMIT_SECONDS)
 
     sid = str(uuid.uuid4())
     session = ExamSession(
@@ -875,7 +1280,11 @@ def create_session(
         user_id=owner_user_id,
         client_key=None if owner_user_id else owner_client_key,
         selection_strategy=resolved_strategy,
-        selection_mix_json=_serialize_selection_mix(selection_mix),
+        selection_mix_json=_serialize_session_payload(
+            selection_mix,
+            session_config=session_config,
+            active_filters=active_filters,
+        ),
         total_questions=total_questions,
         current_index=0,
         correct_count=0,
@@ -892,16 +1301,113 @@ def create_session(
     return session
 
 
+def sync_exam_session_state(
+    db: Session,
+    session: ExamSession,
+) -> dict[str, Any]:
+    selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
+    config = _effective_session_config(session, raw_config)
+    changed = False
+    now = datetime.utcnow()
+
+    paused_at = _parse_iso_datetime(config.get("paused_at"))
+    if paused_at and session.completed_at is None:
+        elapsed_pause = max(int((now - paused_at).total_seconds()), 0)
+        max_pause_seconds = int(config["max_pause_seconds"])
+        if elapsed_pause >= max_pause_seconds:
+            config["paused_total_seconds"] = max(int(config["paused_total_seconds"]), 0) + max_pause_seconds
+            config["paused_at"] = None
+            changed = True
+
+    timing = _build_exam_timing_metadata(session, now=now, config=config)
+    if session.completed_at is None and timing["remaining_seconds"] <= 0:
+        session.completed_at = now
+        config["auto_submitted"] = True
+        changed = True
+        timing = _build_exam_timing_metadata(session, now=now, config=config)
+
+    if changed:
+        session.selection_mix_json = _serialize_session_payload(
+            selection_mix,
+            session_config=config,
+            active_filters=active_filters,
+        )
+        db.commit()
+        db.refresh(session)
+
+    timing["selection_mix"] = selection_mix
+    timing["active_filters"] = active_filters
+    return timing
+
+
+def pause_exam_session(db: Session, session: ExamSession) -> ExamSession:
+    timing = sync_exam_session_state(db, session)
+    if session.completed_at is not None:
+        raise ValueError("Session already completed.")
+    if timing["paused"]:
+        raise ValueError("Session is already paused.")
+
+    selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
+    config = _effective_session_config(session, raw_config)
+    if int(config["pause_count"]) >= int(config["pause_limit"]):
+        raise ValueError("Pause limit reached for this exam session.")
+
+    config["paused_at"] = datetime.utcnow().isoformat()
+    config["pause_count"] = int(config["pause_count"]) + 1
+    session.selection_mix_json = _serialize_session_payload(
+        selection_mix,
+        session_config=config,
+        active_filters=active_filters,
+    )
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def resume_exam_session(db: Session, session: ExamSession) -> ExamSession:
+    sync_exam_session_state(db, session)
+    selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
+    config = _effective_session_config(session, raw_config)
+    paused_at = _parse_iso_datetime(config.get("paused_at"))
+    if not paused_at:
+        raise ValueError("Session is not paused.")
+
+    now = datetime.utcnow()
+    elapsed_pause = max(int((now - paused_at).total_seconds()), 0)
+    config["paused_total_seconds"] = max(int(config["paused_total_seconds"]), 0) + min(
+        elapsed_pause,
+        int(config["max_pause_seconds"]),
+    )
+    config["paused_at"] = None
+    session.selection_mix_json = _serialize_session_payload(
+        selection_mix,
+        session_config=config,
+        active_filters=active_filters,
+    )
+    db.commit()
+    db.refresh(session)
+    sync_exam_session_state(db, session)
+    return session
+
+
 def serialize_exam_session(session: ExamSession) -> dict[str, Any]:
+    timing = _build_exam_timing_metadata(session)
     return {
         "id": session.id,
         "exam_id": session.exam_id,
         "selection_strategy": session.selection_strategy or "standard",
         "selection_mix": _parse_selection_mix(session.selection_mix_json),
+        "active_filters": _parse_active_filters(session.selection_mix_json),
         "total_questions": session.total_questions,
         "current_index": session.current_index,
         "correct_count": session.correct_count,
         "wrong_count": session.wrong_count,
+        "time_limit_seconds": timing["time_limit_seconds"],
+        "remaining_seconds": timing["remaining_seconds"],
+        "expires_at": timing["expires_at"],
+        "paused": timing["paused"],
+        "pause_count": timing["pause_count"],
+        "auto_submitted": timing["auto_submitted"],
         "finished": session.completed_at is not None,
     }
 
@@ -1064,6 +1570,12 @@ def get_question_for_session(db: Session, session: ExamSession, position: int) -
     }
 
 def answer_question(db: Session, session: ExamSession, question_id: str, selected_keys: list[str]) -> dict:
+    timing = sync_exam_session_state(db, session)
+    if session.completed_at is not None and timing["remaining_seconds"] <= 0:
+        raise ValueError("Session time limit expired. The exam was auto-submitted.")
+    if timing["paused"]:
+        raise ValueError("Session is paused. Resume it before submitting an answer.")
+
     # Validate that the question belongs to the session
     belongs = db.execute(
         select(SessionQuestion.id).where(
@@ -1156,4 +1668,9 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
     }
 
 def compute_result(db: Session, session: ExamSession) -> dict:
-    return _analyze_session(session, _get_session_rows(db, session.id))
+    result = _analyze_session(session, _get_session_rows(db, session.id))
+    timing = sync_exam_session_state(db, session)
+    result["time_limit_seconds"] = timing["time_limit_seconds"]
+    result["time_spent_seconds"] = timing["time_spent_seconds"]
+    result["timed_out"] = bool(timing["auto_submitted"] and session.completed_at is not None and timing["remaining_seconds"] <= 0)
+    return result

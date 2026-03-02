@@ -5,7 +5,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 
 COPY web/package*.json ./
-RUN npm install
+RUN npm install --no-audit --no-fund
 
 FROM node:20-alpine AS builder
 

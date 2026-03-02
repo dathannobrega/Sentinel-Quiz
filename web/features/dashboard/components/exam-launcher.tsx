@@ -31,6 +31,8 @@ export function ExamLauncher({
 }: ExamLauncherProps) {
   const isStudy = values.mode === "study";
   const canLaunch = values.totalQuestions > 0;
+  const hasAdvancedFilters =
+    values.bookmarkedOnly || values.notesOnly || values.incorrectOnly || values.unseenOnly || values.lowConfidenceOnly;
 
   return (
     <Card
@@ -147,6 +149,93 @@ export function ExamLauncher({
               onChange={(event) => onChange("totalQuestions", Number(event.target.value || 0))}
             />
           </Field>
+
+          <Field
+            label="Dificuldade"
+            htmlFor="difficulty-query"
+            hint="Opcional. Informe uma ou mais separadas por virgula. Ex.: easy, medium, hard."
+          >
+            <input
+              id="difficulty-query"
+              className="sq-input"
+              type="text"
+              value={values.difficultyQuery}
+              onChange={(event) => onChange("difficultyQuery", event.target.value)}
+            />
+          </Field>
+
+          <Field
+            label="Tags"
+            htmlFor="tag-query"
+            hint="Opcional. Combine por objetivo, blueprint ou palavra-chave."
+          >
+            <input
+              id="tag-query"
+              className="sq-input"
+              type="text"
+              value={values.tagQuery}
+              onChange={(event) => onChange("tagQuery", event.target.value)}
+            />
+          </Field>
+
+          {!isStudy ? (
+            <Field
+              label="Tempo (min)"
+              htmlFor="time-limit-minutes"
+              hint="Timer real no backend, com pausa controlada e auto-submit no timeout."
+            >
+              <input
+                id="time-limit-minutes"
+                className="sq-input"
+                type="number"
+                min={5}
+                max={360}
+                value={values.timeLimitMinutes}
+                onChange={(event) => onChange("timeLimitMinutes", Number(event.target.value || 0))}
+              />
+            </Field>
+          ) : null}
+        </div>
+
+        <div className="sq-list-item" style={{ marginTop: "var(--sq-space-4)" }}>
+          <div className="sq-progress-head">
+            <div>
+              <div className="sq-list-title">Filtros combinaveis</div>
+              <div className="sq-list-meta">
+                Use estes flags para montar blocos por backlog real: erradas, novas, marcadas ou baixa confianca.
+              </div>
+            </div>
+            {hasAdvancedFilters ? <span className="sq-chip">ativos</span> : <span className="sq-chip">opcionais</span>}
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gap: "var(--sq-space-3)",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              marginTop: "var(--sq-space-3)"
+            }}
+          >
+            {[
+              ["bookmarkedOnly", "Marcadas"],
+              ["notesOnly", "Com nota"],
+              ["incorrectOnly", "Erradas"],
+              ["unseenOnly", "Novas"],
+              ["lowConfidenceOnly", "Baixa confianca"]
+            ].map(([field, label]) => (
+              <label
+                key={field}
+                style={{ display: "flex", alignItems: "center", gap: "var(--sq-space-2)", fontWeight: 700 }}
+              >
+                <input
+                  type="checkbox"
+                  checked={values[field as keyof LaunchFormValues] as boolean}
+                  onChange={(event) => onChange(field as keyof LaunchFormValues, event.target.checked)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
         </div>
 
         <div className="sq-actions">
