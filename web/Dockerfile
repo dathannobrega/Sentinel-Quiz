@@ -1,21 +1,24 @@
-FROM node:20-alpine AS deps
+# syntax=docker/dockerfile:1.7
+
+FROM node:20-alpine AS base
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /app
 
-COPY web/package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+FROM base AS deps
 
-FROM node:20-alpine AS builder
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+
+FROM base AS builder
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
-WORKDIR /app
-
 COPY --from=deps /app/node_modules ./node_modules
-COPY web/ ./
+COPY . ./
 
 RUN npm run build
 

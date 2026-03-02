@@ -246,6 +246,40 @@ export interface SessionHistoryItem {
   score_percent: number;
 }
 
+export interface ActiveSessionItem {
+  id: string;
+  mode: string;
+  exam_id?: string | null;
+  exam_title?: string | null;
+  created_at?: string | null;
+  current_index: number;
+  answered_count: number;
+  total_questions: number;
+  progress_percent: number;
+  selection_strategy: string;
+}
+
+export interface QuestionSearchItem {
+  id: string;
+  exam_id: string;
+  exam_title?: string | null;
+  prompt_excerpt: string;
+  domain?: string | null;
+  certification?: string | null;
+  tags: string[];
+  keywords: string[];
+  is_bookmarked: boolean;
+  has_note: boolean;
+}
+
+export interface QuestionSearchResponse {
+  items: QuestionSearchItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  applied_filters: Record<string, unknown>;
+}
+
 export interface StudyHistoryItem {
   id: string;
   exam_id?: string | null;

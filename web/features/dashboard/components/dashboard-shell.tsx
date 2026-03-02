@@ -13,11 +13,13 @@ import { getRuntimeConfig } from "@/lib/config/runtime";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
+  ActiveSessionItem,
   AuthUser,
   DomainCatalogResponse,
   EngagementSnapshot,
   Exam,
   HealthResponse,
+  QuestionSearchResponse,
   SessionHistoryItem,
   SessionRequest,
   SessionResponse,
@@ -69,6 +71,25 @@ const DEFAULT_LAUNCH_FORM: LaunchFormValues = {
   studyStrategy: "standard",
   totalQuestions: 90,
   timeLimitMinutes: 90
+};
+
+const DASHBOARD_LAUNCH_STORAGE_KEY = "sentinel.dashboard.launch_filters";
+const DASHBOARD_DISCOVERY_STORAGE_KEY = "sentinel.dashboard.discovery_filters";
+
+interface DiscoveryFilters {
+  query: string;
+  domain: string;
+  tag: string;
+  bookmarkedOnly: boolean;
+  notesOnly: boolean;
+}
+
+const DEFAULT_DISCOVERY_FILTERS: DiscoveryFilters = {
+  query: "",
+  domain: "",
+  tag: "",
+  bookmarkedOnly: false,
+  notesOnly: false
 };
 
 function toDashboardNotice(
@@ -139,6 +160,17 @@ export function DashboardShell() {
   const [engagement, setEngagement] = useState<EngagementSnapshot>(DEFAULT_ENGAGEMENT);
   const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
   const [studyHistory, setStudyHistory] = useState<StudyHistoryItem[]>([]);
+  const [activeExamSessions, setActiveExamSessions] = useState<ActiveSessionItem[]>([]);
+  const [activeStudySessions, setActiveStudySessions] = useState<ActiveSessionItem[]>([]);
+  const [discoveryFilters, setDiscoveryFilters] = useState<DiscoveryFilters>(DEFAULT_DISCOVERY_FILTERS);
+  const [questionSearch, setQuestionSearch] = useState<QuestionSearchResponse>({
+    items: [],
+    total: 0,
+    limit: 8,
+    offset: 0,
+    applied_filters: {}
+  });
+  const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
 
   const [launchValues, setLaunchValues] = useState<LaunchFormValues>(DEFAULT_LAUNCH_FORM);
 
@@ -178,8 +210,42 @@ export function DashboardShell() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const rawLaunch = window.localStorage.getItem(DASHBOARD_LAUNCH_STORAGE_KEY);
+      if (rawLaunch) {
+        const parsed = JSON.parse(rawLaunch) as Partial<LaunchFormValues>;
+        setLaunchValues((current) => ({ ...current, ...parsed }));
+      }
+      const rawDiscovery = window.localStorage.getItem(DASHBOARD_DISCOVERY_STORAGE_KEY);
+      if (rawDiscovery) {
+        const parsed = JSON.parse(rawDiscovery) as Partial<DiscoveryFilters>;
+        setDiscoveryFilters((current) => ({ ...current, ...parsed }));
+      }
+    } catch {
+      // Keep defaults if local cache is invalid.
+    }
+  }, []);
+
+  useEffect(() => {
     void loadDomains(launchValues.examId);
   }, [launchValues.examId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(DASHBOARD_LAUNCH_STORAGE_KEY, JSON.stringify(launchValues));
+  }, [launchValues]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(DASHBOARD_DISCOVERY_STORAGE_KEY, JSON.stringify(discoveryFilters));
+  }, [discoveryFilters]);
 
   async function syncCurrentUser() {
     try {
@@ -203,7 +269,9 @@ export function DashboardShell() {
       apiClient.get<EngagementSnapshot>("/analytics/engagement"),
       apiClient.get<StudyOverview>("/study/overview"),
       apiClient.get<SessionHistoryItem[]>("/sessions/history?limit=12"),
-      apiClient.get<StudyHistoryItem[]>("/study/history?limit=12")
+      apiClient.get<StudyHistoryItem[]>("/study/history?limit=12"),
+      apiClient.get<ActiveSessionItem[]>("/sessions/active?limit=4"),
+      apiClient.get<ActiveSessionItem[]>("/study/sessions/active?limit=4")
     ]);
 
     const failedLabels: string[] = [];
@@ -256,6 +324,20 @@ export function DashboardShell() {
       failedLabels.push("historico de estudo");
     }
 
+    if (results[7].status === "fulfilled") {
+      setActiveExamSessions(results[7].value);
+    } else {
+      setActiveExamSessions([]);
+      failedLabels.push("sessoes ativas de prova");
+    }
+
+    if (results[8].status === "fulfilled") {
+      setActiveStudySessions(results[8].value);
+    } else {
+      setActiveStudySessions([]);
+      failedLabels.push("sessoes ativas de estudo");
+    }
+
     if (failedLabels.length) {
       setLoadError(
         `Nem todos os dados foram carregados. Revise: ${failedLabels.join(", ")}. O restante do dashboard continua funcional.`
@@ -264,6 +346,51 @@ export function DashboardShell() {
 
     setIsRefreshing(false);
   }
+
+  async function refreshQuestionSearch() {
+    setIsDiscoveryLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (launchValues.examId) {
+        params.set("exam_id", launchValues.examId);
+      }
+      if (discoveryFilters.query.trim()) {
+        params.set("query", discoveryFilters.query.trim());
+      }
+      if (discoveryFilters.domain) {
+        params.set("domain", discoveryFilters.domain);
+      }
+      if (discoveryFilters.tag.trim()) {
+        params.set("tag", discoveryFilters.tag.trim());
+      }
+      if (discoveryFilters.bookmarkedOnly) {
+        params.set("bookmarked_only", "true");
+      }
+      if (discoveryFilters.notesOnly) {
+        params.set("notes_only", "true");
+      }
+      params.set("limit", "8");
+
+      const response = await apiClient.get<QuestionSearchResponse>(`/questions/search?${params.toString()}`);
+      setQuestionSearch(response);
+    } catch (error) {
+      setLoadError(`Busca de questoes indisponivel: ${readErrorMessage(error)}`);
+      setQuestionSearch({ items: [], total: 0, limit: 8, offset: 0, applied_filters: {} });
+    } finally {
+      setIsDiscoveryLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshQuestionSearch();
+  }, [
+    discoveryFilters.query,
+    discoveryFilters.domain,
+    discoveryFilters.tag,
+    discoveryFilters.bookmarkedOnly,
+    discoveryFilters.notesOnly,
+    launchValues.examId
+  ]);
 
   async function handleLogout() {
     setPendingAction("logout");
@@ -512,6 +639,153 @@ export function DashboardShell() {
                 {engagement.streak.best_days} dia(s) · {engagement.streak.total_active_days} dia(s) ativos no total
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="sq-card">
+          <div className="sq-progress-head">
+            <div>
+              <div className="sq-list-title">Continuidade entre devices</div>
+              <div className="sq-list-meta">
+                Sessoes em aberto ficam no backend e podem ser retomadas em qualquer device autenticado.
+              </div>
+            </div>
+            <span className="sq-chip">{activeExamSessions.length + activeStudySessions.length} ativa(s)</span>
+          </div>
+
+          <div className="sq-grid-2">
+            <div className="sq-list" role="list" aria-label="Sessoes de prova em andamento">
+              <div className="sq-list-title">Provas em andamento</div>
+              {activeExamSessions.length ? (
+                activeExamSessions.map((session) => (
+                  <div key={session.id} className="sq-list-item">
+                    <div className="sq-list-title">{session.exam_title || "Simulado misto"}</div>
+                    <div className="sq-list-meta">
+                      {session.answered_count}/{session.total_questions} · {session.progress_percent}% · {session.selection_strategy}
+                    </div>
+                    <Link href={`/exam/${session.id}`}>Retomar prova</Link>
+                  </div>
+                ))
+              ) : (
+                <div className="sq-empty">Nenhuma prova aberta no momento.</div>
+              )}
+            </div>
+
+            <div className="sq-list" role="list" aria-label="Sessoes de estudo em andamento">
+              <div className="sq-list-title">Study sessions em andamento</div>
+              {activeStudySessions.length ? (
+                activeStudySessions.map((session) => (
+                  <div key={session.id} className="sq-list-item">
+                    <div className="sq-list-title">{session.exam_title || "Study misto"}</div>
+                    <div className="sq-list-meta">
+                      {session.answered_count}/{session.total_questions} · {session.progress_percent}% · {session.selection_strategy}
+                    </div>
+                    <Link href={`/study/${session.id}`}>Retomar estudo</Link>
+                  </div>
+                ))
+              ) : (
+                <div className="sq-empty">Nenhuma sessao de estudo aberta no momento.</div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="sq-card">
+          <div className="sq-progress-head">
+            <div>
+              <div className="sq-list-title">Busca unificada de questoes</div>
+              <div className="sq-list-meta">
+                Combine dominio, tag, keyword e texto parcial. Os filtros ficam persistidos neste navegador.
+              </div>
+            </div>
+            <span className="sq-chip">{questionSearch.total} encontrada(s)</span>
+          </div>
+
+          <div className="sq-grid-2">
+            <Field label="Texto / keyword" htmlFor="question-search-query" hint="Busca por enunciado, keyword, tag, dominio ou certificacao.">
+              <input
+                id="question-search-query"
+                className="sq-input"
+                value={discoveryFilters.query}
+                onChange={(event) => setDiscoveryFilters((current) => ({ ...current, query: event.target.value }))}
+                placeholder="Ex.: cryptography, asset, incident"
+              />
+            </Field>
+
+            <Field label="Tag" htmlFor="question-search-tag" hint="Filtro fino por tag especifica, quando voce ja sabe o objetivo.">
+              <input
+                id="question-search-tag"
+                className="sq-input"
+                value={discoveryFilters.tag}
+                onChange={(event) => setDiscoveryFilters((current) => ({ ...current, tag: event.target.value }))}
+                placeholder="Ex.: access control"
+              />
+            </Field>
+
+            <Field label="Dominio" htmlFor="question-search-domain" hint="Reaproveita o mesmo catalogo ja carregado para a prova selecionada.">
+              <select
+                id="question-search-domain"
+                className="sq-select"
+                value={discoveryFilters.domain}
+                onChange={(event) => setDiscoveryFilters((current) => ({ ...current, domain: event.target.value }))}
+              >
+                <option value="">Todos os dominios</option>
+                {domains.map((domainItem) => (
+                  <option key={domainItem.value} value={domainItem.value}>
+                    {domainItem.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <div className="sq-list-item" style={{ display: "flex", flexDirection: "column", gap: "var(--sq-space-3)" }}>
+              <label style={{ display: "flex", gap: "var(--sq-space-2)", alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={discoveryFilters.bookmarkedOnly}
+                  onChange={(event) =>
+                    setDiscoveryFilters((current) => ({ ...current, bookmarkedOnly: event.target.checked }))
+                  }
+                />
+                Apenas bookmarks
+              </label>
+              <label style={{ display: "flex", gap: "var(--sq-space-2)", alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={discoveryFilters.notesOnly}
+                  onChange={(event) => setDiscoveryFilters((current) => ({ ...current, notesOnly: event.target.checked }))}
+                />
+                Apenas com nota
+              </label>
+            </div>
+          </div>
+
+          <div className="sq-list" role="list" aria-label="Resultados da busca de questoes">
+            {isDiscoveryLoading ? (
+              <div className="sq-empty">Atualizando resultados...</div>
+            ) : questionSearch.items.length ? (
+              questionSearch.items.map((item) => (
+                <div key={item.id} className="sq-list-item">
+                  <div className="sq-list-title">{item.prompt_excerpt}</div>
+                  <div className="sq-list-meta">
+                    {item.exam_title || item.exam_id}
+                    {item.domain ? ` · ${item.domain}` : ""}
+                    {item.certification ? ` · ${item.certification}` : ""}
+                  </div>
+                  <div className="sq-chip-row">
+                    {item.tags.slice(0, 3).map((tag) => (
+                      <span key={`${item.id}-${tag}`} className="sq-chip">
+                        {tag}
+                      </span>
+                    ))}
+                    {item.is_bookmarked ? <span className="sq-chip">bookmark</span> : null}
+                    {item.has_note ? <span className="sq-chip">nota</span> : null}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="sq-empty">Nenhuma questao encontrada com os filtros atuais.</div>
+            )}
           </div>
         </section>
 

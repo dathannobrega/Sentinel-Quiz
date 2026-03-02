@@ -78,8 +78,8 @@ services:
     container_name: ${APP_WEB_CONTAINER_NAME:-sentinel-quiz-web}
     image: ${APP_WEB_IMAGE_NAME:-sentinel-quiz-web:local}
     build:
-      context: .
-      dockerfile: web/Dockerfile
+      context: ./web
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       api:

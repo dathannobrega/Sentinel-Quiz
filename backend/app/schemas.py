@@ -139,6 +139,40 @@ class SessionHistoryOut(BaseModel):
     wrong_count: int
     score_percent: float
 
+
+class ActiveSessionOut(BaseModel):
+    id: str
+    mode: str
+    exam_id: Optional[str] = None
+    exam_title: Optional[str] = None
+    created_at: Optional[str] = None
+    current_index: int = 0
+    answered_count: int = 0
+    total_questions: int
+    progress_percent: float = 0.0
+    selection_strategy: str = "standard"
+
+
+class QuestionSearchItemOut(BaseModel):
+    id: str
+    exam_id: str
+    exam_title: Optional[str] = None
+    prompt_excerpt: str
+    domain: Optional[str] = None
+    certification: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
+    is_bookmarked: bool = False
+    has_note: bool = False
+
+
+class QuestionSearchOut(BaseModel):
+    items: List[QuestionSearchItemOut] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 0
+    offset: int = 0
+    applied_filters: Dict[str, Any] = Field(default_factory=dict)
+
 class ReviewQuestionOut(BaseModel):
     id: str
     prompt: str

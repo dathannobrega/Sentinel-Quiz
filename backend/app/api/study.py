@@ -7,6 +7,7 @@ from app.api.deps import get_client_key, get_current_user_optional
 from app.db.session import get_db
 from app.models import StudySession, User
 from app.schemas import (
+    ActiveSessionOut,
     QuestionHintOut,
     ReviewQueueSnapshotOut,
     StudyAnswerFeedbackOut,
@@ -22,6 +23,7 @@ from app.schemas import (
     StudyStateOut,
     StudyWeeklyAnalyticsOut,
 )
+from app.services.discovery import list_active_study_sessions
 from app.services.pedagogy import build_question_hint
 from app.services.study import (
     answer_study_question,
@@ -85,6 +87,25 @@ def study_overview(
             owner_client_key=owner_client_key,
         )
     )
+
+
+@router.get("/sessions/active", response_model=list[ActiveSessionOut])
+def active_study_sessions(
+    limit: int = Query(default=6, ge=1, le=12),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
+    return [
+        ActiveSessionOut(**item)
+        for item in list_active_study_sessions(
+            db,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            limit=limit,
+        )
+    ]
 
 
 @router.get("/questions/{question_id}/state", response_model=StudyStateOut)

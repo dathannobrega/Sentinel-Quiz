@@ -12,9 +12,10 @@ from app.core.config import settings
 from app.models import Exam, ExamSession, SessionQuestion, SessionAnswer, Question, Option, Explanation, User
 from app.schemas import (
     ExamOut, CreateSessionIn, SessionOut, SessionStateOut, QuestionOut,
-    AnswerIn, AnswerFeedbackOut, ResultOut, SessionHistoryOut, SessionReviewOut, ReviewQuestionOut,
+    ActiveSessionOut, AnswerIn, AnswerFeedbackOut, QuestionSearchOut, ResultOut, SessionHistoryOut, SessionReviewOut, ReviewQuestionOut,
     EngagementSnapshotOut, TutorRequest, TutorResponse
 )
+from app.services.discovery import list_active_exam_sessions, search_questions
 from app.services.engagement import build_engagement_snapshot
 from app.services.quiz import (
     create_session,
@@ -78,6 +79,57 @@ def engagement_snapshot(
     )
     db.commit()
     return EngagementSnapshotOut(**payload)
+
+
+@router.get("/questions/search", response_model=QuestionSearchOut)
+def question_search(
+    query: str | None = Query(default=None, max_length=160),
+    exam_id: str | None = Query(default=None),
+    domain: str | None = Query(default=None),
+    tag: str | None = Query(default=None, max_length=80),
+    bookmarked_only: bool = Query(default=False),
+    notes_only: bool = Query(default=False),
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = search_questions(
+            db,
+            query=query,
+            exam_id=exam_id,
+            domain=domain,
+            tag=tag,
+            bookmarked_only=bookmarked_only,
+            notes_only=notes_only,
+            owner_user_id=current_user.id if current_user else None,
+            owner_client_key=None if current_user else client_key,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return QuestionSearchOut(**payload)
+
+
+@router.get("/sessions/active", response_model=list[ActiveSessionOut])
+def active_exam_sessions(
+    limit: int = Query(default=6, ge=1, le=12),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    return [
+        ActiveSessionOut(**item)
+        for item in list_active_exam_sessions(
+            db,
+            owner_user_id=current_user.id if current_user else None,
+            owner_client_key=None if current_user else client_key,
+            limit=limit,
+        )
+    ]
 
 
 @router.post("/sessions", response_model=SessionOut)
