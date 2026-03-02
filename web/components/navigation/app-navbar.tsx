@@ -54,7 +54,7 @@ export function AppNavbar() {
       return;
     }
     void syncSession();
-  }, [pathname]);
+  }, [pathname, syncSession]);
 
   const links = useMemo(() => {
     const baseLinks = [
