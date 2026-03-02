@@ -304,10 +304,17 @@ def build_review_queue_snapshot(
     for row in queue_rows[: max(limit, 1)]:
         due_at = row.get("due_at")
         overdue_days = 0
-        state = "upcoming"
+        repetition_count = int(row.get("repetition_count") or 0)
+        stability_score = float(row.get("stability_score") or 0.0)
+        ease_factor = float(row.get("ease_factor") or 2.5)
+        state = "scheduled"
         if due_at and due_at <= now:
             state = "due_now"
             overdue_days = max(int((now - due_at).total_seconds() // 86400), 0)
+        elif due_at and (due_at - now) <= timedelta(days=2):
+            state = "at_risk"
+        elif repetition_count >= 5 and stability_score >= 18 and ease_factor >= 2.55:
+            state = "mastered"
         items.append({
             "question_id": row["question_id"],
             "prompt": _truncate_text(row.get("prompt") or "", 120),
@@ -316,6 +323,9 @@ def build_review_queue_snapshot(
             "overdue_days": overdue_days,
             "domain": row.get("domain"),
             "certification": row.get("certification"),
+            "repetition_count": repetition_count,
+            "stability_score": round(stability_score, 2),
+            "ease_factor": round(ease_factor, 2),
         })
 
     due_count = len(due_rows)
@@ -486,6 +496,14 @@ def build_weekly_study_analytics(
         "review_backlog_due": int(due_snapshot["due_count"]),
         "review_backlog_total": int(due_snapshot["total_count"]),
     }
+    if summary["review_backlog_due"] > 15:
+        summary["recommendation"] = "Sua fila vencida esta alta. Priorize uma revisao diaria curta antes de abrir novos blocos."
+    elif current_week["study_questions"] < 20 and summary["review_backlog_total"] > 0:
+        summary["recommendation"] = "Seu volume da semana esta baixo. Faça ao menos um bloco adaptativo e uma revisao diaria."
+    elif summary["accuracy_delta_vs_previous_week"] < -8:
+        summary["recommendation"] = "Sua precisao caiu nesta semana. Reduza o volume e foque nos dominios fracos com revisao guiada."
+    else:
+        summary["recommendation"] = "Ritmo estavel. Continue equilibrando blocos novos com revisoes vencidas."
 
     return {
         "weeks": week_items,
@@ -1002,34 +1020,65 @@ def _normalize_confidence_level(value: str | None) -> str:
     return normalized
 
 
+def _quality_from_attempt(is_correct: bool, confidence_level: str) -> int:
+    if not is_correct:
+        return 1 if confidence_level == "high" else 2
+    if confidence_level == "low":
+        return 3
+    if confidence_level == "medium":
+        return 4
+    return 5
+
+
 def _review_policy(
     is_correct: bool,
     confidence_level: str,
     previous_item: ReviewQueueItem | None = None,
-) -> tuple[int, str]:
+) -> dict[str, Any]:
+    quality = _quality_from_attempt(is_correct, confidence_level)
     previous_interval = max(int(previous_item.interval_days), 1) if previous_item and previous_item.interval_days else 1
-    previous_outcome = str(previous_item.last_outcome or "").strip().lower() if previous_item else ""
+    previous_repetitions = max(int(previous_item.repetition_count), 0) if previous_item else 0
+    previous_lapses = max(int(previous_item.lapse_count), 0) if previous_item else 0
+    previous_ease = float(previous_item.ease_factor) if previous_item and previous_item.ease_factor else 2.5
+    previous_stability = float(previous_item.stability_score) if previous_item and previous_item.stability_score else 0.0
 
-    if not is_correct:
-        if previous_outcome == "wrong":
-            return 1, "repeat_incorrect"
-        if previous_interval >= 7:
-            return 2, "recovery_after_miss"
-        return 1, "incorrect"
+    if quality < 3:
+        lapse_count = previous_lapses + 1
+        repetition_count = 0
+        ease_factor = max(1.3, round(previous_ease - 0.2 - (0.15 * lapse_count), 2))
+        interval_days = 1 if quality <= 1 else 2
+        stability_score = max(0.4, round(previous_stability * 0.55 + (quality * 0.25), 2))
+        trigger_reason = "srs_relearn"
+    else:
+        repetition_count = previous_repetitions + 1
+        lapse_count = previous_lapses
+        ease_delta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)
+        ease_factor = max(1.3, round(previous_ease + ease_delta, 2))
+        if repetition_count == 1:
+            interval_days = 1
+        elif repetition_count == 2:
+            interval_days = 3 if quality == 3 else 4
+        else:
+            growth = ease_factor + (previous_stability / 10.0)
+            if quality == 3:
+                growth *= 0.85
+            elif quality == 5:
+                growth *= 1.08
+            interval_days = max(int(round(previous_interval * growth)), previous_interval + 1)
+        interval_days = min(max(interval_days, 1), 60)
+        stability_gain = 0.9 + (quality - 2) * 0.55 + (repetition_count * 0.15)
+        stability_score = round(max(previous_stability + stability_gain, float(interval_days)), 2)
+        trigger_reason = "srs_review"
 
-    if confidence_level == "low":
-        if previous_interval <= 1:
-            return 2, "low_confidence_repeat"
-        return max(min(previous_interval, 3), 2), "low_confidence"
-
-    if confidence_level == "medium":
-        next_interval = previous_interval + (2 if previous_outcome == "correct" else 1)
-        return min(max(next_interval, 3), 10), "medium_confidence"
-
-    next_interval = previous_interval * (2 if previous_outcome == "correct" else 1)
-    if next_interval <= previous_interval:
-        next_interval = previous_interval + 4
-    return min(max(next_interval, 7), 21), "high_confidence"
+    return {
+        "quality": quality,
+        "interval_days": interval_days,
+        "repetition_count": repetition_count,
+        "lapse_count": lapse_count,
+        "ease_factor": ease_factor,
+        "stability_score": stability_score,
+        "trigger_reason": trigger_reason,
+    }
 
 
 def _correct_keys_for_question(db: Session, question_id: str) -> list[str]:
@@ -1091,7 +1140,10 @@ def _upsert_review_queue_item(
     item = db.execute(
         _owner_review_item_query(question_id, owner_user_id, owner_client_key)
     ).scalar_one_or_none()
-    interval_days, trigger_reason = _review_policy(is_correct, confidence_level, item)
+    srs_state = _review_policy(is_correct, confidence_level, item)
+    interval_days = int(srs_state["interval_days"])
+    quality = int(srs_state["quality"])
+    trigger_reason = str(srs_state["trigger_reason"])
     due_at = attempted_at + timedelta(days=interval_days)
 
     if not item:
@@ -1101,6 +1153,11 @@ def _upsert_review_queue_item(
             question_id=question_id,
             due_at=due_at,
             interval_days=interval_days,
+            repetition_count=int(srs_state["repetition_count"]),
+            lapse_count=int(srs_state["lapse_count"]),
+            ease_factor=float(srs_state["ease_factor"]),
+            stability_score=float(srs_state["stability_score"]),
+            last_quality=quality,
             last_outcome="correct" if is_correct else "wrong",
             confidence_level=confidence_level,
             last_attempt_at=attempted_at,
@@ -1112,6 +1169,11 @@ def _upsert_review_queue_item(
     else:
         item.due_at = due_at
         item.interval_days = interval_days
+        item.repetition_count = int(srs_state["repetition_count"])
+        item.lapse_count = int(srs_state["lapse_count"])
+        item.ease_factor = float(srs_state["ease_factor"])
+        item.stability_score = float(srs_state["stability_score"])
+        item.last_quality = quality
         item.last_outcome = "correct" if is_correct else "wrong"
         item.confidence_level = confidence_level
         item.last_attempt_at = attempted_at
@@ -1219,6 +1281,9 @@ def _review_queue_candidates(
         select(
             ReviewQueueItem.question_id,
             ReviewQueueItem.due_at,
+            ReviewQueueItem.repetition_count,
+            ReviewQueueItem.ease_factor,
+            ReviewQueueItem.stability_score,
             Question.exam_id,
             Question.domain,
             Question.prompt,
@@ -1230,7 +1295,7 @@ def _review_queue_candidates(
     stmt = _apply_owner_filters(stmt, ReviewQueueItem, owner_user_id, owner_client_key)
 
     rows: list[dict[str, Any]] = []
-    for question_id, due_at, question_exam_id, question_domain, prompt, certification in db.execute(stmt).all():
+    for question_id, due_at, repetition_count, ease_factor, stability_score, question_exam_id, question_domain, prompt, certification in db.execute(stmt).all():
         if exam_id and question_exam_id != exam_id:
             continue
         if normalized_domains and question_domain not in normalized_domains:
@@ -1238,6 +1303,9 @@ def _review_queue_candidates(
         rows.append({
             "question_id": question_id,
             "due_at": due_at,
+            "repetition_count": int(repetition_count or 0),
+            "ease_factor": float(ease_factor or 2.5),
+            "stability_score": float(stability_score or 0.0),
             "exam_id": question_exam_id,
             "domain": question_domain,
             "prompt": prompt,

@@ -39,6 +39,7 @@ let studyStateDirty = false;
 let fallbackClientKey = "";
 let fallbackAuthToken = "";
 let currentSessionMode = "exam";
+let currentExamStrategy = "standard";
 let currentStudyStrategy = "standard";
 let lastCompletedSessionMode = "exam";
 let questionStartedAt = null;
@@ -221,18 +222,22 @@ function updateModeUi(mode = getSelectedMode()){
   const isStudy = mode === "study";
   el("btn-start").textContent = isStudy ? "Comecar estudo" : "Comecar";
   el("btn-start-review-queue").classList.toggle("hidden", !isStudy);
+  el("examStrategyField").classList.toggle("hidden", isStudy);
   el("studyStrategyField").classList.toggle("hidden", !isStudy);
   el("confidenceSelect").disabled = !isStudy;
+  el("examStrategySelect").disabled = isStudy;
   el("studyStrategySelect").disabled = !isStudy;
   el("modeHint").textContent = isStudy
     ? "Study mode registra confianca, gera fila de revisao e permite blocos adaptativos."
-    : "Exam mode simula prova, sem feedback de confianca influenciando a fila.";
+    : "Exam mode simula prova e pode priorizar fraquezas de forma adaptativa.";
   el("confidenceHint").textContent = isStudy
     ? "Usado no study mode para agendar a proxima revisao."
     : "No exam mode a confianca nao altera o fluxo da prova.";
   if(!isStudy){
     el("confidenceSelect").value = "medium";
     el("studyStrategySelect").value = "standard";
+  }else{
+    el("examStrategySelect").value = "standard";
   }
 }
 
@@ -900,7 +905,7 @@ function renderQuestion(payload){
   el("qsub").textContent = currentQuestion.multi_select ? "Selecione TODAS as alternativas corretas." : "Selecione a alternativa correta.";
   el("pill-target").textContent = isStudyMode()
     ? `${formatStudyStrategy(currentStudyStrategy)} · revisao imediata`
-    : "Meta: >= 90%";
+    : (currentExamStrategy === "adaptive" ? "Exam adaptativo · foco em lacunas" : "Meta: >= 90%");
   el("qtext").textContent = currentQuestion.prompt;
   setProgress(idx, total);
 
@@ -1227,9 +1232,10 @@ async function showResult(){
       ? `${studyStrategy} concluida. Sua fila tem ${res.review_due_count} revisao(oes) vencida(s).`
       : `${studyStrategy} concluida. Continue alimentando a fila de revisao com consistencia.`;
   }else{
+    const examAdaptive = res.strategy === "adaptive";
     el("resultSubtitle").textContent = weakest
-      ? `Area com mais erros: ${weakest.label} (${weakest.wrong} erro(s)).`
-      : "Veja seu desempenho geral e os principais insights.";
+      ? `${examAdaptive ? "Simulado adaptativo" : "Area com mais erros"}: ${weakest.label} (${weakest.wrong} erro(s)).`
+      : (examAdaptive ? "Simulado adaptativo concluido. Veja como ele priorizou suas lacunas." : "Veja seu desempenho geral e os principais insights.");
   }
   el("resDuration").textContent = formatDuration(summary.duration_seconds);
 
@@ -1280,7 +1286,13 @@ async function beginSession(payload, mode = "exam", startPath = null){
     const targetPath = startPath || `${currentSessionApiBase(currentSessionMode)}`;
     const s = await apiPost(targetPath, payload);
     sessionId = s.id;
-    currentStudyStrategy = currentSessionMode === "study" ? (s.selection_strategy || payload.strategy || "standard") : "standard";
+    if(currentSessionMode === "study"){
+      currentStudyStrategy = s.selection_strategy || payload.strategy || "standard";
+      currentExamStrategy = "standard";
+    }else{
+      currentExamStrategy = s.selection_strategy || payload.strategy || "standard";
+      currentStudyStrategy = "standard";
+    }
     writeStoredSession(currentSessionMode, sessionId);
     clearStoredSession(currentSessionMode === "study" ? "exam" : "study");
     setScorePills(s.correct_count, s.wrong_count);
@@ -1310,6 +1322,8 @@ async function start(){
   const payload = { exam_id: examId, total_questions: totalQuestions };
   if(mode === "study"){
     payload.strategy = el("studyStrategySelect").value || "standard";
+  }else{
+    payload.strategy = el("examStrategySelect").value || "standard";
   }
   if(subject){
     payload.domains = [subject];
@@ -1348,12 +1362,23 @@ async function checkResume(){
       }
       const examTitle = state.exam_id ? (examMap.get(state.exam_id)?.title || state.exam_id) : "Misturar todas";
       const label = candidate.mode === "study" ? "Estudo" : "Prova";
-      const strategyMeta = candidate.mode === "study" ? ` · ${formatStudyStrategy(state.selection_strategy)}` : "";
+      let strategyMeta = "";
+      if(candidate.mode === "study"){
+        strategyMeta = ` · ${formatStudyStrategy(state.selection_strategy)}`;
+      }else if((state.selection_strategy || "standard") !== "standard"){
+        strategyMeta = " · Adaptativa";
+      }
       el("continueMeta").textContent = `${label}: ${examTitle}${strategyMeta} · Questao ${state.current_index + 1}/${state.total_questions} · Acertos ${state.correct_count}`;
       el("continueBox").classList.remove("hidden");
       el("btn-continue").onclick = async () => {
         currentSessionMode = candidate.mode;
-        currentStudyStrategy = candidate.mode === "study" ? (state.selection_strategy || "standard") : "standard";
+        if(candidate.mode === "study"){
+          currentStudyStrategy = state.selection_strategy || "standard";
+          currentExamStrategy = "standard";
+        }else{
+          currentExamStrategy = state.selection_strategy || "standard";
+          currentStudyStrategy = "standard";
+        }
         sessionId = candidate.id;
         setScorePills(state.correct_count, state.wrong_count);
         show("screen-quiz");
@@ -1483,10 +1508,11 @@ function renderHistory(){
     row.className = "history-item";
     const examTitle = item.exam_title || (item.exam_id ? item.exam_id : "Misturar todas");
     const favActive = isFavorite(item.id);
+    const strategyMeta = item.selection_strategy === "adaptive" ? " · Adaptativa" : "";
     row.innerHTML = `
       <div>
         <div class="history-title">${examTitle}</div>
-        <div class="history-meta">${formatDate(item.completed_at || item.created_at)} · ${item.total_questions} questoes · ${formatScore(item.score_percent)} · ${item.correct_count} acertos</div>
+        <div class="history-meta">${formatDate(item.completed_at || item.created_at)} · ${item.total_questions} questoes${strategyMeta} · ${formatScore(item.score_percent)} · ${item.correct_count} acertos</div>
       </div>
       <div class="history-actions">
         <button class="btn btn-ghost" data-action="review" data-id="${item.id}" type="button" aria-haspopup="dialog">Revisar</button>
@@ -1613,6 +1639,9 @@ function renderWeeklyAnalytics(payload){
   studyWeeklyAnalytics = payload || null;
   const summary = payload?.summary || {};
   const weeks = Array.isArray(payload?.weeks) ? payload.weeks : [];
+  el("weeklySubtitle").textContent = summary.recommendation
+    ? String(summary.recommendation)
+    : "Acompanhe volume, revisoes e estabilidade de acerto nas ultimas semanas.";
   renderInsightCards("weeklySummary", [
     { label: "Questoes nas semanas", value: summary.total_questions ?? 0 },
     { label: "Revisoes respondidas", value: summary.review_questions ?? 0 },
@@ -2090,6 +2119,7 @@ el("btn-restart").addEventListener("click", () => {
   sessionId = null;
   currentQuestion = null;
   currentSessionMode = getSelectedMode();
+  currentExamStrategy = "standard";
   currentStudyStrategy = "standard";
   questionStartedAt = null;
   resetStudyEditorUi();

@@ -22,6 +22,7 @@ from app.services.quiz import (
     compute_result,
     build_domain_catalog,
     build_weak_area_snapshot_for_owner,
+    serialize_exam_session,
 )
 from app.services.gemini import ask_gemini, GeminiDisabled, GeminiError
 from app.services.materials import build_material_preview
@@ -77,18 +78,26 @@ def start_session(
             payload.total_questions,
             payload.question_ids,
             payload.domains,
+            payload.strategy,
             owner_user_id=current_user.id if current_user else None,
             owner_client_key=None if current_user else client_key,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return SessionOut(
-        id=session.id, exam_id=session.exam_id, total_questions=session.total_questions,
-        current_index=session.current_index, correct_count=session.correct_count, wrong_count=session.wrong_count
-    )
+    return SessionOut(**serialize_exam_session(session))
 
 def _iso(dt):
     return dt.isoformat() if dt else None
+
+
+def _selection_mix(selection_mix_json: str | None) -> dict:
+    if not selection_mix_json:
+        return {}
+    try:
+        payload = json.loads(selection_mix_json)
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _scope_session_history(stmt, current_user: User | None, client_key: str | None):
@@ -126,6 +135,8 @@ def get_history(
             exam_title=exam_title,
             created_at=_iso(session.created_at),
             completed_at=_iso(session.completed_at),
+            selection_strategy=session.selection_strategy or "standard",
+            selection_mix=_selection_mix(session.selection_mix_json),
             total_questions=total,
             correct_count=session.correct_count,
             wrong_count=session.wrong_count,
@@ -159,15 +170,7 @@ def get_session_state(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
-    return SessionStateOut(
-        id=session.id,
-        exam_id=session.exam_id,
-        total_questions=session.total_questions,
-        current_index=session.current_index,
-        correct_count=session.correct_count,
-        wrong_count=session.wrong_count,
-        finished=session.completed_at is not None
-    )
+    return SessionStateOut(**serialize_exam_session(session))
 
 @router.get("/sessions/{session_id}/next")
 def get_next_question(
@@ -226,6 +229,8 @@ def get_review(
         exam_title=exam.title if exam else None,
         created_at=_iso(session.created_at),
         completed_at=_iso(session.completed_at),
+        selection_strategy=session.selection_strategy or "standard",
+        selection_mix=_selection_mix(session.selection_mix_json),
         total_questions=total,
         correct_count=session.correct_count,
         wrong_count=session.wrong_count,

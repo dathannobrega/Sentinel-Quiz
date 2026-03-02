@@ -22,13 +22,15 @@
   - métricas semanais consolidadas de estudo e revisão
   - revisão detalhada por questão dentro de cada bloco de estudo
   - política de repetição espaçada incremental baseada no histórico do item
+  - priorização adaptativa no `exam mode` customizado
+  - evolução do agendamento para um modelo de estabilidade mais próximo de SRS
 
 ### Próxima fatia recomendada
 
-- priorização adaptativa também no `exam mode` customizado
-- política de repetição espaçada com fatores de estabilidade/recall mais sofisticados
 - recomendação semanal automática de metas (volume, domínios e backlog)
 - diferenciação entre revisão “vencida”, “em risco” e “dominada” no algoritmo
+- projeção de carga futura da fila de revisão
+- analytics editoriais usando desempenho agregado por questão e por versão
 
 ## 1. Estado atual e gaps críticos
 

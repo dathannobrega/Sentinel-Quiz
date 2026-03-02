@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Text
+    String, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Text, Float
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
@@ -147,6 +147,8 @@ class ExamSession(Base):
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     exam_id: Mapped[str] = mapped_column(String(128), nullable=True)  # null => mixed
+    selection_strategy: Mapped[str] = mapped_column(String(24), nullable=False, default="standard", index=True)
+    selection_mix_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=90)
 
     current_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -248,6 +250,11 @@ class ReviewQueueItem(Base):
     question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
     due_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    repetition_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lapse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ease_factor: Mapped[float] = mapped_column(Float, nullable=False, default=2.5)
+    stability_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    last_quality: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="wrong")
     confidence_level: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -191,6 +191,15 @@
                 <div class="hint" id="modeHint">Exam mode simula prova. Study mode registra confianca e abastece a fila de revisao.</div>
               </div>
 
+              <div class="field" id="examStrategyField">
+                <label for="examStrategySelect">Estrategia do exam mode</label>
+                <select id="examStrategySelect">
+                  <option value="standard">Simulado padrao (aleatorio)</option>
+                  <option value="adaptive">Simulado adaptativo (fraquezas + revisoes)</option>
+                </select>
+                <div class="hint" id="examStrategyHint">O modo adaptativo do simulado puxa mais dos dominios fracos e da fila de revisao, sem perder variedade.</div>
+              </div>
+
               <div class="field hidden" id="studyStrategyField">
                 <label for="studyStrategySelect">Estrategia do study mode</label>
                 <select id="studyStrategySelect">

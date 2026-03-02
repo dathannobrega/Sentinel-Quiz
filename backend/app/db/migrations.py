@@ -15,6 +15,8 @@ QUESTION_COLUMN_DDL = {
 EXAM_SESSION_COLUMN_DDL = {
     "user_id": "ALTER TABLE exam_sessions ADD COLUMN user_id VARCHAR(36)",
     "client_key": "ALTER TABLE exam_sessions ADD COLUMN client_key VARCHAR(64)",
+    "selection_strategy": "ALTER TABLE exam_sessions ADD COLUMN selection_strategy VARCHAR(24) NOT NULL DEFAULT 'standard'",
+    "selection_mix_json": "ALTER TABLE exam_sessions ADD COLUMN selection_mix_json TEXT",
 }
 
 STUDY_SESSION_COLUMN_DDL = {
@@ -22,11 +24,20 @@ STUDY_SESSION_COLUMN_DDL = {
     "selection_mix_json": "ALTER TABLE study_sessions ADD COLUMN selection_mix_json TEXT",
 }
 
+REVIEW_QUEUE_COLUMN_DDL = {
+    "repetition_count": "ALTER TABLE review_queue ADD COLUMN repetition_count INTEGER NOT NULL DEFAULT 0",
+    "lapse_count": "ALTER TABLE review_queue ADD COLUMN lapse_count INTEGER NOT NULL DEFAULT 0",
+    "ease_factor": "ALTER TABLE review_queue ADD COLUMN ease_factor FLOAT NOT NULL DEFAULT 2.5",
+    "stability_score": "ALTER TABLE review_queue ADD COLUMN stability_score FLOAT NOT NULL DEFAULT 0",
+    "last_quality": "ALTER TABLE review_queue ADD COLUMN last_quality INTEGER NOT NULL DEFAULT 0",
+}
+
 COMPAT_INDEX_DDL = {
     "exam_sessions": [
         "CREATE INDEX IF NOT EXISTS ix_exam_sessions_user_id ON exam_sessions (user_id)",
         "CREATE INDEX IF NOT EXISTS ix_exam_sessions_client_key ON exam_sessions (client_key)",
         "CREATE INDEX IF NOT EXISTS ix_exam_sessions_completed_at ON exam_sessions (completed_at)",
+        "CREATE INDEX IF NOT EXISTS ix_exam_sessions_selection_strategy ON exam_sessions (selection_strategy)",
     ],
     "study_sessions": [
         "CREATE INDEX IF NOT EXISTS ix_study_sessions_selection_strategy ON study_sessions (selection_strategy)",
@@ -74,6 +85,14 @@ def ensure_compat_schema(engine: Engine) -> None:
 
     if "auth_tokens" in table_names:
         statements.extend(COMPAT_INDEX_DDL["auth_tokens"])
+
+    if "review_queue" in table_names:
+        existing_review_columns = {col["name"] for col in inspector.get_columns("review_queue")}
+        statements.extend(
+            REVIEW_QUEUE_COLUMN_DDL[name]
+            for name in REVIEW_QUEUE_COLUMN_DDL
+            if name not in existing_review_columns
+        )
 
     if not statements:
         return

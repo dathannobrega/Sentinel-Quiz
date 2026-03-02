@@ -28,18 +28,24 @@ class CreateSessionIn(BaseModel):
     total_questions: int = Field(default=90, ge=1, le=2000)
     domains: Optional[List[str]] = Field(default=None, description="Optional domain filters.")
     question_ids: Optional[List[str]] = Field(default=None, description="Optional explicit question IDs to use (keeps order).")
+    strategy: str = Field(default="standard", description="standard or adaptive.")
 
 class SessionOut(BaseModel):
     id: str
     exam_id: Optional[str]
+    selection_strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
     total_questions: int
     current_index: int
     correct_count: int
     wrong_count: int
+    finished: bool = False
 
 class SessionStateOut(BaseModel):
     id: str
     exam_id: Optional[str]
+    selection_strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
     total_questions: int
     current_index: int
     correct_count: int
@@ -69,6 +75,8 @@ class ResultOut(BaseModel):
     score_percent: float
     passed: bool
     pass_threshold_percent: float
+    strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
     insight: dict
 
 class SessionHistoryOut(BaseModel):
@@ -77,6 +85,8 @@ class SessionHistoryOut(BaseModel):
     exam_title: Optional[str] = None
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
+    selection_strategy: str = "standard"
+    selection_mix: Dict[str, int] = Field(default_factory=dict)
     total_questions: int
     correct_count: int
     wrong_count: int
@@ -243,6 +253,9 @@ class ReviewQueueEntryOut(BaseModel):
     overdue_days: int = 0
     domain: Optional[str] = None
     certification: Optional[str] = None
+    repetition_count: int = 0
+    stability_score: float = 0.0
+    ease_factor: float = 2.5
 
 
 class ReviewQueueSnapshotOut(BaseModel):
