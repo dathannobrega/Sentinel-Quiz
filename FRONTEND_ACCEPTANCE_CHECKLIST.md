@@ -5,7 +5,10 @@
 - [ ] A tela inicial em `web/app/page.tsx` cobre loading, error parcial, empty e success.
 - [ ] O usuario consegue entrar, criar conta, sair e iniciar sessao sem recarregar a pagina.
 - [ ] O runner em `web/app/exam/[sessionId]` e `web/app/study/[sessionId]` permite responder e avancar sem recarregar a pagina.
+- [ ] O study runner permite editar bookmark e nota da questao sem sair do fluxo.
 - [ ] O resultado em `web/app/*/[sessionId]/result` mostra revisao basica, justificativa e referencias.
+- [ ] A tela `web/app/history` cobre filtros, fila de revisao, historico e analytics semanais.
+- [ ] A tela `web/app/admin` cobre overview, busca, CRUD de prova/questao, reimportacao e exportacao.
 - [ ] CTAs sao curtos e consistentes.
 - [ ] O fluxo deixa claro quando a sessao foi criada e qual e o proximo passo.
 
@@ -32,7 +35,6 @@
 ## Integracao
 
 - [ ] `NEXT_PUBLIC_API_ORIGIN` permite apontar para backend remoto sem mudar codigo.
-- [ ] `NEXT_PUBLIC_LEGACY_APP_URL` permite fallback opcional para o frontend legado.
 - [ ] A criacao de sessao persiste o `sessionId` nas mesmas chaves do frontend legado.
-- [ ] O link de handoff para o runner legado esta configurado e valido no ambiente atual.
 - [ ] As imagens `api` e `web` sobem juntas em `docker compose`.
+- [ ] O backend nao depende mais de arquivos estaticos do frontend legado para iniciar.

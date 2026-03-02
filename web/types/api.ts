@@ -96,6 +96,14 @@ export interface StudyOverview {
   due_reviews: StudyOverviewItem[];
 }
 
+export interface StudyState {
+  question_id: string;
+  bookmarked: boolean;
+  note_text?: string | null;
+  updated_at?: string | null;
+  scope: string;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -178,6 +186,45 @@ export interface StudyHistoryItem {
   confidence_medium: number;
   confidence_high: number;
   weakest_domains: string[];
+}
+
+export interface ReviewQueueEntry {
+  question_id: string;
+  prompt: string;
+  due_at?: string | null;
+  state: string;
+  overdue_days: number;
+  domain?: string | null;
+  certification?: string | null;
+  repetition_count: number;
+  stability_score: number;
+  ease_factor: number;
+}
+
+export interface ReviewQueueSnapshot {
+  due_count: number;
+  total_count: number;
+  next_due_at?: string | null;
+  recommended_batch_size: number;
+  items: ReviewQueueEntry[];
+}
+
+export interface StudyWeeklyMetric {
+  week_start: string;
+  week_end: string;
+  label: string;
+  study_questions: number;
+  review_questions: number;
+  scheduled_reviews: number;
+  completed_sessions: number;
+  review_sessions: number;
+  accuracy_percent: number;
+  low_confidence: number;
+}
+
+export interface StudyWeeklyAnalytics {
+  weeks: StudyWeeklyMetric[];
+  summary: Record<string, unknown>;
 }
 
 export interface SessionQuestionResponse {
@@ -267,4 +314,81 @@ export interface StudySessionReview {
   session: StudyHistoryItem;
   result: StudyResult;
   questions: StudyReviewQuestion[];
+}
+
+export interface AdminOverview {
+  exam_count: number;
+  question_count: number;
+  completed_session_count: number;
+  question_breakdown: Record<string, number>;
+}
+
+export interface AdminMutationResponse {
+  ok: boolean;
+  id?: string;
+}
+
+export interface AdminIngestResponse {
+  imported: number;
+  skipped: number;
+  errors?: string[];
+}
+
+export interface AdminCreateExamInput {
+  id: string;
+  title: string;
+  source?: string | null;
+  question_count?: number | null;
+}
+
+export interface AdminOptionInput {
+  key: string;
+  text: string;
+  is_correct?: boolean | null;
+}
+
+export interface AdminOption extends AdminOptionInput {
+  is_correct: boolean;
+}
+
+export interface AdminQuestionSummary {
+  id: string;
+  exam_id: string;
+  prompt: string;
+  multi_select: boolean;
+  domain?: string | null;
+  difficulty?: string | null;
+  certification?: string | null;
+  option_count: number;
+  correct_count: number;
+}
+
+export interface AdminQuestion {
+  id: string;
+  exam_id: string;
+  prompt: string;
+  multi_select: boolean;
+  domain?: string | null;
+  difficulty?: string | null;
+  certification?: string | null;
+  tags?: string[] | null;
+  citations?: CitationItem[] | null;
+  options: AdminOption[];
+  correct_keys: string[];
+  justification?: string | null;
+}
+
+export interface AdminQuestionInput {
+  id: string;
+  exam_id: string;
+  prompt: string;
+  multi_select: boolean;
+  domain?: string | null;
+  difficulty?: string | null;
+  certification?: string | null;
+  tags?: string[] | null;
+  citations?: CitationItem[] | null;
+  options: AdminOptionInput[];
+  correct_keys: string[];
+  justification?: string | null;
 }

@@ -1,9 +1,10 @@
 import { SessionResultShell } from "@/features/results/components/session-result-shell";
 
-export default function StudyResultPage({
+export default async function StudyResultPage({
   params
 }: {
-  params: { sessionId: string };
+  params: Promise<{ sessionId: string }>;
 }) {
-  return <SessionResultShell mode="study" sessionId={params.sessionId} />;
+  const { sessionId } = await params;
+  return <SessionResultShell mode="study" sessionId={sessionId} />;
 }

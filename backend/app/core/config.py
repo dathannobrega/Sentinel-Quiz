@@ -12,11 +12,10 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///./securityplus.db", alias="DATABASE_URL")
     bootstrap_schema: bool = Field(default=True, alias="BOOTSTRAP_SCHEMA")
     admin_api_key: str = Field(default="change-me", alias="ADMIN_API_KEY")
-    frontend_dir: str = Field(default="../frontend", alias="FRONTEND_DIR")
     auth_token_ttl_hours: int = Field(default=168, alias="AUTH_TOKEN_TTL_HOURS")
     auth_token_bytes: int = Field(default=32, alias="AUTH_TOKEN_BYTES")
 
-    cors_origins: str = Field(default="http://127.0.0.1:5500,http://localhost:5500", alias="CORS_ORIGINS")
+    cors_origins: str = Field(default="http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:3000,http://localhost:3000", alias="CORS_ORIGINS")
 
     gemini_enable: bool = Field(default=True, alias="GEMINI_ENABLE")
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")

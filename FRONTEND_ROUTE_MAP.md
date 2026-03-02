@@ -2,17 +2,8 @@
 
 ## Estado atual
 
-- `frontend/index.html`
-  - Home/dashboard
-  - Auth inline
-  - Start session
-  - Quiz runner
-  - Result
-  - History
-  - Study history
-  - Review modals
-- `frontend/admin.html`
-  - CMS editorial
+- O frontend legado foi removido.
+- Toda a jornada de aluno e admin roda em `web/`.
 
 ## Nova estrutura em `web/`
 
@@ -57,6 +48,8 @@
     - `GET /api/study/sessions/{id}`
     - `GET /api/study/sessions/{id}/next`
     - `POST /api/study/sessions/{id}/answer`
+    - `GET /api/study/questions/{question_id}/state`
+    - `PUT /api/study/questions/{question_id}/state`
 
 - `web/app/exam/[sessionId]/result/page.tsx`
   - Feature: `exam-result`
@@ -72,24 +65,33 @@
   - Endpoints:
     - `GET /api/study/sessions/{id}/review`
 
-### Planejado
-
 - `web/app/history/page.tsx`
   - Feature: `history`
+  - Componentes:
+    - `web/features/history/components/history-shell.tsx`
   - Endpoints:
+    - `GET /api/exams`
     - `GET /api/sessions/history`
     - `GET /api/study/history`
     - `GET /api/study/analytics/weekly`
-
-- `web/app/study/[sessionId]` (estado de estudo inline)
-  - Feature: `study-state`
-  - Endpoints:
-    - `GET /api/study/questions/{question_id}/state`
-    - `PUT /api/study/questions/{question_id}/state`
+    - `GET /api/study/review/queue`
+    - `POST /api/study/review/sessions`
 
 - `web/app/admin/page.tsx`
   - Feature: `admin`
+  - Componentes:
+    - `web/features/admin/components/admin-shell.tsx`
   - Endpoints:
+    - `GET /api/exams`
     - `GET /api/admin/overview`
     - `GET /api/admin/questions`
-    - `POST /api/admin/...`
+    - `GET /api/admin/questions/{question_id}`
+    - `POST /api/admin/exams`
+    - `POST /api/admin/questions`
+    - `DELETE /api/admin/questions/{question_id}`
+    - `POST /api/admin/ingest`
+    - `GET /api/admin/export`
+
+### Planejado
+
+- Testes automatizados e refinamentos finais

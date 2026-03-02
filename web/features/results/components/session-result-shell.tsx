@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
+import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { buildMaterialPreviewHref } from "@/lib/utils/materials";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
@@ -259,6 +260,8 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
           </div>
           <div className="sq-inline-actions">
             <Link href="/">Dashboard</Link>
+            <Link href="/history">Historico</Link>
+            <Link href="/admin">Admin</Link>
             <Link href="/">Iniciar nova sessao</Link>
           </div>
         </header>

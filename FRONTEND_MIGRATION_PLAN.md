@@ -2,9 +2,9 @@
 
 ## Estrategia
 
-- Nao substituir `frontend/` de uma vez.
-- Manter o legado funcional enquanto o novo frontend nasce em `web/`.
-- Migrar a jornada em fatias verticais, com rollback simples: basta voltar a servir `frontend/`.
+- A migracao incremental foi concluida no `web/`.
+- O frontend legado foi removido do runtime e do repositorio.
+- O foco agora e hardening: testes, validacao de build e refinamentos finais de UX.
 
 ## Etapas
 
@@ -50,12 +50,17 @@
   - editor
   - QA basico
   - export/import
+- Status: implementado nesta fatia para o fluxo principal editorial:
+  - `/admin`
+  - overview
+  - busca
+  - CRUD de prova/questao
+  - reimportacao
+  - exportacao
 
 ## Riscos e rollback
 
-- Risco: dualidade entre `frontend/` e `web/`.
-  - Mitigacao: migracao por entrada de jornada e reuse de `localStorage`/backend.
-- Risco: divergencia visual durante a transicao.
+- Risco: divergencia visual apos a consolidacao.
   - Mitigacao: tokens e linguagem visual herdados do CSS atual.
 - Risco: contract drift com backend.
   - Mitigacao: `apiClient` tipado sobre endpoints reais e sem alterar a API existente.
@@ -66,7 +71,7 @@
   - o fluxo principal roda no novo frontend
   - loading/empty/error/success estao cobertos
   - keyboard/focus basicos estao corretos
-  - existe caminho de rollback simples
+  - existe build e deploy reproduziveis via Docker
 
 ## Onde estamos agora
 
@@ -77,7 +82,9 @@
   - runner `exam`
   - runner `study`
   - resultado e revisao basica de ambos
+  - historico e analytics principais
+  - admin editorial
 - Principal backlog da trilha:
-  - bookmarks/notas inline no runner de study
-  - historico/analytics dedicados no app novo
-  - migracao do admin
+  - refinamentos de UX do estado de estudo inline
+  - testes automatizados reais do app Next
+  - observabilidade e validacao automatica de build/deploy

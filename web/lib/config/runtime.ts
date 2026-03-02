@@ -1,6 +1,5 @@
 export interface SentinelRuntimeConfig {
   apiOrigin: string;
-  legacyAppUrl: string;
 }
 
 declare global {
@@ -19,7 +18,6 @@ export function getRuntimeConfig(): SentinelRuntimeConfig {
   }
 
   return {
-    apiOrigin: normalizeOrigin(process.env.NEXT_PUBLIC_API_ORIGIN || ""),
-    legacyAppUrl: String(process.env.NEXT_PUBLIC_LEGACY_APP_URL || "/frontend/index.html").trim() || "/frontend/index.html"
+    apiOrigin: normalizeOrigin(process.env.NEXT_PUBLIC_API_ORIGIN || "")
   };
 }

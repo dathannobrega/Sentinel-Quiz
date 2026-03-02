@@ -1,5 +1,7 @@
 # Frontend Audit
 
+> Snapshot historico da base legada que motivou a migracao. Os arquivos auditados abaixo ja foram removidos do runtime principal.
+
 ## Escopo auditado
 
 - `frontend/index.html`

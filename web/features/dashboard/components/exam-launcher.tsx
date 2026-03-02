@@ -1,4 +1,4 @@
-import { Button, buttonClassName } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -11,7 +11,6 @@ interface ExamLauncherProps {
   exams: Exam[];
   domains: DomainCatalogEntry[];
   apiOriginLabel: string;
-  legacyAppHref: string;
   values: LaunchFormValues;
   notice: DashboardNotice | null;
   pending: boolean;
@@ -24,7 +23,6 @@ export function ExamLauncher({
   exams,
   domains,
   apiOriginLabel,
-  legacyAppHref,
   values,
   notice,
   pending,
@@ -37,23 +35,10 @@ export function ExamLauncher({
   return (
     <Card
       title="Configurar prova"
-      subtitle="A jornada principal agora inicia e continua no frontend Next, com fallback para o legado enquanto o admin ainda nao foi migrado."
+      subtitle="A jornada principal agora inicia e continua no frontend Next, sem dependencias do frontend legado."
     >
       <div className="sq-surface-block">
-        {notice ? (
-          <StatusBanner
-            tone={notice.tone}
-            title={notice.title}
-            message={notice.message}
-            action={
-              notice.tone === "success" ? (
-                <a className={buttonClassName("ghost", "sm")} href={legacyAppHref}>
-                  Abrir runner legado
-                </a>
-              ) : null
-            }
-          />
-        ) : null}
+        {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
 
         <div className="sq-form-grid">
           <Field label="Prova" htmlFor="exam-id" hint="Misturar tudo continua permitido no backend.">
@@ -168,9 +153,6 @@ export function ExamLauncher({
           <Button busy={pending} disabled={!canLaunch} onClick={onSubmit}>
             {isStudy ? "Criar bloco de estudo" : "Criar simulado"}
           </Button>
-          <a className={buttonClassName("ghost", "md")} href={legacyAppHref}>
-            Voltar ao frontend atual
-          </a>
         </div>
 
         <div className="sq-empty">

@@ -38,7 +38,7 @@ function resolveApiOrigin(): string {
   return "";
 }
 
-function buildUrl(path: string): string {
+export function buildApiUrl(path: string): string {
   const apiOrigin = resolveApiOrigin();
   const normalizedPath = path.startsWith("/api") ? path : `/api${path.startsWith("/") ? path : `/${path}`}`;
   return `${apiOrigin}${normalizedPath}`;
@@ -65,7 +65,7 @@ async function parseErrorResponse(response: Response): Promise<ApiError> {
         status: response.status
       });
     }
-  } catch (_error) {
+  } catch {
     // Fall through to plain-text error normalization.
   }
 
@@ -101,7 +101,7 @@ async function sendRequest<T>(path: string, options: RequestOptions = {}): Promi
       }
     }
 
-    return fetch(buildUrl(path), {
+    return fetch(buildApiUrl(path), {
       ...options,
       body,
       headers,

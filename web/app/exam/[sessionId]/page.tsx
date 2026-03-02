@@ -1,9 +1,10 @@
 import { SessionRunnerShell } from "@/features/session-runner/components/session-runner-shell";
 
-export default function ExamSessionPage({
+export default async function ExamSessionPage({
   params
 }: {
-  params: { sessionId: string };
+  params: Promise<{ sessionId: string }>;
 }) {
-  return <SessionRunnerShell mode="exam" sessionId={params.sessionId} />;
+  const { sessionId } = await params;
+  return <SessionRunnerShell mode="exam" sessionId={sessionId} />;
 }

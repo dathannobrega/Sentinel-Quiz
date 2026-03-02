@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 from app.core.config import settings
 from app.db.session import engine, SessionLocal
 from app.db.base import Base
@@ -46,15 +45,3 @@ app.include_router(study_router)
 material_path = resolve_material_dir()
 if material_path and material_path.is_dir():
     app.mount("/materials", StaticFiles(directory=str(material_path), html=False), name="materials")
-
-frontend_path = Path(settings.frontend_dir)
-if not frontend_path.is_absolute():
-    frontend_path = (Path.cwd() / frontend_path).resolve()
-if not frontend_path.is_dir():
-    repo_frontend = Path(__file__).resolve().parents[2] / "frontend"
-    if repo_frontend.is_dir():
-        frontend_path = repo_frontend
-
-if frontend_path.is_dir():
-    # Mount last so /api routes take precedence.
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")

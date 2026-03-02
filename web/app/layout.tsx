@@ -13,8 +13,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const runtimeConfig = {
-    apiOrigin: String(process.env.NEXT_PUBLIC_API_ORIGIN || "").trim().replace(/\/$/, ""),
-    legacyAppUrl: String(process.env.NEXT_PUBLIC_LEGACY_APP_URL || "/frontend/index.html").trim() || "/frontend/index.html"
+    apiOrigin: String(process.env.NEXT_PUBLIC_API_ORIGIN || "").trim().replace(/\/$/, "")
   };
   const runtimeConfigScript = JSON.stringify(runtimeConfig).replace(/</g, "\\u003c");
 

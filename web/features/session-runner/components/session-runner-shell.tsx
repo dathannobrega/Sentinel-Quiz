@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useEffectEvent, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -11,12 +11,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { clearSessionId } from "@/lib/auth/storage";
+import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { formatDateTime } from "@/lib/utils/format";
 import type {
   ExamAnswerFeedback,
   SessionQuestionResponse,
   SessionResponse,
-  StudyAnswerFeedback
+  StudyAnswerFeedback,
+  StudyState
 } from "@/types/api";
 
 type RunnerMode = "exam" | "study";
@@ -85,10 +87,17 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [confidenceLevel, setConfidenceLevel] = useState<"low" | "medium" | "high">("medium");
   const [questionStartedAt, setQuestionStartedAt] = useState<number | null>(null);
+  const [studyState, setStudyState] = useState<StudyState | null>(null);
+  const [studyDraft, setStudyDraft] = useState({ bookmarked: false, noteText: "" });
+  const [isStudyStateLoading, setIsStudyStateLoading] = useState(false);
+  const [isStudyStateSaving, setIsStudyStateSaving] = useState(false);
+  const [studyStateDirty, setStudyStateDirty] = useState(false);
+  const [studyStateNotice, setStudyStateNotice] = useState<string | null>(null);
 
   const currentQuestion = questionState?.question || null;
   const questionNumber = (questionState?.progress_index ?? 0) + 1;
   const totalQuestions = questionState?.total_questions ?? sessionState?.total_questions ?? 0;
+  const isStudyMode = mode === "study";
 
   const boot = useEffectEvent(async () => {
     setIsBootLoading(true);
@@ -124,6 +133,13 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
     setPageNotice(null);
 
     try {
+      if (isStudyMode && studyStateDirty) {
+        const saved = await saveCurrentStudyState();
+        if (!saved) {
+          return;
+        }
+      }
+
       const nextResponse = await apiClient.get<SessionQuestionResponse>(`${sessionBasePath}/${sessionId}/next`);
       if (nextResponse.finished) {
         clearSessionId(mode);
@@ -147,6 +163,108 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   useEffect(() => {
     void boot();
   }, [sessionId, mode]);
+
+  const loadCurrentStudyState = useEffectEvent(async (questionId: string) => {
+    setIsStudyStateLoading(true);
+    setStudyStateNotice("Carregando status de estudo...");
+
+    try {
+      const response = await apiClient.get<StudyState>(`/study/questions/${questionId}/state`);
+      if (currentQuestion?.id !== questionId) {
+        return;
+      }
+
+      setStudyState(response);
+      setStudyDraft({
+        bookmarked: response.bookmarked,
+        noteText: response.note_text || ""
+      });
+      setStudyStateDirty(false);
+      setStudyStateNotice(
+        response.updated_at
+          ? `Sincronizado em ${formatDateTime(response.updated_at)} (${response.scope}).`
+          : `Sem anotacoes salvas ainda (${response.scope}).`
+      );
+    } catch (error) {
+      if (currentQuestion?.id !== questionId) {
+        return;
+      }
+      setStudyStateNotice(readRunnerError(error));
+    } finally {
+      if (currentQuestion?.id === questionId) {
+        setIsStudyStateLoading(false);
+      }
+    }
+  });
+
+  const saveCurrentStudyState = useEffectEvent(async (): Promise<boolean> => {
+    if (!isStudyMode || !currentQuestion) {
+      return true;
+    }
+
+    if (!studyStateDirty) {
+      return true;
+    }
+
+    setIsStudyStateSaving(true);
+    setStudyStateNotice("Salvando status de estudo...");
+
+    try {
+      const response = await apiClient.put<StudyState>(`/study/questions/${currentQuestion.id}/state`, {
+        bookmarked: studyDraft.bookmarked,
+        note_text: studyDraft.noteText.trim() ? studyDraft.noteText : null
+      });
+
+      if (currentQuestion?.id !== response.question_id) {
+        return true;
+      }
+
+      setStudyState(response);
+      setStudyDraft({
+        bookmarked: response.bookmarked,
+        noteText: response.note_text || ""
+      });
+      setStudyStateDirty(false);
+      setStudyStateNotice(
+        response.updated_at
+          ? `Salvo em ${formatDateTime(response.updated_at)} (${response.scope}).`
+          : `Status sincronizado (${response.scope}).`
+      );
+      return true;
+    } catch (error) {
+      setStudyStateNotice(`Nao foi possivel salvar: ${readRunnerError(error)}`);
+      return false;
+    } finally {
+      setIsStudyStateSaving(false);
+    }
+  });
+
+  useEffect(() => {
+    if (!isStudyMode || !currentQuestion) {
+      setStudyState(null);
+      setStudyDraft({ bookmarked: false, noteText: "" });
+      setStudyStateDirty(false);
+      setStudyStateNotice(null);
+      setIsStudyStateLoading(false);
+      return;
+    }
+
+    void loadCurrentStudyState(currentQuestion.id);
+  }, [currentQuestion?.id, isStudyMode]);
+
+  useEffect(() => {
+    if (!isStudyMode || !currentQuestion || !studyStateDirty || isStudyStateSaving) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void saveCurrentStudyState();
+    }, 900);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [isStudyMode, currentQuestion?.id, studyDraft.bookmarked, studyDraft.noteText, studyStateDirty, isStudyStateSaving]);
 
   useEffect(() => {
     if (!sessionState || sessionState.finished) {
@@ -294,6 +412,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
           </div>
           <div className="sq-inline-actions">
             <Link href="/">Dashboard</Link>
+            <Link href="/history">Historico</Link>
+            <Link href="/admin">Admin</Link>
           </div>
         </header>
 
@@ -374,24 +494,119 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                   })}
                 </div>
 
-                {mode === "study" ? (
-                  <Field
-                    label="Confianca"
-                    htmlFor="confidence-level"
-                    hint="Esse nivel alimenta o algoritmo de repeticao e a proxima revisao."
-                  >
-                    <select
-                      id="confidence-level"
-                      className="sq-select"
-                      value={confidenceLevel}
-                      onChange={(event) => setConfidenceLevel(event.target.value as "low" | "medium" | "high")}
-                      disabled={!!feedback}
+                {isStudyMode ? (
+                  <div className="sq-surface-block">
+                    <Field
+                      label="Confianca"
+                      htmlFor="confidence-level"
+                      hint="Esse nivel alimenta o algoritmo de repeticao e a proxima revisao."
                     >
-                      <option value="low">Chutei / baixa confianca</option>
-                      <option value="medium">Confianca media</option>
-                      <option value="high">Tenho certeza</option>
-                    </select>
-                  </Field>
+                      <select
+                        id="confidence-level"
+                        className="sq-select"
+                        value={confidenceLevel}
+                        onChange={(event) => setConfidenceLevel(event.target.value as "low" | "medium" | "high")}
+                        disabled={!!feedback}
+                      >
+                        <option value="low">Chutei / baixa confianca</option>
+                        <option value="medium">Confianca media</option>
+                        <option value="high">Tenho certeza</option>
+                      </select>
+                    </Field>
+
+                    <div
+                      className="sq-list-item"
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "var(--sq-space-3)"
+                      }}
+                    >
+                      <div className="sq-progress-head">
+                        <div>
+                          <div className="sq-list-title">Revisao pessoal</div>
+                          <div className="sq-list-meta">
+                            Bookmark e nota sincronizados por questao no mesmo fluxo do study mode.
+                          </div>
+                        </div>
+                        <span className="sq-chip">{studyState?.scope || "device"}</span>
+                      </div>
+
+                      <label
+                        htmlFor="study-bookmark"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "var(--sq-space-2)",
+                          fontWeight: 700
+                        }}
+                      >
+                        <input
+                          id="study-bookmark"
+                          type="checkbox"
+                          checked={studyDraft.bookmarked}
+                          disabled={isStudyStateLoading}
+                          onChange={(event) => {
+                            setStudyDraft((current) => ({
+                              ...current,
+                              bookmarked: event.target.checked
+                            }));
+                            setStudyStateDirty(true);
+                            setStudyStateNotice("Alteracoes pendentes...");
+                          }}
+                        />
+                        Marcar para revisar depois
+                      </label>
+
+                      <Field
+                        label="Nota"
+                        htmlFor="study-note"
+                        hint="Use este campo para registrar contexto, pegadinhas e por que voce errou."
+                      >
+                        <textarea
+                          id="study-note"
+                          className="sq-textarea"
+                          rows={5}
+                          value={studyDraft.noteText}
+                          disabled={isStudyStateLoading}
+                          onChange={(event) => {
+                            setStudyDraft((current) => ({
+                              ...current,
+                              noteText: event.target.value
+                            }));
+                            setStudyStateDirty(true);
+                            setStudyStateNotice("Alteracoes pendentes...");
+                          }}
+                        />
+                      </Field>
+
+                      <div className="sq-actions">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          busy={isStudyStateSaving}
+                          disabled={!studyStateDirty || isStudyStateLoading}
+                          onClick={() => void saveCurrentStudyState()}
+                        >
+                          Salvar anotacoes
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isStudyStateLoading || !currentQuestion}
+                          onClick={() => {
+                            if (currentQuestion) {
+                              void loadCurrentStudyState(currentQuestion.id);
+                            }
+                          }}
+                        >
+                          Recarregar
+                        </Button>
+                      </div>
+
+                      {studyStateNotice ? <div className="sq-list-meta">{studyStateNotice}</div> : null}
+                    </div>
+                  </div>
                 ) : null}
 
                 {feedback ? (
@@ -423,7 +638,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                   <Button
                     variant="ghost"
                     busy={isAdvancing}
-                    disabled={!feedback}
+                    disabled={!feedback || isStudyStateSaving}
                     onClick={() => void goNext()}
                   >
                     {feedback?.finished ? "Ver resultado" : "Proxima questao"}

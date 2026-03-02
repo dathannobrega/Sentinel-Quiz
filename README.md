@@ -12,7 +12,7 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 * **Simulado Realista:** Interface SPA configurada para 90 questões com feedback imediato e insights finais.
 * **Study Mode Dedicado:** Blocos de aprendizado separados do simulado, com feedback imediato, nível de confiança, sessão adaptativa e agendamento de revisão.
 * **Exam Mode Adaptativo:** O simulado também pode priorizar revisões pendentes e domínios fracos, mantendo distribuição suficiente para não virar apenas “revisão disfarçada”.
-* **Painel Admin:** Gerenciamento de provas e questões via API Key ou usuário autenticado com papel editorial.
+* **Painel Admin Modernizado:** Gerenciamento de provas e questões via API Key ou usuário autenticado com papel editorial, agora também disponível no frontend Next em `/admin`.
 * **Tutor IA (Gemini):** Integração com Google Gemini para explicar conceitos e dar pistas, garantindo que o usuário aprenda o "porquê" em vez de apenas decorar.
 * **Sessões Isoladas:** Histórico, analytics e revisão ficam escopados por usuário autenticado ou por dispositivo (`X-Client-Key`) para evitar vazamento de progresso entre alunos.
 * **Conta e Estado de Estudo:** Login/cadastro web com sincronização de bookmarks e notas por questão, inclusive com migração automática do progresso local ao entrar na conta.
@@ -23,7 +23,7 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 ## 🚀 Tecnologias
 
 - **Backend:** Python, FastAPI, SQLAlchemy, PostgreSQL/SQLite, Alembic.
-- **Frontend:** HTML/CSS/JavaScript legado + Next.js (App Router), React e TypeScript na trilha de migracao.
+- **Frontend:** Next.js (App Router), React e TypeScript como interface principal.
 - **IA:** Google Generative AI SDK.
 
 ---
@@ -48,18 +48,17 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Por padrão, o backend faz bootstrap automático do schema (`BOOTSTRAP_SCHEMA=true`) para acelerar o ambiente local. Em produção, prefira rodar migrations com Alembic e desabilitar esse bootstrap.
 
-### 2. Frontend
+### 2. Frontend (Next)
 
-Para o frontend, você pode usar qualquer servidor estático.
+O frontend principal agora vive em `web/`.
 
 ```bash
-cd frontend
-# Utilizando o servidor nativo do Python para testes rápidos
-python -m http.server 5500
-
+cd web
+npm install
+npm run dev
 ```
 
-Acesse em: `http://127.0.0.1:5500`
+Acesse em: `http://127.0.0.1:3000`
 
 ### 3. Docker / Docker Compose
 
@@ -135,7 +134,7 @@ O projeto depende de variáveis de ambiente para funcionar corretamente:
 | --- | --- |
 | `DATABASE_URL` | String de conexão do banco (`sqlite:///...` ou `postgresql+psycopg://...`). |
 | `BOOTSTRAP_SCHEMA` | Quando `true`, cria/atualiza o schema base automaticamente no startup. Em produção, prefira `false` com Alembic. |
-| `ADMIN_API_KEY` | Chave para acessar `frontend/admin.html`. |
+| `ADMIN_API_KEY` | Chave para acessar operações editoriais da API e o painel `/admin`. |
 | `AUTH_TOKEN_TTL_HOURS` | Validade dos tokens bearer opacos. |
 | `AUTH_TOKEN_BYTES` | Entropia usada na geração dos tokens bearer. |
 | `GEMINI_API_KEY` | Sua chave de API do Google AI Studio. |
@@ -266,9 +265,9 @@ Fluxo recomendado em produção:
 
 ---
 
-## 🌐 Frontend Next.js (migração incremental)
+## 🌐 Frontend Next.js
 
-O frontend legado continua em `frontend/`, mas agora existe uma trilha nova em `web/` com:
+O frontend do produto agora vive integralmente em `web/`, com:
 
 - `Next.js (App Router)`
 - `React`
@@ -286,6 +285,9 @@ Primeira fatia já entregue:
 - runner de prova (`/exam/[sessionId]`)
 - runner de study (`/study/[sessionId]`)
 - tela de resultado e revisão básica de ambos
+- histórico e analytics principais (`/history`)
+- bookmark e nota inline por questão no `study mode`
+- painel editorial completo (`/admin`)
 
 Para subir essa nova UI:
 
@@ -299,12 +301,6 @@ Se o backend não estiver na mesma origem, defina:
 
 ```bash
 NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
-```
-
-Se você ainda quiser manter um fallback para o frontend legado:
-
-```bash
-NEXT_PUBLIC_LEGACY_APP_URL=http://127.0.0.1:5500/frontend/index.html
 ```
 
 ## 🐳 Docker com API + Web
@@ -326,7 +322,6 @@ Variáveis novas para o frontend container:
 APP_WEB_IMAGE_NAME=sentinel-quiz-web:local
 APP_WEB_PORT=3000
 APP_PUBLIC_API_ORIGIN=http://localhost:8000
-APP_PUBLIC_LEGACY_APP_URL=http://localhost:8000
 ```
 
 No Portainer, a stack agora espera duas imagens:

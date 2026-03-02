@@ -22,7 +22,6 @@ map_prefixed_env APP_QUESTION_JSON_DIR QUESTION_JSON_DIR
 map_prefixed_env APP_DATABASE_URL DATABASE_URL
 map_prefixed_env APP_BOOTSTRAP_SCHEMA BOOTSTRAP_SCHEMA
 map_prefixed_env APP_RUN_DB_MIGRATIONS RUN_DB_MIGRATIONS
-map_prefixed_env APP_FRONTEND_DIR FRONTEND_DIR
 map_prefixed_env APP_MATERIAL_DIR MATERIAL_DIR
 map_prefixed_env APP_ADMIN_API_KEY ADMIN_API_KEY
 map_prefixed_env APP_CORS_ORIGINS CORS_ORIGINS
@@ -43,11 +42,10 @@ map_prefixed_env APP_GEMINI_CANDIDATE_COUNT GEMINI_CANDIDATE_COUNT
 : "${DATABASE_URL:=sqlite:////data/securityplus.db}"
 : "${BOOTSTRAP_SCHEMA:=true}"
 : "${RUN_DB_MIGRATIONS:=false}"
-: "${FRONTEND_DIR:=/app/frontend}"
 : "${MATERIAL_DIR:=/app/material}"
 : "${AUTH_TOKEN_TTL_HOURS:=168}"
 : "${AUTH_TOKEN_BYTES:=32}"
-: "${CORS_ORIGINS:=http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:8000,http://localhost:8000}"
+: "${CORS_ORIGINS:=http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:3000,http://localhost:3000}"
 : "${GEMINI_ENABLE:=true}"
 : "${GEMINI_MODEL:=gemini-1.5-flash}"
 : "${GEMINI_TIMEOUT_SECONDS:=20}"
@@ -61,7 +59,6 @@ export QUESTION_JSON_DIR
 export DATABASE_URL
 export BOOTSTRAP_SCHEMA
 export RUN_DB_MIGRATIONS
-export FRONTEND_DIR
 export MATERIAL_DIR
 export AUTH_TOKEN_TTL_HOURS
 export AUTH_TOKEN_BYTES

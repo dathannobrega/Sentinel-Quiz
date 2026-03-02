@@ -4,7 +4,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    FRONTEND_DIR=/app/frontend \
     MATERIAL_DIR=/app/material \
     QUESTION_JSON_DIR=/questions \
     DATABASE_URL=sqlite:////data/securityplus.db
@@ -13,7 +12,7 @@ WORKDIR /app
 
 RUN addgroup --system app \
     && adduser --system --ingroup app --home /app app \
-    && mkdir -p /data /questions /app/frontend /app/material \
+    && mkdir -p /data /questions /app/material \
     && chown -R app:app /data /questions /app
 
 COPY backend/requirements.txt /app/requirements.txt
@@ -22,7 +21,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY backend/app /app/app
 COPY backend/alembic /app/alembic
 COPY backend/alembic.ini /app/alembic.ini
-COPY frontend /app/frontend
 COPY material /app/material
 COPY questions /questions
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

@@ -1,6 +1,7 @@
 "use client";
 
-import { startTransition, useEffect, useEffectEvent, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,6 +9,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { clearStoredAuthToken, persistSessionId, setStoredAuthToken } from "@/lib/auth/storage";
 import { getRuntimeConfig } from "@/lib/config/runtime";
+import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   AuthTokenResponse,
@@ -97,7 +99,6 @@ function computeHeroStats(history: SessionHistoryItem[], dueReviewCount: number)
 export function DashboardShell() {
   const router = useRouter();
   const runtimeConfig = getRuntimeConfig();
-  const legacyAppHref = runtimeConfig.legacyAppUrl;
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDomainLoading, setIsDomainLoading] = useState(false);
@@ -380,6 +381,10 @@ export function DashboardShell() {
               </p>
             </div>
           </div>
+          <div className="sq-inline-actions">
+            <Link href="/history">Historico</Link>
+            <Link href="/admin">Admin</Link>
+          </div>
         </header>
 
         <section
@@ -393,12 +398,12 @@ export function DashboardShell() {
           }}
         >
           <div className="sq-hero-copy">
-            <div className="sq-eyebrow">Fase 1 da migracao</div>
-            <h1 className="sq-hero-title">Dashboard e orquestracao de prova, agora em React.</h1>
+            <div className="sq-eyebrow">Jornada principal migrada</div>
+            <h1 className="sq-hero-title">Dashboard, prova, revisao e edicao agora rodam no app React.</h1>
             <p className="sq-hero-lead">
-              Esta primeira fatia substitui a abertura da jornada por uma base tipada, com estados robustos, auth
-              consistente, tokens de design e integracao direta com o `/backend`. O fluxo de resposta das questoes
-              continua no runner legado ate a migracao da proxima tela.
+              O frontend Next agora cobre a trilha principal do aluno e o painel editorial, com estados tipados,
+              integracao direta com o backend, navegacao consistente e o legado mantido apenas como fallback de
+              rollback durante a transicao final.
             </p>
             {loadError ? (
               <StatusBanner tone="warning" title="Carga parcial" message={loadError} role="alert" />
@@ -470,7 +475,6 @@ export function DashboardShell() {
             exams={exams}
             domains={domains}
             apiOriginLabel={runtimeConfig.apiOrigin || "mesma origem"}
-            legacyAppHref={legacyAppHref}
             values={launchValues}
             notice={
               isDomainLoading && !launchNotice
