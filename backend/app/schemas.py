@@ -251,3 +251,47 @@ class ReviewQueueSnapshotOut(BaseModel):
     next_due_at: Optional[str] = None
     recommended_batch_size: int = 0
     items: List[ReviewQueueEntryOut] = Field(default_factory=list)
+
+
+class StudyWeeklyMetricOut(BaseModel):
+    week_start: str
+    week_end: str
+    label: str
+    study_questions: int = 0
+    review_questions: int = 0
+    scheduled_reviews: int = 0
+    completed_sessions: int = 0
+    review_sessions: int = 0
+    accuracy_percent: float = 0.0
+    low_confidence: int = 0
+
+
+class StudyWeeklyAnalyticsOut(BaseModel):
+    weeks: List[StudyWeeklyMetricOut] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyReviewQuestionOut(BaseModel):
+    id: str
+    question_number: int
+    prompt: str
+    multi_select: bool
+    domain: Optional[str] = None
+    difficulty: Optional[str] = None
+    certification: Optional[str] = None
+    options: List[OptionOut]
+    correct_keys: List[str]
+    selected_keys: List[str]
+    is_correct: Optional[bool] = None
+    confidence_level: Optional[str] = None
+    elapsed_seconds: Optional[int] = None
+    answered_at: Optional[str] = None
+    justification: Optional[str] = None
+    tags: Optional[List[str]] = None
+    citations: Optional[List[Dict[str, Any]]] = None
+
+
+class StudySessionReviewOut(BaseModel):
+    session: StudyHistoryOut
+    result: StudyResultOut
+    questions: List[StudyReviewQuestionOut]

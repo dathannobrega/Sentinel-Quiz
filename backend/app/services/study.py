@@ -34,6 +34,7 @@ NOTE_MAX_LENGTH = 4000
 RECENT_ITEM_LIMIT = 3
 QUEUE_PREVIEW_LIMIT = 5
 CONFIDENCE_LEVELS = {"low", "medium", "high"}
+WEEKLY_ANALYTICS_DEFAULT_WEEKS = 8
 
 
 def _scope_label(owner_user_id: Optional[str], owner_client_key: Optional[str]) -> str:
@@ -331,6 +332,167 @@ def build_review_queue_snapshot(
     }
 
 
+def _week_start_utc(value: datetime) -> datetime:
+    base = value.replace(hour=0, minute=0, second=0, microsecond=0)
+    return base - timedelta(days=base.weekday())
+
+
+def _week_label(week_start: datetime) -> str:
+    week_end = week_start + timedelta(days=6)
+    return f"{week_start.strftime('%d/%m')} - {week_end.strftime('%d/%m')}"
+
+
+def build_weekly_study_analytics(
+    db: Session,
+    *,
+    owner_user_id: Optional[str] = None,
+    owner_client_key: Optional[str] = None,
+    weeks: int = WEEKLY_ANALYTICS_DEFAULT_WEEKS,
+) -> dict[str, Any]:
+    total_weeks = max(2, min(int(weeks or WEEKLY_ANALYTICS_DEFAULT_WEEKS), 24))
+    now = datetime.utcnow()
+    current_week_start = _week_start_utc(now)
+    range_start = current_week_start - timedelta(days=7 * (total_weeks - 1))
+
+    ordered_week_keys: list[str] = []
+    buckets: dict[str, dict[str, Any]] = {}
+    for index in range(total_weeks):
+        week_start = range_start + timedelta(days=index * 7)
+        week_end = week_start + timedelta(days=6)
+        key = week_start.date().isoformat()
+        ordered_week_keys.append(key)
+        buckets[key] = {
+            "week_start": week_start,
+            "week_end": week_end,
+            "label": _week_label(week_start),
+            "study_questions": 0,
+            "review_questions": 0,
+            "scheduled_reviews": 0,
+            "completed_sessions": 0,
+            "review_sessions": 0,
+            "correct_count": 0,
+            "low_confidence": 0,
+        }
+
+    session_stmt = select(StudySession.selection_strategy, StudySession.completed_at).where(
+        StudySession.completed_at.is_not(None),
+        StudySession.completed_at >= range_start,
+    )
+    session_stmt = _apply_owner_filters(session_stmt, StudySession, owner_user_id, owner_client_key)
+    for selection_strategy, completed_at in db.execute(session_stmt).all():
+        if not completed_at:
+            continue
+        key = _week_start_utc(completed_at).date().isoformat()
+        bucket = buckets.get(key)
+        if not bucket:
+            continue
+        bucket["completed_sessions"] += 1
+        if str(selection_strategy or "").strip().lower() == "review":
+            bucket["review_sessions"] += 1
+
+    attempt_stmt = (
+        select(
+            StudyAttempt.answered_at,
+            StudyAttempt.is_correct,
+            StudyAttempt.confidence_level,
+            StudySession.selection_strategy,
+        )
+        .join(StudySession, StudySession.id == StudyAttempt.session_id)
+        .where(StudyAttempt.answered_at >= range_start)
+    )
+    attempt_stmt = _apply_owner_filters(attempt_stmt, StudySession, owner_user_id, owner_client_key)
+    for answered_at, is_correct, confidence_level, selection_strategy in db.execute(attempt_stmt).all():
+        if not answered_at:
+            continue
+        key = _week_start_utc(answered_at).date().isoformat()
+        bucket = buckets.get(key)
+        if not bucket:
+            continue
+        bucket["study_questions"] += 1
+        if bool(is_correct):
+            bucket["correct_count"] += 1
+        if str(selection_strategy or "").strip().lower() == "review":
+            bucket["review_questions"] += 1
+        if str(confidence_level or "medium").strip().lower() == "low":
+            bucket["low_confidence"] += 1
+
+    schedule_stmt = (
+        select(ReviewSchedule.created_at)
+        .join(ReviewQueueItem, ReviewQueueItem.id == ReviewSchedule.review_queue_id)
+        .where(ReviewSchedule.created_at >= range_start)
+    )
+    schedule_stmt = _apply_owner_filters(schedule_stmt, ReviewQueueItem, owner_user_id, owner_client_key)
+    for (created_at,) in db.execute(schedule_stmt).all():
+        if not created_at:
+            continue
+        key = _week_start_utc(created_at).date().isoformat()
+        bucket = buckets.get(key)
+        if bucket:
+            bucket["scheduled_reviews"] += 1
+
+    week_items: list[dict[str, Any]] = []
+    for key in ordered_week_keys:
+        bucket = buckets[key]
+        study_questions = int(bucket["study_questions"])
+        accuracy_percent = round((bucket["correct_count"] / study_questions) * 100.0, 2) if study_questions else 0.0
+        week_items.append({
+            "week_start": bucket["week_start"].date().isoformat(),
+            "week_end": bucket["week_end"].date().isoformat(),
+            "label": bucket["label"],
+            "study_questions": study_questions,
+            "review_questions": int(bucket["review_questions"]),
+            "scheduled_reviews": int(bucket["scheduled_reviews"]),
+            "completed_sessions": int(bucket["completed_sessions"]),
+            "review_sessions": int(bucket["review_sessions"]),
+            "accuracy_percent": accuracy_percent,
+            "low_confidence": int(bucket["low_confidence"]),
+        })
+
+    active_weeks = [item for item in week_items if item["study_questions"] or item["scheduled_reviews"] or item["completed_sessions"]]
+    current_week = week_items[-1]
+    previous_week = week_items[-2] if len(week_items) > 1 else None
+    total_questions = sum(item["study_questions"] for item in week_items)
+    total_review_questions = sum(item["review_questions"] for item in week_items)
+    total_correct = sum(
+        buckets[key]["correct_count"]
+        for key in ordered_week_keys
+    )
+    average_accuracy = round((total_correct / total_questions) * 100.0, 2) if total_questions else 0.0
+    due_snapshot = build_review_queue_snapshot(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        limit=5,
+    )
+
+    summary = {
+        "weeks_tracked": total_weeks,
+        "active_weeks": len(active_weeks),
+        "total_questions": total_questions,
+        "review_questions": total_review_questions,
+        "average_accuracy_percent": average_accuracy,
+        "current_week_questions": current_week["study_questions"],
+        "current_week_accuracy_percent": current_week["accuracy_percent"],
+        "current_week_scheduled_reviews": current_week["scheduled_reviews"],
+        "current_week_review_questions": current_week["review_questions"],
+        "current_week_low_confidence": current_week["low_confidence"],
+        "accuracy_delta_vs_previous_week": round(
+            current_week["accuracy_percent"] - (previous_week["accuracy_percent"] if previous_week else 0.0),
+            2,
+        ),
+        "question_delta_vs_previous_week": int(
+            current_week["study_questions"] - (previous_week["study_questions"] if previous_week else 0)
+        ),
+        "review_backlog_due": int(due_snapshot["due_count"]),
+        "review_backlog_total": int(due_snapshot["total_count"]),
+    }
+
+    return {
+        "weeks": week_items,
+        "summary": summary,
+    }
+
+
 def list_study_history(
     db: Session,
     *,
@@ -423,6 +585,144 @@ def list_study_history(
             "weakest_domains": weakest_domains[:3],
         })
     return history
+
+
+def get_study_session_review(db: Session, session: StudySession) -> dict[str, Any]:
+    if session.completed_at is None:
+        raise ValueError("Study session not completed.")
+
+    result = compute_study_result(db, session)
+    exam = db.get(Exam, session.exam_id) if session.exam_id else None
+
+    rows = db.execute(
+        select(
+            StudySessionQuestion.position,
+            Question.id,
+            Question.prompt,
+            Question.multi_select,
+            Question.domain,
+            Question.difficulty,
+            Question.certification,
+            Question.tags_json,
+            Question.citations_json,
+            StudyAttempt.selected_keys,
+            StudyAttempt.is_correct,
+            StudyAttempt.confidence_level,
+            StudyAttempt.elapsed_seconds,
+            StudyAttempt.answered_at,
+        )
+        .join(Question, Question.id == StudySessionQuestion.question_id)
+        .outerjoin(
+            StudyAttempt,
+            (StudyAttempt.session_id == StudySessionQuestion.session_id)
+            & (StudyAttempt.question_id == StudySessionQuestion.question_id),
+        )
+        .where(StudySessionQuestion.session_id == session.id)
+        .order_by(StudySessionQuestion.position.asc())
+    ).all()
+
+    question_ids = [row[1] for row in rows]
+    option_rows = []
+    explanation_rows = []
+    if question_ids:
+        option_rows = db.execute(
+            select(Option.question_id, Option.key, Option.text, Option.is_correct)
+            .where(Option.question_id.in_(question_ids))
+            .order_by(Option.question_id.asc(), Option.key.asc())
+        ).all()
+        explanation_rows = db.execute(
+            select(Explanation.question_id, Explanation.justification)
+            .where(Explanation.question_id.in_(question_ids))
+        ).all()
+
+    option_map: dict[str, list[dict[str, Any]]] = {}
+    for question_id, key, text, is_correct in option_rows:
+        option_map.setdefault(question_id, []).append({
+            "key": key,
+            "text": text,
+            "is_correct": bool(is_correct),
+        })
+    explanation_map = {question_id: justification for question_id, justification in explanation_rows}
+
+    timed_total = 0
+    timed_count = 0
+    confidence_counts = {"low": 0, "medium": 0, "high": 0}
+    questions: list[dict[str, Any]] = []
+    for (
+        position,
+        question_id,
+        prompt,
+        multi_select,
+        domain,
+        difficulty,
+        certification,
+        tags_json,
+        citations_json,
+        selected_keys_raw,
+        is_correct,
+        confidence_level,
+        elapsed_seconds,
+        answered_at,
+    ) in rows:
+        options = option_map.get(question_id, [])
+        correct_keys = [item["key"] for item in options if item["is_correct"]]
+        selected_keys = [key for key in str(selected_keys_raw or "").split(",") if key]
+        normalized_confidence = str(confidence_level or "").strip().lower() or None
+        if normalized_confidence in confidence_counts:
+            confidence_counts[normalized_confidence] += 1
+        if elapsed_seconds is not None:
+            timed_total += int(elapsed_seconds)
+            timed_count += 1
+        questions.append({
+            "id": question_id,
+            "question_number": int(position) + 1,
+            "prompt": prompt,
+            "multi_select": bool(multi_select),
+            "domain": domain,
+            "difficulty": difficulty,
+            "certification": certification,
+            "options": [{"key": item["key"], "text": item["text"]} for item in options],
+            "correct_keys": correct_keys,
+            "selected_keys": selected_keys,
+            "is_correct": is_correct,
+            "confidence_level": normalized_confidence,
+            "elapsed_seconds": int(elapsed_seconds) if elapsed_seconds is not None else None,
+            "answered_at": answered_at.isoformat() if answered_at else None,
+            "justification": explanation_map.get(question_id),
+            "tags": _parse_tags(tags_json),
+            "citations": _parse_citations(citations_json),
+        })
+
+    weakest_domains = [
+        str(item.get("label") or "").strip()
+        for item in (result.get("insight", {}).get("weakest_domains") or [])
+        if str(item.get("label") or "").strip()
+    ][:3]
+    session_meta = {
+        "id": session.id,
+        "exam_id": session.exam_id,
+        "exam_title": exam.title if exam else None,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+        "selection_strategy": session.selection_strategy or "standard",
+        "selection_mix": _parse_selection_mix(session.selection_mix_json),
+        "total_questions": session.total_questions,
+        "answered_count": session.answered_count,
+        "correct_count": session.correct_count,
+        "wrong_count": session.wrong_count,
+        "score_percent": result["score_percent"],
+        "avg_seconds_per_question": round(timed_total / timed_count, 2) if timed_count else None,
+        "confidence_low": confidence_counts["low"],
+        "confidence_medium": confidence_counts["medium"],
+        "confidence_high": confidence_counts["high"],
+        "weakest_domains": weakest_domains,
+    }
+
+    return {
+        "session": session_meta,
+        "result": result,
+        "questions": questions,
+    }
 
 
 def _merge_note_text(existing_text: str, incoming_text: str) -> str:
@@ -639,6 +939,62 @@ def _parse_tags(tags_json: str | None) -> list[str]:
     return tags
 
 
+def _parse_citations(citations_json: str | None) -> list[dict[str, Any]]:
+    if not citations_json:
+        return []
+    try:
+        payload = json.loads(citations_json)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    citations: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        cleaned: dict[str, Any] = {}
+        for key, value in item.items():
+            label = str(key or "").strip()
+            if not label:
+                continue
+            if value is None:
+                continue
+            if isinstance(value, str):
+                normalized = value.strip()
+                if not normalized:
+                    continue
+                cleaned[label] = normalized
+                continue
+            if isinstance(value, (bool, int, float)):
+                cleaned[label] = value
+                continue
+            if isinstance(value, list):
+                cleaned_values = [str(entry).strip() for entry in value if str(entry).strip()]
+                if cleaned_values:
+                    cleaned[label] = cleaned_values
+                continue
+            if isinstance(value, dict):
+                nested: dict[str, Any] = {}
+                for nested_key, nested_value in value.items():
+                    nested_label = str(nested_key or "").strip()
+                    if not nested_label:
+                        continue
+                    if nested_value is None:
+                        continue
+                    if isinstance(nested_value, str):
+                        nested_text = nested_value.strip()
+                        if nested_text:
+                            nested[nested_label] = nested_text
+                    elif isinstance(nested_value, (bool, int, float)):
+                        nested[nested_label] = nested_value
+                if nested:
+                    cleaned[label] = nested
+        if cleaned:
+            citations.append(cleaned)
+    return citations
+
+
 def _normalize_confidence_level(value: str | None) -> str:
     normalized = str(value or "medium").strip().lower()
     if normalized not in CONFIDENCE_LEVELS:
@@ -646,14 +1002,34 @@ def _normalize_confidence_level(value: str | None) -> str:
     return normalized
 
 
-def _review_policy(is_correct: bool, confidence_level: str) -> tuple[int, str]:
+def _review_policy(
+    is_correct: bool,
+    confidence_level: str,
+    previous_item: ReviewQueueItem | None = None,
+) -> tuple[int, str]:
+    previous_interval = max(int(previous_item.interval_days), 1) if previous_item and previous_item.interval_days else 1
+    previous_outcome = str(previous_item.last_outcome or "").strip().lower() if previous_item else ""
+
     if not is_correct:
+        if previous_outcome == "wrong":
+            return 1, "repeat_incorrect"
+        if previous_interval >= 7:
+            return 2, "recovery_after_miss"
         return 1, "incorrect"
+
     if confidence_level == "low":
-        return 1, "low_confidence"
+        if previous_interval <= 1:
+            return 2, "low_confidence_repeat"
+        return max(min(previous_interval, 3), 2), "low_confidence"
+
     if confidence_level == "medium":
-        return 3, "medium_confidence"
-    return 7, "high_confidence"
+        next_interval = previous_interval + (2 if previous_outcome == "correct" else 1)
+        return min(max(next_interval, 3), 10), "medium_confidence"
+
+    next_interval = previous_interval * (2 if previous_outcome == "correct" else 1)
+    if next_interval <= previous_interval:
+        next_interval = previous_interval + 4
+    return min(max(next_interval, 7), 21), "high_confidence"
 
 
 def _correct_keys_for_question(db: Session, question_id: str) -> list[str]:
@@ -712,11 +1088,11 @@ def _upsert_review_queue_item(
     confidence_level: str,
     attempted_at: datetime,
 ) -> ReviewQueueItem:
-    interval_days, trigger_reason = _review_policy(is_correct, confidence_level)
-    due_at = attempted_at + timedelta(days=interval_days)
     item = db.execute(
         _owner_review_item_query(question_id, owner_user_id, owner_client_key)
     ).scalar_one_or_none()
+    interval_days, trigger_reason = _review_policy(is_correct, confidence_level, item)
+    due_at = attempted_at + timedelta(days=interval_days)
 
     if not item:
         item = ReviewQueueItem(

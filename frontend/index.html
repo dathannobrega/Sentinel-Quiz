@@ -260,6 +260,18 @@
           </div>
         </div>
 
+        <div id="weeklyMomentum" class="card">
+          <div class="section-header">
+            <div>
+              <h2>Ritmo semanal de estudo</h2>
+              <p class="muted" id="weeklySubtitle">Acompanhe volume, revisoes e estabilidade de acerto nas ultimas semanas.</p>
+            </div>
+          </div>
+
+          <div id="weeklySummary" class="insight-grid"></div>
+          <div id="weeklyRows" class="weekly-list empty">Carregando metricas semanais...</div>
+        </div>
+
         <div id="history" class="card">
           <div class="section-header">
             <div>
@@ -607,6 +619,55 @@
   </div>
 
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <div id="studyReviewModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="studyReviewTitle">
+    <div class="modal-backdrop" data-close-study-review="true"></div>
+    <div class="modal-card" role="document">
+      <header class="modal-header">
+        <div>
+          <div class="eyebrow">Revisao detalhada do estudo</div>
+          <h2 id="studyReviewTitle">Bloco de estudo</h2>
+          <div class="muted" id="studyReviewMeta"></div>
+        </div>
+        <button id="btn-study-review-close" class="btn btn-icon" type="button" aria-label="Fechar">X</button>
+      </header>
+
+      <div class="modal-actions">
+        <button id="btn-study-review-retry-wrong" class="btn btn-secondary" type="button">Reestudar erradas</button>
+        <button id="btn-study-review-retry-full" class="btn btn-ghost" type="button">Repetir bloco</button>
+        <button id="btn-study-review-export" class="btn btn-ghost" type="button">Exportar</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="grid two">
+          <div class="card">
+            <h3>Resumo do bloco</h3>
+            <div class="insight-grid" id="studyReviewSummary"></div>
+          </div>
+          <div class="card">
+            <h3>Tendencia no tempo</h3>
+            <div id="studyReviewTrend" class="trend"></div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <h3>Por tipo de questao</h3>
+            <div class="insight-grid" id="studyReviewByType"></div>
+          </div>
+          <div class="card">
+            <h3>Dominio/Tema</h3>
+            <div class="empty" id="studyReviewByDomain">Sem dados de dominio/tema.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Revisao por questao</h3>
+          <div id="studyReviewQuestions" class="review-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

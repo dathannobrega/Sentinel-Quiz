@@ -19,13 +19,16 @@
   - revisão diária dedicada consumindo a `review_queue`
   - heurística adaptativa para escolher mix de vencidas x fracas x novas
   - histórico consolidado de estudo separado do histórico de prova
+  - métricas semanais consolidadas de estudo e revisão
+  - revisão detalhada por questão dentro de cada bloco de estudo
+  - política de repetição espaçada incremental baseada no histórico do item
 
 ### Próxima fatia recomendada
 
-- métricas semanais consolidadas de estudo e revisão
 - priorização adaptativa também no `exam mode` customizado
-- política de repetição espaçada mais rica (não apenas `1d/3d/7d`)
-- histórico detalhado por questão dentro de cada bloco de estudo
+- política de repetição espaçada com fatores de estabilidade/recall mais sofisticados
+- recomendação semanal automática de metas (volume, domínios e backlog)
+- diferenciação entre revisão “vencida”, “em risco” e “dominada” no algoritmo
 
 ## 1. Estado atual e gaps críticos
 
@@ -36,6 +39,7 @@
 - SPA em HTML/CSS/JS vanilla.
 - Banco canônico de questões em JSON (`questions/securityplus.json` e `questions/cissp.json`) com `domain`, `difficulty`, `certification`, `tags`, `citations`.
 - Sessões de prova, revisão, histórico, insights básicos e painel admin.
+- Study mode com sessão própria, fila de revisão, histórico dedicado, métricas semanais e revisão detalhada por bloco.
 - Preview de material referenciado e ingestão automática no startup.
 
 ### O que ainda impede “produção escalável”
@@ -44,7 +48,7 @@
 - Não existe separação multitenant, ACL granular, nem trilha de auditoria robusta.
 - O banco atual (SQLite) é bom para dev/single-node, não para concorrência real.
 - Não há versionamento de conteúdo, workflow editorial ou aprovação.
-- Não há repetição espaçada, bookmarks, notas, confiança, nem fila de revisão persistida.
+- Já existe uma primeira camada de bookmarks, notas, confiança e fila de revisão persistida, mas ainda sem um modelo pedagógico avançado de repetição espaçada.
 - Não há rate limiting, detecção de scraping, cache, jobs assíncronos, observabilidade completa ou estratégia de backup operacionalizada.
 - O modelo atual de dados ainda é centrado em “sessão de prova”, não em “plataforma de aprendizagem”.
 

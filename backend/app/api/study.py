@@ -13,18 +13,22 @@ from app.schemas import (
     StudyHistoryOut,
     StudyOverviewOut,
     StudyResultOut,
+    StudySessionReviewOut,
     StudySessionCreateIn,
     StudySessionOut,
     StudySessionStateOut,
     StudyStateIn,
     StudyStateOut,
+    StudyWeeklyAnalyticsOut,
 )
 from app.services.study import (
     answer_study_question,
     build_study_overview,
     build_review_queue_snapshot,
+    build_weekly_study_analytics,
     compute_study_result,
     create_study_session,
+    get_study_session_review,
     get_question_for_study_session,
     get_question_state,
     list_study_history,
@@ -218,6 +222,24 @@ def study_history(
     ]
 
 
+@router.get("/analytics/weekly", response_model=StudyWeeklyAnalyticsOut)
+def study_weekly_analytics(
+    weeks: int = Query(8, ge=2, le=24),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
+    return StudyWeeklyAnalyticsOut(
+        **build_weekly_study_analytics(
+            db,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            weeks=weeks,
+        )
+    )
+
+
 @router.get("/sessions/{session_id}", response_model=StudySessionStateOut)
 def study_session_state(
     session_id: str,
@@ -285,3 +307,18 @@ def study_result(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return StudyResultOut(**result)
+
+
+@router.get("/sessions/{session_id}/review", response_model=StudySessionReviewOut)
+def study_session_review(
+    session_id: str,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_study_session(db, session_id, current_user, client_key)
+    try:
+        review = get_study_session_review(db, session)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return StudySessionReviewOut(**review)

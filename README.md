@@ -16,6 +16,7 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 * **Sessões Isoladas:** Histórico, analytics e revisão ficam escopados por usuário autenticado ou por dispositivo (`X-Client-Key`) para evitar vazamento de progresso entre alunos.
 * **Conta e Estado de Estudo:** Login/cadastro web com sincronização de bookmarks e notas por questão, inclusive com migração automática do progresso local ao entrar na conta.
 * **Revisão Diária e Histórico de Estudo:** A fila de revisão pode gerar blocos dedicados e a aplicação mantém histórico próprio de estudo, separado do histórico de simulados.
+* **Métricas Semanais e Revisão Profunda:** O painel inicial mostra ritmo semanal de estudo/revisão e cada bloco de estudo concluído pode ser reaberto com revisão detalhada por questão.
 
 ## 🚀 Tecnologias
 
@@ -147,14 +148,16 @@ Os endpoints de estado de estudo disponíveis são:
 - `POST /api/study/review/sessions`
 - `GET /api/study/review/queue`
 - `GET /api/study/history`
+- `GET /api/study/analytics/weekly`
 - `GET /api/study/sessions/{session_id}`
 - `GET /api/study/sessions/{session_id}/next`
 - `POST /api/study/sessions/{session_id}/answer`
 - `GET /api/study/sessions/{session_id}/result`
+- `GET /api/study/sessions/{session_id}/review`
 
 O frontend web agora gera e envia automaticamente `X-Client-Key` em todas as chamadas, isolando histórico e métricas por dispositivo quando o aluno ainda não criou conta. Se houver um token armazenado, ele também envia `Authorization: Bearer <token>`.
 
-No `study mode`, o payload de criação de sessão também aceita `strategy=standard|adaptive`. A rota dedicada `POST /api/study/review/sessions` usa a fila de revisão como fonte principal e pode complementar com itens futuros quando necessário.
+No `study mode`, o payload de criação de sessão também aceita `strategy=standard|adaptive`. A rota dedicada `POST /api/study/review/sessions` usa a fila de revisão como fonte principal e pode complementar com itens futuros quando necessário. A política de revisão agora também considera o intervalo anterior e o último resultado para espaçar melhor os próximos retornos.
 
 Além da tela de login dedicada, você ainda pode integrar autenticação via navegador com o helper global:
 

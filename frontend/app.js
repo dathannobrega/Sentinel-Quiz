@@ -22,12 +22,14 @@ let examMap = new Map();
 let historyItems = [];
 let studyHistoryItems = [];
 let activeReview = null;
+let activeStudyReview = null;
 let focusReturnEl = null;
 let aiEnabled = false;
 let aiModel = null;
 let aiBusy = false;
 let domainCatalogCache = new Map();
 let weakAreaSnapshot = null;
+let studyWeeklyAnalytics = null;
 let currentUser = null;
 let studyOverview = null;
 let reviewQueueSnapshot = null;
@@ -420,6 +422,7 @@ function handleAuthTokenCleared(){
   currentUser = null;
   studyOverview = null;
   reviewQueueSnapshot = null;
+  studyWeeklyAnalytics = null;
   renderAccountCard();
 }
 
@@ -1564,6 +1567,7 @@ function renderStudyHistory(){
         ${weakChips}
       </div>
       <div class="history-actions">
+        <button class="btn btn-ghost" data-action="study-review" data-id="${item.id}" type="button" aria-haspopup="dialog">Detalhes</button>
         <span class="badge badge-outline">${formatStudyStrategy(item.selection_strategy)}</span>
         <span class="badge">${item.avg_seconds_per_question !== null && item.avg_seconds_per_question !== undefined ? `${item.avg_seconds_per_question}s` : "-"}</span>
       </div>
@@ -1583,6 +1587,7 @@ async function loadHistory(){
   renderHistory();
   await loadWeakAreaSnapshot();
   await loadStudyHistory();
+  await loadStudyWeeklyAnalytics();
 }
 
 async function loadStudyHistory(){
@@ -1604,14 +1609,74 @@ async function loadWeakAreaSnapshot(){
   renderDependencyInsights(weakAreaSnapshot);
 }
 
-function renderTrend(sessionIdValue){
-  const wrap = el("reviewTrend");
+function renderWeeklyAnalytics(payload){
+  studyWeeklyAnalytics = payload || null;
+  const summary = payload?.summary || {};
+  const weeks = Array.isArray(payload?.weeks) ? payload.weeks : [];
+  renderInsightCards("weeklySummary", [
+    { label: "Questoes nas semanas", value: summary.total_questions ?? 0 },
+    { label: "Revisoes respondidas", value: summary.review_questions ?? 0 },
+    { label: "Media de acerto", value: summary.average_accuracy_percent !== undefined ? `${Number(summary.average_accuracy_percent).toFixed(2)}%` : "-" },
+    { label: "Backlog vencido", value: summary.review_backlog_due ?? 0 },
+    { label: "Delta semanal", value: summary.accuracy_delta_vs_previous_week !== undefined ? `${summary.accuracy_delta_vs_previous_week > 0 ? "+" : ""}${Number(summary.accuracy_delta_vs_previous_week).toFixed(2)} pts` : "-" }
+  ]);
+
+  const wrap = el("weeklyRows");
   wrap.innerHTML = "";
-  if(historyItems.length === 0){
+  if(weeks.length === 0){
+    wrap.className = "weekly-list empty";
+    wrap.textContent = "Sem dados suficientes para montar o ritmo semanal ainda.";
+    return;
+  }
+  wrap.className = "weekly-list";
+  const maxVolume = weeks.reduce((acc, item) => Math.max(acc, Number(item.study_questions || 0), Number(item.scheduled_reviews || 0)), 1);
+  weeks.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "weekly-item";
+    const studyWidth = Math.max(8, Math.round((Number(item.study_questions || 0) / maxVolume) * 100));
+    const reviewWidth = Math.max(8, Math.round((Number(item.scheduled_reviews || 0) / maxVolume) * 100));
+    card.innerHTML = `
+      <div class="weekly-head">
+        <div>
+          <div class="weekly-title">${escapeHtml(item.label || item.week_start || "Semana")}</div>
+          <div class="weekly-meta">${item.completed_sessions || 0} bloco(s) · ${item.review_sessions || 0} revisao(oes) dedicadas · ${Number(item.accuracy_percent || 0).toFixed(2)}%</div>
+        </div>
+        <span class="badge badge-outline">${item.low_confidence || 0} chutei</span>
+      </div>
+      <div class="weekly-bars">
+        <div>
+          <div class="weekly-caption">Volume estudado: ${item.study_questions || 0} questoes</div>
+          <div class="weekly-bar-track"><div class="weekly-bar-fill" style="width:${item.study_questions ? studyWidth : 0}%"></div></div>
+        </div>
+        <div>
+          <div class="weekly-caption">Revisoes agendadas: ${item.scheduled_reviews || 0}</div>
+          <div class="weekly-bar-track"><div class="weekly-bar-fill" style="width:${item.scheduled_reviews ? reviewWidth : 0}%; opacity:.72;"></div></div>
+        </div>
+      </div>
+    `;
+    wrap.appendChild(card);
+  });
+}
+
+async function loadStudyWeeklyAnalytics(){
+  try{
+    const payload = await apiGet("/study/analytics/weekly?weeks=8");
+    renderWeeklyAnalytics(payload);
+  }catch(e){
+    renderWeeklyAnalytics(null);
+    el("weeklyRows").className = "weekly-list empty";
+    el("weeklyRows").textContent = "Nao foi possivel carregar as metricas semanais agora.";
+  }
+}
+
+function renderTrend(targetId, items, sessionIdValue){
+  const wrap = el(targetId);
+  wrap.innerHTML = "";
+  if(!Array.isArray(items) || items.length === 0){
     wrap.innerHTML = "<div class=\"muted\">Sem dados suficientes para tendencia.</div>";
     return;
   }
-  const sorted = [...historyItems].sort((a, b) => new Date(a.completed_at || a.created_at) - new Date(b.completed_at || b.created_at));
+  const sorted = [...items].sort((a, b) => new Date(a.completed_at || a.created_at) - new Date(b.completed_at || b.created_at));
   const recent = sorted.slice(-10);
   recent.forEach(item => {
     const bar = document.createElement("div");
@@ -1623,8 +1688,8 @@ function renderTrend(sessionIdValue){
   });
 }
 
-function renderReviewQuestions(questions){
-  const wrap = el("reviewQuestions");
+function renderReviewQuestions(questions, { targetId = "reviewQuestions", showStudyMeta = false } = {}){
+  const wrap = el(targetId);
   wrap.innerHTML = "";
   questions.forEach((q, idx) => {
     const item = document.createElement("div");
@@ -1670,17 +1735,35 @@ function renderReviewQuestions(questions){
         </div>
       `
       : "";
+    const questionNumber = q.question_number || (idx + 1);
+    const studyBits = [];
+    if(showStudyMeta && q.confidence_level){
+      const confidenceLabel = q.confidence_level === "low"
+        ? "Chutei"
+        : (q.confidence_level === "high" ? "Tenho certeza" : "Razoavel");
+      studyBits.push(`Confianca: ${confidenceLabel}`);
+    }
+    if(showStudyMeta && q.elapsed_seconds !== null && q.elapsed_seconds !== undefined){
+      studyBits.push(`Tempo: ${formatDuration(q.elapsed_seconds)}`);
+    }
+    if(showStudyMeta && q.answered_at){
+      studyBits.push(`Respondida: ${formatDateTime(q.answered_at)}`);
+    }
+    const studyMeta = studyBits.length
+      ? `<div class="muted" style="margin-top:10px;">${escapeHtml(studyBits.join(" · "))}</div>`
+      : "";
 
     item.innerHTML = `
       <div class="review-header">
         <div>
-          <div class="review-title">Questao ${idx + 1}</div>
+          <div class="review-title">Questao ${questionNumber}</div>
           <div class="muted">${escapeHtml(q.prompt)}</div>
         </div>
         <span class="${badgeClass}">${badgeText}</span>
       </div>
       <div class="review-options">${optionsHtml}</div>
       <div class="muted" style="margin-top:10px;">Sua resposta: ${escapeHtml(q.selected_keys.join(", ") || "-")} · Correta: ${escapeHtml(q.correct_keys.join(", ") || "-")}</div>
+      ${studyMeta}
       ${tags}
       ${citationHtml}
       <div class="justification">${formatRichText(q.justification || "(Sem justificativa cadastrada.)")}</div>
@@ -1712,13 +1795,39 @@ function renderReviewModal(data){
 
   renderDomainBreakdown("reviewByDomain", data.result.insight?.by_domain || data.result.insight?.by_topic || {}, "Sem dados de dominio/tema.");
 
-  renderTrend(data.session.id);
+  renderTrend("reviewTrend", historyItems, data.session.id);
   renderReviewQuestions(data.questions || []);
 
   const favoriteBtn = el("btn-review-favorite");
   const favActive = isFavorite(data.session.id);
   favoriteBtn.textContent = favActive ? "Remover favorito" : "Salvar como favorito";
   favoriteBtn.setAttribute("aria-pressed", favActive);
+}
+
+function renderStudyReviewModal(data){
+  const examTitle = data.session.exam_title || (data.session.exam_id ? data.session.exam_id : "Misturar todas");
+  el("studyReviewTitle").textContent = `Revisao - ${examTitle}`;
+  el("studyReviewMeta").textContent = `${formatDateTime(data.session.completed_at || data.session.created_at)} · ${formatStudyStrategy(data.session.selection_strategy)} · Score ${formatScore(data.session.score_percent)} · ${data.session.total_questions} questoes`;
+
+  const summary = data.result.insight?.summary || {};
+  renderInsightCards("studyReviewSummary", [
+    { label: "Score", value: `${data.result.score_percent}%` },
+    { label: "Acertos", value: data.result.correct_count },
+    { label: "Erros", value: data.result.wrong_count },
+    { label: "Tempo total", value: formatDuration(summary.duration_seconds) },
+    { label: "Media por questao", value: summary.avg_seconds_per_question ? `${summary.avg_seconds_per_question}s` : "-" },
+    { label: "Chutei", value: data.session.confidence_low ?? 0 }
+  ]);
+
+  const byType = data.result.insight?.by_type || {};
+  renderInsightCards("studyReviewByType", [
+    { label: "Single-select", value: `${byType.single_select?.score_percent ?? 0}% (${byType.single_select?.correct ?? 0}/${byType.single_select?.total ?? 0})` },
+    { label: "Multi-select", value: `${byType.multi_select?.score_percent ?? 0}% (${byType.multi_select?.correct ?? 0}/${byType.multi_select?.total ?? 0})` }
+  ]);
+
+  renderDomainBreakdown("studyReviewByDomain", data.result.insight?.by_domain || {}, "Sem dados de dominio/tema.");
+  renderTrend("studyReviewTrend", studyHistoryItems, data.session.id);
+  renderReviewQuestions(data.questions || [], { targetId: "studyReviewQuestions", showStudyMeta: true });
 }
 
 function trapFocus(modal){
@@ -1763,6 +1872,85 @@ function closeReviewModal(){
   if(focusReturnEl && typeof focusReturnEl.focus === "function"){
     focusReturnEl.focus();
   }
+}
+
+function openStudyReviewModal(sessionIdValue){
+  focusReturnEl = document.activeElement;
+  apiGet(`/study/sessions/${sessionIdValue}/review`).then(data => {
+    activeStudyReview = data;
+    renderStudyReviewModal(data);
+    const modal = el("studyReviewModal");
+    modal.classList.remove("hidden");
+    setModalState(true);
+    trapFocus(modal);
+    el("btn-study-review-close").focus();
+  }).catch(err => {
+    showToast(`Erro ao carregar o bloco de estudo: ${err.message}`);
+  });
+}
+
+function closeStudyReviewModal(){
+  const modal = el("studyReviewModal");
+  modal.classList.add("hidden");
+  setModalState(false);
+  activeStudyReview = null;
+  if(focusReturnEl && typeof focusReturnEl.focus === "function"){
+    focusReturnEl.focus();
+  }
+}
+
+async function retryStudyReviewWrong(){
+  if(!activeStudyReview || !Array.isArray(activeStudyReview.questions)){
+    showToast("Revisao de estudo indisponivel.");
+    return;
+  }
+  const wrongIds = activeStudyReview.questions.filter(q => q.is_correct === false).map(q => q.id);
+  if(wrongIds.length === 0){
+    showToast("Nenhuma questao errada para reestudar.");
+    return;
+  }
+  const review = activeStudyReview;
+  closeStudyReviewModal();
+  await beginSession({
+    exam_id: review.session.exam_id,
+    total_questions: wrongIds.length,
+    question_ids: wrongIds
+  }, "study");
+}
+
+async function retryStudyReviewFull(){
+  if(!activeStudyReview || !Array.isArray(activeStudyReview.questions)){
+    showToast("Revisao de estudo indisponivel.");
+    return;
+  }
+  const ids = activeStudyReview.questions.map(q => q.id);
+  if(ids.length === 0){
+    showToast("Bloco vazio.");
+    return;
+  }
+  const review = activeStudyReview;
+  closeStudyReviewModal();
+  await beginSession({
+    exam_id: review.session.exam_id,
+    total_questions: ids.length,
+    question_ids: ids
+  }, "study");
+}
+
+function exportStudyReview(){
+  if(!activeStudyReview || !activeStudyReview.session?.id){
+    showToast("Revisao de estudo indisponivel.");
+    return;
+  }
+  const blob = new Blob([JSON.stringify(activeStudyReview, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `sentinel_study_review_${activeStudyReview.session.id}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function retryWrong(sessionIdValue){
@@ -1944,7 +2132,10 @@ el("btn-reset").addEventListener("click", () => {
 });
 
 el("btn-history-refresh").addEventListener("click", loadHistory);
-el("btn-study-history-refresh").addEventListener("click", loadStudyHistory);
+el("btn-study-history-refresh").addEventListener("click", async () => {
+  await loadStudyHistory();
+  await loadStudyWeeklyAnalytics();
+});
 el("modeSelect").addEventListener("change", () => {
   updateModeUi(getSelectedMode());
 });
@@ -1980,6 +2171,12 @@ el("historyList").addEventListener("click", (ev) => {
   }
 });
 
+el("studyHistoryList").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-action='study-review']");
+  if(!btn) return;
+  openStudyReviewModal(btn.dataset.id);
+});
+
 el("btn-review-close").addEventListener("click", closeReviewModal);
 
 el("reviewModal").addEventListener("click", (ev) => {
@@ -1993,6 +2190,24 @@ el("reviewModal").addEventListener("keydown", (ev) => {
     closeReviewModal();
   }
 });
+
+el("btn-study-review-close").addEventListener("click", closeStudyReviewModal);
+
+el("studyReviewModal").addEventListener("click", (ev) => {
+  if(ev.target && ev.target.dataset.closeStudyReview === "true"){
+    closeStudyReviewModal();
+  }
+});
+
+el("studyReviewModal").addEventListener("keydown", (ev) => {
+  if(ev.key === "Escape"){
+    closeStudyReviewModal();
+  }
+});
+
+el("btn-study-review-retry-wrong").addEventListener("click", retryStudyReviewWrong);
+el("btn-study-review-retry-full").addEventListener("click", retryStudyReviewFull);
+el("btn-study-review-export").addEventListener("click", exportStudyReview);
 
 el("btn-review-retry-wrong").addEventListener("click", () => {
   const sessionIdValue = activeReview?.session?.id || lastCompletedSessionId || null;
