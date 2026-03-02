@@ -18,13 +18,18 @@ import {
 } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import type {
+  AdminAuditLog,
   AdminCreateExamInput,
   AdminIngestResponse,
   AdminMutationResponse,
   AdminOverview,
+  AdminQuestionAnalytics,
   AdminQuestion,
   AdminQuestionInput,
   AdminQuestionSummary,
+  AdminQuestionVersion,
+  AdminReviewActionInput,
+  AdminRollbackInput,
   CitationItem,
   Exam
 } from "@/types/api";
@@ -61,6 +66,7 @@ interface QuestionDraft {
   certification: string;
   tagsText: string;
   justification: string;
+  changeSummary: string;
   options: OptionDraft[];
   citations: CitationDraft[];
 }
@@ -70,6 +76,21 @@ const DEFAULT_ADMIN_OVERVIEW: AdminOverview = {
   question_count: 0,
   completed_session_count: 0,
   question_breakdown: {}
+};
+
+const DEFAULT_ADMIN_ANALYTICS: AdminQuestionAnalytics = {
+  summary: {
+    tracked_questions: 0,
+    questions_with_signals: 0,
+    total_attempts: 0,
+    exam_attempts: 0,
+    study_attempts: 0,
+    total_review_pressure: 0,
+    average_wrong_rate_percent: 0
+  },
+  hardest_questions: [],
+  weakest_domains: [],
+  weakest_exams: []
 };
 
 let rowSequence = 0;
@@ -109,6 +130,7 @@ function createEmptyQuestionDraft(preferredExamId = ""): QuestionDraft {
     certification: "",
     tagsText: "",
     justification: "",
+    changeSummary: "",
     options: [
       createOptionDraft("A"),
       createOptionDraft("B"),
@@ -268,7 +290,8 @@ function buildQuestionPayload(draft: QuestionDraft): AdminQuestionInput {
     citations: buildCitationPayload(draft.citations),
     options,
     correct_keys: correctKeys,
-    justification: draft.justification.trim() || null
+    justification: draft.justification.trim() || null,
+    change_summary: draft.changeSummary.trim() || null
   };
 }
 
@@ -309,6 +332,7 @@ function toQuestionDraft(question: AdminQuestion): QuestionDraft {
     certification: String(question.certification || ""),
     tagsText: Array.isArray(question.tags) ? question.tags.join(", ") : "",
     justification: String(question.justification || ""),
+    changeSummary: String(question.change_summary || ""),
     options: question.options.length
       ? question.options.map((option) => createOptionDraft(option.key, option.text, option.is_correct))
       : [createOptionDraft("A"), createOptionDraft("B")],
@@ -328,9 +352,9 @@ export function AdminShell() {
   const [isBootLoading, setIsBootLoading] = useState(true);
   const [isProtectedLoading, setIsProtectedLoading] = useState(false);
   const [isQuestionLoading, setIsQuestionLoading] = useState(false);
-  const [activeTask, setActiveTask] = useState<"refresh" | "ingest" | "export" | "saveExam" | "saveQuestion" | "deleteQuestion" | null>(
-    null
-  );
+  const [activeTask, setActiveTask] = useState<
+    "refresh" | "ingest" | "export" | "saveExam" | "saveQuestion" | "submitReview" | "publishQuestion" | "rollbackQuestion" | "deleteQuestion" | null
+  >(null);
 
   const [adminKey, setAdminKey] = useState("");
   const [pageNotice, setPageNotice] = useState<string | null>(null);
@@ -339,8 +363,11 @@ export function AdminShell() {
   const [questionNotice, setQuestionNotice] = useState<string | null>(null);
 
   const [overview, setOverview] = useState<AdminOverview>(DEFAULT_ADMIN_OVERVIEW);
+  const [analytics, setAnalytics] = useState<AdminQuestionAnalytics>(DEFAULT_ADMIN_ANALYTICS);
   const [exams, setExams] = useState<Exam[]>([]);
   const [questionItems, setQuestionItems] = useState<AdminQuestionSummary[]>([]);
+  const [questionVersions, setQuestionVersions] = useState<AdminQuestionVersion[]>([]);
+  const [questionAudit, setQuestionAudit] = useState<AdminAuditLog[]>([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
 
   const [browserExamId, setBrowserExamId] = useState("");
@@ -372,12 +399,21 @@ export function AdminShell() {
     return Boolean(
       questionDraft.id.trim() ||
         questionDraft.prompt.trim() ||
+        questionDraft.changeSummary.trim() ||
         questionDraft.tagsText.trim() ||
         questionDraft.justification.trim() ||
         questionDraft.options.some((item) => item.text.trim()) ||
         questionDraft.citations.some((item) => item.source.trim() || item.reference.trim())
     );
   }, [questionDraft]);
+  const currentDraftVersion = useMemo(
+    () => questionVersions.find((item) => item.is_current_draft) || null,
+    [questionVersions]
+  );
+  const currentPublishedVersion = useMemo(
+    () => questionVersions.find((item) => item.is_current_published) || null,
+    [questionVersions]
+  );
 
   const loadExams = useEffectEvent(async () => {
     try {
@@ -385,6 +421,38 @@ export function AdminShell() {
       setExams(response);
     } catch (_error) {
       setExams([]);
+    }
+  });
+
+  const loadQuestionWorkflow = useEffectEvent(async (questionId: string) => {
+    const normalizedQuestionId = questionId.trim();
+    if (!normalizedQuestionId) {
+      setQuestionVersions([]);
+      setQuestionAudit([]);
+      return;
+    }
+
+    const [versionsResult, auditResult] = await Promise.allSettled([
+      apiClient.get<AdminQuestionVersion[]>(
+        `/admin/questions/${encodeURIComponent(normalizedQuestionId)}/versions`,
+        buildAdminRequestOptions(adminKey)
+      ),
+      apiClient.get<AdminAuditLog[]>(
+        `/admin/audit/logs?question_id=${encodeURIComponent(normalizedQuestionId)}&limit=20`,
+        buildAdminRequestOptions(adminKey)
+      )
+    ]);
+
+    if (versionsResult.status === "fulfilled") {
+      setQuestionVersions(versionsResult.value);
+    } else {
+      setQuestionVersions([]);
+    }
+
+    if (auditResult.status === "fulfilled") {
+      setQuestionAudit(auditResult.value);
+    } else {
+      setQuestionAudit([]);
     }
   });
 
@@ -401,8 +469,9 @@ export function AdminShell() {
       params.set("search", deferredQuestionSearch.trim());
     }
 
-    const [overviewResult, questionsResult] = await Promise.allSettled([
+    const [overviewResult, analyticsResult, questionsResult] = await Promise.allSettled([
       apiClient.get<AdminOverview>("/admin/overview", requestOptions),
+      apiClient.get<AdminQuestionAnalytics>("/admin/analytics/questions?limit=8", requestOptions),
       apiClient.get<AdminQuestionSummary[]>(`/admin/questions?${params.toString()}`, requestOptions)
     ]);
 
@@ -415,6 +484,13 @@ export function AdminShell() {
       failures.push("overview");
     }
 
+    if (analyticsResult.status === "fulfilled") {
+      setAnalytics(analyticsResult.value);
+    } else {
+      setAnalytics(DEFAULT_ADMIN_ANALYTICS);
+      failures.push("analytics editoriais");
+    }
+
     if (questionsResult.status === "fulfilled") {
       setQuestionItems(questionsResult.value);
     } else {
@@ -424,7 +500,13 @@ export function AdminShell() {
 
     if (failures.length) {
       const primaryError =
-        overviewResult.status === "rejected" ? overviewResult.reason : questionsResult.status === "rejected" ? questionsResult.reason : null;
+        overviewResult.status === "rejected"
+          ? overviewResult.reason
+          : analyticsResult.status === "rejected"
+            ? analyticsResult.reason
+            : questionsResult.status === "rejected"
+              ? questionsResult.reason
+              : null;
       setPageNotice(
         `${readAdminError(primaryError, "Nao foi possivel carregar o painel editorial.")} Blocos afetados: ${failures.join(", ")}.`
       );
@@ -450,8 +532,11 @@ export function AdminShell() {
       );
       setQuestionDraft(toQuestionDraft(response));
       setSelectedQuestionId(response.id);
+      await loadQuestionWorkflow(response.id);
       setQuestionNotice(`Questao ${response.id} carregada para edicao.`);
     } catch (error) {
+      setQuestionVersions([]);
+      setQuestionAudit([]);
       setQuestionNotice(readAdminError(error, "Nao foi possivel carregar esta questao."));
     } finally {
       setIsQuestionLoading(false);
@@ -512,15 +597,20 @@ export function AdminShell() {
   function startNewQuestion() {
     setSelectedQuestionId(null);
     setQuestionDraft(createEmptyQuestionDraft(browserExamId || examDraft.id || questionDraft.examId));
+    setQuestionVersions([]);
+    setQuestionAudit([]);
     setQuestionNotice("Novo rascunho criado. Preencha os campos e salve.");
   }
 
   function duplicateQuestion() {
     setSelectedQuestionId(null);
+    setQuestionVersions([]);
+    setQuestionAudit([]);
     setQuestionDraft((current) => ({
       ...current,
       lookupId: "",
-      id: ""
+      id: "",
+      changeSummary: "Duplicado a partir de uma questao existente"
     }));
     setQuestionNotice("Conteudo duplicado. Defina um novo ID antes de salvar.");
   }
@@ -649,12 +739,117 @@ export function AdminShell() {
         return;
       }
 
-      await apiClient.post<AdminMutationResponse>("/admin/questions", questionPayload, buildAdminRequestOptions(adminKey));
+      const response = await apiClient.post<AdminMutationResponse>("/admin/questions", questionPayload, buildAdminRequestOptions(adminKey));
       setSelectedQuestionId(questionPayload.id);
+      await loadQuestionWorkflow(questionPayload.id);
       await refreshProtectedData();
-      setQuestionNotice(`Questao ${questionPayload.id} salva.`);
+      setQuestionNotice(
+        `Rascunho salvo para ${questionPayload.id}${response.version_number ? ` (v${response.version_number})` : ""}.`
+      );
     } catch (error) {
       setQuestionNotice(readAdminError(error, "Nao foi possivel salvar a questao."));
+    } finally {
+      setActiveTask(null);
+    }
+  }
+
+  async function handleSubmitReview() {
+    const questionId = questionDraft.id.trim();
+    if (!questionId) {
+      setQuestionNotice("Salve um rascunho antes de enviar para revisao.");
+      return;
+    }
+
+    setActiveTask("submitReview");
+    setQuestionNotice(null);
+
+    try {
+      const payload: AdminReviewActionInput = {
+        reason: questionDraft.changeSummary.trim() || null
+      };
+      const response = await apiClient.post<AdminMutationResponse>(
+        `/admin/questions/${encodeURIComponent(questionId)}/submit-review`,
+        payload,
+        buildAdminRequestOptions(adminKey)
+      );
+      await loadQuestion(questionId);
+      await refreshProtectedData();
+      setQuestionNotice(
+        `Questao ${questionId} enviada para revisao${response.version_number ? ` (v${response.version_number})` : ""}.`
+      );
+    } catch (error) {
+      setQuestionNotice(readAdminError(error, "Nao foi possivel enviar a questao para revisao."));
+    } finally {
+      setActiveTask(null);
+    }
+  }
+
+  async function handlePublishQuestion() {
+    const questionId = questionDraft.id.trim();
+    if (!questionId) {
+      setQuestionNotice("Salve um rascunho antes de publicar.");
+      return;
+    }
+
+    setActiveTask("publishQuestion");
+    setQuestionNotice(null);
+
+    try {
+      const payload: AdminReviewActionInput = {
+        reason: questionDraft.changeSummary.trim() || null
+      };
+      const response = await apiClient.post<AdminMutationResponse>(
+        `/admin/questions/${encodeURIComponent(questionId)}/publish`,
+        payload,
+        buildAdminRequestOptions(adminKey)
+      );
+      await loadQuestion(questionId);
+      await refreshProtectedData();
+      setQuestionNotice(
+        `Questao ${questionId} publicada${response.version_number ? ` (v${response.version_number})` : ""}.`
+      );
+    } catch (error) {
+      setQuestionNotice(readAdminError(error, "Nao foi possivel publicar a questao."));
+    } finally {
+      setActiveTask(null);
+    }
+  }
+
+  async function handleRollbackQuestion(versionId: number) {
+    const questionId = questionDraft.id.trim();
+    if (!questionId) {
+      setQuestionNotice("Carregue uma questao antes de reverter.");
+      return;
+    }
+
+    const reason = window.prompt(
+      `Explique o rollback da questao ${questionId} para a versao selecionada:`,
+      `Rollback para a versao ${versionId}`
+    );
+    if (reason === null) {
+      return;
+    }
+
+    setActiveTask("rollbackQuestion");
+    setQuestionNotice(null);
+
+    try {
+      const payload: AdminRollbackInput = {
+        version_id: versionId,
+        reason: reason.trim() || null
+      };
+      const response = await apiClient.post<AdminMutationResponse>(
+        `/admin/questions/${encodeURIComponent(questionId)}/rollback`,
+        payload,
+        buildAdminRequestOptions(adminKey)
+      );
+      await loadQuestion(questionId);
+      await refreshProtectedData();
+      setQuestionNotice(
+        `Questao ${questionId} revertida e republicada${response.version_number ? ` (v${response.version_number})` : ""}.`
+      );
+    } catch (error) {
+      setQuestionNotice(readAdminError(error, "Nao foi possivel reverter a questao."));
     } finally {
       setActiveTask(null);
     }
@@ -681,6 +876,8 @@ export function AdminShell() {
       );
       await refreshProtectedData();
       setSelectedQuestionId(null);
+      setQuestionVersions([]);
+      setQuestionAudit([]);
       setQuestionDraft(createEmptyQuestionDraft(browserExamId || examDraft.id));
       setQuestionNotice(`Questao ${questionId} excluida.`);
     } catch (error) {
@@ -792,6 +989,95 @@ export function AdminShell() {
           </div>
         </Card>
 
+        <Card title="Insights editoriais" subtitle="Veja onde o banco esta mais sensivel antes de editar ou publicar.">
+          <div className="sq-metric-grid" aria-label="Resumo de sinais editoriais">
+            <div className="sq-metric-card">
+              <span className="sq-muted">Questoes com sinal</span>
+              <strong>{analytics.summary.questions_with_signals}</strong>
+            </div>
+            <div className="sq-metric-card">
+              <span className="sq-muted">Tentativas totais</span>
+              <strong>{analytics.summary.total_attempts}</strong>
+            </div>
+            <div className="sq-metric-card">
+              <span className="sq-muted">Erro medio</span>
+              <strong>{analytics.summary.average_wrong_rate_percent}%</strong>
+            </div>
+            <div className="sq-metric-card">
+              <span className="sq-muted">Pressao de revisao</span>
+              <strong>{analytics.summary.total_review_pressure}</strong>
+            </div>
+          </div>
+
+          <div className="sq-grid-2" style={{ marginTop: "var(--sq-space-5)" }}>
+            <div className="sq-surface-block">
+              <div className="sq-list-title">Questoes mais sensiveis</div>
+              {analytics.hardest_questions.length ? (
+                <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                  {analytics.hardest_questions.map((item) => (
+                    <div key={item.id} className="sq-list-item">
+                      <div className="sq-list-title">{item.id}</div>
+                      <div className="sq-list-meta">
+                        {item.exam_title || item.exam_id} · {item.domain || "Sem dominio"} · erro {item.wrong_rate_percent}% ·
+                        score {item.difficulty_score}
+                      </div>
+                      <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
+                        {item.prompt}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
+                  Ainda nao ha sinal suficiente para destacar questoes.
+                </div>
+              )}
+            </div>
+
+            <div className="sq-page-stack">
+              <div className="sq-surface-block">
+                <div className="sq-list-title">Dominios mais fracos</div>
+                {analytics.weakest_domains.length ? (
+                  <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                    {analytics.weakest_domains.map((item) => (
+                      <div key={item.domain} className="sq-list-item">
+                        <div className="sq-list-title">{item.domain}</div>
+                        <div className="sq-list-meta">
+                          erro {item.wrong_rate_percent}% · {item.attempts_total} tentativa(s) · pressao {item.review_pressure_count}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
+                    Sem dominios com historico relevante ainda.
+                  </div>
+                )}
+              </div>
+
+              <div className="sq-surface-block">
+                <div className="sq-list-title">Provas com maior atrito</div>
+                {analytics.weakest_exams.length ? (
+                  <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                    {analytics.weakest_exams.map((item) => (
+                      <div key={item.exam_id} className="sq-list-item">
+                        <div className="sq-list-title">{item.exam_title}</div>
+                        <div className="sq-list-meta">
+                          {item.exam_id} · erro {item.wrong_rate_percent}% · {item.tracked_questions} questao(oes) com sinal
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
+                    Sem prova com atrito consolidado ainda.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+
         <div
           style={{
             display: "grid",
@@ -872,10 +1158,16 @@ export function AdminShell() {
                             {item.certification ? <span className="sq-chip">{item.certification}</span> : null}
                             {item.domain ? <span className="sq-chip">{item.domain}</span> : null}
                             {item.difficulty ? <span className="sq-chip">{item.difficulty}</span> : null}
+                            {item.editorial_status ? <span className="sq-chip">{item.editorial_status}</span> : null}
+                            {item.draft_version_number ? <span className="sq-chip">draft v{item.draft_version_number}</span> : null}
+                            {item.published_version_number ? (
+                              <span className="sq-chip">pub v{item.published_version_number}</span>
+                            ) : null}
                             <span className="sq-chip">
                               {item.correct_count}/{item.option_count} corretas
                             </span>
                             <span className="sq-chip">{item.multi_select ? "multi" : "single"}</span>
+                            {item.loaded_from === "draft" ? <span className="sq-chip">rascunho</span> : null}
                           </div>
                         </button>
                       );
@@ -1136,6 +1428,20 @@ export function AdminShell() {
                 </Field>
               </div>
 
+              <Field
+                label="Resumo da mudanca"
+                htmlFor="admin-q-change-summary"
+                hint="Registre o motivo da edicao. Esse texto entra no historico e ajuda na auditoria."
+              >
+                <textarea
+                  id="admin-q-change-summary"
+                  className="sq-textarea"
+                  rows={3}
+                  value={questionDraft.changeSummary}
+                  onChange={(event) => updateQuestionDraft({ changeSummary: event.target.value })}
+                />
+              </Field>
+
               <div className="sq-grid-2">
                 <Card
                   title="Alternativas"
@@ -1336,6 +1642,128 @@ export function AdminShell() {
               </div>
 
               <div className="sq-grid-2">
+                <Card
+                  title="Workflow editorial"
+                  subtitle="Rascunhe, envie para revisao e publique sem alterar a prova ao vivo antes da aprovacao."
+                >
+                  <div className="sq-metric-grid">
+                    <div className="sq-metric-card">
+                      <span className="sq-muted">Status</span>
+                      <strong>{currentDraftVersion?.status || "sem rascunho"}</strong>
+                    </div>
+                    <div className="sq-metric-card">
+                      <span className="sq-muted">Rascunho atual</span>
+                      <strong>
+                        {currentDraftVersion?.version_number ? `v${currentDraftVersion.version_number}` : "-"}
+                      </strong>
+                    </div>
+                    <div className="sq-metric-card">
+                      <span className="sq-muted">Publicado</span>
+                      <strong>
+                        {currentPublishedVersion?.version_number ? `v${currentPublishedVersion.version_number}` : "-"}
+                      </strong>
+                    </div>
+                    <div className="sq-metric-card">
+                      <span className="sq-muted">Eventos auditados</span>
+                      <strong>{questionAudit.length}</strong>
+                    </div>
+                  </div>
+
+                  <div className="sq-actions" style={{ marginTop: "var(--sq-space-4)" }}>
+                    <Button busy={activeTask === "saveQuestion"} onClick={() => void handleSaveQuestion()}>
+                      Salvar rascunho
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      busy={activeTask === "submitReview"}
+                      disabled={!questionDraft.id.trim()}
+                      onClick={() => void handleSubmitReview()}
+                    >
+                      Enviar para revisao
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      busy={activeTask === "publishQuestion"}
+                      disabled={!questionDraft.id.trim()}
+                      onClick={() => void handlePublishQuestion()}
+                    >
+                      Publicar
+                    </Button>
+                    <Button variant="ghost" onClick={startNewQuestion}>
+                      Novo rascunho
+                    </Button>
+                  </div>
+                </Card>
+
+                <div className="sq-page-stack">
+                  <Card title="Historico de versoes" subtitle="Cada publicacao ou rollback gera uma nova versao rastreavel.">
+                    {questionVersions.length ? (
+                      <div className="sq-list">
+                        {questionVersions.map((item) => (
+                          <div key={item.id} className="sq-list-item">
+                            <div className="sq-list-title">
+                              v{item.version_number} · {item.status}
+                            </div>
+                            <div className="sq-list-meta">
+                              {item.published_at ? `Publicado em ${item.published_at}` : `Atualizado em ${item.updated_at || item.created_at}`}
+                            </div>
+                            {item.change_summary ? (
+                              <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
+                                {item.change_summary}
+                              </div>
+                            ) : null}
+                            <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-2)" }}>
+                              {item.is_current_published ? <span className="sq-chip">Publicado atual</span> : null}
+                              {item.is_current_draft ? <span className="sq-chip">Rascunho atual</span> : null}
+                              <span className="sq-chip">
+                                {item.correct_count}/{item.option_count} corretas
+                              </span>
+                            </div>
+                            {!item.is_current_published ? (
+                              <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  busy={activeTask === "rollbackQuestion"}
+                                  onClick={() => void handleRollbackQuestion(item.id)}
+                                >
+                                  Reverter para esta versao
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="sq-empty">Nenhuma versao registrada ainda. Salve o primeiro rascunho para iniciar o fluxo.</div>
+                    )}
+                  </Card>
+
+                  <Card title="Auditoria" subtitle="Quem mudou, quando mudou e por qual motivo.">
+                    {questionAudit.length ? (
+                      <div className="sq-list">
+                        {questionAudit.map((item) => (
+                          <div key={item.id} className="sq-list-item">
+                            <div className="sq-list-title">
+                              {item.action} · {item.actor_role || "sistema"}
+                            </div>
+                            <div className="sq-list-meta">{item.created_at || "-"}</div>
+                            {item.reason ? (
+                              <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
+                                {item.reason}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="sq-empty">Sem eventos auditados para esta questao ainda.</div>
+                    )}
+                  </Card>
+                </div>
+              </div>
+
+              <div className="sq-grid-2">
                 <Card title="Checklist rapido" subtitle="Leitura instantanea antes de salvar.">
                   <div className="sq-metric-grid">
                     {questionStats.map((item) => (
@@ -1364,15 +1792,6 @@ export function AdminShell() {
                     {questionPreview}
                   </pre>
                 </Card>
-              </div>
-
-              <div className="sq-actions">
-                <Button busy={activeTask === "saveQuestion"} onClick={() => void handleSaveQuestion()}>
-                  Salvar questao
-                </Button>
-                <Button variant="ghost" onClick={startNewQuestion}>
-                  Novo rascunho
-                </Button>
               </div>
             </div>
           </Card>

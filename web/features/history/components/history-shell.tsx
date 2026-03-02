@@ -15,13 +15,40 @@ import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   Exam,
+  ReviewQueueGoals,
   ReviewQueueSnapshot,
+  ReviewQueueStateBreakdown,
   SessionHistoryItem,
   SessionResponse,
   StudyHistoryItem,
   StudySessionRequest,
   StudyWeeklyAnalytics
 } from "@/types/api";
+
+const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
+  due_count: 0,
+  total_count: 0,
+  next_due_at: null,
+  recommended_batch_size: 0,
+  state_breakdown: {
+    due_now: 0,
+    at_risk: 0,
+    scheduled: 0,
+    mastered: 0
+  },
+  upcoming_load: [],
+  goals: {
+    daily_review_target: 0,
+    weekly_review_target: 0,
+    new_question_budget: 0
+  },
+  items: []
+};
+
+const DEFAULT_WEEKLY_ANALYTICS: StudyWeeklyAnalytics = {
+  weeks: [],
+  summary: {}
+};
 
 function readHistoryError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -61,6 +88,19 @@ function resolveStudyResultHref(item: StudyHistoryItem): string {
   return `/study/${item.id}/result`;
 }
 
+function describeQueueState(item: ReviewQueueSnapshot["items"][number]): string {
+  if (item.state === "due_now") {
+    return item.overdue_days > 0 ? `vencida ha ${item.overdue_days} dia(s)` : "vence hoje";
+  }
+  if (item.state === "at_risk") {
+    return "vence em ate 48h";
+  }
+  if (item.state === "mastered") {
+    return "ja consolidada";
+  }
+  return item.due_at ? `agendada para ${formatDateTime(item.due_at)}` : "agendada";
+}
+
 export function HistoryShell() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
@@ -71,14 +111,8 @@ export function HistoryShell() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
   const [studyHistory, setStudyHistory] = useState<StudyHistoryItem[]>([]);
-  const [weeklyAnalytics, setWeeklyAnalytics] = useState<StudyWeeklyAnalytics>({ weeks: [], summary: {} });
-  const [reviewQueue, setReviewQueue] = useState<ReviewQueueSnapshot>({
-    due_count: 0,
-    total_count: 0,
-    next_due_at: null,
-    recommended_batch_size: 0,
-    items: []
-  });
+  const [weeklyAnalytics, setWeeklyAnalytics] = useState<StudyWeeklyAnalytics>(DEFAULT_WEEKLY_ANALYTICS);
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueSnapshot>(DEFAULT_REVIEW_QUEUE);
 
   const [selectedExamId, setSelectedExamId] = useState("");
   const [minimumScore, setMinimumScore] = useState("0");
@@ -126,20 +160,14 @@ export function HistoryShell() {
     if (results[3].status === "fulfilled") {
       setWeeklyAnalytics(results[3].value);
     } else {
-      setWeeklyAnalytics({ weeks: [], summary: {} });
+      setWeeklyAnalytics(DEFAULT_WEEKLY_ANALYTICS);
       failed.push("analytics semanal");
     }
 
     if (results[4].status === "fulfilled") {
       setReviewQueue(results[4].value);
     } else {
-      setReviewQueue({
-        due_count: 0,
-        total_count: 0,
-        next_due_at: null,
-        recommended_batch_size: 0,
-        items: []
-      });
+      setReviewQueue(DEFAULT_REVIEW_QUEUE);
       failed.push("fila de revisao");
     }
 
@@ -178,6 +206,22 @@ export function HistoryShell() {
   const examAverage = averageScore(filteredExamHistory);
   const studyAverage = averageScore(filteredStudyHistory);
   const recommendation = String(weeklyAnalytics.summary.recommendation || "").trim();
+  const reviewStateBreakdown: ReviewQueueStateBreakdown =
+    weeklyAnalytics.summary.review_state_breakdown || reviewQueue.state_breakdown;
+  const weeklyGoal: ReviewQueueGoals & {
+    weekly_question_target?: number;
+    weekly_new_question_target?: number;
+    completion_ratio_percent?: number;
+    suggested_daily_question_target?: number;
+    suggested_daily_review_target?: number;
+    on_track?: boolean;
+  } = {
+    daily_review_target: reviewQueue.goals.daily_review_target,
+    weekly_review_target: reviewQueue.goals.weekly_review_target,
+    new_question_budget: reviewQueue.goals.new_question_budget,
+    ...(weeklyAnalytics.summary.weekly_goal || {})
+  };
+  const reviewForecast = weeklyAnalytics.summary.review_forecast;
 
   async function startRecommendedReview() {
     setIsStartingReview(true);
@@ -314,6 +358,14 @@ export function HistoryShell() {
                 <strong>{reviewQueue.total_count}</strong>
               </div>
               <div className="sq-metric-card">
+                <span className="sq-muted">Em risco</span>
+                <strong>{reviewStateBreakdown.at_risk}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Dominadas</span>
+                <strong>{reviewStateBreakdown.mastered}</strong>
+              </div>
+              <div className="sq-metric-card">
                 <span className="sq-muted">Proxima revisao</span>
                 <strong>{reviewQueue.next_due_at ? formatDateTime(reviewQueue.next_due_at) : "-"}</strong>
               </div>
@@ -324,6 +376,79 @@ export function HistoryShell() {
                 {recommendation}
               </div>
             ) : null}
+          </Card>
+
+          <Card title="Meta semanal" subtitle="Um alvo pratico para equilibrar estudo novo e revisao.">
+            <div className="sq-metric-grid">
+              <div className="sq-metric-card">
+                <span className="sq-muted">Meta de questoes</span>
+                <strong>{weeklyGoal.weekly_question_target || 0}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Meta de revisoes</span>
+                <strong>{weeklyGoal.weekly_review_target || 0}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Novas sugeridas</span>
+                <strong>{weeklyGoal.weekly_new_question_target ?? weeklyGoal.new_question_budget}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Conclusao</span>
+                <strong>
+                  {weeklyGoal.completion_ratio_percent === undefined ? "-" : `${weeklyGoal.completion_ratio_percent}%`}
+                </strong>
+              </div>
+            </div>
+
+            <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
+              <div className="sq-list-item">
+                <div className="sq-list-title">
+                  {weeklyGoal.on_track === false ? "Voce esta abaixo da meta" : "Ritmo semanal em linha"}
+                </div>
+                <div className="sq-list-meta">
+                  Proximo passo recomendado: {weeklyGoal.suggested_daily_question_target || 0} nova(s) +{" "}
+                  {weeklyGoal.suggested_daily_review_target || weeklyGoal.daily_review_target || 0} revisao(oes) por dia.
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Carga prevista" subtitle="Antecipe picos da fila para nao virar backlog.">
+            <div className="sq-metric-grid">
+              <div className="sq-metric-card">
+                <span className="sq-muted">Vencem em 7 dias</span>
+                <strong>{reviewForecast?.projected_due_next_7_days || 0}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Entram em risco</span>
+                <strong>{reviewForecast?.projected_at_risk_next_7_days || 0}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Pico diario</span>
+                <strong>{reviewForecast?.peak_load_day || 0}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Pressao</span>
+                <strong>{String(reviewForecast?.pressure || "stable")}</strong>
+              </div>
+            </div>
+
+            {reviewQueue.upcoming_load.length ? (
+              <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
+                {reviewQueue.upcoming_load.map((day) => (
+                  <div key={day.date} className="sq-list-item">
+                    <div className="sq-list-title">{day.label}</div>
+                    <div className="sq-list-meta">
+                      {day.due_count} vencendo · {day.at_risk_count} entrando em risco
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="sq-empty" style={{ marginTop: "var(--sq-space-4)" }}>
+                Sem carga futura relevante no momento.
+              </div>
+            )}
           </Card>
 
           <Card
@@ -347,8 +472,7 @@ export function HistoryShell() {
                   <div key={item.question_id} className="sq-list-item">
                     <div className="sq-list-title">{item.prompt}</div>
                     <div className="sq-list-meta">
-                      {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · vencida ha{" "}
-                      {item.overdue_days} dia(s)
+                      {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item)}
                     </div>
                   </div>
                 ))}

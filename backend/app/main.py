@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.db.session import engine, SessionLocal
 from app.db.base import Base
 from app.db.migrations import ensure_compat_schema
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.api.routes import router as api_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -23,6 +24,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware, settings=settings)
 
 if settings.bootstrap_schema:
     Base.metadata.create_all(bind=engine)

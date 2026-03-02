@@ -258,11 +258,34 @@ class ReviewQueueEntryOut(BaseModel):
     ease_factor: float = 2.5
 
 
+class ReviewQueueStateBreakdownOut(BaseModel):
+    due_now: int = 0
+    at_risk: int = 0
+    scheduled: int = 0
+    mastered: int = 0
+
+
+class ReviewQueueForecastDayOut(BaseModel):
+    date: str
+    label: str
+    due_count: int = 0
+    at_risk_count: int = 0
+
+
+class ReviewQueueGoalOut(BaseModel):
+    daily_review_target: int = 0
+    weekly_review_target: int = 0
+    new_question_budget: int = 0
+
+
 class ReviewQueueSnapshotOut(BaseModel):
     due_count: int
     total_count: int
     next_due_at: Optional[str] = None
     recommended_batch_size: int = 0
+    state_breakdown: ReviewQueueStateBreakdownOut = Field(default_factory=ReviewQueueStateBreakdownOut)
+    upcoming_load: List[ReviewQueueForecastDayOut] = Field(default_factory=list)
+    goals: ReviewQueueGoalOut = Field(default_factory=ReviewQueueGoalOut)
     items: List[ReviewQueueEntryOut] = Field(default_factory=list)
 
 

@@ -96,6 +96,91 @@ class UserNote(Base):
         UniqueConstraint("client_key", "question_id", name="uq_user_notes_client_question"),
     )
 
+
+class QuestionBank(Base):
+    __tablename__ = "question_bank"
+
+    stable_question_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    published_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    draft_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    review_status: Mapped[str] = mapped_column(String(24), nullable=False, default="published", index=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    versions: Mapped[list["QuestionVersion"]] = relationship(back_populates="question_bank", cascade="all, delete-orphan")
+
+
+class QuestionVersion(Base):
+    __tablename__ = "question_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_bank_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("question_bank.stable_question_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft", index=True)
+    exam_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    multi_select: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    certification: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    citations_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    approved_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+    question_bank: Mapped["QuestionBank"] = relationship(back_populates="versions")
+    options: Mapped[list["QuestionVersionOption"]] = relationship(back_populates="version", cascade="all, delete-orphan")
+
+    __table_args__ = (UniqueConstraint("question_bank_id", "version_number", name="uq_question_versions_bank_version"),)
+
+
+class QuestionVersionOption(Base):
+    __tablename__ = "question_version_options"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    key: Mapped[str] = mapped_column(String(8), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    version: Mapped["QuestionVersion"] = relationship(back_populates="options")
+
+    __table_args__ = (UniqueConstraint("version_id", "key", name="uq_question_version_options_version_key"),)
+
+
+class EditorialAuditLog(Base):
+    __tablename__ = "editorial_audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_bank_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    question_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class Question(Base):
     __tablename__ = "questions"
 

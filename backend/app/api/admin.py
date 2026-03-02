@@ -12,7 +12,32 @@ import json
 from app.api.deps import get_current_user_optional
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import Exam, Question, Option, Explanation, ImportState, ExamSession, SessionQuestion, SessionAnswer
+from app.models import (
+    EditorialAuditLog,
+    Exam,
+    ExamSession,
+    Explanation,
+    ImportState,
+    Option,
+    Question,
+    QuestionBank,
+    QuestionVersion,
+    QuestionVersionOption,
+    SessionAnswer,
+    SessionQuestion,
+    User,
+)
+from app.services.admin_analytics import build_admin_question_analytics
+from app.services.editorial import (
+    build_admin_question_document,
+    delete_question_with_history,
+    list_editorial_audit_logs,
+    list_question_versions,
+    publish_question,
+    rollback_question_to_version,
+    save_question_draft,
+    submit_question_for_review,
+)
 from app.services.ingest import ingest_questions_from_dir
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -29,6 +54,26 @@ def require_admin(
         raise HTTPException(status_code=403, detail="Forbidden")
     raise HTTPException(status_code=401, detail="Unauthorized")
     return True
+
+
+def require_reviewer(
+    x_admin_key: Optional[str] = Header(default=None),
+    current_user = Depends(get_current_user_optional),
+):
+    if x_admin_key and x_admin_key == settings.admin_api_key:
+        return True
+    if current_user and current_user.is_active and current_user.role in {"admin", "reviewer"}:
+        return True
+    if current_user:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    raise HTTPException(status_code=401, detail="Unauthorized")
+    return True
+
+
+def _actor_role(current_user: User | None) -> str:
+    if current_user and current_user.role:
+        return current_user.role
+    return "admin_key"
 
 class AdminCreateExamIn(BaseModel):
     id: str
@@ -54,6 +99,7 @@ class AdminCreateQuestionIn(BaseModel):
     options: List[AdminOptionIn]
     correct_keys: List[str] = Field(default_factory=list)
     justification: Optional[str] = None
+    change_summary: Optional[str] = None
 
 class AdminOptionOut(BaseModel):
     key: str
@@ -73,6 +119,13 @@ class AdminQuestionOut(BaseModel):
     options: List[AdminOptionOut]
     correct_keys: List[str]
     justification: Optional[str] = None
+    change_summary: Optional[str] = None
+    editorial_status: Optional[str] = None
+    loaded_from: Optional[str] = None
+    version_id: Optional[int] = None
+    version_number: Optional[int] = None
+    published_version_number: Optional[int] = None
+    draft_version_number: Optional[int] = None
 
 class AdminQuestionSummaryOut(BaseModel):
     id: str
@@ -84,12 +137,111 @@ class AdminQuestionSummaryOut(BaseModel):
     certification: Optional[str] = None
     option_count: int
     correct_count: int
+    editorial_status: Optional[str] = None
+    draft_version_number: Optional[int] = None
+    published_version_number: Optional[int] = None
+    loaded_from: Optional[str] = None
 
 class AdminOverviewOut(BaseModel):
     exam_count: int
     question_count: int
     completed_session_count: int
     question_breakdown: Dict[str, int]
+
+
+class AdminAnalyticsSummaryOut(BaseModel):
+    tracked_questions: int
+    questions_with_signals: int
+    total_attempts: int
+    exam_attempts: int
+    study_attempts: int
+    total_review_pressure: int
+    average_wrong_rate_percent: float
+
+
+class AdminHardestQuestionOut(BaseModel):
+    id: str
+    exam_id: str
+    exam_title: Optional[str] = None
+    prompt: str
+    domain: Optional[str] = None
+    certification: Optional[str] = None
+    difficulty: Optional[str] = None
+    attempts_total: int
+    exam_attempts: int
+    study_attempts: int
+    wrong_count: int
+    wrong_rate_percent: float
+    low_confidence_count: int
+    low_confidence_rate_percent: float
+    review_pressure_count: int
+    avg_study_elapsed_seconds: Optional[float] = None
+    difficulty_score: float
+
+
+class AdminWeakDomainOut(BaseModel):
+    domain: str
+    tracked_questions: int
+    attempts_total: int
+    wrong_count: int
+    wrong_rate_percent: float
+    low_confidence_count: int
+    review_pressure_count: int
+
+
+class AdminWeakExamOut(BaseModel):
+    exam_id: str
+    exam_title: str
+    tracked_questions: int
+    attempts_total: int
+    wrong_count: int
+    wrong_rate_percent: float
+    low_confidence_count: int
+    review_pressure_count: int
+
+
+class AdminQuestionAnalyticsOut(BaseModel):
+    summary: AdminAnalyticsSummaryOut
+    hardest_questions: List[AdminHardestQuestionOut]
+    weakest_domains: List[AdminWeakDomainOut]
+    weakest_exams: List[AdminWeakExamOut]
+
+
+class AdminQuestionVersionOut(BaseModel):
+    id: int
+    question_id: str
+    version_number: int
+    status: str
+    change_summary: Optional[str] = None
+    review_notes: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    published_at: Optional[str] = None
+    option_count: int
+    correct_count: int
+    is_current_draft: bool = False
+    is_current_published: bool = False
+
+
+class AdminAuditLogOut(BaseModel):
+    id: int
+    question_id: Optional[str] = None
+    question_version_id: Optional[int] = None
+    actor_user_id: Optional[str] = None
+    actor_role: Optional[str] = None
+    action: str
+    reason: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: Optional[str] = None
+
+
+class AdminReviewActionIn(BaseModel):
+    reason: Optional[str] = None
+
+
+class AdminRollbackIn(BaseModel):
+    version_id: int
+    reason: Optional[str] = None
 
 
 def _clean_citation_value(value: Any):
@@ -146,6 +298,20 @@ def admin_overview(_: bool = Depends(require_admin), db: Session = Depends(get_d
         question_breakdown=breakdown,
     )
 
+
+@router.get("/analytics/questions", response_model=AdminQuestionAnalyticsOut)
+def admin_question_analytics(
+    limit: int = Query(default=10, ge=3, le=30),
+    _: bool = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return AdminQuestionAnalyticsOut(
+        **build_admin_question_analytics(
+            db,
+            limit=limit,
+        )
+    )
+
 @router.post("/exams")
 def admin_create_exam(payload: AdminCreateExamIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     exam = db.get(Exam, payload.id)
@@ -160,7 +326,12 @@ def admin_create_exam(payload: AdminCreateExamIn, _: bool = Depends(require_admi
     return {"ok": True, "id": exam.id}
 
 @router.post("/questions")
-def admin_create_question(payload: AdminCreateQuestionIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_create_question(
+    payload: AdminCreateQuestionIn,
+    _: bool = Depends(require_admin),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     exam_id = payload.exam_id.strip()
     question_id = payload.id.strip()
     prompt = payload.prompt.strip()
@@ -215,10 +386,6 @@ def admin_create_question(payload: AdminCreateQuestionIn, _: bool = Depends(requ
         seen_citations.add(key)
         normalized_citations.append(normalized_item)
 
-    q = db.get(Question, question_id)
-    tags_json = json.dumps(normalized_tags, ensure_ascii=False) if normalized_tags else None
-    citations_json = json.dumps(normalized_citations, ensure_ascii=False) if normalized_citations else None
-
     normalized_options: List[AdminOptionIn] = []
     seen_option_keys = set()
     for opt in payload.options:
@@ -233,32 +400,6 @@ def admin_create_question(payload: AdminCreateQuestionIn, _: bool = Depends(requ
     if len(normalized_options) < 2:
         raise HTTPException(status_code=400, detail="At least two valid options are required.")
 
-    if not q:
-        q = Question(
-            id=question_id,
-            exam_id=exam_id,
-            prompt=prompt,
-            multi_select=payload.multi_select,
-            domain=(payload.domain.strip() or None) if payload.domain else None,
-            difficulty=(payload.difficulty.strip() or None) if payload.difficulty else None,
-            certification=(payload.certification.strip() or None) if payload.certification else None,
-            tags_json=tags_json,
-            citations_json=citations_json,
-        )
-        db.add(q)
-    else:
-        q.exam_id = exam_id
-        q.prompt = prompt
-        q.multi_select = payload.multi_select
-        q.domain = (payload.domain.strip() or None) if payload.domain else None
-        q.difficulty = (payload.difficulty.strip() or None) if payload.difficulty else None
-        q.certification = (payload.certification.strip() or None) if payload.certification else None
-        q.tags_json = tags_json
-        q.citations_json = citations_json
-        # delete existing options
-        for opt in list(q.options):
-            db.delete(opt)
-
     correct_set = {k.strip().upper() for k in payload.correct_keys if k and k.strip()}
     for opt in normalized_options:
         if opt.is_correct:
@@ -270,19 +411,40 @@ def admin_create_question(payload: AdminCreateQuestionIn, _: bool = Depends(requ
         raise HTTPException(status_code=400, detail=f"Correct option not found: {', '.join(invalid_correct_keys)}")
 
     final_multi_select = bool(payload.multi_select or len(correct_set) > 1)
-    q.multi_select = final_multi_select
+    normalized_payload = {
+        "id": question_id,
+        "exam_id": exam_id,
+        "prompt": prompt,
+        "multi_select": final_multi_select,
+        "domain": (payload.domain.strip() or None) if payload.domain else None,
+        "difficulty": (payload.difficulty.strip() or None) if payload.difficulty else None,
+        "certification": (payload.certification.strip() or None) if payload.certification else None,
+        "tags": normalized_tags,
+        "citations": normalized_citations,
+        "options": [
+            {
+                "key": opt.key,
+                "text": opt.text,
+                "is_correct": opt.key in correct_set,
+            }
+            for opt in normalized_options
+        ],
+        "justification": (payload.justification.strip() or None) if payload.justification else None,
+        "change_summary": (payload.change_summary.strip() or None) if payload.change_summary else None,
+    }
 
-    for opt in normalized_options:
-        db.add(Option(question_id=question_id, key=opt.key, text=opt.text, is_correct=(opt.key in correct_set)))
-
-    exp = db.get(Explanation, question_id)
-    if not exp:
-        db.add(Explanation(question_id=question_id, justification=(payload.justification.strip() or None) if payload.justification else None))
-    else:
-        exp.justification = (payload.justification.strip() or None) if payload.justification else None
+    try:
+        result = save_question_draft(
+            db,
+            normalized_payload,
+            actor_user_id=current_user.id if current_user else None,
+            actor_role=_actor_role(current_user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     db.commit()
-    return {"ok": True, "id": q.id}
+    return result
 
 @router.get("/questions", response_model=List[AdminQuestionSummaryOut])
 def admin_list_questions(
@@ -313,14 +475,32 @@ def admin_list_questions(
         select(Option.question_id, Option.is_correct)
         .where(Option.question_id.in_(qids))
     ).all()
+    bank_rows = db.execute(
+        select(QuestionBank)
+        .where(QuestionBank.stable_question_id.in_(qids))
+    ).scalars().all()
     counts: Dict[str, Dict[str, int]] = {qid: {"option_count": 0, "correct_count": 0} for qid in qids}
     for qid, is_correct in opt_rows:
         counts.setdefault(qid, {"option_count": 0, "correct_count": 0})
         counts[qid]["option_count"] += 1
         if is_correct:
             counts[qid]["correct_count"] += 1
+    bank_map = {row.stable_question_id: row for row in bank_rows}
+    version_ids = {
+        version_id
+        for bank in bank_rows
+        for version_id in (bank.draft_version_id, bank.published_version_id)
+        if version_id
+    }
+    version_map = {}
+    if version_ids:
+        version_rows = db.execute(
+            select(QuestionVersion)
+            .where(QuestionVersion.id.in_(version_ids))
+        ).scalars().all()
+        version_map = {row.id: row for row in version_rows}
 
-    return [
+    items = [
         AdminQuestionSummaryOut(
             id=q.id,
             exam_id=q.exam_id,
@@ -331,63 +511,205 @@ def admin_list_questions(
             certification=q.certification,
             option_count=counts.get(q.id, {}).get("option_count", 0),
             correct_count=counts.get(q.id, {}).get("correct_count", 0),
+            editorial_status=bank_map.get(q.id).review_status if bank_map.get(q.id) else "published",
+            draft_version_number=(
+                version_map[bank_map[q.id].draft_version_id].version_number
+                if q.id in bank_map and bank_map[q.id].draft_version_id and bank_map[q.id].draft_version_id in version_map
+                else None
+            ),
+            published_version_number=(
+                version_map[bank_map[q.id].published_version_id].version_number
+                if q.id in bank_map and bank_map[q.id].published_version_id and bank_map[q.id].published_version_id in version_map
+                else None
+            ),
+            loaded_from="published",
         )
         for q in questions
     ]
 
+    remaining = max(limit - len(items), 0)
+    if remaining > 0:
+        draft_stmt = (
+            select(QuestionBank, QuestionVersion)
+            .join(QuestionVersion, QuestionVersion.id == QuestionBank.draft_version_id)
+            .outerjoin(Question, Question.id == QuestionBank.stable_question_id)
+            .where(Question.id.is_(None))
+            .order_by(QuestionBank.stable_question_id.asc())
+            .limit(remaining)
+        )
+        if exam_id:
+            draft_stmt = draft_stmt.where(QuestionVersion.exam_id == exam_id.strip())
+        if search:
+            term = f"%{search.strip()}%"
+            if term != "%%":
+                draft_stmt = draft_stmt.where(
+                    (QuestionBank.stable_question_id.ilike(term)) |
+                    (QuestionVersion.prompt.ilike(term)) |
+                    (QuestionVersion.domain.ilike(term)) |
+                    (QuestionVersion.certification.ilike(term))
+                )
+
+        draft_rows = db.execute(draft_stmt).all()
+        draft_version_ids = [version.id for _bank, version in draft_rows]
+        draft_counts: Dict[int, Dict[str, int]] = {
+            version_id: {"option_count": 0, "correct_count": 0}
+            for version_id in draft_version_ids
+        }
+        if draft_version_ids:
+            draft_opt_rows = db.execute(
+                select(QuestionVersionOption.version_id, QuestionVersionOption.is_correct)
+                .where(QuestionVersionOption.version_id.in_(draft_version_ids))
+            ).all()
+            for version_id, is_correct in draft_opt_rows:
+                draft_counts.setdefault(version_id, {"option_count": 0, "correct_count": 0})
+                draft_counts[version_id]["option_count"] += 1
+                if is_correct:
+                    draft_counts[version_id]["correct_count"] += 1
+
+        for bank, version in draft_rows:
+            count_row = draft_counts.get(version.id, {"option_count": 0, "correct_count": 0})
+            items.append(
+                AdminQuestionSummaryOut(
+                    id=bank.stable_question_id,
+                    exam_id=version.exam_id,
+                    prompt=version.prompt,
+                    multi_select=version.multi_select,
+                    domain=version.domain,
+                    difficulty=version.difficulty,
+                    certification=version.certification,
+                    option_count=count_row["option_count"],
+                    correct_count=count_row["correct_count"],
+                    editorial_status=bank.review_status,
+                    draft_version_number=version.version_number,
+                    published_version_number=(
+                        version_map[bank.published_version_id].version_number
+                        if bank.published_version_id and bank.published_version_id in version_map
+                        else None
+                    ),
+                    loaded_from="draft",
+                )
+            )
+
+    return items
+
 @router.get("/questions/{question_id}", response_model=AdminQuestionOut)
 def admin_get_question(question_id: str, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
-    q = db.get(Question, question_id)
-    if not q:
+    document = build_admin_question_document(db, question_id)
+    if not document:
         raise HTTPException(status_code=404, detail="Question not found")
+    db.commit()
+    return AdminQuestionOut(**document)
 
-    opts = db.execute(
-        select(Option.key, Option.text, Option.is_correct)
-        .where(Option.question_id == q.id)
-        .order_by(Option.key.asc())
-    ).all()
-    correct = [k for (k, _t, ok) in opts if ok]
-    exp = db.get(Explanation, q.id)
-    tags = None
-    if q.tags_json:
-        try:
-            parsed_tags = json.loads(q.tags_json)
-            if isinstance(parsed_tags, list):
-                tags = [str(tag).strip() for tag in parsed_tags if str(tag).strip()]
-        except (TypeError, ValueError):
-            tags = None
-    citations = None
-    if q.citations_json:
-        try:
-            parsed_citations = json.loads(q.citations_json)
-            if isinstance(parsed_citations, list):
-                citations = [item for item in parsed_citations if isinstance(item, dict)]
-        except (TypeError, ValueError):
-            citations = None
 
-    return AdminQuestionOut(
-        id=q.id,
-        exam_id=q.exam_id,
-        prompt=q.prompt,
-        multi_select=q.multi_select,
-        domain=q.domain,
-        difficulty=q.difficulty,
-        certification=q.certification,
-        tags=tags,
-        citations=citations,
-        options=[AdminOptionOut(key=k, text=t, is_correct=ok) for (k, t, ok) in opts],
-        correct_keys=correct,
-        justification=exp.justification if exp else None
-    )
+@router.get("/questions/{question_id}/versions", response_model=List[AdminQuestionVersionOut])
+def admin_question_versions(question_id: str, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    items = [AdminQuestionVersionOut(**item) for item in list_question_versions(db, question_id)]
+    db.commit()
+    return items
+
+
+@router.get("/audit/logs", response_model=List[AdminAuditLogOut])
+def admin_audit_logs(
+    question_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: bool = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    normalized_question_id = question_id.strip() if question_id else None
+    return [
+        AdminAuditLogOut(**item)
+        for item in list_editorial_audit_logs(
+            db,
+            question_id=normalized_question_id or None,
+            limit=limit,
+        )
+    ]
+
+
+@router.post("/questions/{question_id}/submit-review")
+def admin_submit_question_review(
+    question_id: str,
+    payload: AdminReviewActionIn,
+    _: bool = Depends(require_admin),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = submit_question_for_review(
+            db,
+            question_id.strip(),
+            actor_user_id=current_user.id if current_user else None,
+            actor_role=_actor_role(current_user),
+            reason=(payload.reason.strip() or None) if payload.reason else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    return result
+
+
+@router.post("/questions/{question_id}/publish")
+def admin_publish_question(
+    question_id: str,
+    payload: AdminReviewActionIn,
+    _: bool = Depends(require_reviewer),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = publish_question(
+            db,
+            question_id.strip(),
+            actor_user_id=current_user.id if current_user else None,
+            actor_role=_actor_role(current_user),
+            reason=(payload.reason.strip() or None) if payload.reason else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    return result
+
+
+@router.post("/questions/{question_id}/rollback")
+def admin_rollback_question(
+    question_id: str,
+    payload: AdminRollbackIn,
+    _: bool = Depends(require_reviewer),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = rollback_question_to_version(
+            db,
+            question_id.strip(),
+            payload.version_id,
+            actor_user_id=current_user.id if current_user else None,
+            actor_role=_actor_role(current_user),
+            reason=(payload.reason.strip() or None) if payload.reason else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    return result
 
 @router.delete("/questions/{question_id}")
-def admin_delete_question(question_id: str, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
-    q = db.get(Question, question_id)
-    if not q:
-        raise HTTPException(status_code=404, detail="Question not found")
-    db.delete(q)
+def admin_delete_question(
+    question_id: str,
+    _: bool = Depends(require_admin),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = delete_question_with_history(
+            db,
+            question_id.strip(),
+            actor_user_id=current_user.id if current_user else None,
+            actor_role=_actor_role(current_user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     db.commit()
-    return {"ok": True, "id": question_id}
+    return result
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat() if dt else None
@@ -420,12 +742,23 @@ def _export_db(db: Session) -> Dict[str, Any]:
     options = db.execute(select(Option)).scalars().all()
     explanations = db.execute(select(Explanation)).scalars().all()
     imports = db.execute(select(ImportState).order_by(ImportState.imported_at.desc())).scalars().all()
+    banks = db.execute(select(QuestionBank).order_by(QuestionBank.stable_question_id.asc())).scalars().all()
+    versions = db.execute(
+        select(QuestionVersion).order_by(QuestionVersion.question_bank_id.asc(), QuestionVersion.version_number.asc())
+    ).scalars().all()
+    version_options = db.execute(
+        select(QuestionVersionOption).order_by(QuestionVersionOption.version_id.asc(), QuestionVersionOption.key.asc())
+    ).scalars().all()
+    audit_logs = db.execute(select(EditorialAuditLog).order_by(EditorialAuditLog.created_at.desc())).scalars().all()
 
     opt_map: Dict[str, List[Option]] = {}
     for opt in options:
         opt_map.setdefault(opt.question_id, []).append(opt)
 
     exp_map: Dict[str, Explanation] = {e.question_id: e for e in explanations}
+    version_option_map: Dict[int, List[QuestionVersionOption]] = {}
+    for item in version_options:
+        version_option_map.setdefault(item.version_id, []).append(item)
 
     exam_map: Dict[str, Dict[str, Any]] = {
         e.id: {
@@ -501,6 +834,69 @@ def _export_db(db: Session) -> Dict[str, Any]:
             "version": "1.0.0"
         },
         "exams": list(exam_map.values()),
+        "editorial": {
+            "question_banks": [
+                {
+                    "question_id": bank.stable_question_id,
+                    "published_version_id": bank.published_version_id,
+                    "draft_version_id": bank.draft_version_id,
+                    "review_status": bank.review_status,
+                    "created_by_user_id": bank.created_by_user_id,
+                    "updated_by_user_id": bank.updated_by_user_id,
+                    "created_at": _iso(bank.created_at),
+                    "updated_at": _iso(bank.updated_at),
+                }
+                for bank in banks
+            ],
+            "versions": [
+                {
+                    "id": version.id,
+                    "question_id": version.question_bank_id,
+                    "version_number": version.version_number,
+                    "status": version.status,
+                    "exam_id": version.exam_id,
+                    "prompt": version.prompt,
+                    "multi_select": version.multi_select,
+                    "domain": version.domain,
+                    "difficulty": version.difficulty,
+                    "certification": version.certification,
+                    "tags": _parse_tags(version.tags_json),
+                    "citations": _parse_citations(version.citations_json),
+                    "options": [
+                        {
+                            "key": option.key,
+                            "text": option.text,
+                            "is_correct": option.is_correct,
+                        }
+                        for option in version_option_map.get(version.id, [])
+                    ],
+                    "justification": version.justification,
+                    "change_summary": version.change_summary,
+                    "review_notes": version.review_notes,
+                    "created_by_user_id": version.created_by_user_id,
+                    "updated_by_user_id": version.updated_by_user_id,
+                    "approved_by_user_id": version.approved_by_user_id,
+                    "created_at": _iso(version.created_at),
+                    "updated_at": _iso(version.updated_at),
+                    "published_at": _iso(version.published_at),
+                }
+                for version in versions
+            ],
+            "audit_log": [
+                {
+                    "id": item.id,
+                    "question_id": item.question_bank_id,
+                    "question_version_id": item.question_version_id,
+                    "actor_user_id": item.actor_user_id,
+                    "actor_role": item.actor_role,
+                    "action": item.action,
+                    "reason": item.reason,
+                    "metadata": json.loads(item.metadata_json) if item.metadata_json else None,
+                    "created_at": _iso(item.created_at),
+                }
+                for item in audit_logs
+            ],
+        },
         "sessions": session_export,
         "import_state": [{
             "file_name": i.file_name,

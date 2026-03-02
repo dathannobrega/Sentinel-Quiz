@@ -24,13 +24,21 @@
   - política de repetição espaçada incremental baseada no histórico do item
   - priorização adaptativa no `exam mode` customizado
   - evolução do agendamento para um modelo de estabilidade mais próximo de SRS
+  - recomendação semanal automática com metas de volume, revisão e ritmo diário
+  - diferenciação explícita da fila entre `due_now`, `at_risk`, `scheduled` e `mastered`
+  - projeção de carga futura da fila de revisão com forecast de 7 dias
+  - analytics editoriais por questão, domínio e prova no painel admin
+  - `question_bank` + `question_versions` + `question_version_options` com versionamento real do conteúdo
+  - fluxo editorial completo no admin: salvar rascunho, enviar para revisão, publicar e rollback com republicação segura
+  - trilha de auditoria editorial persistente e exportável
+  - rate limiting por categoria de endpoint (`public`, `auth`, `admin`) no backend
+  - frontend principal migrado para Next.js App Router, com histórico e admin consumindo APIs tipadas
 
 ### Próxima fatia recomendada
 
-- recomendação semanal automática de metas (volume, domínios e backlog)
-- diferenciação entre revisão “vencida”, “em risco” e “dominada” no algoritmo
-- projeção de carga futura da fila de revisão
-- analytics editoriais usando desempenho agregado por questão e por versão
+- endurecimento operacional adicional: logs estruturados, trilha de request, detecção de scraping e política de backup
+- migração definitiva de persistência para PostgreSQL em produção, removendo dependência de SQLite no runtime principal
+- snapshots agregados por versão para analytics editoriais históricos sem custo alto em query
 
 ## 1. Estado atual e gaps críticos
 
@@ -38,20 +46,21 @@
 
 - Backend em FastAPI com SQLAlchemy.
 - Banco local em SQLite.
-- SPA em HTML/CSS/JS vanilla.
+- Frontend principal em Next.js (App Router) + React + TypeScript.
 - Banco canônico de questões em JSON (`questions/securityplus.json` e `questions/cissp.json`) com `domain`, `difficulty`, `certification`, `tags`, `citations`.
-- Sessões de prova, revisão, histórico, insights básicos e painel admin.
+- Sessões de prova, revisão, histórico, insights, painel admin e analytics editoriais.
 - Study mode com sessão própria, fila de revisão, histórico dedicado, métricas semanais e revisão detalhada por bloco.
+- Banco de conteúdo versionado com auditoria e workflow editorial.
 - Preview de material referenciado e ingestão automática no startup.
 
 ### O que ainda impede “produção escalável”
 
 - A autenticação básica agora existe, mas ainda faltam papéis mais granulares, políticas completas de acesso e gestão madura de conta.
-- Não existe separação multitenant, ACL granular, nem trilha de auditoria robusta.
+- Não existe separação multitenant, ACL granular completa, nem trilha de auditoria robusta.
 - O banco atual (SQLite) é bom para dev/single-node, não para concorrência real.
-- Não há versionamento de conteúdo, workflow editorial ou aprovação.
+- O versionamento editorial já existe, mas ainda faltam métricas históricas por versão e governança mais ampla de catálogo.
 - Já existe uma primeira camada de bookmarks, notas, confiança e fila de revisão persistida, mas ainda sem um modelo pedagógico avançado de repetição espaçada.
-- Não há rate limiting, detecção de scraping, cache, jobs assíncronos, observabilidade completa ou estratégia de backup operacionalizada.
+- Já existe rate limiting básico, mas ainda faltam detecção de scraping, cache, jobs assíncronos, observabilidade completa e estratégia de backup operacionalizada.
 - O modelo atual de dados ainda é centrado em “sessão de prova”, não em “plataforma de aprendizagem”.
 
 ### Decisão arquitetural recomendada antes de expandir funcionalidades

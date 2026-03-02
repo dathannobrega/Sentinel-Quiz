@@ -201,11 +201,34 @@ export interface ReviewQueueEntry {
   ease_factor: number;
 }
 
+export interface ReviewQueueStateBreakdown {
+  due_now: number;
+  at_risk: number;
+  scheduled: number;
+  mastered: number;
+}
+
+export interface ReviewQueueForecastDay {
+  date: string;
+  label: string;
+  due_count: number;
+  at_risk_count: number;
+}
+
+export interface ReviewQueueGoals {
+  daily_review_target: number;
+  weekly_review_target: number;
+  new_question_budget: number;
+}
+
 export interface ReviewQueueSnapshot {
   due_count: number;
   total_count: number;
   next_due_at?: string | null;
   recommended_batch_size: number;
+  state_breakdown: ReviewQueueStateBreakdown;
+  upcoming_load: ReviewQueueForecastDay[];
+  goals: ReviewQueueGoals;
   items: ReviewQueueEntry[];
 }
 
@@ -222,9 +245,48 @@ export interface StudyWeeklyMetric {
   low_confidence: number;
 }
 
+export interface StudyWeeklyGoalSummary {
+  weekly_question_target: number;
+  weekly_review_target: number;
+  weekly_new_question_target: number;
+  completion_ratio_percent: number;
+  suggested_daily_question_target: number;
+  suggested_daily_review_target: number;
+  on_track: boolean;
+}
+
+export interface StudyReviewForecastSummary {
+  projected_due_next_7_days: number;
+  projected_at_risk_next_7_days: number;
+  peak_load_day: number;
+  peak_load_date?: string | null;
+  pressure: string;
+}
+
+export interface StudyWeeklySummary {
+  weeks_tracked?: number;
+  active_weeks?: number;
+  total_questions?: number;
+  review_questions?: number;
+  average_accuracy_percent?: number;
+  current_week_questions?: number;
+  current_week_accuracy_percent?: number;
+  current_week_scheduled_reviews?: number;
+  current_week_review_questions?: number;
+  current_week_low_confidence?: number;
+  accuracy_delta_vs_previous_week?: number;
+  question_delta_vs_previous_week?: number;
+  review_backlog_due?: number;
+  review_backlog_total?: number;
+  review_state_breakdown?: ReviewQueueStateBreakdown;
+  weekly_goal?: StudyWeeklyGoalSummary;
+  review_forecast?: StudyReviewForecastSummary;
+  recommendation?: string;
+}
+
 export interface StudyWeeklyAnalytics {
   weeks: StudyWeeklyMetric[];
-  summary: Record<string, unknown>;
+  summary: StudyWeeklySummary;
 }
 
 export interface SessionQuestionResponse {
@@ -323,9 +385,70 @@ export interface AdminOverview {
   question_breakdown: Record<string, number>;
 }
 
+export interface AdminAnalyticsSummary {
+  tracked_questions: number;
+  questions_with_signals: number;
+  total_attempts: number;
+  exam_attempts: number;
+  study_attempts: number;
+  total_review_pressure: number;
+  average_wrong_rate_percent: number;
+}
+
+export interface AdminHardestQuestion {
+  id: string;
+  exam_id: string;
+  exam_title?: string | null;
+  prompt: string;
+  domain?: string | null;
+  certification?: string | null;
+  difficulty?: string | null;
+  attempts_total: number;
+  exam_attempts: number;
+  study_attempts: number;
+  wrong_count: number;
+  wrong_rate_percent: number;
+  low_confidence_count: number;
+  low_confidence_rate_percent: number;
+  review_pressure_count: number;
+  avg_study_elapsed_seconds?: number | null;
+  difficulty_score: number;
+}
+
+export interface AdminWeakDomain {
+  domain: string;
+  tracked_questions: number;
+  attempts_total: number;
+  wrong_count: number;
+  wrong_rate_percent: number;
+  low_confidence_count: number;
+  review_pressure_count: number;
+}
+
+export interface AdminWeakExam {
+  exam_id: string;
+  exam_title: string;
+  tracked_questions: number;
+  attempts_total: number;
+  wrong_count: number;
+  wrong_rate_percent: number;
+  low_confidence_count: number;
+  review_pressure_count: number;
+}
+
+export interface AdminQuestionAnalytics {
+  summary: AdminAnalyticsSummary;
+  hardest_questions: AdminHardestQuestion[];
+  weakest_domains: AdminWeakDomain[];
+  weakest_exams: AdminWeakExam[];
+}
+
 export interface AdminMutationResponse {
   ok: boolean;
   id?: string;
+  status?: string;
+  version_id?: number;
+  version_number?: number;
 }
 
 export interface AdminIngestResponse {
@@ -361,6 +484,10 @@ export interface AdminQuestionSummary {
   certification?: string | null;
   option_count: number;
   correct_count: number;
+  editorial_status?: string | null;
+  draft_version_number?: number | null;
+  published_version_number?: number | null;
+  loaded_from?: string | null;
 }
 
 export interface AdminQuestion {
@@ -376,6 +503,13 @@ export interface AdminQuestion {
   options: AdminOption[];
   correct_keys: string[];
   justification?: string | null;
+  change_summary?: string | null;
+  editorial_status?: string | null;
+  loaded_from?: string | null;
+  version_id?: number | null;
+  version_number?: number | null;
+  published_version_number?: number | null;
+  draft_version_number?: number | null;
 }
 
 export interface AdminQuestionInput {
@@ -391,4 +525,42 @@ export interface AdminQuestionInput {
   options: AdminOptionInput[];
   correct_keys: string[];
   justification?: string | null;
+  change_summary?: string | null;
+}
+
+export interface AdminQuestionVersion {
+  id: number;
+  question_id: string;
+  version_number: number;
+  status: string;
+  change_summary?: string | null;
+  review_notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  published_at?: string | null;
+  option_count: number;
+  correct_count: number;
+  is_current_draft: boolean;
+  is_current_published: boolean;
+}
+
+export interface AdminAuditLog {
+  id: number;
+  question_id?: string | null;
+  question_version_id?: number | null;
+  actor_user_id?: string | null;
+  actor_role?: string | null;
+  action: string;
+  reason?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
+export interface AdminReviewActionInput {
+  reason?: string | null;
+}
+
+export interface AdminRollbackInput {
+  version_id: number;
+  reason?: string | null;
 }

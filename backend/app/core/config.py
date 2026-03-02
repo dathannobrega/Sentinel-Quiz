@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     admin_api_key: str = Field(default="change-me", alias="ADMIN_API_KEY")
     auth_token_ttl_hours: int = Field(default=168, alias="AUTH_TOKEN_TTL_HOURS")
     auth_token_bytes: int = Field(default=32, alias="AUTH_TOKEN_BYTES")
+    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
+    rate_limit_public_requests: int = Field(default=180, alias="RATE_LIMIT_PUBLIC_REQUESTS")
+    rate_limit_public_window_seconds: int = Field(default=60, alias="RATE_LIMIT_PUBLIC_WINDOW_SECONDS")
+    rate_limit_auth_requests: int = Field(default=40, alias="RATE_LIMIT_AUTH_REQUESTS")
+    rate_limit_admin_requests: int = Field(default=60, alias="RATE_LIMIT_ADMIN_REQUESTS")
+    rate_limit_cache_size: int = Field(default=50000, alias="RATE_LIMIT_CACHE_SIZE")
 
     cors_origins: str = Field(default="http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:3000,http://localhost:3000", alias="CORS_ORIGINS")
 

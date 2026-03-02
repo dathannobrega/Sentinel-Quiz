@@ -35,6 +35,7 @@ RECENT_ITEM_LIMIT = 3
 QUEUE_PREVIEW_LIMIT = 5
 CONFIDENCE_LEVELS = {"low", "medium", "high"}
 WEEKLY_ANALYTICS_DEFAULT_WEEKS = 8
+REVIEW_FORECAST_DAYS = 7
 
 
 def _scope_label(owner_user_id: Optional[str], owner_client_key: Optional[str]) -> str:
@@ -300,13 +301,23 @@ def build_review_queue_snapshot(
         first_due = queue_rows[0].get("due_at")
         next_due_at = first_due.isoformat() if first_due else None
 
-    items: list[dict[str, Any]] = []
-    for row in queue_rows[: max(limit, 1)]:
-        due_at = row.get("due_at")
+    state_breakdown = {
+        "due_now": 0,
+        "at_risk": 0,
+        "scheduled": 0,
+        "mastered": 0,
+    }
+    forecast_days: list[dict[str, Any]] = []
+    today = now.date()
+
+    def classify_queue_state(
+        *,
+        due_at: datetime | None,
+        repetition_count: int,
+        stability_score: float,
+        ease_factor: float,
+    ) -> tuple[str, int]:
         overdue_days = 0
-        repetition_count = int(row.get("repetition_count") or 0)
-        stability_score = float(row.get("stability_score") or 0.0)
-        ease_factor = float(row.get("ease_factor") or 2.5)
         state = "scheduled"
         if due_at and due_at <= now:
             state = "due_now"
@@ -315,6 +326,23 @@ def build_review_queue_snapshot(
             state = "at_risk"
         elif repetition_count >= 5 and stability_score >= 18 and ease_factor >= 2.55:
             state = "mastered"
+        return state, overdue_days
+
+    items: list[dict[str, Any]] = []
+    for row in queue_rows:
+        due_at = row.get("due_at")
+        repetition_count = int(row.get("repetition_count") or 0)
+        stability_score = float(row.get("stability_score") or 0.0)
+        ease_factor = float(row.get("ease_factor") or 2.5)
+        state, overdue_days = classify_queue_state(
+            due_at=due_at,
+            repetition_count=repetition_count,
+            stability_score=stability_score,
+            ease_factor=ease_factor,
+        )
+        state_breakdown[state] = int(state_breakdown.get(state, 0)) + 1
+        if len(items) >= max(limit, 1):
+            continue
         items.append({
             "question_id": row["question_id"],
             "prompt": _truncate_text(row.get("prompt") or "", 120),
@@ -329,15 +357,56 @@ def build_review_queue_snapshot(
         })
 
     due_count = len(due_rows)
+    at_risk_count = int(state_breakdown["at_risk"])
     recommended_batch_size = min(max(due_count, 0), 20)
     if recommended_batch_size == 0 and queue_rows:
         recommended_batch_size = min(len(queue_rows), 10)
+
+    for offset in range(REVIEW_FORECAST_DAYS):
+        target_date = today + timedelta(days=offset)
+        at_risk_window_end = target_date + timedelta(days=2)
+        due_for_day = 0
+        at_risk_for_day = 0
+
+        for row in queue_rows:
+            due_at = row.get("due_at")
+            if not due_at:
+                continue
+            due_date = due_at.date()
+            effective_due_date = today if due_at <= now else due_date
+            if effective_due_date == target_date:
+                due_for_day += 1
+                continue
+            if due_date > target_date and due_date <= at_risk_window_end:
+                at_risk_for_day += 1
+
+        forecast_days.append({
+            "date": target_date.isoformat(),
+            "label": target_date.strftime("%d/%m"),
+            "due_count": due_for_day,
+            "at_risk_count": at_risk_for_day,
+        })
+
+    daily_review_target = 0
+    weekly_review_target = 0
+    new_question_budget = 0
+    if queue_rows:
+        daily_review_target = min(max(due_count + math.ceil(at_risk_count / 2), 6), 25)
+        weekly_review_target = min(max(due_count + at_risk_count + math.ceil(len(queue_rows) * 0.15), daily_review_target), 140)
+        new_question_budget = max(min(weekly_review_target - max(due_count + at_risk_count, 0), 30), 0)
 
     return {
         "due_count": due_count,
         "total_count": len(queue_rows),
         "next_due_at": next_due_at,
         "recommended_batch_size": recommended_batch_size,
+        "state_breakdown": state_breakdown,
+        "upcoming_load": forecast_days,
+        "goals": {
+            "daily_review_target": daily_review_target,
+            "weekly_review_target": weekly_review_target,
+            "new_question_budget": new_question_budget,
+        },
         "items": items,
     }
 
@@ -474,6 +543,51 @@ def build_weekly_study_analytics(
         owner_client_key=owner_client_key,
         limit=5,
     )
+    state_breakdown = due_snapshot.get("state_breakdown") or {}
+    queue_goals = due_snapshot.get("goals") or {}
+    upcoming_load = due_snapshot.get("upcoming_load") or []
+    projected_due_next_7_days = int(sum(int(item.get("due_count") or 0) for item in upcoming_load))
+    projected_at_risk_next_7_days = int(sum(int(item.get("at_risk_count") or 0) for item in upcoming_load))
+    peak_load_day = 0
+    peak_load_date = None
+    projected_total_load = projected_due_next_7_days + projected_at_risk_next_7_days
+    for item in upcoming_load:
+        combined = int(item.get("due_count") or 0) + int(item.get("at_risk_count") or 0)
+        if combined > peak_load_day:
+            peak_load_day = combined
+            peak_load_date = item.get("date")
+    if projected_total_load > 35:
+        pressure_level = "high"
+    elif projected_total_load > 16:
+        pressure_level = "medium"
+    else:
+        pressure_level = "stable"
+
+    current_weekday = min(max(now.weekday() + 1, 1), 7)
+    weekly_question_target = int(max(current_week["study_questions"], 30))
+    if total_questions:
+        recent_average = math.ceil(total_questions / max(len(active_weeks), 1))
+        weekly_question_target = max(weekly_question_target, min(recent_average + 10, 120))
+    weekly_review_target = int(max(queue_goals.get("weekly_review_target") or 0, current_week["review_questions"], 10 if due_snapshot["total_count"] else 0))
+    weekly_new_question_target = int(
+        max(
+            queue_goals.get("new_question_budget") or 0,
+            weekly_question_target - min(weekly_review_target, weekly_question_target),
+            0,
+        )
+    )
+    expected_progress_ratio = current_weekday / 7
+    current_completion_ratio = round(
+        (current_week["study_questions"] / weekly_question_target) * 100.0,
+        2,
+    ) if weekly_question_target else 0.0
+    on_track = bool(
+        not weekly_question_target
+        or current_week["study_questions"] >= math.floor(weekly_question_target * max(expected_progress_ratio * 0.85, 0.25))
+    )
+    remaining_days = max(7 - current_weekday, 1)
+    suggested_daily_question_target = int(max(math.ceil(max(weekly_question_target - current_week["study_questions"], 0) / remaining_days), 0))
+    suggested_daily_review_target = int(max(math.ceil(max(weekly_review_target - current_week["review_questions"], 0) / remaining_days), 0))
 
     summary = {
         "weeks_tracked": total_weeks,
@@ -495,13 +609,41 @@ def build_weekly_study_analytics(
         ),
         "review_backlog_due": int(due_snapshot["due_count"]),
         "review_backlog_total": int(due_snapshot["total_count"]),
+        "review_state_breakdown": state_breakdown,
+        "weekly_goal": {
+            "weekly_question_target": weekly_question_target,
+            "weekly_review_target": weekly_review_target,
+            "weekly_new_question_target": weekly_new_question_target,
+            "completion_ratio_percent": current_completion_ratio,
+            "suggested_daily_question_target": suggested_daily_question_target,
+            "suggested_daily_review_target": suggested_daily_review_target,
+            "on_track": on_track,
+        },
+        "review_forecast": {
+            "projected_due_next_7_days": projected_due_next_7_days,
+            "projected_at_risk_next_7_days": projected_at_risk_next_7_days,
+            "peak_load_day": peak_load_day,
+            "peak_load_date": peak_load_date,
+            "pressure": pressure_level,
+        },
     }
     if summary["review_backlog_due"] > 15:
-        summary["recommendation"] = "Sua fila vencida esta alta. Priorize uma revisao diaria curta antes de abrir novos blocos."
-    elif current_week["study_questions"] < 20 and summary["review_backlog_total"] > 0:
-        summary["recommendation"] = "Seu volume da semana esta baixo. Faça ao menos um bloco adaptativo e uma revisao diaria."
+        summary["recommendation"] = (
+            f"Sua fila vencida esta alta. Foque em {queue_goals.get('daily_review_target') or 10} revisoes por dia antes de abrir muitos blocos novos."
+        )
+    elif not on_track:
+        summary["recommendation"] = (
+            f"Voce esta atrasado na meta semanal. Tente {suggested_daily_question_target} questao(oes) nova(s) e "
+            f"{suggested_daily_review_target} revisao(oes) por dia no restante da semana."
+        )
     elif summary["accuracy_delta_vs_previous_week"] < -8:
-        summary["recommendation"] = "Sua precisao caiu nesta semana. Reduza o volume e foque nos dominios fracos com revisao guiada."
+        summary["recommendation"] = (
+            "Sua precisao caiu nesta semana. Reduza o volume novo e foque nos dominios fracos com revisao guiada."
+        )
+    elif projected_total_load > 20:
+        summary["recommendation"] = (
+            "A carga da fila vai subir nos proximos dias. Antecipe revisoes curtas agora para evitar acumulo."
+        )
     else:
         summary["recommendation"] = "Ritmo estavel. Continue equilibrando blocos novos com revisoes vencidas."
 
