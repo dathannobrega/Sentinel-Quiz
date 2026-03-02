@@ -120,6 +120,58 @@ class QuestionBank(Base):
     versions: Mapped[list["QuestionVersion"]] = relationship(back_populates="question_bank", cascade="all, delete-orphan")
 
 
+class DomainCatalog(Base):
+    __tablename__ = "domain_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    certification: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    domain: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    subdomain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    objective_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    blueprint_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "certification",
+            "domain",
+            "subdomain",
+            "objective_code",
+            "blueprint_code",
+            name="uq_domain_catalog_identity",
+        ),
+    )
+
+
+class DomainBlueprint(Base):
+    __tablename__ = "domain_blueprint"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    certification: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    blueprint_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    objective_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    subdomain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "certification",
+            "blueprint_code",
+            "objective_code",
+            name="uq_domain_blueprint_identity",
+        ),
+    )
+
+
 class QuestionVersion(Base):
     __tablename__ = "question_versions"
 
@@ -138,9 +190,21 @@ class QuestionVersion(Base):
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     difficulty: Mapped[str | None] = mapped_column(String(64), nullable=True)
     certification: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    subtopic: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    subdomain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    objective_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    blueprint_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    keywords_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trap_patterns_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question_format: Mapped[str] = mapped_column(String(32), nullable=False, default="single_choice", index=True)
     tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     citations_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correct_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    incorrect_rationales_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avg_time_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    global_accuracy_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -152,6 +216,7 @@ class QuestionVersion(Base):
 
     question_bank: Mapped["QuestionBank"] = relationship(back_populates="versions")
     options: Mapped[list["QuestionVersionOption"]] = relationship(back_populates="version", cascade="all, delete-orphan")
+    references: Mapped[list["QuestionReference"]] = relationship(back_populates="version", cascade="all, delete-orphan")
 
     __table_args__ = (UniqueConstraint("question_bank_id", "version_number", name="uq_question_versions_bank_version"),)
 
@@ -173,6 +238,28 @@ class QuestionVersionOption(Base):
     version: Mapped["QuestionVersion"] = relationship(back_populates="options")
 
     __table_args__ = (UniqueConstraint("version_id", "key", name="uq_question_version_options_version_key"),)
+
+
+class QuestionReference(Base):
+    __tablename__ = "question_references"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_version_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chapter: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    locator: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    material_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    version: Mapped["QuestionVersion"] = relationship(back_populates="references")
 
 
 class EditorialAuditLog(Base):
@@ -451,4 +538,107 @@ class UserQuestionProgress(Base):
         ),
         UniqueConstraint("user_id", "question_id", name="uq_user_question_progress_user_question"),
         UniqueConstraint("client_key", "question_id", name="uq_user_question_progress_client_question"),
+    )
+
+
+class UserDomainMetricDaily(Base):
+    __tablename__ = "user_domain_metrics_daily"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    metric_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    exam_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    certification: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    domain: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    attempts_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    exam_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    study_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    low_confidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_elapsed_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    timed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_user_domain_metrics_daily_owner_scope_xor",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "metric_date",
+            "exam_id",
+            "domain",
+            name="uq_user_domain_metrics_daily_user",
+        ),
+        UniqueConstraint(
+            "client_key",
+            "metric_date",
+            "exam_id",
+            "domain",
+            name="uq_user_domain_metrics_daily_client",
+        ),
+    )
+
+
+class UserExamMetricsSnapshot(Base):
+    __tablename__ = "user_exam_metrics_snapshot"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="exam", index=True)
+    exam_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    selection_strategy: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    answered_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    score_percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weakest_domains_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_due_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_user_exam_metrics_snapshot_owner_scope_xor",
+        ),
+    )
+
+
+class WeeklyProgressSnapshot(Base):
+    __tablename__ = "weekly_progress_snapshot"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    week_start: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    questions_answered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scheduled_reviews: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    low_confidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_exam_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_study_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_review_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_due_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_weekly_progress_snapshot_owner_scope_xor",
+        ),
+        UniqueConstraint("user_id", "week_start", name="uq_weekly_progress_snapshot_user"),
+        UniqueConstraint("client_key", "week_start", name="uq_weekly_progress_snapshot_client"),
     )

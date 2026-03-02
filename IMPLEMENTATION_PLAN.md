@@ -15,11 +15,14 @@
 - `Exam mode` agora roda com timer real no backend, pausa controlada e auto-submit por timeout.
 - `Custom quiz` já aceita filtros combináveis por domínio, dificuldade, tags, erradas, marcadas, novas, notas e baixa confiança.
 - A inbox de revisão agora suporta recortes por “vence hoje”, “atrasadas”, “em risco”, bookmarks e notas.
+- O domínio editorial agora persiste `domain_catalog`, `domain_blueprint` e `question_reference`, com validação semântica de questão, `quality` por campo e importação sincronizada com `question_version`.
+- Métricas de aprendizado agora têm escrita incremental em `user_domain_metrics_daily`, `user_exam_metrics_snapshot` e `weekly_progress_snapshot`, reduzindo a dependência de varrer sessões a cada leitura.
 
 ### Gaps que ainda permanecem
 
 - Multitenancy real e ACL por tenant ainda não existem.
 - A trilha de auditoria está melhor (logs estruturados + editoriais), mas ainda pode evoluir para auditoria operacional persistente de segurança.
+- O admin web ainda precisa expor visualmente toda a nova qualidade editorial (hoje o backend já retorna os campos e o frontend novo preserva esses metadados sem perdê-los no save).
 
 ## 3. Plano por item
 
@@ -97,113 +100,6 @@ Transformar o banco de questões em um domínio editorial consistente, versionad
 ### Prioridade
 
 - Alta. Este item é fundacional.
-
-## 3.2 Modos de estudo (aprendizado + simulação)
-
-### Objetivo
-
-Separar claramente “aprender” de “ser avaliado”.
-
-### Mudanças de modelo
-
-- Criar entidades:
-  - `study_session`
-  - `exam_session`
-  - `session_question`
-  - `question_attempt`
-- Não reutilizar o mesmo fluxo de persistência para tudo.
-
-### Study mode
-
-- Fluxo:
-  - questão
-  - resposta
-  - explicação
-  - confiança
-  - marcar para revisar
-  - próxima
-- Persistir:
-  - acerto
-  - tempo
-  - confiança
-  - bookmark
-  - necessidade de revisão
-
-### Exam mode
-
-- Timer por sessão.
-- Política de revisão configurável:
-  - sem feedback imediato
-  - sem ver rationale até o final
-- Suporte a:
-  - pausa controlada
-  - auto-submit no timeout
-  - relatório consolidado
-
-### Custom quiz
-
-- Filtros combináveis:
-  - certificação
-  - domínio
-  - subdomínio
-  - dificuldade
-  - erradas
-  - marcadas
-  - novas
-  - baixa confiança
-
-### Critério de pronto
-
-- Os três modos usam a mesma base de tentativas, mas regras de UX e scoring diferentes.
-
-### Prioridade
-
-- Alta. Pode ser entregue logo após a refatoração do modelo.
-
-## 3.3 Revisão inteligente (para fixar)
-
-### Objetivo
-
-Transformar erro em fila estruturada de revisão, não apenas relatório passivo.
-
-### Mudanças de modelo
-
-- Criar:
-  - `review_queue`
-  - `review_schedule`
-  - `user_bookmark`
-  - `user_note`
-- Campos por item:
-  - `next_review_at`
-  - `review_interval_days`
-  - `confidence_score`
-  - `last_outcome`
-
-### Algoritmo inicial
-
-- Regra simples, mas real:
-  - erro ou “chutei”: revisar em 1 dia
-  - acerto com baixa confiança: 3 dias
-  - acerto com alta confiança: 7 dias
-  - reincidência de erro: reduzir intervalo
-- Persistir a decisão por tentativa.
-
-### UX
-
-- Inbox de revisão diária.
-- Filtros:
-  - vencidas hoje
-  - atrasadas
-  - bookmarks
-  - notas
-
-### Critério de pronto
-
-- Usuário consegue concluir revisão diária sem depender do histórico manual.
-
-### Prioridade
-
-- Alta. Este item aumenta retenção e aprendizado real.
 
 ## 3.4 Métricas que realmente ajudam
 

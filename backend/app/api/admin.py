@@ -15,6 +15,8 @@ from app.api.deps import get_current_user_required
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
+    DomainBlueprint,
+    DomainCatalog,
     EditorialAuditLog,
     Exam,
     ExamSession,
@@ -23,13 +25,17 @@ from app.models import (
     Option,
     Question,
     QuestionBank,
+    QuestionReference,
     QuestionStatsSnapshot,
     QuestionVersion,
     QuestionVersionOption,
     SessionAnswer,
     SessionQuestion,
     StudySession,
+    UserDomainMetricDaily,
+    UserExamMetricsSnapshot,
     User,
+    WeeklyProgressSnapshot,
 )
 from app.services.admin_analytics import (
     build_admin_question_analytics,
@@ -90,6 +96,18 @@ class AdminCreateQuestionIn(BaseModel):
     options: List[AdminOptionIn]
     correct_keys: List[str] = Field(default_factory=list)
     justification: Optional[str] = None
+    subject: Optional[str] = None
+    subtopic: Optional[str] = None
+    subdomain: Optional[str] = None
+    objective_code: Optional[str] = None
+    blueprint_code: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    trap_patterns: Optional[List[str]] = None
+    question_format: Optional[str] = None
+    correct_rationale: Optional[str] = None
+    incorrect_rationales: Optional[List[str]] = None
+    avg_time_seconds: Optional[float] = None
+    global_accuracy_percent: Optional[float] = None
     change_summary: Optional[str] = None
 
 class AdminOptionOut(BaseModel):
@@ -107,9 +125,21 @@ class AdminQuestionOut(BaseModel):
     certification: Optional[str] = None
     tags: Optional[List[str]] = None
     citations: Optional[List[Dict[str, Any]]] = None
+    subject: Optional[str] = None
+    subtopic: Optional[str] = None
+    subdomain: Optional[str] = None
+    objective_code: Optional[str] = None
+    blueprint_code: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    trap_patterns: Optional[List[str]] = None
+    question_format: Optional[str] = None
     options: List[AdminOptionOut]
     correct_keys: List[str]
     justification: Optional[str] = None
+    correct_rationale: Optional[str] = None
+    incorrect_rationales: Optional[List[str]] = None
+    avg_time_seconds: Optional[float] = None
+    global_accuracy_percent: Optional[float] = None
     change_summary: Optional[str] = None
     editorial_status: Optional[str] = None
     loaded_from: Optional[str] = None
@@ -117,6 +147,7 @@ class AdminQuestionOut(BaseModel):
     version_number: Optional[int] = None
     published_version_number: Optional[int] = None
     draft_version_number: Optional[int] = None
+    quality: Optional[Dict[str, Any]] = None
 
 class AdminQuestionSummaryOut(BaseModel):
     id: str
@@ -244,6 +275,30 @@ class AdminQuestionVersionOut(BaseModel):
     is_current_published: bool = False
 
 
+class AdminDomainCatalogItemOut(BaseModel):
+    id: int
+    certification: str
+    domain: str
+    subdomain: Optional[str] = None
+    subject: Optional[str] = None
+    objective_code: Optional[str] = None
+    blueprint_code: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    blueprint_title: Optional[str] = None
+    blueprint_description: Optional[str] = None
+    is_active: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class AdminDomainCatalogPageOut(BaseModel):
+    items: List[AdminDomainCatalogItemOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class AdminAuditLogOut(BaseModel):
     id: int
     question_id: Optional[str] = None
@@ -334,6 +389,84 @@ def admin_overview(_: User = Depends(require_platform_admin), db: Session = Depe
         question_count=len(questions),
         completed_session_count=len(completed_sessions),
         question_breakdown=breakdown,
+    )
+
+
+@router.get("/domain-catalog", response_model=AdminDomainCatalogPageOut)
+def admin_domain_catalog(
+    certification: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    stmt = (
+        select(DomainCatalog, DomainBlueprint)
+        .outerjoin(
+            DomainBlueprint,
+            (DomainBlueprint.certification == DomainCatalog.certification)
+            & (DomainBlueprint.blueprint_code == DomainCatalog.blueprint_code)
+            & (
+                (DomainBlueprint.objective_code == DomainCatalog.objective_code)
+                | (DomainCatalog.objective_code.is_(None) & DomainBlueprint.objective_code.is_(None))
+            ),
+        )
+        .order_by(
+            DomainCatalog.certification.asc(),
+            DomainCatalog.domain.asc(),
+            DomainCatalog.subdomain.asc(),
+            DomainCatalog.id.asc(),
+        )
+    )
+    count_stmt = select(func.count(DomainCatalog.id))
+
+    if certification:
+        normalized_certification = certification.strip()
+        stmt = stmt.where(DomainCatalog.certification == normalized_certification)
+        count_stmt = count_stmt.where(DomainCatalog.certification == normalized_certification)
+
+    if search:
+        term = f"%{search.strip()}%"
+        if term != "%%":
+            predicate = (
+                DomainCatalog.domain.ilike(term)
+                | DomainCatalog.subdomain.ilike(term)
+                | DomainCatalog.title.ilike(term)
+                | DomainCatalog.objective_code.ilike(term)
+                | DomainCatalog.blueprint_code.ilike(term)
+            )
+            stmt = stmt.where(predicate)
+            count_stmt = count_stmt.where(predicate)
+
+    total = int(db.execute(count_stmt).scalar_one() or 0)
+    rows = db.execute(
+        stmt.offset((page - 1) * page_size).limit(page_size)
+    ).all()
+
+    return AdminDomainCatalogPageOut(
+        items=[
+            AdminDomainCatalogItemOut(
+                id=item.id,
+                certification=item.certification,
+                domain=item.domain,
+                subdomain=item.subdomain,
+                subject=item.subject,
+                objective_code=item.objective_code,
+                blueprint_code=item.blueprint_code,
+                title=item.title,
+                description=item.description,
+                blueprint_title=blueprint.title if blueprint else None,
+                blueprint_description=blueprint.description if blueprint else None,
+                is_active=item.is_active,
+                created_at=item.created_at.isoformat() if item.created_at else None,
+                updated_at=item.updated_at.isoformat() if item.updated_at else None,
+            )
+            for item, blueprint in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
     )
 
 
@@ -570,6 +703,14 @@ def admin_create_question(
         "domain": (payload.domain.strip() or None) if payload.domain else None,
         "difficulty": (payload.difficulty.strip() or None) if payload.difficulty else None,
         "certification": (payload.certification.strip() or None) if payload.certification else None,
+        "subject": (payload.subject.strip() or None) if payload.subject else None,
+        "subtopic": (payload.subtopic.strip() or None) if payload.subtopic else None,
+        "subdomain": (payload.subdomain.strip() or None) if payload.subdomain else None,
+        "objective_code": (payload.objective_code.strip() or None) if payload.objective_code else None,
+        "blueprint_code": (payload.blueprint_code.strip() or None) if payload.blueprint_code else None,
+        "keywords": [str(item).strip() for item in (payload.keywords or []) if str(item).strip()],
+        "trap_patterns": [str(item).strip() for item in (payload.trap_patterns or []) if str(item).strip()],
+        "question_format": (payload.question_format.strip() or None) if payload.question_format else None,
         "tags": normalized_tags,
         "citations": normalized_citations,
         "options": [
@@ -581,6 +722,14 @@ def admin_create_question(
             for opt in normalized_options
         ],
         "justification": (payload.justification.strip() or None) if payload.justification else None,
+        "correct_rationale": (payload.correct_rationale.strip() or None) if payload.correct_rationale else None,
+        "incorrect_rationales": [
+            str(item).strip()
+            for item in (payload.incorrect_rationales or [])
+            if str(item).strip()
+        ],
+        "avg_time_seconds": payload.avg_time_seconds,
+        "global_accuracy_percent": payload.global_accuracy_percent,
         "change_summary": (payload.change_summary.strip() or None) if payload.change_summary else None,
     }
 
@@ -909,6 +1058,24 @@ def _export_db(db: Session) -> Dict[str, Any]:
     stats_snapshots = db.execute(
         select(QuestionStatsSnapshot).order_by(QuestionStatsSnapshot.captured_at.desc(), QuestionStatsSnapshot.id.desc())
     ).scalars().all()
+    question_references = db.execute(
+        select(QuestionReference).order_by(QuestionReference.question_version_id.asc(), QuestionReference.id.asc())
+    ).scalars().all()
+    domain_catalog = db.execute(
+        select(DomainCatalog).order_by(DomainCatalog.certification.asc(), DomainCatalog.domain.asc(), DomainCatalog.id.asc())
+    ).scalars().all()
+    domain_blueprints = db.execute(
+        select(DomainBlueprint).order_by(DomainBlueprint.certification.asc(), DomainBlueprint.blueprint_code.asc(), DomainBlueprint.id.asc())
+    ).scalars().all()
+    user_domain_metrics = db.execute(
+        select(UserDomainMetricDaily).order_by(UserDomainMetricDaily.metric_date.desc(), UserDomainMetricDaily.id.desc())
+    ).scalars().all()
+    user_exam_metrics = db.execute(
+        select(UserExamMetricsSnapshot).order_by(UserExamMetricsSnapshot.completed_at.desc(), UserExamMetricsSnapshot.id.desc())
+    ).scalars().all()
+    weekly_progress_snapshots = db.execute(
+        select(WeeklyProgressSnapshot).order_by(WeeklyProgressSnapshot.week_start.desc(), WeeklyProgressSnapshot.id.desc())
+    ).scalars().all()
     version_options = db.execute(
         select(QuestionVersionOption).order_by(QuestionVersionOption.version_id.asc(), QuestionVersionOption.key.asc())
     ).scalars().all()
@@ -922,6 +1089,9 @@ def _export_db(db: Session) -> Dict[str, Any]:
     version_option_map: Dict[int, List[QuestionVersionOption]] = {}
     for item in version_options:
         version_option_map.setdefault(item.version_id, []).append(item)
+    version_reference_map: Dict[int, List[QuestionReference]] = {}
+    for item in question_references:
+        version_reference_map.setdefault(item.question_version_id, []).append(item)
 
     exam_map: Dict[str, Dict[str, Any]] = {
         e.id: {
@@ -1023,8 +1193,27 @@ def _export_db(db: Session) -> Dict[str, Any]:
                     "domain": version.domain,
                     "difficulty": version.difficulty,
                     "certification": version.certification,
+                    "subject": version.subject,
+                    "subtopic": version.subtopic,
+                    "subdomain": version.subdomain,
+                    "objective_code": version.objective_code,
+                    "blueprint_code": version.blueprint_code,
+                    "keywords": _parse_tags(version.keywords_json),
+                    "trap_patterns": _parse_tags(version.trap_patterns_json),
+                    "question_format": version.question_format,
                     "tags": _parse_tags(version.tags_json),
-                    "citations": _parse_citations(version.citations_json),
+                    "citations": [
+                        {
+                            "source": ref.source,
+                            "reference": ref.reference,
+                            "chapter": ref.chapter,
+                            "locator": ref.locator,
+                            "material_path": ref.material_path,
+                            "page_start": ref.page_start,
+                            "page_end": ref.page_end,
+                        }
+                        for ref in version_reference_map.get(version.id, [])
+                    ] or _parse_citations(version.citations_json),
                     "options": [
                         {
                             "key": option.key,
@@ -1034,6 +1223,10 @@ def _export_db(db: Session) -> Dict[str, Any]:
                         for option in version_option_map.get(version.id, [])
                     ],
                     "justification": version.justification,
+                    "correct_rationale": version.correct_rationale,
+                    "incorrect_rationales": _parse_tags(version.incorrect_rationales_json),
+                    "avg_time_seconds": version.avg_time_seconds,
+                    "global_accuracy_percent": version.global_accuracy_percent,
                     "change_summary": version.change_summary,
                     "review_notes": version.review_notes,
                     "created_by_user_id": version.created_by_user_id,
@@ -1082,8 +1275,108 @@ def _export_db(db: Session) -> Dict[str, Any]:
                 }
                 for item in stats_snapshots
             ],
+            "domain_catalog": [
+                {
+                    "id": item.id,
+                    "certification": item.certification,
+                    "domain": item.domain,
+                    "subdomain": item.subdomain,
+                    "subject": item.subject,
+                    "objective_code": item.objective_code,
+                    "blueprint_code": item.blueprint_code,
+                    "title": item.title,
+                    "description": item.description,
+                    "is_active": item.is_active,
+                    "created_at": _iso(item.created_at),
+                    "updated_at": _iso(item.updated_at),
+                }
+                for item in domain_catalog
+            ],
+            "domain_blueprints": [
+                {
+                    "id": item.id,
+                    "certification": item.certification,
+                    "blueprint_code": item.blueprint_code,
+                    "objective_code": item.objective_code,
+                    "domain": item.domain,
+                    "subdomain": item.subdomain,
+                    "title": item.title,
+                    "description": item.description,
+                    "created_at": _iso(item.created_at),
+                    "updated_at": _iso(item.updated_at),
+                }
+                for item in domain_blueprints
+            ],
         },
         "sessions": session_export,
+        "learning_metrics": {
+            "user_domain_metrics_daily": [
+                {
+                    "id": item.id,
+                    "user_id": item.user_id,
+                    "client_key": item.client_key,
+                    "metric_date": _iso(item.metric_date),
+                    "exam_id": item.exam_id,
+                    "certification": item.certification,
+                    "domain": item.domain,
+                    "attempts_total": item.attempts_total,
+                    "exam_attempts": item.exam_attempts,
+                    "study_attempts": item.study_attempts,
+                    "correct_count": item.correct_count,
+                    "wrong_count": item.wrong_count,
+                    "low_confidence_count": item.low_confidence_count,
+                    "total_elapsed_seconds": item.total_elapsed_seconds,
+                    "timed_attempts": item.timed_attempts,
+                    "updated_at": _iso(item.updated_at),
+                }
+                for item in user_domain_metrics
+            ],
+            "user_exam_metrics_snapshot": [
+                {
+                    "id": item.id,
+                    "user_id": item.user_id,
+                    "client_key": item.client_key,
+                    "session_id": item.session_id,
+                    "mode": item.mode,
+                    "exam_id": item.exam_id,
+                    "selection_strategy": item.selection_strategy,
+                    "total_questions": item.total_questions,
+                    "answered_count": item.answered_count,
+                    "correct_count": item.correct_count,
+                    "wrong_count": item.wrong_count,
+                    "score_percent": item.score_percent,
+                    "duration_seconds": item.duration_seconds,
+                    "weakest_domains": json.loads(item.weakest_domains_json) if item.weakest_domains_json else [],
+                    "review_due_count": item.review_due_count,
+                    "review_total_count": item.review_total_count,
+                    "completed_at": _iso(item.completed_at),
+                    "created_at": _iso(item.created_at),
+                    "updated_at": _iso(item.updated_at),
+                }
+                for item in user_exam_metrics
+            ],
+            "weekly_progress_snapshot": [
+                {
+                    "id": item.id,
+                    "user_id": item.user_id,
+                    "client_key": item.client_key,
+                    "week_start": _iso(item.week_start),
+                    "questions_answered": item.questions_answered,
+                    "review_questions": item.review_questions,
+                    "scheduled_reviews": item.scheduled_reviews,
+                    "correct_count": item.correct_count,
+                    "wrong_count": item.wrong_count,
+                    "low_confidence_count": item.low_confidence_count,
+                    "completed_exam_sessions": item.completed_exam_sessions,
+                    "completed_study_sessions": item.completed_study_sessions,
+                    "completed_review_sessions": item.completed_review_sessions,
+                    "review_due_count": item.review_due_count,
+                    "review_total_count": item.review_total_count,
+                    "updated_at": _iso(item.updated_at),
+                }
+                for item in weekly_progress_snapshots
+            ],
+        },
         "import_state": [{
             "file_name": i.file_name,
             "file_sha256": i.file_sha256,

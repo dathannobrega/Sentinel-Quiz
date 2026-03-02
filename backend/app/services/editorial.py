@@ -8,14 +8,18 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    DomainBlueprint,
+    DomainCatalog,
     EditorialAuditLog,
     Explanation,
     Option,
     Question,
     QuestionBank,
+    QuestionReference,
     QuestionVersion,
     QuestionVersionOption,
 )
+from app.services.question_quality import assess_question_quality, json_text_list, normalize_editorial_payload
 
 
 def _parse_text_list(raw: str | None) -> list[str]:
@@ -48,6 +52,55 @@ def _json_or_none(value: Any) -> str | None:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _payload_signature(payload: dict[str, Any]) -> str:
+    normalized = normalize_editorial_payload(payload)
+    normalized_options = sorted(
+        list(normalized.get("options") or []),
+        key=lambda item: str(item.get("key") or "").upper(),
+    )
+    normalized_citations = sorted(
+        list(normalized.get("citations") or []),
+        key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True),
+    )
+    signature_payload = {
+        "id": normalized.get("id"),
+        "exam_id": normalized.get("exam_id"),
+        "prompt": normalized.get("prompt"),
+        "multi_select": bool(normalized.get("multi_select")),
+        "domain": normalized.get("domain"),
+        "difficulty": normalized.get("difficulty"),
+        "certification": normalized.get("certification"),
+        "subject": normalized.get("subject"),
+        "subtopic": normalized.get("subtopic"),
+        "subdomain": normalized.get("subdomain"),
+        "objective_code": normalized.get("objective_code"),
+        "blueprint_code": normalized.get("blueprint_code"),
+        "keywords": normalized.get("keywords") or [],
+        "trap_patterns": normalized.get("trap_patterns") or [],
+        "question_format": normalized.get("question_format"),
+        "tags": normalized.get("tags") or [],
+        "citations": normalized_citations,
+        "options": normalized_options,
+        "justification": normalized.get("justification"),
+        "correct_rationale": normalized.get("correct_rationale"),
+        "incorrect_rationales": normalized.get("incorrect_rationales") or [],
+        "avg_time_seconds": normalized.get("avg_time_seconds"),
+        "global_accuracy_percent": normalized.get("global_accuracy_percent"),
+    }
+    return json.dumps(signature_payload, ensure_ascii=False, sort_keys=True)
+
+
+def _quality_summary(quality: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "blocking_issues": list(quality.get("blocking_issues") or []),
+        "warnings": list(quality.get("warnings") or []),
+        "field_status": dict(quality.get("field_status") or {}),
+        "completeness_score": float(quality.get("completeness_score") or 0.0),
+        "is_publish_ready": bool(quality.get("is_publish_ready")),
+        "blueprint": dict(quality.get("blueprint") or {}),
+    }
+
+
 def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     options = []
     for item in payload.get("options") or []:
@@ -67,7 +120,7 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     tags = [str(item).strip() for item in (payload.get("tags") or []) if str(item).strip()]
     citations = [item for item in (payload.get("citations") or []) if isinstance(item, dict)]
 
-    return {
+    normalized = {
         "id": str(payload.get("id") or "").strip(),
         "exam_id": str(payload.get("exam_id") or "").strip(),
         "prompt": str(payload.get("prompt") or "").strip(),
@@ -80,7 +133,20 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "options": options,
         "justification": str(payload.get("justification") or "").strip() or None,
         "change_summary": str(payload.get("change_summary") or "").strip() or None,
+        "subject": str(payload.get("subject") or "").strip() or None,
+        "subtopic": str(payload.get("subtopic") or "").strip() or None,
+        "subdomain": str(payload.get("subdomain") or "").strip() or None,
+        "objective_code": str(payload.get("objective_code") or "").strip() or None,
+        "blueprint_code": str(payload.get("blueprint_code") or "").strip() or None,
+        "keywords": payload.get("keywords") or [],
+        "trap_patterns": payload.get("trap_patterns") or [],
+        "question_format": str(payload.get("question_format") or "").strip() or None,
+        "correct_rationale": str(payload.get("correct_rationale") or "").strip() or None,
+        "incorrect_rationales": payload.get("incorrect_rationales") or [],
+        "avg_time_seconds": payload.get("avg_time_seconds"),
+        "global_accuracy_percent": payload.get("global_accuracy_percent"),
     }
+    return normalize_editorial_payload(normalized)
 
 
 def _question_payload_from_projection(db: Session, question_id: str) -> dict[str, Any] | None:
@@ -95,7 +161,7 @@ def _question_payload_from_projection(db: Session, question_id: str) -> dict[str
         .order_by(Option.key.asc())
     ).scalars().all()
 
-    return {
+    return normalize_editorial_payload({
         "id": question.id,
         "exam_id": question.exam_id,
         "prompt": question.prompt,
@@ -115,11 +181,23 @@ def _question_payload_from_projection(db: Session, question_id: str) -> dict[str
         ],
         "justification": explanation.justification if explanation else None,
         "change_summary": None,
-    }
+    })
 
 
 def _question_payload_from_version(version: QuestionVersion) -> dict[str, Any]:
-    return {
+    references = [
+        {
+            "source": item.source,
+            "reference": item.reference,
+            "chapter": item.chapter,
+            "locator": item.locator,
+            "material_path": item.material_path,
+            "page_start": item.page_start,
+            "page_end": item.page_end,
+        }
+        for item in sorted(version.references, key=lambda item: item.id)
+    ]
+    return normalize_editorial_payload({
         "id": version.question_bank_id,
         "exam_id": version.exam_id,
         "prompt": version.prompt,
@@ -127,8 +205,16 @@ def _question_payload_from_version(version: QuestionVersion) -> dict[str, Any]:
         "domain": version.domain,
         "difficulty": version.difficulty,
         "certification": version.certification,
+        "subject": version.subject,
+        "subtopic": version.subtopic,
+        "subdomain": version.subdomain,
+        "objective_code": version.objective_code,
+        "blueprint_code": version.blueprint_code,
+        "keywords": _parse_text_list(version.keywords_json),
+        "trap_patterns": _parse_text_list(version.trap_patterns_json),
+        "question_format": version.question_format,
         "tags": _parse_text_list(version.tags_json),
-        "citations": _parse_dict_list(version.citations_json),
+        "citations": references or _parse_dict_list(version.citations_json),
         "options": [
             {
                 "key": option.key,
@@ -138,8 +224,12 @@ def _question_payload_from_version(version: QuestionVersion) -> dict[str, Any]:
             for option in sorted(version.options, key=lambda item: item.key)
         ],
         "justification": version.justification,
+        "correct_rationale": version.correct_rationale,
+        "incorrect_rationales": _parse_text_list(version.incorrect_rationales_json),
+        "avg_time_seconds": version.avg_time_seconds,
+        "global_accuracy_percent": version.global_accuracy_percent,
         "change_summary": version.change_summary,
-    }
+    })
 
 
 def _get_question_bank(db: Session, question_id: str) -> QuestionBank | None:
@@ -195,9 +285,21 @@ def _replace_version_fields(
     version.domain = payload["domain"]
     version.difficulty = payload["difficulty"]
     version.certification = payload["certification"]
+    version.subject = payload.get("subject")
+    version.subtopic = payload.get("subtopic")
+    version.subdomain = payload.get("subdomain")
+    version.objective_code = payload.get("objective_code")
+    version.blueprint_code = payload.get("blueprint_code")
+    version.keywords_json = json_text_list(payload.get("keywords"))
+    version.trap_patterns_json = json_text_list(payload.get("trap_patterns"))
+    version.question_format = payload.get("question_format") or version.question_format or "single_choice"
     version.tags_json = _json_or_none(payload.get("tags"))
     version.citations_json = _json_or_none(payload.get("citations"))
     version.justification = payload.get("justification")
+    version.correct_rationale = payload.get("correct_rationale")
+    version.incorrect_rationales_json = json_text_list(payload.get("incorrect_rationales"))
+    version.avg_time_seconds = payload.get("avg_time_seconds")
+    version.global_accuracy_percent = payload.get("global_accuracy_percent")
     version.change_summary = payload.get("change_summary")
     version.updated_by_user_id = actor_user_id
     if not preserve_status:
@@ -227,6 +329,105 @@ def _replace_version_options(
     db.refresh(version)
 
 
+def _replace_version_references(
+    db: Session,
+    version: QuestionVersion,
+    citations: list[dict[str, Any]],
+) -> None:
+    for item in list(version.references):
+        db.delete(item)
+    db.flush()
+
+    for citation in citations:
+        page_start = citation.get("page_start")
+        page_end = citation.get("page_end")
+        db.add(
+            QuestionReference(
+                question_version_id=version.id,
+                source=str(citation.get("source") or "").strip() or None,
+                reference=str(citation.get("reference") or "").strip() or None,
+                chapter=str(citation.get("chapter") or "").strip() or None,
+                locator=str(citation.get("locator") or "").strip() or None,
+                material_path=str(citation.get("material_path") or "").strip() or None,
+                page_start=int(page_start) if isinstance(page_start, (int, float)) else None,
+                page_end=int(page_end) if isinstance(page_end, (int, float)) else None,
+            )
+        )
+    db.flush()
+    db.refresh(version)
+
+
+def _sync_domain_blueprint_catalog(
+    db: Session,
+    payload: dict[str, Any],
+) -> None:
+    certification = str(payload.get("certification") or "").strip()
+    domain = str(payload.get("domain") or "").strip()
+    if not certification or not domain:
+        return
+
+    subdomain = str(payload.get("subdomain") or "").strip() or None
+    objective_code = str(payload.get("objective_code") or "").strip() or None
+    blueprint_code = str(payload.get("blueprint_code") or "").strip() or None
+    subject = str(payload.get("subject") or "").strip() or None
+    subtopic = str(payload.get("subtopic") or "").strip() or None
+
+    catalog_row = db.execute(
+        select(DomainCatalog).where(
+            DomainCatalog.certification == certification,
+            DomainCatalog.domain == domain,
+            DomainCatalog.subdomain == subdomain,
+            DomainCatalog.objective_code == objective_code,
+            DomainCatalog.blueprint_code == blueprint_code,
+        )
+    ).scalar_one_or_none()
+    if not catalog_row:
+        catalog_row = DomainCatalog(
+            certification=certification,
+            domain=domain,
+            subdomain=subdomain,
+            subject=subject,
+            objective_code=objective_code,
+            blueprint_code=blueprint_code,
+            title=subtopic or domain,
+            description=(payload.get("correct_rationale") or payload.get("justification")),
+        )
+        db.add(catalog_row)
+    else:
+        catalog_row.subject = subject or catalog_row.subject
+        catalog_row.title = subtopic or catalog_row.title
+        catalog_row.description = (payload.get("correct_rationale") or payload.get("justification") or catalog_row.description)
+        catalog_row.is_active = True
+        catalog_row.updated_at = datetime.utcnow()
+
+    if blueprint_code:
+        blueprint_row = db.execute(
+            select(DomainBlueprint).where(
+                DomainBlueprint.certification == certification,
+                DomainBlueprint.blueprint_code == blueprint_code,
+                DomainBlueprint.objective_code == objective_code,
+            )
+        ).scalar_one_or_none()
+        if not blueprint_row:
+            db.add(
+                DomainBlueprint(
+                    certification=certification,
+                    blueprint_code=blueprint_code,
+                    objective_code=objective_code,
+                    domain=domain,
+                    subdomain=subdomain,
+                    title=subtopic or domain,
+                    description=(payload.get("correct_rationale") or payload.get("justification")),
+                )
+            )
+        else:
+            blueprint_row.domain = domain
+            blueprint_row.subdomain = subdomain
+            blueprint_row.title = subtopic or blueprint_row.title
+            blueprint_row.description = (payload.get("correct_rationale") or payload.get("justification") or blueprint_row.description)
+            blueprint_row.updated_at = datetime.utcnow()
+
+
 def _create_version(
     db: Session,
     *,
@@ -247,9 +448,21 @@ def _create_version(
         domain=payload["domain"],
         difficulty=payload["difficulty"],
         certification=payload["certification"],
+        subject=payload.get("subject"),
+        subtopic=payload.get("subtopic"),
+        subdomain=payload.get("subdomain"),
+        objective_code=payload.get("objective_code"),
+        blueprint_code=payload.get("blueprint_code"),
+        keywords_json=json_text_list(payload.get("keywords")),
+        trap_patterns_json=json_text_list(payload.get("trap_patterns")),
+        question_format=payload.get("question_format") or "single_choice",
         tags_json=_json_or_none(payload.get("tags")),
         citations_json=_json_or_none(payload.get("citations")),
         justification=payload.get("justification"),
+        correct_rationale=payload.get("correct_rationale"),
+        incorrect_rationales_json=json_text_list(payload.get("incorrect_rationales")),
+        avg_time_seconds=payload.get("avg_time_seconds"),
+        global_accuracy_percent=payload.get("global_accuracy_percent"),
         change_summary=payload.get("change_summary"),
         created_by_user_id=actor_user_id,
         updated_by_user_id=actor_user_id,
@@ -269,6 +482,8 @@ def _create_version(
             )
         )
     db.flush()
+    _replace_version_references(db, version, payload.get("citations") or [])
+    _sync_domain_blueprint_catalog(db, payload)
     db.refresh(version)
     return version
 
@@ -409,10 +624,11 @@ def _sync_projection_from_version(
         )
 
     explanation = db.get(Explanation, question_id)
+    explanation_text = version.correct_rationale or version.justification
     if not explanation:
-        db.add(Explanation(question_id=question_id, justification=version.justification))
+        db.add(Explanation(question_id=question_id, justification=explanation_text))
     else:
-        explanation.justification = version.justification
+        explanation.justification = explanation_text
     db.flush()
 
 
@@ -441,6 +657,7 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
         target_version = _get_version(db, bank.draft_version_id) or _get_version(db, bank.published_version_id)
         if target_version:
             payload = _question_payload_from_version(target_version)
+            quality = assess_question_quality(payload, db=db)
             return {
                 "id": payload["id"],
                 "exam_id": payload["exam_id"],
@@ -449,11 +666,23 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
                 "domain": payload["domain"],
                 "difficulty": payload["difficulty"],
                 "certification": payload["certification"],
+                "subject": payload.get("subject"),
+                "subtopic": payload.get("subtopic"),
+                "subdomain": payload.get("subdomain"),
+                "objective_code": payload.get("objective_code"),
+                "blueprint_code": payload.get("blueprint_code"),
+                "keywords": payload.get("keywords"),
+                "trap_patterns": payload.get("trap_patterns"),
+                "question_format": payload.get("question_format"),
                 "tags": payload["tags"],
                 "citations": payload["citations"],
                 "options": payload["options"],
                 "correct_keys": [item["key"] for item in payload["options"] if item["is_correct"]],
                 "justification": payload["justification"],
+                "correct_rationale": payload.get("correct_rationale"),
+                "incorrect_rationales": payload.get("incorrect_rationales"),
+                "avg_time_seconds": payload.get("avg_time_seconds"),
+                "global_accuracy_percent": payload.get("global_accuracy_percent"),
                 "change_summary": payload.get("change_summary"),
                 "editorial_status": bank.review_status,
                 "loaded_from": "draft" if bank.draft_version_id == target_version.id else "published",
@@ -461,11 +690,15 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
                 "version_number": target_version.version_number,
                 "published_version_number": _get_version(db, bank.published_version_id).version_number if bank.published_version_id else None,
                 "draft_version_number": _get_version(db, bank.draft_version_id).version_number if bank.draft_version_id else None,
+                "quality": {
+                    **_quality_summary(quality),
+                },
             }
 
     payload = _question_payload_from_projection(db, question_id)
     if not payload:
         return None
+    quality = assess_question_quality(payload, db=db)
     return {
         "id": payload["id"],
         "exam_id": payload["exam_id"],
@@ -474,11 +707,23 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
         "domain": payload["domain"],
         "difficulty": payload["difficulty"],
         "certification": payload["certification"],
+        "subject": payload.get("subject"),
+        "subtopic": payload.get("subtopic"),
+        "subdomain": payload.get("subdomain"),
+        "objective_code": payload.get("objective_code"),
+        "blueprint_code": payload.get("blueprint_code"),
+        "keywords": payload.get("keywords"),
+        "trap_patterns": payload.get("trap_patterns"),
+        "question_format": payload.get("question_format"),
         "tags": payload["tags"],
         "citations": payload["citations"],
         "options": payload["options"],
         "correct_keys": [item["key"] for item in payload["options"] if item["is_correct"]],
         "justification": payload["justification"],
+        "correct_rationale": payload.get("correct_rationale"),
+        "incorrect_rationales": payload.get("incorrect_rationales"),
+        "avg_time_seconds": payload.get("avg_time_seconds"),
+        "global_accuracy_percent": payload.get("global_accuracy_percent"),
         "change_summary": None,
         "editorial_status": "published",
         "loaded_from": "published",
@@ -486,6 +731,9 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
         "version_number": None,
         "published_version_number": None,
         "draft_version_number": None,
+        "quality": {
+            **_quality_summary(quality),
+        },
     }
 
 
@@ -559,7 +807,8 @@ def save_question_draft(
     actor_user_id: str | None,
     actor_role: str | None,
 ) -> dict[str, Any]:
-    clean = _clean_payload(payload)
+    quality = assess_question_quality(_clean_payload(payload), db=db)
+    clean = quality["normalized"]
     if not clean["id"]:
         raise ValueError("Question ID is required.")
 
@@ -569,6 +818,8 @@ def save_question_draft(
     if current_draft and current_draft.question_bank_id == clean["id"]:
         _replace_version_fields(current_draft, clean, actor_user_id=actor_user_id, preserve_status=False)
         _replace_version_options(db, current_draft, clean["options"])
+        _replace_version_references(db, current_draft, clean.get("citations") or [])
+        _sync_domain_blueprint_catalog(db, clean)
         version = current_draft
         action = "draft_updated"
     else:
@@ -606,6 +857,7 @@ def save_question_draft(
         "status": "draft",
         "version_id": version.id,
         "version_number": version.version_number,
+        "quality": _quality_summary(quality),
     }
 
 
@@ -621,6 +873,13 @@ def submit_question_for_review(
     version = _get_version(db, bank.draft_version_id)
     if not version:
         raise ValueError("No draft version available to submit.")
+
+    quality = assess_question_quality(_question_payload_from_version(version), db=db)
+    if quality["blocking_issues"]:
+        raise ValueError(
+            "Draft has blocking editorial issues: "
+            + "; ".join(str(item) for item in quality["blocking_issues"])
+        )
 
     version.status = "in_review"
     version.review_notes = reason or version.review_notes
@@ -646,6 +905,7 @@ def submit_question_for_review(
         "status": "in_review",
         "version_id": version.id,
         "version_number": version.version_number,
+        "quality": _quality_summary(quality),
     }
 
 
@@ -662,6 +922,13 @@ def publish_question(
     version = _get_version(db, version_id or bank.draft_version_id or bank.published_version_id)
     if not version or version.question_bank_id != question_id:
         raise ValueError("Target version not found.")
+
+    quality = assess_question_quality(_question_payload_from_version(version), db=db)
+    if quality["blocking_issues"]:
+        raise ValueError(
+            "Version has blocking editorial issues: "
+            + "; ".join(str(item) for item in quality["blocking_issues"])
+        )
 
     previous_published = _get_version(db, bank.published_version_id)
     if previous_published and previous_published.id != version.id:
@@ -699,6 +966,7 @@ def publish_question(
         "status": "published",
         "version_id": version.id,
         "version_number": version.version_number,
+        "quality": _quality_summary(quality),
     }
 
 
@@ -800,4 +1068,84 @@ def delete_question_with_history(
         "ok": True,
         "id": question_id,
         "status": "deleted",
+    }
+
+
+def sync_imported_question_publication(
+    db: Session,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    quality = assess_question_quality(_clean_payload(payload), db=db)
+    clean = quality["normalized"]
+    question_id = clean.get("id")
+    if not question_id:
+        raise ValueError("Question ID is required.")
+    if quality["blocking_issues"]:
+        raise ValueError(
+            "Imported question failed editorial validation: "
+            + "; ".join(str(item) for item in quality["blocking_issues"])
+        )
+
+    bank = _get_question_bank(db, question_id)
+    if not bank:
+        bank = QuestionBank(
+            stable_question_id=question_id,
+            review_status="published",
+            created_by_user_id=None,
+            updated_by_user_id=None,
+        )
+        db.add(bank)
+        db.flush()
+
+    current_published = _get_version(db, bank.published_version_id)
+    if current_published:
+        current_signature = _payload_signature(_question_payload_from_version(current_published))
+        target_signature = _payload_signature(clean)
+        if current_signature == target_signature:
+            _sync_domain_blueprint_catalog(db, clean)
+            _sync_projection_from_version(db, question_id, current_published)
+            return {
+                "question_id": question_id,
+                "version_id": current_published.id,
+                "version_number": current_published.version_number,
+                "changed": False,
+                "quality": _quality_summary(quality),
+            }
+        current_published.status = "archived"
+        current_published.updated_by_user_id = None
+
+    published_version = _create_version(
+        db,
+        question_id=question_id,
+        payload=clean,
+        status="published",
+        actor_user_id=None,
+        approved_by_user_id=None,
+        published_at=datetime.utcnow(),
+    )
+    bank.published_version_id = published_version.id
+    if not bank.draft_version_id:
+        bank.review_status = "published"
+    bank.updated_by_user_id = None
+
+    _sync_projection_from_version(db, question_id, published_version)
+    _write_audit_log(
+        db,
+        question_id=question_id,
+        version_id=published_version.id,
+        action="import_published",
+        actor_user_id=None,
+        actor_role="system",
+        metadata={
+            "version_number": published_version.version_number,
+            "completeness_score": quality["completeness_score"],
+        },
+    )
+    db.flush()
+    return {
+        "question_id": question_id,
+        "version_id": published_version.id,
+        "version_number": published_version.version_number,
+        "changed": True,
+        "quality": _quality_summary(quality),
     }

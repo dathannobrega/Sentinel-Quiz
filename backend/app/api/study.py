@@ -330,7 +330,9 @@ def study_result(
         result = compute_study_result(db, session)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return StudyResultOut(**result)
+    response = StudyResultOut(**result)
+    db.commit()
+    return response
 
 
 @router.get("/sessions/{session_id}/review", response_model=StudySessionReviewOut)
@@ -345,4 +347,6 @@ def study_session_review(
         review = get_study_session_review(db, session)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return StudySessionReviewOut(**review)
+    response = StudySessionReviewOut(**review)
+    db.commit()
+    return response

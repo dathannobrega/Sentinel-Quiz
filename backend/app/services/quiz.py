@@ -22,6 +22,11 @@ from app.models import (
     UserNote,
 )
 from app.services.learning import upsert_question_progress
+from app.services.metrics import (
+    aggregate_domain_metrics_for_owner,
+    record_question_attempt_metrics,
+    record_session_metrics,
+)
 from typing import Optional, Dict, Any
 
 PASS_THRESHOLD = 90.0
@@ -1454,6 +1459,52 @@ def build_weak_area_snapshot_for_owner(
     owner_user_id: Optional[str] = None,
     owner_client_key: Optional[str] = None,
 ) -> dict:
+    if owner_user_id or owner_client_key:
+        metric_rows = aggregate_domain_metrics_for_owner(
+            db,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+        )
+    else:
+        metric_rows = []
+
+    if metric_rows:
+        buckets_by_cert: dict[str, dict[str, dict[str, Any]]] = {}
+        for item in metric_rows:
+            certification = item["certification"]
+            domain_label = item["domain"]
+            attempts = int(item["attempts_total"])
+            wrong = int(item["wrong_count"])
+            correct = int(item["correct_count"])
+            bucket = buckets_by_cert.setdefault(certification, {}).setdefault(domain_label, _bucket_template())
+            bucket["total"] += attempts
+            bucket["wrong"] += wrong
+            bucket["correct"] += correct
+
+        items = []
+        for certification in sorted(buckets_by_cert):
+            domain_buckets = _sorted_buckets(buckets_by_cert.get(certification, {}))
+            weakest_domains = _top_bucket_entries(domain_buckets, limit=5)
+            attempted = sum(bucket["total"] for bucket in domain_buckets.values())
+            wrong = sum(bucket["wrong"] for bucket in domain_buckets.values())
+            focus_domain = weakest_domains[0] if weakest_domains else None
+            if attempted and focus_domain:
+                message = (
+                    f"Maior necessidade de estudo em {focus_domain['label']} "
+                    f"({focus_domain['wrong']} erro(s) em {focus_domain['total']} questoes)."
+                )
+            else:
+                message = "Sem historico suficiente para este track."
+            items.append({
+                "certification": certification,
+                "attempted": attempted,
+                "wrong": wrong,
+                "focus_domain": focus_domain,
+                "domains": weakest_domains,
+                "message": message,
+            })
+        return {"certifications": items}
+
     certification_rows = db.execute(
         select(Question.certification).where(Question.certification.is_not(None))
     ).all()
@@ -1651,6 +1702,18 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
         owner_client_key=session.client_key,
         confidence_level=None,
     )
+    record_question_attempt_metrics(
+        db,
+        question_id=question_id,
+        mode="exam",
+        exam_id=q.exam_id,
+        certification=q.certification,
+        domain=q.domain,
+        is_correct=is_correct,
+        owner_user_id=session.user_id,
+        owner_client_key=session.client_key,
+        selection_strategy=session.selection_strategy,
+    )
     db.flush()
     result_snapshot = _analyze_session(session, _get_session_rows(db, session.id))
     db.commit()
@@ -1673,4 +1736,22 @@ def compute_result(db: Session, session: ExamSession) -> dict:
     result["time_limit_seconds"] = timing["time_limit_seconds"]
     result["time_spent_seconds"] = timing["time_spent_seconds"]
     result["timed_out"] = bool(timing["auto_submitted"] and session.completed_at is not None and timing["remaining_seconds"] <= 0)
+    if session.completed_at is not None:
+        record_session_metrics(
+            db,
+            session_id=session.id,
+            mode="exam",
+            exam_id=session.exam_id,
+            selection_strategy=session.selection_strategy,
+            total_questions=session.total_questions,
+            answered_count=session.correct_count + session.wrong_count,
+            correct_count=session.correct_count,
+            wrong_count=session.wrong_count,
+            owner_user_id=session.user_id,
+            owner_client_key=session.client_key,
+            completed_at=session.completed_at,
+            created_at=session.created_at,
+            weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+        )
+        db.flush()
     return result

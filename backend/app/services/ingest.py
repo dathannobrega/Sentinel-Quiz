@@ -6,7 +6,8 @@ import hashlib
 import re
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select
-from app.models import Exam, Question, Option, Explanation, ImportState
+from app.models import Exam, Question, Option, Explanation, ImportState, QuestionBank, QuestionVersion
+from app.services.editorial import sync_imported_question_publication
 
 
 SECURITY_PLUS_DOMAIN_KEYWORDS = {
@@ -287,6 +288,18 @@ def _normalize_wrapped_payload(file_name: str, payload: dict) -> list[dict]:
             "domain": domain,
             "difficulty": q.get("difficulty"),
             "certification": certification,
+            "subject": q.get("subject"),
+            "subtopic": q.get("subtopic"),
+            "subdomain": q.get("subdomain"),
+            "objective_code": q.get("objective_code"),
+            "blueprint_code": q.get("blueprint_code"),
+            "keywords": q.get("keywords"),
+            "trap_patterns": q.get("trap_patterns"),
+            "question_format": q.get("question_format"),
+            "correct_rationale": q.get("correct_rationale"),
+            "incorrect_rationales": q.get("incorrect_rationales"),
+            "avg_time_seconds": q.get("avg_time_seconds"),
+            "global_accuracy_percent": q.get("global_accuracy_percent"),
             "tags": tags,
             "citations": _normalize_citations(q.get("citations")),
         })
@@ -348,6 +361,18 @@ def _normalize_flat_payload(file_name: str, payload: list) -> list[dict]:
                 "domain": domain,
                 "difficulty": raw.get("difficulty"),
                 "certification": raw.get("certification") or certification,
+                "subject": raw.get("subject"),
+                "subtopic": raw.get("subtopic"),
+                "subdomain": raw.get("subdomain"),
+                "objective_code": raw.get("objective_code"),
+                "blueprint_code": raw.get("blueprint_code"),
+                "keywords": raw.get("keywords"),
+                "trap_patterns": raw.get("trap_patterns"),
+                "question_format": raw.get("question_format"),
+                "correct_rationale": raw.get("correct_rationale"),
+                "incorrect_rationales": raw.get("incorrect_rationales"),
+                "avg_time_seconds": raw.get("avg_time_seconds"),
+                "global_accuracy_percent": raw.get("global_accuracy_percent"),
                 "tags": tags,
                 "citations": _normalize_citations(raw.get("citations")),
             })
@@ -387,11 +412,23 @@ def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
             existing = db.get(Question, qid)
             if not existing:
                 return True
+            bank = db.get(QuestionBank, qid)
+            if not bank or not bank.published_version_id:
+                return True
+            published_version = db.get(QuestionVersion, bank.published_version_id)
+            if not published_version:
+                return True
+            if not published_version.question_format or not published_version.correct_rationale:
+                return True
             if q.get("domain") and existing.domain != q.get("domain"):
                 return True
             if q.get("difficulty") and existing.difficulty != q.get("difficulty"):
                 return True
             if q.get("certification") and existing.certification != q.get("certification"):
+                return True
+            if q.get("objective_code") and published_version.objective_code != q.get("objective_code"):
+                return True
+            if q.get("blueprint_code") and published_version.blueprint_code != q.get("blueprint_code"):
                 return True
             if q.get("tags") and not existing.tags_json:
                 return True
@@ -516,6 +553,44 @@ def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
                         db.add(Explanation(question_id=qid, justification=just))
                     else:
                         db_exp.justification = just
+
+                    sync_imported_question_publication(
+                        db,
+                        {
+                            "id": qid,
+                            "exam_id": exam_id,
+                            "prompt": prompt,
+                            "multi_select": bool(q.get("multi_select", False)),
+                            "domain": q.get("domain"),
+                            "difficulty": q.get("difficulty"),
+                            "certification": q.get("certification"),
+                            "subject": q.get("subject"),
+                            "subtopic": q.get("subtopic"),
+                            "subdomain": q.get("subdomain"),
+                            "objective_code": q.get("objective_code"),
+                            "blueprint_code": q.get("blueprint_code"),
+                            "keywords": q.get("keywords"),
+                            "trap_patterns": q.get("trap_patterns"),
+                            "question_format": q.get("question_format"),
+                            "tags": _normalize_tags(q.get("tags")),
+                            "citations": _normalize_citations(q.get("citations")),
+                            "options": [
+                                {
+                                    "key": str(opt.get("key", "")).strip().upper(),
+                                    "text": str(opt.get("text", "")).strip(),
+                                    "is_correct": str(opt.get("key", "")).strip().upper() in correct_set,
+                                }
+                                for opt in (q.get("options") or [])
+                                if str(opt.get("key", "")).strip() and str(opt.get("text", "")).strip()
+                            ],
+                            "justification": just,
+                            "correct_rationale": q.get("correct_rationale"),
+                            "incorrect_rationales": q.get("incorrect_rationales"),
+                            "avg_time_seconds": q.get("avg_time_seconds"),
+                            "global_accuracy_percent": q.get("global_accuracy_percent"),
+                            "change_summary": "Import refresh",
+                        },
+                    )
 
             _delete_empty_exams(db)
 

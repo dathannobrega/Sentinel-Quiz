@@ -271,7 +271,9 @@ def get_result(
 ):
     session = _get_session(db, session_id, current_user, client_key)
     sync_exam_session_state(db, session)
-    return ResultOut(**compute_result(db, session))
+    result = ResultOut(**compute_result(db, session))
+    db.commit()
+    return result
 
 @router.get("/sessions/{session_id}/review", response_model=SessionReviewOut)
 def get_review(
@@ -381,11 +383,13 @@ def get_review(
             citations=citations,
         ))
 
-    return SessionReviewOut(
+    response = SessionReviewOut(
         session=session_meta,
         result=ResultOut(**compute_result(db, session)),
         questions=questions
     )
+    db.commit()
+    return response
 
 
 @router.get("/materials/preview", response_class=HTMLResponse)

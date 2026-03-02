@@ -556,11 +556,23 @@ export interface AdminQuestion {
   domain?: string | null;
   difficulty?: string | null;
   certification?: string | null;
+  subject?: string | null;
+  subtopic?: string | null;
+  subdomain?: string | null;
+  objective_code?: string | null;
+  blueprint_code?: string | null;
+  keywords?: string[] | null;
+  trap_patterns?: string[] | null;
+  question_format?: string | null;
   tags?: string[] | null;
   citations?: CitationItem[] | null;
   options: AdminOption[];
   correct_keys: string[];
   justification?: string | null;
+  correct_rationale?: string | null;
+  incorrect_rationales?: string[] | null;
+  avg_time_seconds?: number | null;
+  global_accuracy_percent?: number | null;
   change_summary?: string | null;
   editorial_status?: string | null;
   loaded_from?: string | null;
@@ -568,6 +580,14 @@ export interface AdminQuestion {
   version_number?: number | null;
   published_version_number?: number | null;
   draft_version_number?: number | null;
+  quality?: {
+    blocking_issues: string[];
+    warnings: string[];
+    field_status: Record<string, string>;
+    completeness_score: number;
+    is_publish_ready: boolean;
+    blueprint?: Record<string, string | null>;
+  } | null;
 }
 
 export interface AdminQuestionInput {
@@ -578,11 +598,23 @@ export interface AdminQuestionInput {
   domain?: string | null;
   difficulty?: string | null;
   certification?: string | null;
+  subject?: string | null;
+  subtopic?: string | null;
+  subdomain?: string | null;
+  objective_code?: string | null;
+  blueprint_code?: string | null;
+  keywords?: string[] | null;
+  trap_patterns?: string[] | null;
+  question_format?: string | null;
   tags?: string[] | null;
   citations?: CitationItem[] | null;
   options: AdminOptionInput[];
   correct_keys: string[];
   justification?: string | null;
+  correct_rationale?: string | null;
+  incorrect_rationales?: string[] | null;
+  avg_time_seconds?: number | null;
+  global_accuracy_percent?: number | null;
   change_summary?: string | null;
 }
 

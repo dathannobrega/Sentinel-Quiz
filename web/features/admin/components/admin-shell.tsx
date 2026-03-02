@@ -60,8 +60,20 @@ interface QuestionDraft {
   domain: string;
   difficulty: string;
   certification: string;
+  subject: string;
+  subtopic: string;
+  subdomain: string;
+  objectiveCode: string;
+  blueprintCode: string;
+  keywords: string[];
+  trapPatterns: string[];
+  questionFormat: string;
   tagsText: string;
   justification: string;
+  correctRationale: string;
+  incorrectRationales: string[];
+  avgTimeSeconds: string;
+  globalAccuracyPercent: string;
   changeSummary: string;
   options: OptionDraft[];
   citations: CitationDraft[];
@@ -126,8 +138,20 @@ function createEmptyQuestionDraft(preferredExamId = ""): QuestionDraft {
     domain: "",
     difficulty: "",
     certification: "",
+    subject: "",
+    subtopic: "",
+    subdomain: "",
+    objectiveCode: "",
+    blueprintCode: "",
+    keywords: [],
+    trapPatterns: [],
+    questionFormat: "",
     tagsText: "",
     justification: "",
+    correctRationale: "",
+    incorrectRationales: [],
+    avgTimeSeconds: "",
+    globalAccuracyPercent: "",
     changeSummary: "",
     options: [
       createOptionDraft("A"),
@@ -276,11 +300,23 @@ function buildQuestionPayload(draft: QuestionDraft): AdminQuestionInput {
     domain: draft.domain.trim() || null,
     difficulty: draft.difficulty.trim() || null,
     certification: draft.certification.trim() || null,
+    subject: draft.subject.trim() || null,
+    subtopic: draft.subtopic.trim() || null,
+    subdomain: draft.subdomain.trim() || null,
+    objective_code: draft.objectiveCode.trim() || null,
+    blueprint_code: draft.blueprintCode.trim() || null,
+    keywords: draft.keywords.length ? draft.keywords : null,
+    trap_patterns: draft.trapPatterns.length ? draft.trapPatterns : null,
+    question_format: draft.questionFormat.trim() || null,
     tags: normalizeTags(draft.tagsText),
     citations: buildCitationPayload(draft.citations),
     options,
     correct_keys: correctKeys,
     justification: draft.justification.trim() || null,
+    correct_rationale: draft.correctRationale.trim() || null,
+    incorrect_rationales: draft.incorrectRationales.length ? draft.incorrectRationales : null,
+    avg_time_seconds: draft.avgTimeSeconds.trim() ? Number(draft.avgTimeSeconds) : null,
+    global_accuracy_percent: draft.globalAccuracyPercent.trim() ? Number(draft.globalAccuracyPercent) : null,
     change_summary: draft.changeSummary.trim() || null
   };
 }
@@ -320,8 +356,26 @@ function toQuestionDraft(question: AdminQuestion): QuestionDraft {
     domain: String(question.domain || ""),
     difficulty: String(question.difficulty || ""),
     certification: String(question.certification || ""),
+    subject: String(question.subject || ""),
+    subtopic: String(question.subtopic || ""),
+    subdomain: String(question.subdomain || ""),
+    objectiveCode: String(question.objective_code || ""),
+    blueprintCode: String(question.blueprint_code || ""),
+    keywords: Array.isArray(question.keywords) ? [...question.keywords] : [],
+    trapPatterns: Array.isArray(question.trap_patterns) ? [...question.trap_patterns] : [],
+    questionFormat: String(question.question_format || ""),
     tagsText: Array.isArray(question.tags) ? question.tags.join(", ") : "",
     justification: String(question.justification || ""),
+    correctRationale: String(question.correct_rationale || ""),
+    incorrectRationales: Array.isArray(question.incorrect_rationales) ? [...question.incorrect_rationales] : [],
+    avgTimeSeconds:
+      typeof question.avg_time_seconds === "number" && Number.isFinite(question.avg_time_seconds)
+        ? String(question.avg_time_seconds)
+        : "",
+    globalAccuracyPercent:
+      typeof question.global_accuracy_percent === "number" && Number.isFinite(question.global_accuracy_percent)
+        ? String(question.global_accuracy_percent)
+        : "",
     changeSummary: String(question.change_summary || ""),
     options: question.options.length
       ? question.options.map((option) => createOptionDraft(option.key, option.text, option.is_correct))

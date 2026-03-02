@@ -29,6 +29,12 @@ from app.models import (
 )
 from app.services.learning import upsert_question_progress
 from app.services.auth import normalize_client_key
+from app.services.metrics import (
+    load_weekly_progress_snapshots,
+    record_question_attempt_metrics,
+    record_review_schedule_event,
+    record_session_metrics,
+)
 
 
 NOTE_MAX_LENGTH = 4000
@@ -509,6 +515,175 @@ def build_weekly_study_analytics(
             "review_sessions": 0,
             "correct_count": 0,
             "low_confidence": 0,
+        }
+
+    snapshot_rows = []
+    if owner_user_id or owner_client_key:
+        try:
+            snapshot_rows = load_weekly_progress_snapshots(
+                db,
+                owner_user_id=owner_user_id,
+                owner_client_key=owner_client_key,
+                range_start=range_start,
+            )
+        except ValueError:
+            snapshot_rows = []
+    if snapshot_rows:
+        snapshot_map = {row.week_start.date().isoformat(): row for row in snapshot_rows}
+        for key in ordered_week_keys:
+            row = snapshot_map.get(key)
+            bucket = buckets[key]
+            if not row:
+                continue
+            bucket["study_questions"] = int(row.questions_answered)
+            bucket["review_questions"] = int(row.review_questions)
+            bucket["scheduled_reviews"] = int(row.scheduled_reviews)
+            bucket["completed_sessions"] = int(row.completed_study_sessions)
+            bucket["review_sessions"] = int(row.completed_review_sessions)
+            bucket["correct_count"] = int(row.correct_count)
+            bucket["low_confidence"] = int(row.low_confidence_count)
+
+        week_items: list[dict[str, Any]] = []
+        for key in ordered_week_keys:
+            bucket = buckets[key]
+            study_questions = int(bucket["study_questions"])
+            accuracy_percent = round((bucket["correct_count"] / study_questions) * 100.0, 2) if study_questions else 0.0
+            week_items.append({
+                "week_start": bucket["week_start"].date().isoformat(),
+                "week_end": bucket["week_end"].date().isoformat(),
+                "label": bucket["label"],
+                "study_questions": study_questions,
+                "review_questions": int(bucket["review_questions"]),
+                "scheduled_reviews": int(bucket["scheduled_reviews"]),
+                "completed_sessions": int(bucket["completed_sessions"]),
+                "review_sessions": int(bucket["review_sessions"]),
+                "accuracy_percent": accuracy_percent,
+                "low_confidence": int(bucket["low_confidence"]),
+            })
+
+        active_weeks = [item for item in week_items if item["study_questions"] or item["scheduled_reviews"] or item["completed_sessions"]]
+        current_week = week_items[-1]
+        previous_week = week_items[-2] if len(week_items) > 1 else None
+        total_questions = sum(item["study_questions"] for item in week_items)
+        total_review_questions = sum(item["review_questions"] for item in week_items)
+        total_correct = sum(
+            buckets[key]["correct_count"]
+            for key in ordered_week_keys
+        )
+        average_accuracy = round((total_correct / total_questions) * 100.0, 2) if total_questions else 0.0
+        due_snapshot = build_review_queue_snapshot(
+            db,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            limit=5,
+        )
+        state_breakdown = due_snapshot.get("state_breakdown") or {}
+        queue_goals = due_snapshot.get("goals") or {}
+        upcoming_load = due_snapshot.get("upcoming_load") or []
+        projected_due_next_7_days = int(sum(int(item.get("due_count") or 0) for item in upcoming_load))
+        projected_at_risk_next_7_days = int(sum(int(item.get("at_risk_count") or 0) for item in upcoming_load))
+        peak_load_day = 0
+        peak_load_date = None
+        projected_total_load = projected_due_next_7_days + projected_at_risk_next_7_days
+        for item in upcoming_load:
+            combined = int(item.get("due_count") or 0) + int(item.get("at_risk_count") or 0)
+            if combined > peak_load_day:
+                peak_load_day = combined
+                peak_load_date = item.get("date")
+        if projected_total_load > 35:
+            pressure_level = "high"
+        elif projected_total_load > 16:
+            pressure_level = "medium"
+        else:
+            pressure_level = "stable"
+
+        current_weekday = min(max(now.weekday() + 1, 1), 7)
+        weekly_question_target = int(max(current_week["study_questions"], 30))
+        if total_questions:
+            recent_average = math.ceil(total_questions / max(len(active_weeks), 1))
+            weekly_question_target = max(weekly_question_target, min(recent_average + 10, 120))
+        weekly_review_target = int(max(queue_goals.get("weekly_review_target") or 0, current_week["review_questions"], 10 if due_snapshot["total_count"] else 0))
+        weekly_new_question_target = int(
+            max(
+                queue_goals.get("new_question_budget") or 0,
+                weekly_question_target - min(weekly_review_target, weekly_question_target),
+                0,
+            )
+        )
+        expected_progress_ratio = current_weekday / 7
+        current_completion_ratio = round(
+            (current_week["study_questions"] / weekly_question_target) * 100.0,
+            2,
+        ) if weekly_question_target else 0.0
+        on_track = bool(
+            not weekly_question_target
+            or current_week["study_questions"] >= math.floor(weekly_question_target * max(expected_progress_ratio * 0.85, 0.25))
+        )
+        remaining_days = max(7 - current_weekday, 1)
+        suggested_daily_question_target = int(max(math.ceil(max(weekly_question_target - current_week["study_questions"], 0) / remaining_days), 0))
+        suggested_daily_review_target = int(max(math.ceil(max(weekly_review_target - current_week["review_questions"], 0) / remaining_days), 0))
+
+        summary = {
+            "weeks_tracked": total_weeks,
+            "active_weeks": len(active_weeks),
+            "total_questions": total_questions,
+            "review_questions": total_review_questions,
+            "average_accuracy_percent": average_accuracy,
+            "current_week_questions": current_week["study_questions"],
+            "current_week_accuracy_percent": current_week["accuracy_percent"],
+            "current_week_scheduled_reviews": current_week["scheduled_reviews"],
+            "current_week_review_questions": current_week["review_questions"],
+            "current_week_low_confidence": current_week["low_confidence"],
+            "accuracy_delta_vs_previous_week": round(
+                current_week["accuracy_percent"] - (previous_week["accuracy_percent"] if previous_week else 0.0),
+                2,
+            ),
+            "question_delta_vs_previous_week": int(
+                current_week["study_questions"] - (previous_week["study_questions"] if previous_week else 0)
+            ),
+            "review_backlog_due": int(due_snapshot["due_count"]),
+            "review_backlog_total": int(due_snapshot["total_count"]),
+            "review_state_breakdown": state_breakdown,
+            "weekly_goal": {
+                "weekly_question_target": weekly_question_target,
+                "weekly_review_target": weekly_review_target,
+                "weekly_new_question_target": weekly_new_question_target,
+                "completion_ratio_percent": current_completion_ratio,
+                "suggested_daily_question_target": suggested_daily_question_target,
+                "suggested_daily_review_target": suggested_daily_review_target,
+                "on_track": on_track,
+            },
+            "review_forecast": {
+                "projected_due_next_7_days": projected_due_next_7_days,
+                "projected_at_risk_next_7_days": projected_at_risk_next_7_days,
+                "peak_load_day": peak_load_day,
+                "peak_load_date": peak_load_date,
+                "pressure": pressure_level,
+            },
+        }
+        if summary["review_backlog_due"] > 15:
+            summary["recommendation"] = (
+                f"Sua fila vencida esta alta. Foque em {queue_goals.get('daily_review_target') or 10} revisoes por dia antes de abrir muitos blocos novos."
+            )
+        elif not on_track:
+            summary["recommendation"] = (
+                f"Voce esta atrasado na meta semanal. Tente {suggested_daily_question_target} questao(oes) nova(s) e "
+                f"{suggested_daily_review_target} revisao(oes) por dia no restante da semana."
+            )
+        elif summary["accuracy_delta_vs_previous_week"] < -8:
+            summary["recommendation"] = (
+                "Sua precisao caiu nesta semana. Reduza o volume novo e foque nos dominios fracos com revisao guiada."
+            )
+        elif projected_total_load > 20:
+            summary["recommendation"] = (
+                "A carga da fila vai subir nos proximos dias. Antecipe revisoes curtas agora para evitar acumulo."
+            )
+        else:
+            summary["recommendation"] = "Ritmo estavel. Continue equilibrando blocos novos com revisoes vencidas."
+
+        return {
+            "weeks": week_items,
+            "summary": summary,
         }
 
     session_stmt = select(StudySession.selection_strategy, StudySession.completed_at).where(
@@ -1424,6 +1599,12 @@ def _upsert_review_queue_item(
             created_at=attempted_at,
         )
     )
+    record_review_schedule_event(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        scheduled_at=attempted_at,
+    )
     return item
 
 
@@ -2168,6 +2349,8 @@ def answer_study_question(
     if not belongs:
         raise ValueError("Question does not belong to this study session.")
 
+    question = db.get(Question, question_id)
+
     option_keys = _option_keys_for_question(db, question_id)
     if not option_keys:
         raise ValueError("Question options not found.")
@@ -2240,6 +2423,21 @@ def answer_study_question(
         owner_client_key=owner_client_key,
         confidence_level=confidence,
         attempted_at=now,
+    )
+    record_question_attempt_metrics(
+        db,
+        question_id=question_id,
+        mode="study",
+        exam_id=question.exam_id if question else session.exam_id,
+        certification=question.certification if question else None,
+        domain=question.domain if question else None,
+        is_correct=is_correct,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        confidence_level=confidence,
+        elapsed_seconds=elapsed_seconds,
+        attempted_at=now,
+        selection_strategy=session.selection_strategy,
     )
 
     db.commit()
@@ -2415,7 +2613,7 @@ def compute_study_result(db: Session, session: StudySession) -> dict[str, Any]:
         if mix_text:
             patterns.append(f"Mix da sessao: {mix_text}")
 
-    return {
+    result = {
         "session_id": session.id,
         "total_questions": session.total_questions,
         "answered_count": attempted,
@@ -2446,3 +2644,21 @@ def compute_study_result(db: Session, session: StudySession) -> dict[str, Any]:
             "study_plan": study_plan,
         },
     }
+    record_session_metrics(
+        db,
+        session_id=session.id,
+        mode="study",
+        exam_id=session.exam_id,
+        selection_strategy=session.selection_strategy,
+        total_questions=session.total_questions,
+        answered_count=attempted,
+        correct_count=session.correct_count,
+        wrong_count=session.wrong_count,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        completed_at=session.completed_at,
+        created_at=session.created_at,
+        weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+    )
+    db.flush()
+    return result
