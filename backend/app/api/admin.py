@@ -43,6 +43,7 @@ from app.services.admin_analytics import (
     list_question_analytics_history,
 )
 from app.services.editorial import (
+    approve_question,
     build_admin_question_document,
     delete_question_with_history,
     list_editorial_audit_logs,
@@ -948,6 +949,27 @@ def admin_submit_question_review(
 ):
     try:
         result = submit_question_for_review(
+            db,
+            question_id.strip(),
+            actor_user_id=current_user.id if current_user else None,
+            actor_role=_actor_role(current_user),
+            reason=(payload.reason.strip() or None) if payload.reason else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    return result
+
+
+@router.post("/questions/{question_id}/approve")
+def admin_approve_question(
+    question_id: str,
+    payload: AdminReviewActionIn,
+    current_user: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = approve_question(
             db,
             question_id.strip(),
             actor_user_id=current_user.id if current_user else None,

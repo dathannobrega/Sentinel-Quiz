@@ -507,6 +507,14 @@ export interface AdminMutationResponse {
   status?: string;
   version_id?: number;
   version_number?: number;
+  quality?: {
+    blocking_issues: string[];
+    warnings: string[];
+    field_status: Record<string, string>;
+    completeness_score: number;
+    is_publish_ready: boolean;
+    blueprint?: Record<string, string | null>;
+  } | null;
 }
 
 export interface AdminIngestResponse {

@@ -103,6 +103,17 @@ const DEFAULT_ADMIN_ANALYTICS: AdminQuestionAnalytics = {
   weakest_exams: []
 };
 
+const QUESTION_FORMAT_OPTIONS = [
+  { value: "", label: "Auto" },
+  { value: "single_choice", label: "Single choice" },
+  { value: "multiple_response", label: "Multiple response" },
+  { value: "best_answer", label: "Best answer" },
+  { value: "matching", label: "Matching" },
+  { value: "ordering", label: "Ordering" }
+] as const;
+
+type QuestionQuality = NonNullable<AdminQuestion["quality"]>;
+
 let rowSequence = 0;
 
 function createRowId(prefix: string): string {
@@ -231,6 +242,46 @@ function normalizeTags(text: string): string[] {
     });
 
   return tags;
+}
+
+function joinTextList(values: string[] | null | undefined): string {
+  if (!Array.isArray(values) || !values.length) {
+    return "";
+  }
+  return values.join(", ");
+}
+
+function splitTextareaLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatQualityStatus(value: string | undefined): string {
+  if (!value) {
+    return "Sem dado";
+  }
+  if (value === "ok" || value === "provided") {
+    return "OK";
+  }
+  if (value === "unverified") {
+    return "Nao verificado";
+  }
+  if (value === "missing") {
+    return "Pendente";
+  }
+  return value;
+}
+
+function qualityTone(value: string | undefined): "default" | "good" | "warning" {
+  if (value === "ok" || value === "provided") {
+    return "good";
+  }
+  if (value === "unverified") {
+    return "warning";
+  }
+  return "default";
 }
 
 function hasCitationValue(value: unknown): boolean {
@@ -404,6 +455,7 @@ export function AdminShell() {
     | "saveExam"
     | "saveQuestion"
     | "submitReview"
+    | "approveQuestion"
     | "publishQuestion"
     | "rollbackQuestion"
     | "deleteQuestion"
@@ -422,6 +474,8 @@ export function AdminShell() {
   const [questionVersions, setQuestionVersions] = useState<AdminQuestionVersion[]>([]);
   const [questionAudit, setQuestionAudit] = useState<AdminAuditLog[]>([]);
   const [questionAnalyticsHistory, setQuestionAnalyticsHistory] = useState<AdminQuestionAnalyticsSnapshot[]>([]);
+  const [questionQuality, setQuestionQuality] = useState<QuestionQuality | null>(null);
+  const [questionQualitySignature, setQuestionQualitySignature] = useState("");
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
 
   const [browserExamId, setBrowserExamId] = useState("");
@@ -433,6 +487,7 @@ export function AdminShell() {
   const requestOptions = useMemo(() => buildAdminRequestOptions(), []);
 
   const questionPayload = useMemo(() => buildQuestionPayload(questionDraft), [questionDraft]);
+  const questionPayloadSignature = useMemo(() => JSON.stringify(questionPayload), [questionPayload]);
   const questionValidationError = useMemo(() => validateQuestionPayload(questionPayload), [questionPayload]);
 
   const questionStats = useMemo(() => {
@@ -467,6 +522,16 @@ export function AdminShell() {
     () => questionVersions.find((item) => item.is_current_published) || null,
     [questionVersions]
   );
+  const isQualityStale = useMemo(
+    () => Boolean(questionQuality && questionQualitySignature && questionQualitySignature !== questionPayloadSignature),
+    [questionQuality, questionQualitySignature, questionPayloadSignature]
+  );
+  const currentWorkflowStatus = questionDraft.id.trim()
+    ? currentDraftVersion?.status || currentPublishedVersion?.status || "draft"
+    : "sem rascunho";
+  const canSubmitForReview = Boolean(questionDraft.id.trim() && currentDraftVersion && currentDraftVersion.status === "draft");
+  const canApprove = Boolean(questionDraft.id.trim() && currentDraftVersion && currentDraftVersion.status === "in_review");
+  const canPublish = Boolean(questionDraft.id.trim() && currentDraftVersion && currentDraftVersion.status === "approved");
 
   const loadExams = useEffectEvent(async () => {
     try {
@@ -483,6 +548,8 @@ export function AdminShell() {
       setQuestionVersions([]);
       setQuestionAudit([]);
       setQuestionAnalyticsHistory([]);
+      setQuestionQuality(null);
+      setQuestionQualitySignature("");
       return;
     }
 
@@ -585,7 +652,10 @@ export function AdminShell() {
 
     try {
       const response = await apiClient.get<AdminQuestion>(`/admin/questions/${encodeURIComponent(targetId)}`, requestOptions);
-      setQuestionDraft(toQuestionDraft(response));
+      const nextDraft = toQuestionDraft(response);
+      setQuestionDraft(nextDraft);
+      setQuestionQuality((response.quality as QuestionQuality | null) || null);
+      setQuestionQualitySignature(JSON.stringify(buildQuestionPayload(nextDraft)));
       setSelectedQuestionId(response.id);
       await loadQuestionWorkflow(response.id);
       setQuestionNotice(`Questao ${response.id} carregada para edicao.`);
@@ -593,6 +663,8 @@ export function AdminShell() {
       setQuestionVersions([]);
       setQuestionAudit([]);
       setQuestionAnalyticsHistory([]);
+      setQuestionQuality(null);
+      setQuestionQualitySignature("");
       setQuestionNotice(readAdminError(error, "Nao foi possivel carregar esta questao."));
     } finally {
       setIsQuestionLoading(false);
@@ -643,6 +715,8 @@ export function AdminShell() {
     setQuestionVersions([]);
     setQuestionAudit([]);
     setQuestionAnalyticsHistory([]);
+    setQuestionQuality(null);
+    setQuestionQualitySignature("");
     setQuestionNotice("Novo rascunho criado. Preencha os campos e salve.");
   }
 
@@ -651,6 +725,8 @@ export function AdminShell() {
     setQuestionVersions([]);
     setQuestionAudit([]);
     setQuestionAnalyticsHistory([]);
+    setQuestionQuality(null);
+    setQuestionQualitySignature("");
     setQuestionDraft((current) => ({
       ...current,
       lookupId: "",
@@ -808,7 +884,7 @@ export function AdminShell() {
 
       const response = await apiClient.post<AdminMutationResponse>("/admin/questions", questionPayload, requestOptions);
       setSelectedQuestionId(questionPayload.id);
-      await loadQuestionWorkflow(questionPayload.id);
+      await loadQuestion(questionPayload.id);
       await refreshProtectedData();
       setQuestionNotice(
         `Rascunho salvo para ${questionPayload.id}${response.version_number ? ` (v${response.version_number})` : ""}.`
@@ -846,6 +922,37 @@ export function AdminShell() {
       );
     } catch (error) {
       setQuestionNotice(readAdminError(error, "Nao foi possivel enviar a questao para revisao."));
+    } finally {
+      setActiveTask(null);
+    }
+  }
+
+  async function handleApproveQuestion() {
+    const questionId = questionDraft.id.trim();
+    if (!questionId) {
+      setQuestionNotice("Salve e envie um rascunho para revisao antes de aprovar.");
+      return;
+    }
+
+    setActiveTask("approveQuestion");
+    setQuestionNotice(null);
+
+    try {
+      const payload: AdminReviewActionInput = {
+        reason: questionDraft.changeSummary.trim() || null
+      };
+      const response = await apiClient.post<AdminMutationResponse>(
+        `/admin/questions/${encodeURIComponent(questionId)}/approve`,
+        payload,
+        requestOptions
+      );
+      await loadQuestion(questionId);
+      await refreshProtectedData();
+      setQuestionNotice(
+        `Questao ${questionId} aprovada para publicacao${response.version_number ? ` (v${response.version_number})` : ""}.`
+      );
+    } catch (error) {
+      setQuestionNotice(readAdminError(error, "Nao foi possivel aprovar a questao."));
     } finally {
       setActiveTask(null);
     }
@@ -946,6 +1053,8 @@ export function AdminShell() {
       setQuestionVersions([]);
       setQuestionAudit([]);
       setQuestionAnalyticsHistory([]);
+      setQuestionQuality(null);
+      setQuestionQualitySignature("");
       setQuestionDraft(createEmptyQuestionDraft(browserExamId || examDraft.id));
       setQuestionNotice(`Questao ${questionId} excluida.`);
     } catch (error) {
@@ -1450,9 +1559,9 @@ export function AdminShell() {
                   </select>
                 </Field>
 
-                <Field label="Formato" htmlFor="admin-q-format">
+                <Field label="Selecao" htmlFor="admin-q-selection-mode">
                   <select
-                    id="admin-q-format"
+                    id="admin-q-selection-mode"
                     className="sq-select"
                     value={questionDraft.multiSelect ? "true" : "false"}
                     onChange={(event) => updateQuestionDraft({ multiSelect: event.target.value === "true" })}
@@ -1460,6 +1569,73 @@ export function AdminShell() {
                     <option value="false">Single-select</option>
                     <option value="true">Multi-select</option>
                   </select>
+                </Field>
+              </div>
+
+              <div className="sq-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                <Field label="Assunto" htmlFor="admin-q-subject">
+                  <input
+                    id="admin-q-subject"
+                    className="sq-input"
+                    type="text"
+                    value={questionDraft.subject}
+                    onChange={(event) => updateQuestionDraft({ subject: event.target.value })}
+                  />
+                </Field>
+
+                <Field label="Subtopico" htmlFor="admin-q-subtopic">
+                  <input
+                    id="admin-q-subtopic"
+                    className="sq-input"
+                    type="text"
+                    value={questionDraft.subtopic}
+                    onChange={(event) => updateQuestionDraft({ subtopic: event.target.value })}
+                  />
+                </Field>
+
+                <Field label="Subdominio" htmlFor="admin-q-subdomain">
+                  <input
+                    id="admin-q-subdomain"
+                    className="sq-input"
+                    type="text"
+                    value={questionDraft.subdomain}
+                    onChange={(event) => updateQuestionDraft({ subdomain: event.target.value })}
+                  />
+                </Field>
+
+                <Field label="Formato pedagogico" htmlFor="admin-q-format">
+                  <select
+                    id="admin-q-format"
+                    className="sq-select"
+                    value={questionDraft.questionFormat}
+                    onChange={(event) => updateQuestionDraft({ questionFormat: event.target.value })}
+                  >
+                    {QUESTION_FORMAT_OPTIONS.map((option) => (
+                      <option key={option.value || "auto"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Objective code" htmlFor="admin-q-objective-code">
+                  <input
+                    id="admin-q-objective-code"
+                    className="sq-input"
+                    type="text"
+                    value={questionDraft.objectiveCode}
+                    onChange={(event) => updateQuestionDraft({ objectiveCode: event.target.value })}
+                  />
+                </Field>
+
+                <Field label="Blueprint code" htmlFor="admin-q-blueprint-code">
+                  <input
+                    id="admin-q-blueprint-code"
+                    className="sq-input"
+                    type="text"
+                    value={questionDraft.blueprintCode}
+                    onChange={(event) => updateQuestionDraft({ blueprintCode: event.target.value })}
+                  />
                 </Field>
               </div>
 
@@ -1489,16 +1665,105 @@ export function AdminShell() {
                 </Field>
 
                 <Field
-                  label="Justificativa"
+                  label="Racional correto"
                   htmlFor="admin-q-justification"
-                  hint="Explique por que a correta e correta e por que as demais estao erradas."
+                  hint="Explique com clareza por que a resposta correta e a melhor escolha."
                 >
                   <textarea
                     id="admin-q-justification"
                     className="sq-textarea"
                     rows={6}
+                    value={questionDraft.correctRationale}
+                    onChange={(event) => updateQuestionDraft({ correctRationale: event.target.value, justification: event.target.value })}
+                  />
+                </Field>
+              </div>
+
+              <div className="sq-form-grid">
+                <Field
+                  label="Keywords"
+                  htmlFor="admin-q-keywords"
+                  hint="Separadas por virgula. Alimentam busca, analytics e sugestoes."
+                >
+                  <input
+                    id="admin-q-keywords"
+                    className="sq-input"
+                    type="text"
+                    value={joinTextList(questionDraft.keywords)}
+                    onChange={(event) => updateQuestionDraft({ keywords: normalizeTags(event.target.value) })}
+                  />
+                </Field>
+
+                <Field
+                  label="Pegadinhas comuns"
+                  htmlFor="admin-q-traps"
+                  hint="Liste erros conceituais ou confusoes frequentes."
+                >
+                  <input
+                    id="admin-q-traps"
+                    className="sq-input"
+                    type="text"
+                    value={joinTextList(questionDraft.trapPatterns)}
+                    onChange={(event) => updateQuestionDraft({ trapPatterns: normalizeTags(event.target.value) })}
+                  />
+                </Field>
+              </div>
+
+              <div className="sq-form-grid">
+                <Field
+                  label="Racionais das incorretas"
+                  htmlFor="admin-q-incorrect-rationales"
+                  hint="Uma linha por distrator, sem revelar o gabarito diretamente."
+                >
+                  <textarea
+                    id="admin-q-incorrect-rationales"
+                    className="sq-textarea"
+                    rows={5}
+                    value={questionDraft.incorrectRationales.join("\n")}
+                    onChange={(event) =>
+                      updateQuestionDraft({ incorrectRationales: splitTextareaLines(event.target.value) })
+                    }
+                  />
+                </Field>
+
+                <Field
+                  label="Justificativa legada"
+                  htmlFor="admin-q-legacy-justification"
+                  hint="Mantida por compatibilidade com a projeção usada pelos modos de estudo/prova."
+                >
+                  <textarea
+                    id="admin-q-legacy-justification"
+                    className="sq-textarea"
+                    rows={5}
                     value={questionDraft.justification}
                     onChange={(event) => updateQuestionDraft({ justification: event.target.value })}
+                  />
+                </Field>
+              </div>
+
+              <div className="sq-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                <Field label="Tempo medio (s)" htmlFor="admin-q-avg-time">
+                  <input
+                    id="admin-q-avg-time"
+                    className="sq-input"
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={questionDraft.avgTimeSeconds}
+                    onChange={(event) => updateQuestionDraft({ avgTimeSeconds: event.target.value })}
+                  />
+                </Field>
+
+                <Field label="Acerto global (%)" htmlFor="admin-q-global-accuracy">
+                  <input
+                    id="admin-q-global-accuracy"
+                    className="sq-input"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={questionDraft.globalAccuracyPercent}
+                    onChange={(event) => updateQuestionDraft({ globalAccuracyPercent: event.target.value })}
                   />
                 </Field>
               </div>
@@ -1717,62 +1982,202 @@ export function AdminShell() {
               </div>
 
               <div className="sq-grid-2">
-                <Card
-                  title="Workflow editorial"
-                  subtitle="Rascunhe, revise e publique com governanca total via sessao admin autenticada."
-                >
-                  <div className="sq-metric-grid">
-                    <div className="sq-metric-card">
-                      <span className="sq-muted">Status</span>
-                      <strong>{currentDraftVersion?.status || "sem rascunho"}</strong>
-                    </div>
-                    <div className="sq-metric-card">
-                      <span className="sq-muted">Rascunho atual</span>
-                      <strong>
-                        {currentDraftVersion?.version_number ? `v${currentDraftVersion.version_number}` : "-"}
-                      </strong>
-                    </div>
-                    <div className="sq-metric-card">
-                      <span className="sq-muted">Publicado</span>
-                      <strong>
-                        {currentPublishedVersion?.version_number ? `v${currentPublishedVersion.version_number}` : "-"}
-                      </strong>
-                    </div>
-                    <div className="sq-metric-card">
-                      <span className="sq-muted">Eventos auditados</span>
-                      <strong>{questionAudit.length}</strong>
-                    </div>
-                    <div className="sq-metric-card">
-                      <span className="sq-muted">Snapshots</span>
-                      <strong>{questionAnalyticsHistory.length}</strong>
-                    </div>
-                  </div>
+                <div className="sq-page-stack">
+                  <Card
+                    title="Qualidade editorial"
+                    subtitle="Completude, bloqueios e aderencia ao blueprint antes de seguir no workflow."
+                  >
+                    {questionQuality ? (
+                      <div className="sq-page-stack">
+                        <div className="sq-metric-grid">
+                          <div className="sq-metric-card">
+                            <span className="sq-muted">Completude</span>
+                            <strong>{questionQuality.completeness_score}%</strong>
+                          </div>
+                          <div className="sq-metric-card">
+                            <span className="sq-muted">Pronta para publicar</span>
+                            <strong>{questionQuality.is_publish_ready ? "Sim" : "Nao"}</strong>
+                          </div>
+                          <div className="sq-metric-card">
+                            <span className="sq-muted">Bloqueios</span>
+                            <strong>{questionQuality.blocking_issues.length}</strong>
+                          </div>
+                          <div className="sq-metric-card">
+                            <span className="sq-muted">Alertas</span>
+                            <strong>{questionQuality.warnings.length}</strong>
+                          </div>
+                        </div>
 
-                  <div className="sq-actions" style={{ marginTop: "var(--sq-space-4)" }}>
-                    <Button busy={activeTask === "saveQuestion"} onClick={() => void handleSaveQuestion()}>
-                      Salvar rascunho
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      busy={activeTask === "submitReview"}
-                      disabled={!questionDraft.id.trim()}
-                      onClick={() => void handleSubmitReview()}
-                    >
-                      Enviar para revisao
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      busy={activeTask === "publishQuestion"}
-                      disabled={!questionDraft.id.trim()}
-                      onClick={() => void handlePublishQuestion()}
-                    >
-                      Publicar
-                    </Button>
-                    <Button variant="ghost" onClick={startNewQuestion}>
-                      Novo rascunho
-                    </Button>
-                  </div>
-                </Card>
+                        {isQualityStale ? (
+                          <StatusBanner
+                            tone="warning"
+                            title="Analise desatualizada"
+                            message="Voce alterou o rascunho depois da ultima avaliacao do backend. Salve para recalcular a qualidade."
+                          />
+                        ) : null}
+
+                        {questionQuality.blocking_issues.length ? (
+                          <StatusBanner
+                            tone="warning"
+                            title="Bloqueios editoriais"
+                            message={questionQuality.blocking_issues.join(" | ")}
+                          />
+                        ) : (
+                          <StatusBanner
+                            tone="success"
+                            title="Base editorial valida"
+                            message="Nao ha bloqueios criticos nesta avaliacao."
+                          />
+                        )}
+
+                        {questionQuality.warnings.length ? (
+                          <div className="sq-surface-block">
+                            <div className="sq-list-title">Alertas de melhoria</div>
+                            <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                              {questionQuality.warnings.map((item) => (
+                                <div key={item} className="sq-list-item">
+                                  <div className="sq-list-meta">{item}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="sq-surface-block">
+                          <div className="sq-list-title">Checklist por campo</div>
+                          <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
+                            {Object.entries(questionQuality.field_status).map(([field, status]) => (
+                              <span
+                                key={field}
+                                className="sq-chip"
+                                style={{
+                                  background:
+                                    qualityTone(status) === "good"
+                                      ? "rgba(34, 197, 94, 0.12)"
+                                      : qualityTone(status) === "warning"
+                                        ? "rgba(245, 158, 11, 0.14)"
+                                        : undefined,
+                                  borderColor:
+                                    qualityTone(status) === "good"
+                                      ? "rgba(34, 197, 94, 0.25)"
+                                      : qualityTone(status) === "warning"
+                                        ? "rgba(245, 158, 11, 0.25)"
+                                        : undefined
+                                }}
+                              >
+                                {field}: {formatQualityStatus(status)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {(questionQuality.blueprint?.certification ||
+                          questionQuality.blueprint?.blueprint_code ||
+                          questionQuality.blueprint?.objective_code) ? (
+                          <div className="sq-surface-block">
+                            <div className="sq-list-title">Blueprint vinculado</div>
+                            <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
+                              {questionQuality.blueprint?.certification ? (
+                                <span className="sq-chip">{questionQuality.blueprint.certification}</span>
+                              ) : null}
+                              {questionQuality.blueprint?.domain ? (
+                                <span className="sq-chip">{questionQuality.blueprint.domain}</span>
+                              ) : null}
+                              {questionQuality.blueprint?.subdomain ? (
+                                <span className="sq-chip">{questionQuality.blueprint.subdomain}</span>
+                              ) : null}
+                              {questionQuality.blueprint?.objective_code ? (
+                                <span className="sq-chip">OBJ {questionQuality.blueprint.objective_code}</span>
+                              ) : null}
+                              {questionQuality.blueprint?.blueprint_code ? (
+                                <span className="sq-chip">BP {questionQuality.blueprint.blueprint_code}</span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="sq-empty">
+                        Salve ou carregue uma questao para receber o diagnostico editorial completo do backend.
+                      </div>
+                    )}
+                  </Card>
+
+                  <Card
+                    title="Workflow editorial"
+                    subtitle="Fluxo real: draft -> in_review -> approved -> published. A publicacao exige aprovacao explicita."
+                  >
+                    <div className="sq-metric-grid">
+                      <div className="sq-metric-card">
+                        <span className="sq-muted">Status atual</span>
+                        <strong>{currentWorkflowStatus}</strong>
+                      </div>
+                      <div className="sq-metric-card">
+                        <span className="sq-muted">Rascunho atual</span>
+                        <strong>
+                          {currentDraftVersion?.version_number ? `v${currentDraftVersion.version_number}` : "-"}
+                        </strong>
+                      </div>
+                      <div className="sq-metric-card">
+                        <span className="sq-muted">Publicado</span>
+                        <strong>
+                          {currentPublishedVersion?.version_number ? `v${currentPublishedVersion.version_number}` : "-"}
+                        </strong>
+                      </div>
+                      <div className="sq-metric-card">
+                        <span className="sq-muted">Eventos auditados</span>
+                        <strong>{questionAudit.length}</strong>
+                      </div>
+                      <div className="sq-metric-card">
+                        <span className="sq-muted">Snapshots</span>
+                        <strong>{questionAnalyticsHistory.length}</strong>
+                      </div>
+                    </div>
+
+                    <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-4)" }}>
+                      <span className="sq-chip">1. Salvar rascunho</span>
+                      <span className="sq-chip">2. Enviar para revisao</span>
+                      <span className="sq-chip">3. Aprovar</span>
+                      <span className="sq-chip">4. Publicar</span>
+                    </div>
+
+                    <div className="sq-actions" style={{ marginTop: "var(--sq-space-4)" }}>
+                      <Button busy={activeTask === "saveQuestion"} onClick={() => void handleSaveQuestion()}>
+                        Salvar rascunho
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        busy={activeTask === "submitReview"}
+                        disabled={!canSubmitForReview}
+                        onClick={() => void handleSubmitReview()}
+                        title={canSubmitForReview ? "Enviar o rascunho atual para revisao" : "Somente rascunhos podem seguir para revisao"}
+                      >
+                        Enviar para revisao
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        busy={activeTask === "approveQuestion"}
+                        disabled={!canApprove}
+                        onClick={() => void handleApproveQuestion()}
+                        title={canApprove ? "Aprovar a versao em revisao" : "Aprovacao so fica disponivel para versoes em revisao"}
+                      >
+                        Aprovar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        busy={activeTask === "publishQuestion"}
+                        disabled={!canPublish}
+                        onClick={() => void handlePublishQuestion()}
+                        title={canPublish ? "Publicar a versao aprovada" : "A publicacao exige uma versao aprovada"}
+                      >
+                        Publicar
+                      </Button>
+                      <Button variant="ghost" onClick={startNewQuestion}>
+                        Novo rascunho
+                      </Button>
+                    </div>
+                  </Card>
+                </div>
 
                 <div className="sq-page-stack">
                   <Card title="Historico de versoes" subtitle="Cada publicacao ou rollback gera uma nova versao rastreavel.">

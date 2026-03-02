@@ -873,6 +873,8 @@ def submit_question_for_review(
     version = _get_version(db, bank.draft_version_id)
     if not version:
         raise ValueError("No draft version available to submit.")
+    if version.status not in {"draft", "in_review"}:
+        raise ValueError("Only the current draft can be submitted for review.")
 
     quality = assess_question_quality(_question_payload_from_version(version), db=db)
     if quality["blocking_issues"]:
@@ -909,6 +911,57 @@ def submit_question_for_review(
     }
 
 
+def approve_question(
+    db: Session,
+    question_id: str,
+    *,
+    actor_user_id: str | None,
+    actor_role: str | None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    bank = _ensure_editable_bank(db, question_id, actor_user_id=actor_user_id)
+    version = _get_version(db, bank.draft_version_id)
+    if not version:
+        raise ValueError("No draft version available to approve.")
+    if version.status != "in_review":
+        raise ValueError("Only a version in review can be approved.")
+
+    quality = assess_question_quality(_question_payload_from_version(version), db=db)
+    if quality["blocking_issues"]:
+        raise ValueError(
+            "Version has blocking editorial issues: "
+            + "; ".join(str(item) for item in quality["blocking_issues"])
+        )
+
+    version.status = "approved"
+    version.review_notes = reason or version.review_notes
+    version.approved_by_user_id = actor_user_id
+    version.updated_by_user_id = actor_user_id
+    bank.review_status = "approved"
+    bank.updated_by_user_id = actor_user_id
+    db.flush()
+
+    _write_audit_log(
+        db,
+        question_id=question_id,
+        version_id=version.id,
+        action="approved",
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        reason=reason,
+        metadata={"version_number": version.version_number},
+    )
+
+    return {
+        "ok": True,
+        "id": question_id,
+        "status": "approved",
+        "version_id": version.id,
+        "version_number": version.version_number,
+        "quality": _quality_summary(quality),
+    }
+
+
 def publish_question(
     db: Session,
     question_id: str,
@@ -929,6 +982,8 @@ def publish_question(
             "Version has blocking editorial issues: "
             + "; ".join(str(item) for item in quality["blocking_issues"])
         )
+    if version.status not in {"approved", "published"}:
+        raise ValueError("Approve the current version before publishing it.")
 
     previous_published = _get_version(db, bank.published_version_id)
     if previous_published and previous_published.id != version.id:
