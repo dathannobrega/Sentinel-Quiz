@@ -33,6 +33,28 @@ export interface CitationItem {
   [key: string]: unknown;
 }
 
+export interface PedagogicalReferenceItem {
+  source_kind: string;
+  label: string;
+  reference?: string | null;
+  material_path?: string | null;
+  locator?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+  is_official: boolean;
+}
+
+export interface QuestionHint {
+  question_id: string;
+  level: number;
+  available_levels: number[];
+  title: string;
+  hint_kind: string;
+  message: string;
+  caution: string;
+  references: PedagogicalReferenceItem[];
+}
+
 export interface QuestionItem {
   id: string;
   exam_id: string;
@@ -76,6 +98,41 @@ export interface WeakAreaTrack {
 
 export interface WeakAreasResponse {
   certifications: WeakAreaTrack[];
+}
+
+export interface EngagementGoal {
+  target: number;
+  completed: number;
+  remaining: number;
+  progress_percent: number;
+  reached: boolean;
+}
+
+export interface EngagementStreak {
+  current_days: number;
+  best_days: number;
+  total_active_days: number;
+  last_activity_at?: string | null;
+  goal_completed_today: boolean;
+}
+
+export interface EngagementAdaptiveProfile {
+  recovery_mode: boolean;
+  low_confidence_bias: number;
+  variety_floor_percent: number;
+  focus_domains: Array<Record<string, unknown>>;
+  last_recomputed_at?: string | null;
+}
+
+export interface EngagementSnapshot {
+  daily_goal: EngagementGoal;
+  daily_review_goal: EngagementGoal;
+  weekly_goal: EngagementGoal;
+  weekly_review_goal: EngagementGoal;
+  streak: EngagementStreak;
+  adaptive_profile: EngagementAdaptiveProfile;
+  review_backlog_due: number;
+  recommended_next_action: string;
 }
 
 export interface StudyOverviewItem {
@@ -331,12 +388,15 @@ export interface ExamAnswerFeedback {
   correct_count: number;
   wrong_count: number;
   finished: boolean;
+  official_references?: PedagogicalReferenceItem[];
   insight?: Record<string, unknown> | null;
 }
 
 export interface StudyAnswerFeedback extends ExamAnswerFeedback {
   answered_count: number;
   confidence_level: string;
+  confidence_signal: string;
+  uncertain_correct?: boolean;
   next_review_at?: string | null;
   review_due_count: number;
 }

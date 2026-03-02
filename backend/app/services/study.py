@@ -35,12 +35,16 @@ from app.services.metrics import (
     record_review_schedule_event,
     record_session_metrics,
 )
+from app.services.pedagogy import (
+    build_official_reference_summaries,
+    confidence_signal_from_level,
+    normalize_confidence_level as normalize_pedagogical_confidence,
+)
 
 
 NOTE_MAX_LENGTH = 4000
 RECENT_ITEM_LIMIT = 3
 QUEUE_PREVIEW_LIMIT = 5
-CONFIDENCE_LEVELS = {"low", "medium", "high"}
 WEEKLY_ANALYTICS_DEFAULT_WEEKS = 8
 REVIEW_FORECAST_DAYS = 7
 SAFE_FEEDBACK_MAX_CHARS = 240
@@ -1414,10 +1418,7 @@ def _parse_citations(citations_json: str | None) -> list[dict[str, Any]]:
 
 
 def _normalize_confidence_level(value: str | None) -> str:
-    normalized = str(value or "medium").strip().lower()
-    if normalized not in CONFIDENCE_LEVELS:
-        raise ValueError("Confidence must be one of: low, medium, high.")
-    return normalized
+    return normalize_pedagogical_confidence(value)
 
 
 def _quality_from_attempt(is_correct: bool, confidence_level: str, elapsed_seconds: int | None = None) -> int:
@@ -1732,7 +1733,7 @@ def _owner_low_confidence_question_ids(
     stmt = _apply_owner_filters(stmt, StudySession, owner_user_id, owner_client_key)
     question_ids: set[str] = set()
     for question_id, confidence_level, question_exam_id, question_domain in db.execute(stmt).all():
-        if str(confidence_level or "").strip().lower() != "low":
+        if str(confidence_level or "").strip().lower() == "high":
             continue
         if exam_id and question_exam_id != exam_id:
             continue
@@ -2448,6 +2449,7 @@ def answer_study_question(
     )
 
     explanation = db.get(Explanation, question_id)
+    official_references = build_official_reference_summaries(db, question_id, limit=4)
     remaining = max(session.total_questions - session.current_index, 0)
     if not is_correct:
         message = "Erro convertido em revisao. Esta questao voltara rapidamente para reforco."
@@ -2468,8 +2470,11 @@ def answer_study_question(
         "wrong_count": session.wrong_count,
         "finished": session.completed_at is not None,
         "confidence_level": confidence,
+        "confidence_signal": confidence_signal_from_level(confidence),
+        "uncertain_correct": bool(is_correct and confidence != "high"),
         "next_review_at": queue_item.due_at.isoformat() if queue_item.due_at else None,
         "review_due_count": due_count,
+        "official_references": official_references,
         "insight": {
             "message": message,
             "remaining_questions": remaining,

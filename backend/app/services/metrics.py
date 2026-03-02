@@ -276,7 +276,7 @@ def record_question_attempt_metrics(
         domain_metric.correct_count += 1
     else:
         domain_metric.wrong_count += 1
-    if normalized_confidence == "low":
+    if normalized_confidence and normalized_confidence != "high":
         domain_metric.low_confidence_count += 1
     if elapsed_seconds is not None and elapsed_seconds >= 0:
         domain_metric.total_elapsed_seconds += int(elapsed_seconds)
@@ -297,7 +297,7 @@ def record_question_attempt_metrics(
         weekly_snapshot.correct_count += 1
     else:
         weekly_snapshot.wrong_count += 1
-    if normalized_confidence == "low":
+    if normalized_confidence and normalized_confidence != "high":
         weekly_snapshot.low_confidence_count += 1
     weekly_snapshot.updated_at = timestamp
     _refresh_backlog_counts(

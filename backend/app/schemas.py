@@ -77,6 +77,29 @@ class AnswerIn(BaseModel):
     question_id: str
     selected_keys: List[str]
 
+
+class PedagogicalReferenceOut(BaseModel):
+    source_kind: str
+    label: str
+    reference: Optional[str] = None
+    material_path: Optional[str] = None
+    locator: Optional[str] = None
+    page_start: Optional[int] = None
+    page_end: Optional[int] = None
+    is_official: bool = False
+
+
+class QuestionHintOut(BaseModel):
+    question_id: str
+    level: int
+    available_levels: List[int] = Field(default_factory=list)
+    title: str
+    hint_kind: str
+    message: str
+    caution: str
+    references: List[PedagogicalReferenceOut] = Field(default_factory=list)
+
+
 class AnswerFeedbackOut(BaseModel):
     is_correct: bool
     justification: Optional[str] = None
@@ -85,6 +108,7 @@ class AnswerFeedbackOut(BaseModel):
     correct_count: int
     wrong_count: int
     finished: bool
+    official_references: List[PedagogicalReferenceOut] = Field(default_factory=list)
     insight: Optional[dict] = None
 
 class ResultOut(BaseModel):
@@ -221,7 +245,7 @@ class StudySessionStateOut(BaseModel):
 class StudyAnswerIn(BaseModel):
     question_id: str
     selected_keys: List[str]
-    confidence_level: str = Field(default="medium")
+    confidence_level: str = Field(default="not_sure")
     elapsed_seconds: Optional[int] = Field(default=None, ge=0, le=86400)
 
 
@@ -235,8 +259,11 @@ class StudyAnswerFeedbackOut(BaseModel):
     wrong_count: int
     finished: bool
     confidence_level: str
+    confidence_signal: str
+    uncertain_correct: bool = False
     next_review_at: Optional[str] = None
     review_due_count: int = 0
+    official_references: List[PedagogicalReferenceOut] = Field(default_factory=list)
     insight: Optional[dict] = None
 
 
@@ -339,6 +366,41 @@ class StudyWeeklyMetricOut(BaseModel):
 class StudyWeeklyAnalyticsOut(BaseModel):
     weeks: List[StudyWeeklyMetricOut] = Field(default_factory=list)
     summary: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EngagementGoalOut(BaseModel):
+    target: int
+    completed: int
+    remaining: int
+    progress_percent: float
+    reached: bool
+
+
+class EngagementStreakOut(BaseModel):
+    current_days: int
+    best_days: int
+    total_active_days: int
+    last_activity_at: Optional[str] = None
+    goal_completed_today: bool = False
+
+
+class EngagementAdaptiveProfileOut(BaseModel):
+    recovery_mode: bool = False
+    low_confidence_bias: float = 0.0
+    variety_floor_percent: float = 0.0
+    focus_domains: List[Dict[str, Any]] = Field(default_factory=list)
+    last_recomputed_at: Optional[str] = None
+
+
+class EngagementSnapshotOut(BaseModel):
+    daily_goal: EngagementGoalOut
+    daily_review_goal: EngagementGoalOut
+    weekly_goal: EngagementGoalOut
+    weekly_review_goal: EngagementGoalOut
+    streak: EngagementStreakOut
+    adaptive_profile: EngagementAdaptiveProfileOut
+    review_backlog_due: int = 0
+    recommended_next_action: str
 
 
 class StudyReviewQuestionOut(BaseModel):

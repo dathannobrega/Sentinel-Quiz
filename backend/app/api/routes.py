@@ -13,8 +13,9 @@ from app.models import Exam, ExamSession, SessionQuestion, SessionAnswer, Questi
 from app.schemas import (
     ExamOut, CreateSessionIn, SessionOut, SessionStateOut, QuestionOut,
     AnswerIn, AnswerFeedbackOut, ResultOut, SessionHistoryOut, SessionReviewOut, ReviewQuestionOut,
-    TutorRequest, TutorResponse
+    EngagementSnapshotOut, TutorRequest, TutorResponse
 )
+from app.services.engagement import build_engagement_snapshot
 from app.services.quiz import (
     create_session,
     get_question_for_session,
@@ -60,6 +61,23 @@ def weak_area_snapshot(
         owner_user_id=current_user.id if current_user else None,
         owner_client_key=None if current_user else client_key,
     )
+
+
+@router.get("/analytics/engagement", response_model=EngagementSnapshotOut)
+def engagement_snapshot(
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    if not current_user and not client_key:
+        raise HTTPException(status_code=400, detail="Engagement analytics require authentication or X-Client-Key.")
+    payload = build_engagement_snapshot(
+        db,
+        owner_user_id=current_user.id if current_user else None,
+        owner_client_key=None if current_user else client_key,
+    )
+    db.commit()
+    return EngagementSnapshotOut(**payload)
 
 
 @router.post("/sessions", response_model=SessionOut)

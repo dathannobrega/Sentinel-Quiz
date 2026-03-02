@@ -217,6 +217,8 @@ class QuestionVersion(Base):
     question_bank: Mapped["QuestionBank"] = relationship(back_populates="versions")
     options: Mapped[list["QuestionVersionOption"]] = relationship(back_populates="version", cascade="all, delete-orphan")
     references: Mapped[list["QuestionReference"]] = relationship(back_populates="version", cascade="all, delete-orphan")
+    hint_rows: Mapped[list["QuestionHint"]] = relationship(back_populates="version", cascade="all, delete-orphan")
+    reference_catalog_rows: Mapped[list["ReferenceCatalog"]] = relationship(back_populates="version", cascade="all, delete-orphan")
 
     __table_args__ = (UniqueConstraint("question_bank_id", "version_number", name="uq_question_versions_bank_version"),)
 
@@ -260,6 +262,60 @@ class QuestionReference(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     version: Mapped["QuestionVersion"] = relationship(back_populates="references")
+
+
+class QuestionHint(Base):
+    __tablename__ = "question_hints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_version_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    level: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    hint_text: Mapped[str] = mapped_column(Text, nullable=False)
+    hint_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="concept")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    version: Mapped["QuestionVersion"] = relationship(back_populates="hint_rows")
+
+    __table_args__ = (
+        CheckConstraint("level >= 1 AND level <= 3", name="ck_question_hints_level_range"),
+        UniqueConstraint("question_version_id", "level", name="uq_question_hints_version_level"),
+    )
+
+
+class ReferenceCatalog(Base):
+    __tablename__ = "reference_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    certification: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    subdomain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    objective_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    blueprint_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    source_kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    material_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    locator: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_official: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    version: Mapped["QuestionVersion | None"] = relationship(back_populates="reference_catalog_rows")
 
 
 class EditorialAuditLog(Base):
@@ -538,6 +594,78 @@ class UserQuestionProgress(Base):
         ),
         UniqueConstraint("user_id", "question_id", name="uq_user_question_progress_user_question"),
         UniqueConstraint("client_key", "question_id", name="uq_user_question_progress_client_question"),
+    )
+
+
+class UserGoal(Base):
+    __tablename__ = "user_goals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    daily_question_target: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    daily_review_target: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    weekly_question_target: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    weekly_review_target: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    stretch_question_target: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_user_goals_owner_scope_xor",
+        ),
+        UniqueConstraint("user_id", name="uq_user_goals_user"),
+        UniqueConstraint("client_key", name="uq_user_goals_client"),
+    )
+
+
+class UserStreak(Base):
+    __tablename__ = "user_streaks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    current_streak_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    best_streak_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_active_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_activity_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_goal_completed_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_user_streaks_owner_scope_xor",
+        ),
+        UniqueConstraint("user_id", name="uq_user_streaks_user"),
+        UniqueConstraint("client_key", name="uq_user_streaks_client"),
+    )
+
+
+class AdaptiveProfile(Base):
+    __tablename__ = "adaptive_profile"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    weak_domain_focus_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    low_confidence_bias: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    variety_floor_percent: Mapped[float] = mapped_column(Float, nullable=False, default=30.0)
+    recovery_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_recomputed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_adaptive_profile_owner_scope_xor",
+        ),
+        UniqueConstraint("user_id", name="uq_adaptive_profile_user"),
+        UniqueConstraint("client_key", name="uq_adaptive_profile_client"),
     )
 
 

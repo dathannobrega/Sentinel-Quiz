@@ -27,6 +27,7 @@ from app.services.metrics import (
     record_question_attempt_metrics,
     record_session_metrics,
 )
+from app.services.pedagogy import build_official_reference_summaries
 from typing import Optional, Dict, Any
 
 PASS_THRESHOLD = 90.0
@@ -161,7 +162,7 @@ def _format_citation(citation: dict) -> str:
 
 
 def _bucket_template() -> dict:
-    return {"total": 0, "correct": 0, "wrong": 0, "score_percent": 0.0}
+    return {"total": 0, "correct": 0, "wrong": 0, "pedagogical_signal": 0, "score_percent": 0.0}
 
 
 def _update_bucket(bucket: dict, is_correct: bool) -> None:
@@ -176,7 +177,12 @@ def _update_bucket(bucket: dict, is_correct: bool) -> None:
 def _sorted_buckets(buckets: dict[str, dict]) -> dict[str, dict]:
     ordered_items = sorted(
         buckets.items(),
-        key=lambda item: (-item[1]["wrong"], item[1]["score_percent"], -item[1]["total"], item[0].lower()),
+        key=lambda item: (
+            -(item[1]["wrong"] + math.ceil((item[1].get("pedagogical_signal", 0) or 0) / 2)),
+            item[1]["score_percent"],
+            -item[1]["total"],
+            item[0].lower(),
+        ),
     )
     return {label: data for label, data in ordered_items}
 
@@ -190,7 +196,14 @@ def _top_bucket_entries(buckets: dict[str, dict], *, reverse: bool = False, limi
     if reverse:
         items.sort(key=lambda item: (-item["score_percent"], item["wrong"], -item["total"], item["label"].lower()))
     else:
-        items.sort(key=lambda item: (-item["wrong"], item["score_percent"], -item["total"], item["label"].lower()))
+        items.sort(
+            key=lambda item: (
+                -(item["wrong"] + math.ceil((item.get("pedagogical_signal", 0) or 0) / 2)),
+                item["score_percent"],
+                -item["total"],
+                item["label"].lower(),
+            )
+        )
     return items[:limit]
 
 
@@ -533,7 +546,7 @@ def _owner_low_confidence_question_ids(
     stmt = _apply_owner_filters(stmt, StudySession, owner_user_id, owner_client_key)
     rows = set()
     for question_id, confidence_level, question_exam_id, question_domain in db.execute(stmt).all():
-        if str(confidence_level or "").strip().lower() != "low":
+        if str(confidence_level or "").strip().lower() == "high":
             continue
         if exam_id and question_exam_id != exam_id:
             continue
@@ -1476,10 +1489,12 @@ def build_weak_area_snapshot_for_owner(
             attempts = int(item["attempts_total"])
             wrong = int(item["wrong_count"])
             correct = int(item["correct_count"])
+            pedagogical_signal = int(item.get("low_confidence_count") or 0)
             bucket = buckets_by_cert.setdefault(certification, {}).setdefault(domain_label, _bucket_template())
             bucket["total"] += attempts
             bucket["wrong"] += wrong
             bucket["correct"] += correct
+            bucket["pedagogical_signal"] += pedagogical_signal
 
         items = []
         for certification in sorted(buckets_by_cert):
@@ -1491,7 +1506,8 @@ def build_weak_area_snapshot_for_owner(
             if attempted and focus_domain:
                 message = (
                     f"Maior necessidade de estudo em {focus_domain['label']} "
-                    f"({focus_domain['wrong']} erro(s) em {focus_domain['total']} questoes)."
+                    f"({focus_domain['wrong']} erro(s) e {focus_domain.get('pedagogical_signal', 0)} sinal(is) de baixa seguranca "
+                    f"em {focus_domain['total']} questoes)."
                 )
             else:
                 message = "Sem historico suficiente para este track."
@@ -1693,6 +1709,7 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
             session.completed_at = datetime.utcnow()
 
     exp = db.get(Explanation, question_id)
+    official_references = build_official_reference_summaries(db, question_id, limit=4)
     upsert_question_progress(
         db,
         question_id=question_id,
@@ -1727,6 +1744,7 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
         "correct_count": session.correct_count,
         "wrong_count": session.wrong_count,
         "finished": finished,
+        "official_references": official_references,
         "insight": result_snapshot["insight"]["live"],
     }
 

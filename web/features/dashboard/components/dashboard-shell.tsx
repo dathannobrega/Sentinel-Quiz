@@ -15,6 +15,7 @@ import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   AuthUser,
   DomainCatalogResponse,
+  EngagementSnapshot,
   Exam,
   HealthResponse,
   SessionHistoryItem,
@@ -40,6 +41,17 @@ const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
   recent_bookmarks: [],
   recent_notes: [],
   due_reviews: []
+};
+
+const DEFAULT_ENGAGEMENT: EngagementSnapshot = {
+  daily_goal: { target: 10, completed: 0, remaining: 10, progress_percent: 0, reached: false },
+  daily_review_goal: { target: 5, completed: 0, remaining: 5, progress_percent: 0, reached: false },
+  weekly_goal: { target: 50, completed: 0, remaining: 50, progress_percent: 0, reached: false },
+  weekly_review_goal: { target: 30, completed: 0, remaining: 30, progress_percent: 0, reached: false },
+  streak: { current_days: 0, best_days: 0, total_active_days: 0, goal_completed_today: false },
+  adaptive_profile: { recovery_mode: false, low_confidence_bias: 0, variety_floor_percent: 0, focus_domains: [] },
+  review_backlog_due: 0,
+  recommended_next_action: "Comece uma sessao curta para ativar o ritmo de estudo."
 };
 
 const DEFAULT_LAUNCH_FORM: LaunchFormValues = {
@@ -124,6 +136,7 @@ export function DashboardShell() {
   const [domains, setDomains] = useState<DomainCatalogResponse["domains"]>([]);
   const [weakAreas, setWeakAreas] = useState<WeakAreasResponse["certifications"]>([]);
   const [studyOverview, setStudyOverview] = useState<StudyOverview>(DEFAULT_STUDY_OVERVIEW);
+  const [engagement, setEngagement] = useState<EngagementSnapshot>(DEFAULT_ENGAGEMENT);
   const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
   const [studyHistory, setStudyHistory] = useState<StudyHistoryItem[]>([]);
 
@@ -187,6 +200,7 @@ export function DashboardShell() {
       apiClient.get<HealthResponse>("/health"),
       apiClient.get<Exam[]>("/exams"),
       apiClient.get<WeakAreasResponse>("/analytics/weak-areas"),
+      apiClient.get<EngagementSnapshot>("/analytics/engagement"),
       apiClient.get<StudyOverview>("/study/overview"),
       apiClient.get<SessionHistoryItem[]>("/sessions/history?limit=12"),
       apiClient.get<StudyHistoryItem[]>("/study/history?limit=12")
@@ -215,21 +229,28 @@ export function DashboardShell() {
     }
 
     if (results[3].status === "fulfilled") {
-      setStudyOverview(results[3].value);
+      setEngagement(results[3].value);
+    } else {
+      setEngagement(DEFAULT_ENGAGEMENT);
+      failedLabels.push("ritmo e metas");
+    }
+
+    if (results[4].status === "fulfilled") {
+      setStudyOverview(results[4].value);
     } else {
       setStudyOverview(DEFAULT_STUDY_OVERVIEW);
       failedLabels.push("overview de estudo");
     }
 
-    if (results[4].status === "fulfilled") {
-      setExamHistory(results[4].value);
+    if (results[5].status === "fulfilled") {
+      setExamHistory(results[5].value);
     } else {
       setExamHistory([]);
       failedLabels.push("historico de simulados");
     }
 
-    if (results[5].status === "fulfilled") {
-      setStudyHistory(results[5].value);
+    if (results[6].status === "fulfilled") {
+      setStudyHistory(results[6].value);
     } else {
       setStudyHistory([]);
       failedLabels.push("historico de estudo");
@@ -422,6 +443,73 @@ export function DashboardShell() {
               <div className="sq-stat-value">{heroStats.dueReviewCount}</div>
               <div className="sq-stat-meta">
                 Media recente: {heroStats.average !== null ? formatScore(heroStats.average) : "-"}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="sq-card">
+          <div className="sq-progress-head">
+            <div>
+              <div className="sq-list-title">Ritmo e retencao</div>
+              <div className="sq-list-meta">
+                Metas leves, streak util e perfil adaptativo para manter consistencia sem gamificacao vazia.
+              </div>
+            </div>
+            <span className="sq-chip">{engagement.streak.current_days} dia(s) em sequencia</span>
+          </div>
+
+          <div className="sq-stat-grid" aria-label="Ritmo atual">
+            <div className="sq-stat">
+              <div className="sq-stat-label">Meta diaria</div>
+              <div className="sq-stat-value">
+                {engagement.daily_goal.completed}/{engagement.daily_goal.target}
+              </div>
+              <div className="sq-stat-meta">{engagement.daily_goal.progress_percent}% concluido</div>
+            </div>
+            <div className="sq-stat">
+              <div className="sq-stat-label">Revisao diaria</div>
+              <div className="sq-stat-value">
+                {engagement.daily_review_goal.completed}/{engagement.daily_review_goal.target}
+              </div>
+              <div className="sq-stat-meta">{engagement.review_backlog_due} item(ns) vencido(s)</div>
+            </div>
+            <div className="sq-stat">
+              <div className="sq-stat-label">Meta semanal</div>
+              <div className="sq-stat-value">
+                {engagement.weekly_goal.completed}/{engagement.weekly_goal.target}
+              </div>
+              <div className="sq-stat-meta">{engagement.weekly_goal.progress_percent}% da semana</div>
+            </div>
+            <div className="sq-stat">
+              <div className="sq-stat-label">Perfil adaptativo</div>
+              <div className="sq-stat-value">{engagement.adaptive_profile.recovery_mode ? "Recuperacao" : "Estavel"}</div>
+              <div className="sq-stat-meta">
+                Baixa seguranca: {engagement.adaptive_profile.low_confidence_bias}%
+              </div>
+            </div>
+          </div>
+
+          <div className="sq-list" role="list" aria-label="Proxima acao sugerida">
+            <div className="sq-list-item">
+              <div className="sq-list-title">Proxima acao</div>
+              <div className="sq-list-meta">{engagement.recommended_next_action}</div>
+            </div>
+            <div className="sq-list-item">
+              <div className="sq-list-title">Foco adaptativo</div>
+              <div className="sq-list-meta">
+                {engagement.adaptive_profile.focus_domains.length
+                  ? String(
+                      (engagement.adaptive_profile.focus_domains[0] as Record<string, unknown> | undefined)?.["domain"] ||
+                        "Sem dominio"
+                    )
+                  : "Sem dominio critico suficiente ainda."}
+              </div>
+            </div>
+            <div className="sq-list-item">
+              <div className="sq-list-title">Melhor streak</div>
+              <div className="sq-list-meta">
+                {engagement.streak.best_days} dia(s) · {engagement.streak.total_active_days} dia(s) ativos no total
               </div>
             </div>
           </div>

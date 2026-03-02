@@ -7,6 +7,7 @@ from app.api.deps import get_client_key, get_current_user_optional
 from app.db.session import get_db
 from app.models import StudySession, User
 from app.schemas import (
+    QuestionHintOut,
     ReviewQueueSnapshotOut,
     StudyAnswerFeedbackOut,
     StudyAnswerIn,
@@ -21,6 +22,7 @@ from app.schemas import (
     StudyStateOut,
     StudyWeeklyAnalyticsOut,
 )
+from app.services.pedagogy import build_question_hint
 from app.services.study import (
     answer_study_question,
     build_study_overview,
@@ -130,6 +132,32 @@ def update_question_state(
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail)
     return StudyStateOut(**state)
+
+
+@router.get("/sessions/{session_id}/questions/{question_id}/hint", response_model=QuestionHintOut)
+def study_question_hint(
+    session_id: str,
+    question_id: str,
+    level: int = Query(default=1, ge=1, le=3),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_study_session(db, session_id, current_user, client_key)
+    current_question = get_question_for_study_session(db, session, session.current_index)
+    if not current_question or current_question.get("id") != question_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Hints are only available for the current active study question.",
+        )
+    try:
+        payload = build_question_hint(db, question_id, level=level)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail)
+    db.commit()
+    return QuestionHintOut(**payload)
 
 
 @router.post("/sessions", response_model=StudySessionOut)

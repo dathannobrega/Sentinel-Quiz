@@ -101,6 +101,16 @@ Aumentar o valor didático sem transformar o produto em “gabarito decorado”.
 
 - Analytics e fila de revisão passam a considerar “acerto inseguro” como sinal pedagógico.
 
+### Status atual
+
+- Implementado:
+  - `confidence_level` agora aceita `guess`, `not_sure` e `confident`, com normalização segura no backend.
+  - `study mode` ganhou hints graduais por nível, restritos à questão ativa da sessão.
+  - feedback imediato agora devolve referências oficiais/curadas e marca “acerto inseguro”.
+  - sinais de confiança não alta entram no bucket pedagógico usado por métricas e adaptativo.
+- Ainda evoluível:
+  - calibrar hints por autor/editor manual (hoje a base é derivada dos metadados editoriais e referências).
+
 ### Prioridade
 
 - Média-alta. Muito valioso, mas depende do modelo de tentativas amadurecido.
@@ -130,6 +140,16 @@ Manter ritmo e adesão sem virar gamificação vazia.
   - priorizar domínio fraco
   - penalizar baixa confiança
   - respeitar variedade mínima para não viciar o treino
+
+### Status atual
+
+- Implementado:
+  - `user_goal`, `user_streak` e `adaptive_profile`.
+  - snapshot de engajamento com meta diária, meta semanal, streak leve e próxima ação recomendada.
+  - dashboard principal agora mostra ritmo, backlog e foco adaptativo.
+  - simulados/estudo adaptativos continuam ativos e agora exibem um perfil persistido de foco.
+- Ainda evoluível:
+  - permitir personalização explícita das metas pelo próprio usuário na UI.
 
 ### Cuidado de produto
 

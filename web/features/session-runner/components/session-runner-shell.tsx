@@ -15,6 +15,7 @@ import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { formatDateTime } from "@/lib/utils/format";
 import type {
   ExamAnswerFeedback,
+  QuestionHint,
   SessionQuestionResponse,
   SessionResponse,
   StudyAnswerFeedback,
@@ -63,6 +64,9 @@ function buildLiveFeedbackBits(mode: RunnerMode, feedback: ExamAnswerFeedback | 
   }
   if (mode === "study") {
     const studyFeedback = feedback as StudyAnswerFeedback;
+    if (studyFeedback.uncertain_correct) {
+      bits.push("Acerto inseguro: segue como sinal de reforco.");
+    }
     if (studyFeedback.next_review_at) {
       bits.push(`Proxima revisao: ${formatDateTime(studyFeedback.next_review_at)}`);
     }
@@ -84,6 +88,49 @@ function formatRemainingTime(totalSeconds: number | null | undefined): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function buildHintEndpoint(mode: RunnerMode, sessionId: string, questionId: string, level: number): string | null {
+  if (mode !== "study") {
+    return null;
+  }
+  return `/study/sessions/${sessionId}/questions/${questionId}/hint?level=${level}`;
+}
+
+function buildMaterialPreviewHref(materialPath: string, locator?: string | null, pageStart?: number | null, pageEnd?: number | null) {
+  const params = new URLSearchParams({ material_path: materialPath });
+  if (locator) {
+    params.set("locator", locator);
+  }
+  if (typeof pageStart === "number") {
+    params.set("page_start", String(pageStart));
+  }
+  if (typeof pageEnd === "number") {
+    params.set("page_end", String(pageEnd));
+  }
+  return `/api/materials/preview?${params.toString()}`;
+}
+
+function formatPedagogicalReference(reference: {
+  label: string;
+  reference?: string | null;
+  locator?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+}): string {
+  const parts: string[] = [reference.label];
+  if (reference.reference) {
+    parts.push(reference.reference);
+  }
+  if (typeof reference.page_start === "number" && typeof reference.page_end === "number") {
+    parts.push(reference.page_start === reference.page_end ? `p. ${reference.page_start}` : `pp. ${reference.page_start}-${reference.page_end}`);
+  } else if (typeof reference.page_start === "number") {
+    parts.push(`p. ${reference.page_start}`);
+  }
+  if (reference.locator) {
+    parts.push(reference.locator);
+  }
+  return parts.join(" · ");
+}
+
 export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps) {
   const router = useRouter();
   const sessionBasePath = resolveSessionBasePath(mode);
@@ -99,7 +146,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   const [questionState, setQuestionState] = useState<SessionQuestionResponse | null>(null);
   const [feedback, setFeedback] = useState<ExamAnswerFeedback | StudyAnswerFeedback | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [confidenceLevel, setConfidenceLevel] = useState<"low" | "medium" | "high">("medium");
+  const [confidenceLevel, setConfidenceLevel] = useState<"guess" | "not_sure" | "confident">("not_sure");
   const [questionStartedAt, setQuestionStartedAt] = useState<number | null>(null);
   const [studyState, setStudyState] = useState<StudyState | null>(null);
   const [studyDraft, setStudyDraft] = useState({ bookmarked: false, noteText: "" });
@@ -107,6 +154,9 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   const [isStudyStateSaving, setIsStudyStateSaving] = useState(false);
   const [studyStateDirty, setStudyStateDirty] = useState(false);
   const [studyStateNotice, setStudyStateNotice] = useState<string | null>(null);
+  const [activeHint, setActiveHint] = useState<QuestionHint | null>(null);
+  const [isHintLoading, setIsHintLoading] = useState(false);
+  const [hintError, setHintError] = useState<string | null>(null);
 
   const currentQuestion = questionState?.question || null;
   const questionNumber = (questionState?.progress_index ?? 0) + 1;
@@ -150,6 +200,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setQuestionStartedAt(Date.now());
       setSelectedKeys([]);
       setFeedback(null);
+      setActiveHint(null);
+      setHintError(null);
     } catch (error) {
       setLoadError(readRunnerError(error));
     } finally {
@@ -182,6 +234,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setSelectedKeys([]);
       setFeedback(null);
       setQuestionStartedAt(Date.now());
+      setActiveHint(null);
+      setHintError(null);
     } catch (error) {
       setPageNotice(readRunnerError(error));
     } finally {
@@ -304,9 +358,13 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setStudyStateDirty(false);
       setStudyStateNotice(null);
       setIsStudyStateLoading(false);
+      setActiveHint(null);
+      setHintError(null);
       return;
     }
 
+    setActiveHint(null);
+    setHintError(null);
     void loadCurrentStudyState(currentQuestion.id);
   }, [currentQuestion?.id, isStudyMode]);
 
@@ -370,6 +428,30 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       }
       return [optionKey];
     });
+  }
+
+  async function handleLoadHint(level: 1 | 2 | 3) {
+    if (!currentQuestion || feedback || isExamPaused) {
+      return;
+    }
+    const endpoint = buildHintEndpoint(mode, sessionId, currentQuestion.id, level);
+    if (!endpoint) {
+      return;
+    }
+
+    setIsHintLoading(true);
+    setHintError(null);
+    try {
+      const response = await apiClient.get<QuestionHint>(endpoint);
+      if (currentQuestion.id !== response.question_id) {
+        return;
+      }
+      setActiveHint(response);
+    } catch (error) {
+      setHintError(readRunnerError(error));
+    } finally {
+      setIsHintLoading(false);
+    }
   }
 
   async function handleSubmit() {
@@ -620,14 +702,78 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         id="confidence-level"
                         className="sq-select"
                         value={confidenceLevel}
-                        onChange={(event) => setConfidenceLevel(event.target.value as "low" | "medium" | "high")}
+                        onChange={(event) => setConfidenceLevel(event.target.value as "guess" | "not_sure" | "confident")}
                         disabled={!!feedback}
                       >
-                        <option value="low">Chutei / baixa confianca</option>
-                        <option value="medium">Confianca media</option>
-                        <option value="high">Tenho certeza</option>
+                        <option value="guess">Chutei</option>
+                        <option value="not_sure">Nao tenho certeza</option>
+                        <option value="confident">Tenho certeza</option>
                       </select>
                     </Field>
+
+                    <div
+                      className="sq-list-item"
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "var(--sq-space-3)"
+                      }}
+                    >
+                      <div className="sq-progress-head">
+                        <div>
+                          <div className="sq-list-title">Hints graduais</div>
+                          <div className="sq-list-meta">
+                            Avance por camadas: conceito, recorte e pegadinha. O hint nunca abre o gabarito.
+                          </div>
+                        </div>
+                        <span className="sq-chip">{activeHint ? `Nivel ${activeHint.level}` : "Sem hint aberto"}</span>
+                      </div>
+
+                      <div className="sq-actions">
+                        <Button variant="ghost" size="sm" busy={isHintLoading} disabled={!!feedback} onClick={() => void handleLoadHint(1)}>
+                          Hint 1
+                        </Button>
+                        <Button variant="ghost" size="sm" busy={isHintLoading} disabled={!!feedback} onClick={() => void handleLoadHint(2)}>
+                          Hint 2
+                        </Button>
+                        <Button variant="ghost" size="sm" busy={isHintLoading} disabled={!!feedback} onClick={() => void handleLoadHint(3)}>
+                          Hint 3
+                        </Button>
+                      </div>
+
+                      {hintError ? <div className="sq-list-meta">{hintError}</div> : null}
+
+                      {activeHint ? (
+                        <div className="sq-surface-block">
+                          <div className="sq-list-title">{activeHint.title}</div>
+                          <div className="sq-list-meta">{activeHint.message}</div>
+                          <div className="sq-list-meta">{activeHint.caution}</div>
+                          {activeHint.references.length ? (
+                            <div className="sq-list" role="list" aria-label="Referencias sugeridas pelo hint">
+                              {activeHint.references.map((reference, index) => (
+                                <div key={`${reference.label}-${index}`} className="sq-list-item">
+                                  <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
+                                  {reference.material_path ? (
+                                    <a
+                                      href={buildMaterialPreviewHref(
+                                        reference.material_path,
+                                        reference.locator,
+                                        reference.page_start,
+                                        reference.page_end
+                                      )}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      Abrir trecho
+                                    </a>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
 
                     <div
                       className="sq-list-item"
@@ -744,6 +890,30 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                       ) : undefined
                     }
                   />
+                ) : null}
+
+                {feedback?.official_references?.length ? (
+                  <div className="sq-list" role="list" aria-label="Referencias oficiais">
+                    {feedback.official_references.map((reference, index) => (
+                      <div key={`${reference.label}-${index}`} className="sq-list-item">
+                        <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
+                        {reference.material_path ? (
+                          <a
+                            href={buildMaterialPreviewHref(
+                              reference.material_path,
+                              reference.locator,
+                              reference.page_start,
+                              reference.page_end
+                            )}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Abrir trecho
+                          </a>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                 ) : null}
 
                 <div className="sq-actions">
