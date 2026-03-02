@@ -23,7 +23,7 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 ## 🚀 Tecnologias
 
 - **Backend:** Python, FastAPI, SQLAlchemy, PostgreSQL/SQLite, Alembic.
-- **Frontend:** JavaScript (Vanilla/SPA), CSS3, HTML5.
+- **Frontend:** HTML/CSS/JavaScript legado + Next.js (App Router), React e TypeScript na trilha de migracao.
 - **IA:** Google Generative AI SDK.
 
 ---
@@ -70,12 +70,15 @@ cp .env.docker.example .env
 docker compose up --build -d
 ```
 
-A aplicação ficará disponível em `http://127.0.0.1:8000`.
+A stack ficará disponível em:
+
+- frontend Next: `http://127.0.0.1:3000`
+- API: `http://127.0.0.1:8000`
 
 O compose local:
 - usa defaults seguros mesmo sem `.env`
 - aceita sobrescrita por `.env`
-- sobe `PostgreSQL` junto com a API por padrão
+- sobe `PostgreSQL`, API e frontend Next por padrão
 - monta `./questions` em `/questions` para refletir mudanças sem rebuild
 - persiste o Postgres no volume `postgres_data`
 - permite `APP_RUN_DB_MIGRATIONS=true` para executar `alembic upgrade head` antes do `uvicorn`
@@ -100,16 +103,27 @@ Se quiser montar um arquivo `.env` dentro do container, ele deve usar as variáv
 Para `docker run` com SQLite em vez de Postgres, mantenha o default de `DATABASE_URL` e monte `-v sentinel_quiz_data:/data`.
 O entrypoint também entende variáveis prefixadas com `APP_`, então você pode reaproveitar `.env.docker.example` em `docker run` se preferir esse formato.
 
+Para o frontend Next:
+
+```bash
+docker build -f web/Dockerfile -t sentinel-quiz-web:local .
+docker run -d \
+  --name sentinel-quiz-web \
+  -p 3000:3000 \
+  -e NEXT_PUBLIC_API_ORIGIN=http://localhost:8000 \
+  sentinel-quiz-web:local
+```
+
 ### 5. Portainer
 
 Para Portainer, use `docker-compose.portainer.yml` como stack base:
 
-- troque `APP_IMAGE_NAME` para a imagem publicada no registry
+- troque `APP_IMAGE_NAME` e `APP_WEB_IMAGE_NAME` para as imagens publicadas no registry
 - configure as variáveis `APP_*` no painel do stack
 - mantenha o volume `postgres_data` para persistência do banco
 - para schema controlado por migration, use `APP_BOOTSTRAP_SCHEMA=false` e `APP_RUN_DB_MIGRATIONS=true`
 
-Esse arquivo usa imagem pronta (sem `build`) e é mais adequado para ambientes gerenciados.
+Esse arquivo usa imagens prontas (sem `build`) e é mais adequado para ambientes gerenciados.
 
 ---
 
@@ -249,3 +263,78 @@ Fluxo recomendado em produção:
 1. Definir `DATABASE_URL` para PostgreSQL.
 2. Rodar `alembic upgrade head`.
 3. Subir a aplicação com `BOOTSTRAP_SCHEMA=false`.
+
+---
+
+## 🌐 Frontend Next.js (migração incremental)
+
+O frontend legado continua em `frontend/`, mas agora existe uma trilha nova em `web/` com:
+
+- `Next.js (App Router)`
+- `React`
+- `TypeScript`
+- `apiClient` tipado para os endpoints reais do backend
+- tokens visuais e componentes base reutilizáveis
+
+Primeira fatia já entregue:
+
+- dashboard inicial
+- login/cadastro/logout
+- visão de áreas fracas
+- overview de estudo
+- criação de sessão (`exam` e `study`)
+- runner de prova (`/exam/[sessionId]`)
+- runner de study (`/study/[sessionId]`)
+- tela de resultado e revisão básica de ambos
+
+Para subir essa nova UI:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Se o backend não estiver na mesma origem, defina:
+
+```bash
+NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
+```
+
+Se você ainda quiser manter um fallback para o frontend legado:
+
+```bash
+NEXT_PUBLIC_LEGACY_APP_URL=http://127.0.0.1:5500/frontend/index.html
+```
+
+## 🐳 Docker com API + Web
+
+O `docker-compose.yml` agora sobe:
+
+1. `api` em `http://localhost:8000`
+2. `web` em `http://localhost:3000`
+
+Fluxo local:
+
+```bash
+docker compose up --build
+```
+
+Variáveis novas para o frontend container:
+
+```bash
+APP_WEB_IMAGE_NAME=sentinel-quiz-web:local
+APP_WEB_PORT=3000
+APP_PUBLIC_API_ORIGIN=http://localhost:8000
+APP_PUBLIC_LEGACY_APP_URL=http://localhost:8000
+```
+
+No Portainer, a stack agora espera duas imagens:
+
+1. `APP_IMAGE_NAME` para a API
+2. `APP_WEB_IMAGE_NAME` para o frontend Next
+
+O workflow `docker-publish.yml` passou a publicar ambas no GHCR:
+
+1. `ghcr.io/<owner>/<repo>` (API)
+2. `ghcr.io/<owner>/<repo>-web` (frontend)

@@ -17,3 +17,5 @@ backend/securityplus.db
 *.sqlite
 *.sqlite3
 *.log
+web/node_modules
+web/.next

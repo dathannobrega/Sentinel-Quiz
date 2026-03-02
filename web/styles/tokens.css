@@ -1,0 +1,37 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap");
+
+:root {
+  --sq-bg: #f6f1e8;
+  --sq-surface: #ffffff;
+  --sq-surface-subtle: #f3ede2;
+  --sq-surface-elevated: #fff8f0;
+  --sq-text: #1f2329;
+  --sq-text-muted: #5b616b;
+  --sq-border: #e4d8c6;
+  --sq-accent: #157a6e;
+  --sq-accent-strong: #115e55;
+  --sq-accent-alt: #1d4ed8;
+  --sq-success: #0f9d58;
+  --sq-danger: #d14343;
+  --sq-warning: #d97706;
+  --sq-info: #155eef;
+  --sq-shadow-lg: 0 18px 40px rgba(19, 16, 10, 0.16);
+  --sq-shadow-md: 0 12px 28px rgba(19, 16, 10, 0.1);
+  --sq-shadow-sm: 0 8px 18px rgba(19, 16, 10, 0.07);
+  --sq-radius-sm: 10px;
+  --sq-radius-md: 14px;
+  --sq-radius-lg: 22px;
+  --sq-space-1: 4px;
+  --sq-space-2: 8px;
+  --sq-space-3: 12px;
+  --sq-space-4: 16px;
+  --sq-space-5: 20px;
+  --sq-space-6: 24px;
+  --sq-space-7: 32px;
+  --sq-space-8: 40px;
+  --sq-container: 1180px;
+  --sq-font-body: "Manrope", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --sq-font-display: "Fraunces", "Georgia", serif;
+  --sq-z-overlay: 1000;
+  --sq-z-toast: 1100;
+}

@@ -1,0 +1,6 @@
+@import "../styles/tokens.css";
+@import "../styles/legacy-theme.css";
+
+::selection {
+  background: rgba(21, 122, 110, 0.18);
+}
