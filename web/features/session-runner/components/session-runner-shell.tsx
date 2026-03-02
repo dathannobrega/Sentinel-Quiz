@@ -385,7 +385,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
             role="alert"
             action={
               <>
-                <Link href="/">Voltar ao dashboard</Link>
+                <Link href="/dashboard">Voltar ao dashboard</Link>
                 <Link href={resolveResultHref(mode, sessionId)}>Tentar abrir o resultado</Link>
               </>
             }
@@ -411,7 +411,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/">Dashboard</Link>
+            <Link href="/dashboard">Dashboard</Link>
             <Link href="/history">Historico</Link>
             <Link href="/admin">Admin</Link>
           </div>

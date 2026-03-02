@@ -189,6 +189,34 @@ class EditorialAuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
+class QuestionStatsSnapshot(Base):
+    __tablename__ = "question_stats_snapshot"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    capture_batch_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    exam_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    certification: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    attempts_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    exam_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    study_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wrong_rate_percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    low_confidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    low_confidence_rate_percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    review_pressure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    avg_study_elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    difficulty_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class Question(Base):
     __tablename__ = "questions"
 

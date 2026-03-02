@@ -226,7 +226,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
             title="Nao foi possivel carregar o resultado"
             message={loadError || "A sessao nao retornou dados de revisao."}
             role="alert"
-            action={<Link href="/">Voltar ao dashboard</Link>}
+            action={<Link href="/dashboard">Voltar ao dashboard</Link>}
           />
         </div>
       </main>
@@ -259,10 +259,10 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/">Dashboard</Link>
+            <Link href="/dashboard">Dashboard</Link>
             <Link href="/history">Historico</Link>
             <Link href="/admin">Admin</Link>
-            <Link href="/">Iniciar nova sessao</Link>
+            <Link href="/dashboard">Iniciar nova sessao</Link>
           </div>
         </header>
 

@@ -8,17 +8,6 @@ export interface DashboardNotice {
   message: string;
 }
 
-export interface LoginFormValues {
-  email: string;
-  password: string;
-}
-
-export interface RegisterFormValues {
-  displayName: string;
-  email: string;
-  password: string;
-}
-
 export interface LaunchFormValues {
   examId: string;
   domain: string;

@@ -4,19 +4,19 @@
 
 - Runtime principal preparado para PostgreSQL, com `docker-compose` e `Portainer` orientados a Postgres.
 - Auth do frontend principal migrada para cookie HttpOnly (`AUTH_COOKIE_*`), sem persistir bearer token em `localStorage`.
-- `X-Admin-Key` limitado a ambientes não produtivos; em produção, o fluxo esperado é RBAC via login.
+- Operações editoriais agora exigem sessão autenticada com papel `admin`; não existe mais atalho por chave estática.
 - Criação pública de sessão endurecida: a API pública não aceita mais `question_ids`.
 - Feedback imediato de `exam/study` não devolve mais `correct_keys`; o gabarito completo fica para revisão final.
 - Restrições de banco agora garantem owner escopado (`user_id` xor `client_key`) nas tabelas críticas.
 - `user_question_progress` passa a consolidar progresso por questão, reduzindo o acoplamento exclusivo a “sessão”.
 - O SRS agora considera também tempo de resposta além de confiança e histórico.
+- Analytics editoriais agora podem gerar snapshots históricos por `question_version`, permitindo comparar dificuldade e atrito ao longo do tempo.
+- Como o produto ainda não entrou em produção, a cadeia de migrations foi consolidada em um baseline único alinhado ao schema atual.
 
 ### Gaps que ainda permanecem
 
 - Multitenancy real e ACL por tenant ainda não existem.
-- Analytics editoriais históricos por versão ainda precisam de snapshots dedicados.
 - A trilha de auditoria está melhor (logs estruturados + editoriais), mas ainda pode evoluir para auditoria operacional persistente de segurança.
-- O desligamento definitivo de bancos SQLite legados depende da execução da migração assistida para Postgres nos ambientes antigos.
 
 ## 3. Plano por item
 

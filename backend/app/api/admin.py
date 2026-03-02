@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select
@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
 
-from app.api.deps import get_current_user_optional
+from app.api.deps import get_current_user_required
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -23,6 +23,7 @@ from app.models import (
     Option,
     Question,
     QuestionBank,
+    QuestionStatsSnapshot,
     QuestionVersion,
     QuestionVersionOption,
     SessionAnswer,
@@ -30,7 +31,11 @@ from app.models import (
     StudySession,
     User,
 )
-from app.services.admin_analytics import build_admin_question_analytics
+from app.services.admin_analytics import (
+    build_admin_question_analytics,
+    capture_admin_question_analytics_snapshot,
+    list_question_analytics_history,
+)
 from app.services.editorial import (
     build_admin_question_document,
     delete_question_with_history,
@@ -48,73 +53,18 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = logging.getLogger("app.security.admin")
 
 
-def _admin_key_allowed(x_admin_key: Optional[str]) -> bool:
-    if x_admin_key and not settings.admin_api_key_enabled():
-        logger.warning(
-            "X-Admin-Key authentication attempt rejected",
-            extra={
-                "event": "admin_key_rejected",
-                "environment": settings.environment,
-            },
-        )
-        return False
-    if not settings.admin_api_key_enabled():
-        return False
-    return bool(x_admin_key and x_admin_key == settings.admin_api_key)
-
-
-def _require_roles(
-    *,
-    allowed_roles: set[str],
-    x_admin_key: Optional[str],
-    current_user: User | None,
-):
-    if _admin_key_allowed(x_admin_key):
-        return True
-    if current_user and current_user.is_active and current_user.role in allowed_roles:
-        return True
-    if current_user:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-def require_admin(
-    x_admin_key: Optional[str] = Header(default=None),
-    current_user = Depends(get_current_user_optional),
-):
-    return _require_roles(
-        allowed_roles={"admin", "editor"},
-        x_admin_key=x_admin_key,
-        current_user=current_user,
-    )
-
-
-def require_reviewer(
-    x_admin_key: Optional[str] = Header(default=None),
-    current_user = Depends(get_current_user_optional),
-):
-    return _require_roles(
-        allowed_roles={"admin", "reviewer"},
-        x_admin_key=x_admin_key,
-        current_user=current_user,
-    )
-
-
 def require_platform_admin(
-    x_admin_key: Optional[str] = Header(default=None),
-    current_user = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user_required),
 ):
-    return _require_roles(
-        allowed_roles={"admin"},
-        x_admin_key=x_admin_key,
-        current_user=current_user,
-    )
+    if current_user.is_active and current_user.role == "admin":
+        return current_user
+    raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def _actor_role(current_user: User | None) -> str:
     if current_user and current_user.role:
         return current_user.role
-    return "admin_key"
+    return "unknown"
 
 class AdminCreateExamIn(BaseModel):
     id: str
@@ -198,6 +148,8 @@ class AdminAnalyticsSummaryOut(BaseModel):
     study_attempts: int
     total_review_pressure: int
     average_wrong_rate_percent: float
+    snapshot_batch_count: int = 0
+    latest_snapshot_at: Optional[str] = None
 
 
 class AdminHardestQuestionOut(BaseModel):
@@ -246,6 +198,34 @@ class AdminQuestionAnalyticsOut(BaseModel):
     hardest_questions: List[AdminHardestQuestionOut]
     weakest_domains: List[AdminWeakDomainOut]
     weakest_exams: List[AdminWeakExamOut]
+
+
+class AdminAnalyticsSnapshotCaptureOut(BaseModel):
+    ok: bool
+    schema_ready: bool = True
+    message: Optional[str] = None
+    capture_batch_id: Optional[str] = None
+    captured_at: Optional[str] = None
+    snapshot_count: int = 0
+
+
+class AdminQuestionAnalyticsSnapshotOut(BaseModel):
+    id: int
+    capture_batch_id: str
+    question_id: str
+    question_version_id: Optional[int] = None
+    version_number: Optional[int] = None
+    attempts_total: int
+    exam_attempts: int
+    study_attempts: int
+    wrong_count: int
+    wrong_rate_percent: float
+    low_confidence_count: int
+    low_confidence_rate_percent: float
+    review_pressure_count: int
+    avg_study_elapsed_seconds: Optional[float] = None
+    difficulty_score: float
+    captured_at: Optional[str] = None
 
 
 class AdminQuestionVersionOut(BaseModel):
@@ -332,12 +312,12 @@ def _clean_citation_value(value: Any):
     return None
 
 @router.post("/ingest")
-def admin_ingest(_: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_ingest(_: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
     res = ingest_questions_from_dir(db, settings.question_json_dir)
     return res
 
 @router.get("/overview", response_model=AdminOverviewOut)
-def admin_overview(_: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_overview(_: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
     exams = db.execute(select(Exam)).scalars().all()
     questions = db.execute(select(Question)).scalars().all()
     completed_sessions = db.execute(
@@ -358,7 +338,7 @@ def admin_overview(_: bool = Depends(require_admin), db: Session = Depends(get_d
 
 
 @router.get("/users", response_model=List[AdminUserOut])
-def admin_list_users(_: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_list_users(_: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
     exam_counts = {
         user_id: count
         for user_id, count in db.execute(
@@ -396,8 +376,7 @@ def admin_list_users(_: bool = Depends(require_platform_admin), db: Session = De
 def admin_update_user(
     user_id: str,
     payload: AdminUserUpdateIn,
-    current_user: User | None = Depends(get_current_user_optional),
-    _: bool = Depends(require_platform_admin),
+    current_user: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     user = db.get(User, user_id)
@@ -461,7 +440,7 @@ def admin_update_user(
 @router.get("/analytics/questions", response_model=AdminQuestionAnalyticsOut)
 def admin_question_analytics(
     limit: int = Query(default=10, ge=3, le=30),
-    _: bool = Depends(require_admin),
+    _: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     return AdminQuestionAnalyticsOut(
@@ -471,8 +450,22 @@ def admin_question_analytics(
         )
     )
 
+
+@router.post("/analytics/questions/snapshots", response_model=AdminAnalyticsSnapshotCaptureOut)
+def admin_capture_question_analytics_snapshot(
+    current_user: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    payload = capture_admin_question_analytics_snapshot(
+        db,
+        actor_user_id=current_user.id,
+    )
+    db.commit()
+    return AdminAnalyticsSnapshotCaptureOut(**payload)
+
+
 @router.post("/exams")
-def admin_create_exam(payload: AdminCreateExamIn, _: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_create_exam(payload: AdminCreateExamIn, _: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
     exam = db.get(Exam, payload.id)
     if not exam:
         exam = Exam(id=payload.id, title=payload.title, source=payload.source, question_count=payload.question_count)
@@ -487,8 +480,7 @@ def admin_create_exam(payload: AdminCreateExamIn, _: bool = Depends(require_plat
 @router.post("/questions")
 def admin_create_question(
     payload: AdminCreateQuestionIn,
-    _: bool = Depends(require_admin),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     exam_id = payload.exam_id.strip()
@@ -610,7 +602,7 @@ def admin_list_questions(
     exam_id: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    _: bool = Depends(require_admin),
+    _: User = Depends(require_platform_admin),
     db: Session = Depends(get_db)
 ):
     stmt = select(Question).order_by(Question.id.asc())
@@ -752,7 +744,7 @@ def admin_list_questions(
     return items
 
 @router.get("/questions/{question_id}", response_model=AdminQuestionOut)
-def admin_get_question(question_id: str, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_get_question(question_id: str, _: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
     document = build_admin_question_document(db, question_id)
     if not document:
         raise HTTPException(status_code=404, detail="Question not found")
@@ -761,17 +753,30 @@ def admin_get_question(question_id: str, _: bool = Depends(require_admin), db: S
 
 
 @router.get("/questions/{question_id}/versions", response_model=List[AdminQuestionVersionOut])
-def admin_question_versions(question_id: str, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_question_versions(question_id: str, _: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
     items = [AdminQuestionVersionOut(**item) for item in list_question_versions(db, question_id)]
     db.commit()
     return items
+
+
+@router.get("/questions/{question_id}/analytics-history", response_model=List[AdminQuestionAnalyticsSnapshotOut])
+def admin_question_analytics_history(
+    question_id: str,
+    limit: int = Query(default=12, ge=1, le=60),
+    _: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    return [
+        AdminQuestionAnalyticsSnapshotOut(**item)
+        for item in list_question_analytics_history(db, question_id=question_id.strip(), limit=limit)
+    ]
 
 
 @router.get("/audit/logs", response_model=List[AdminAuditLogOut])
 def admin_audit_logs(
     question_id: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
-    _: bool = Depends(require_admin),
+    _: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     normalized_question_id = question_id.strip() if question_id else None
@@ -789,8 +794,7 @@ def admin_audit_logs(
 def admin_submit_question_review(
     question_id: str,
     payload: AdminReviewActionIn,
-    _: bool = Depends(require_admin),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     try:
@@ -811,8 +815,7 @@ def admin_submit_question_review(
 def admin_publish_question(
     question_id: str,
     payload: AdminReviewActionIn,
-    _: bool = Depends(require_reviewer),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     try:
@@ -833,8 +836,7 @@ def admin_publish_question(
 def admin_rollback_question(
     question_id: str,
     payload: AdminRollbackIn,
-    _: bool = Depends(require_reviewer),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     try:
@@ -854,8 +856,7 @@ def admin_rollback_question(
 @router.delete("/questions/{question_id}")
 def admin_delete_question(
     question_id: str,
-    _: bool = Depends(require_platform_admin),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     try:
@@ -904,6 +905,9 @@ def _export_db(db: Session) -> Dict[str, Any]:
     banks = db.execute(select(QuestionBank).order_by(QuestionBank.stable_question_id.asc())).scalars().all()
     versions = db.execute(
         select(QuestionVersion).order_by(QuestionVersion.question_bank_id.asc(), QuestionVersion.version_number.asc())
+    ).scalars().all()
+    stats_snapshots = db.execute(
+        select(QuestionStatsSnapshot).order_by(QuestionStatsSnapshot.captured_at.desc(), QuestionStatsSnapshot.id.desc())
     ).scalars().all()
     version_options = db.execute(
         select(QuestionVersionOption).order_by(QuestionVersionOption.version_id.asc(), QuestionVersionOption.key.asc())
@@ -1055,6 +1059,29 @@ def _export_db(db: Session) -> Dict[str, Any]:
                 }
                 for item in audit_logs
             ],
+            "question_stats_snapshots": [
+                {
+                    "id": item.id,
+                    "capture_batch_id": item.capture_batch_id,
+                    "question_id": item.question_id,
+                    "question_version_id": item.question_version_id,
+                    "exam_id": item.exam_id,
+                    "domain": item.domain,
+                    "certification": item.certification,
+                    "attempts_total": item.attempts_total,
+                    "exam_attempts": item.exam_attempts,
+                    "study_attempts": item.study_attempts,
+                    "wrong_count": item.wrong_count,
+                    "wrong_rate_percent": item.wrong_rate_percent,
+                    "low_confidence_count": item.low_confidence_count,
+                    "low_confidence_rate_percent": item.low_confidence_rate_percent,
+                    "review_pressure_count": item.review_pressure_count,
+                    "avg_study_elapsed_seconds": item.avg_study_elapsed_seconds,
+                    "difficulty_score": item.difficulty_score,
+                    "captured_at": _iso(item.captured_at),
+                }
+                for item in stats_snapshots
+            ],
         },
         "sessions": session_export,
         "import_state": [{
@@ -1065,7 +1092,7 @@ def _export_db(db: Session) -> Dict[str, Any]:
     }
 
 @router.get("/export")
-def admin_export_db(_: bool = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_export_db(_: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
     payload = _export_db(db)
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     filename = f"securityplus_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"

@@ -9,21 +9,17 @@ import { Field } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient, buildApiUrl } from "@/lib/api/client";
-import {
-  clearStoredAdminKey,
-  getOrCreateClientKey,
-  getStoredAdminKey,
-  getStoredAuthToken,
-  setStoredAdminKey
-} from "@/lib/auth/storage";
+import { getOrCreateClientKey, getStoredAuthToken } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import type {
   AdminAuditLog,
+  AdminAnalyticsSnapshotCapture,
   AdminCreateExamInput,
   AdminIngestResponse,
   AdminMutationResponse,
   AdminOverview,
   AdminQuestionAnalytics,
+  AdminQuestionAnalyticsSnapshot,
   AdminQuestion,
   AdminQuestionInput,
   AdminQuestionSummary,
@@ -86,7 +82,9 @@ const DEFAULT_ADMIN_ANALYTICS: AdminQuestionAnalytics = {
     exam_attempts: 0,
     study_attempts: 0,
     total_review_pressure: 0,
-    average_wrong_rate_percent: 0
+    average_wrong_rate_percent: 0,
+    snapshot_batch_count: 0,
+    latest_snapshot_at: null
   },
   hardest_questions: [],
   weakest_domains: [],
@@ -150,15 +148,7 @@ function createEmptyExamDraft(): ExamDraft {
   };
 }
 
-function buildAdminRequestOptions(adminKey: string) {
-  const normalizedKey = adminKey.trim();
-  if (normalizedKey) {
-    return {
-      headers: { "X-Admin-Key": normalizedKey },
-      retryOnUnauthorized: false as const
-    };
-  }
-
+function buildAdminRequestOptions() {
   return {
     retryOnUnauthorized: false as const
   };
@@ -175,10 +165,10 @@ function summarizePrompt(value: string): string {
 function readAdminError(error: unknown, fallback = "Nao foi possivel concluir esta acao."): string {
   if (error instanceof ApiError) {
     if (error.status === 401) {
-      return "Informe a API key editorial ou entre com uma conta admin/editor para continuar.";
+      return "Entre com uma conta admin autenticada para continuar.";
     }
     if (error.status === 403) {
-      return "Sua conta atual nao tem permissao editorial para esta operacao.";
+      return "Somente contas admin podem executar esta operacao.";
     }
     return error.message;
   }
@@ -353,10 +343,19 @@ export function AdminShell() {
   const [isProtectedLoading, setIsProtectedLoading] = useState(false);
   const [isQuestionLoading, setIsQuestionLoading] = useState(false);
   const [activeTask, setActiveTask] = useState<
-    "refresh" | "ingest" | "export" | "saveExam" | "saveQuestion" | "submitReview" | "publishQuestion" | "rollbackQuestion" | "deleteQuestion" | null
+    | "refresh"
+    | "ingest"
+    | "export"
+    | "captureSnapshot"
+    | "saveExam"
+    | "saveQuestion"
+    | "submitReview"
+    | "publishQuestion"
+    | "rollbackQuestion"
+    | "deleteQuestion"
+    | null
   >(null);
 
-  const [adminKey, setAdminKey] = useState("");
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [toolbarNotice, setToolbarNotice] = useState<string | null>(null);
   const [examNotice, setExamNotice] = useState<string | null>(null);
@@ -368,6 +367,7 @@ export function AdminShell() {
   const [questionItems, setQuestionItems] = useState<AdminQuestionSummary[]>([]);
   const [questionVersions, setQuestionVersions] = useState<AdminQuestionVersion[]>([]);
   const [questionAudit, setQuestionAudit] = useState<AdminAuditLog[]>([]);
+  const [questionAnalyticsHistory, setQuestionAnalyticsHistory] = useState<AdminQuestionAnalyticsSnapshot[]>([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
 
   const [browserExamId, setBrowserExamId] = useState("");
@@ -375,9 +375,8 @@ export function AdminShell() {
   const [examDraft, setExamDraft] = useState<ExamDraft>(createEmptyExamDraft);
   const [questionDraft, setQuestionDraft] = useState<QuestionDraft>(() => createEmptyQuestionDraft());
 
-  const deferredAdminKey = useDeferredValue(adminKey);
   const deferredQuestionSearch = useDeferredValue(questionSearch);
-  const requestOptions = useMemo(() => buildAdminRequestOptions(deferredAdminKey), [deferredAdminKey]);
+  const requestOptions = useMemo(() => buildAdminRequestOptions(), []);
 
   const questionPayload = useMemo(() => buildQuestionPayload(questionDraft), [questionDraft]);
   const questionValidationError = useMemo(() => validateQuestionPayload(questionPayload), [questionPayload]);
@@ -429,17 +428,16 @@ export function AdminShell() {
     if (!normalizedQuestionId) {
       setQuestionVersions([]);
       setQuestionAudit([]);
+      setQuestionAnalyticsHistory([]);
       return;
     }
 
-    const [versionsResult, auditResult] = await Promise.allSettled([
-      apiClient.get<AdminQuestionVersion[]>(
-        `/admin/questions/${encodeURIComponent(normalizedQuestionId)}/versions`,
-        buildAdminRequestOptions(adminKey)
-      ),
-      apiClient.get<AdminAuditLog[]>(
-        `/admin/audit/logs?question_id=${encodeURIComponent(normalizedQuestionId)}&limit=20`,
-        buildAdminRequestOptions(adminKey)
+    const [versionsResult, auditResult, historyResult] = await Promise.allSettled([
+      apiClient.get<AdminQuestionVersion[]>(`/admin/questions/${encodeURIComponent(normalizedQuestionId)}/versions`, requestOptions),
+      apiClient.get<AdminAuditLog[]>(`/admin/audit/logs?question_id=${encodeURIComponent(normalizedQuestionId)}&limit=20`, requestOptions),
+      apiClient.get<AdminQuestionAnalyticsSnapshot[]>(
+        `/admin/questions/${encodeURIComponent(normalizedQuestionId)}/analytics-history?limit=12`,
+        requestOptions
       )
     ]);
 
@@ -453,6 +451,12 @@ export function AdminShell() {
       setQuestionAudit(auditResult.value);
     } else {
       setQuestionAudit([]);
+    }
+
+    if (historyResult.status === "fulfilled") {
+      setQuestionAnalyticsHistory(historyResult.value);
+    } else {
+      setQuestionAnalyticsHistory([]);
     }
   });
 
@@ -526,10 +530,7 @@ export function AdminShell() {
     setQuestionNotice(null);
 
     try {
-      const response = await apiClient.get<AdminQuestion>(
-        `/admin/questions/${encodeURIComponent(targetId)}`,
-        buildAdminRequestOptions(adminKey)
-      );
+      const response = await apiClient.get<AdminQuestion>(`/admin/questions/${encodeURIComponent(targetId)}`, requestOptions);
       setQuestionDraft(toQuestionDraft(response));
       setSelectedQuestionId(response.id);
       await loadQuestionWorkflow(response.id);
@@ -537,6 +538,7 @@ export function AdminShell() {
     } catch (error) {
       setQuestionVersions([]);
       setQuestionAudit([]);
+      setQuestionAnalyticsHistory([]);
       setQuestionNotice(readAdminError(error, "Nao foi possivel carregar esta questao."));
     } finally {
       setIsQuestionLoading(false);
@@ -544,7 +546,6 @@ export function AdminShell() {
   });
 
   useEffect(() => {
-    setAdminKey(getStoredAdminKey());
     void (async () => {
       await loadExams();
       setIsBootLoading(false);
@@ -555,24 +556,12 @@ export function AdminShell() {
     if (isBootLoading) {
       return;
     }
-    if (adminKey !== deferredAdminKey) {
-      return;
-    }
     void refreshProtectedData();
-  }, [adminKey, browserExamId, deferredQuestionSearch, deferredAdminKey, isBootLoading]);
+  }, [browserExamId, deferredQuestionSearch, isBootLoading]);
 
   function updateQuestionDraft(patch: Partial<QuestionDraft>) {
     setQuestionDraft((current) => ({ ...current, ...patch }));
     setQuestionNotice(null);
-  }
-
-  function syncAdminKey(value: string) {
-    setAdminKey(value);
-    if (value.trim()) {
-      setStoredAdminKey(value);
-    } else {
-      clearStoredAdminKey();
-    }
   }
 
   function applyExamToDraft(examId: string) {
@@ -599,6 +588,7 @@ export function AdminShell() {
     setQuestionDraft(createEmptyQuestionDraft(browserExamId || examDraft.id || questionDraft.examId));
     setQuestionVersions([]);
     setQuestionAudit([]);
+    setQuestionAnalyticsHistory([]);
     setQuestionNotice("Novo rascunho criado. Preencha os campos e salve.");
   }
 
@@ -606,6 +596,7 @@ export function AdminShell() {
     setSelectedQuestionId(null);
     setQuestionVersions([]);
     setQuestionAudit([]);
+    setQuestionAnalyticsHistory([]);
     setQuestionDraft((current) => ({
       ...current,
       lookupId: "",
@@ -640,7 +631,7 @@ export function AdminShell() {
     setToolbarNotice(null);
 
     try {
-      const response = await apiClient.post<AdminIngestResponse>("/admin/ingest", {}, buildAdminRequestOptions(adminKey));
+      const response = await apiClient.post<AdminIngestResponse>("/admin/ingest", {}, requestOptions);
       await loadExams();
       await refreshProtectedData();
       setToolbarNotice(
@@ -664,11 +655,6 @@ export function AdminShell() {
       const token = getStoredAuthToken();
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
-      }
-
-      const normalizedKey = adminKey.trim();
-      if (normalizedKey) {
-        headers.set("X-Admin-Key", normalizedKey);
       }
 
       const response = await fetch(buildApiUrl("/admin/export"), {
@@ -700,6 +686,32 @@ export function AdminShell() {
     }
   }
 
+  async function handleCaptureSnapshot() {
+    setActiveTask("captureSnapshot");
+    setToolbarNotice(null);
+
+    try {
+      const response = await apiClient.post<AdminAnalyticsSnapshotCapture>("/admin/analytics/questions/snapshots", {}, requestOptions);
+      if (!response.schema_ready) {
+        setToolbarNotice(response.message || "O schema de snapshots ainda nao esta disponivel. Rode as migrations e tente novamente.");
+        return;
+      }
+      await refreshProtectedData();
+      if (selectedQuestionId) {
+        await loadQuestionWorkflow(selectedQuestionId);
+      }
+      setToolbarNotice(
+        response.snapshot_count > 0
+          ? `Snapshot editorial registrado para ${response.snapshot_count} questao(oes).`
+          : "Nenhuma questao elegivel para snapshot neste momento."
+      );
+    } catch (error) {
+      setToolbarNotice(readAdminError(error, "Nao foi possivel registrar o snapshot editorial."));
+    } finally {
+      setActiveTask(null);
+    }
+  }
+
   async function handleSaveExam() {
     setActiveTask("saveExam");
     setExamNotice(null);
@@ -717,7 +729,7 @@ export function AdminShell() {
         return;
       }
 
-      await apiClient.post<AdminMutationResponse>("/admin/exams", payload, buildAdminRequestOptions(adminKey));
+      await apiClient.post<AdminMutationResponse>("/admin/exams", payload, requestOptions);
       await loadExams();
       await refreshProtectedData();
       setExamNotice(`Prova ${payload.id} salva.`);
@@ -740,7 +752,7 @@ export function AdminShell() {
         return;
       }
 
-      const response = await apiClient.post<AdminMutationResponse>("/admin/questions", questionPayload, buildAdminRequestOptions(adminKey));
+      const response = await apiClient.post<AdminMutationResponse>("/admin/questions", questionPayload, requestOptions);
       setSelectedQuestionId(questionPayload.id);
       await loadQuestionWorkflow(questionPayload.id);
       await refreshProtectedData();
@@ -771,7 +783,7 @@ export function AdminShell() {
       const response = await apiClient.post<AdminMutationResponse>(
         `/admin/questions/${encodeURIComponent(questionId)}/submit-review`,
         payload,
-        buildAdminRequestOptions(adminKey)
+        requestOptions
       );
       await loadQuestion(questionId);
       await refreshProtectedData();
@@ -802,7 +814,7 @@ export function AdminShell() {
       const response = await apiClient.post<AdminMutationResponse>(
         `/admin/questions/${encodeURIComponent(questionId)}/publish`,
         payload,
-        buildAdminRequestOptions(adminKey)
+        requestOptions
       );
       await loadQuestion(questionId);
       await refreshProtectedData();
@@ -842,7 +854,7 @@ export function AdminShell() {
       const response = await apiClient.post<AdminMutationResponse>(
         `/admin/questions/${encodeURIComponent(questionId)}/rollback`,
         payload,
-        buildAdminRequestOptions(adminKey)
+        requestOptions
       );
       await loadQuestion(questionId);
       await refreshProtectedData();
@@ -873,12 +885,13 @@ export function AdminShell() {
     try {
       await apiClient.delete<AdminMutationResponse>(
         `/admin/questions/${encodeURIComponent(questionId)}`,
-        buildAdminRequestOptions(adminKey)
+        requestOptions
       );
       await refreshProtectedData();
       setSelectedQuestionId(null);
       setQuestionVersions([]);
       setQuestionAudit([]);
+      setQuestionAnalyticsHistory([]);
       setQuestionDraft(createEmptyQuestionDraft(browserExamId || examDraft.id));
       setQuestionNotice(`Questao ${questionId} excluida.`);
     } catch (error) {
@@ -916,7 +929,7 @@ export function AdminShell() {
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/">Dashboard</Link>
+            <Link href="/dashboard">Dashboard</Link>
             <Link href="/history">Historico</Link>
           </div>
         </header>
@@ -932,7 +945,7 @@ export function AdminShell() {
 
         <Card
           title="Acesso e manutencao"
-          subtitle="A API key fica apenas na sessao deste navegador e deve ser tratada como atalho local. Em producao, o fluxo esperado e login com papel editorial."
+          subtitle="Todas as operacoes editoriais exigem uma sessao autenticada com papel admin."
           actions={
             <div className="sq-actions">
               <Button variant="ghost" size="sm" busy={activeTask === "refresh"} onClick={() => void handleRefresh()}>
@@ -949,21 +962,12 @@ export function AdminShell() {
         >
           <div className="sq-surface-block">
             <div className="sq-form-grid">
-              <Field
-                label="ADMIN_API_KEY"
-                htmlFor="admin-api-key"
-                hint="Use a chave apenas em ambiente local/dev quando nao estiver autenticado com papel editorial."
-              >
-                <input
-                  id="admin-api-key"
-                  className="sq-input"
-                  type="password"
-                  value={adminKey}
-                  onChange={(event) => syncAdminKey(event.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </Field>
+              <div className="sq-surface-block">
+                <div className="sq-list-title">Controle de acesso</div>
+                <div className="sq-list-meta">
+                  O backend aceita apenas usuarios admin autenticados. O painel nao usa mais chave estatica nem header editorial.
+                </div>
+              </div>
 
               <div className="sq-surface-block">
                 <div className="sq-list-title">Resumo rapido</div>
@@ -990,7 +994,15 @@ export function AdminShell() {
           </div>
         </Card>
 
-        <Card title="Insights editoriais" subtitle="Veja onde o banco esta mais sensivel antes de editar ou publicar.">
+        <Card
+          title="Insights editoriais"
+          subtitle="Veja onde o banco esta mais sensivel antes de editar ou publicar."
+          actions={
+            <Button variant="secondary" size="sm" busy={activeTask === "captureSnapshot"} onClick={() => void handleCaptureSnapshot()}>
+              Registrar snapshot
+            </Button>
+          }
+        >
           <div className="sq-metric-grid" aria-label="Resumo de sinais editoriais">
             <div className="sq-metric-card">
               <span className="sq-muted">Questoes com sinal</span>
@@ -1007,6 +1019,14 @@ export function AdminShell() {
             <div className="sq-metric-card">
               <span className="sq-muted">Pressao de revisao</span>
               <strong>{analytics.summary.total_review_pressure}</strong>
+            </div>
+            <div className="sq-metric-card">
+              <span className="sq-muted">Snapshots</span>
+              <strong>{analytics.summary.snapshot_batch_count}</strong>
+            </div>
+            <div className="sq-metric-card">
+              <span className="sq-muted">Ultimo snapshot</span>
+              <strong>{analytics.summary.latest_snapshot_at || "-"}</strong>
             </div>
           </div>
 
@@ -1645,7 +1665,7 @@ export function AdminShell() {
               <div className="sq-grid-2">
                 <Card
                   title="Workflow editorial"
-                  subtitle="Rascunhe, envie para revisao e publique sem alterar a prova ao vivo antes da aprovacao."
+                  subtitle="Rascunhe, revise e publique com governanca total via sessao admin autenticada."
                 >
                   <div className="sq-metric-grid">
                     <div className="sq-metric-card">
@@ -1667,6 +1687,10 @@ export function AdminShell() {
                     <div className="sq-metric-card">
                       <span className="sq-muted">Eventos auditados</span>
                       <strong>{questionAudit.length}</strong>
+                    </div>
+                    <div className="sq-metric-card">
+                      <span className="sq-muted">Snapshots</span>
+                      <strong>{questionAnalyticsHistory.length}</strong>
                     </div>
                   </div>
 
@@ -1759,6 +1783,28 @@ export function AdminShell() {
                       </div>
                     ) : (
                       <div className="sq-empty">Sem eventos auditados para esta questao ainda.</div>
+                    )}
+                  </Card>
+
+                  <Card title="Historico de desempenho" subtitle="Snapshots preservam a leitura de dificuldade da versao publicada ao longo do tempo.">
+                    {questionAnalyticsHistory.length ? (
+                      <div className="sq-list">
+                        {questionAnalyticsHistory.map((item) => (
+                          <div key={item.id} className="sq-list-item">
+                            <div className="sq-list-title">
+                              {item.version_number ? `v${item.version_number}` : "Sem versao"} · score {item.difficulty_score}
+                            </div>
+                            <div className="sq-list-meta">
+                              {item.captured_at || "-"} · erro {item.wrong_rate_percent}% · {item.attempts_total} tentativa(s)
+                            </div>
+                            <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
+                              baixa confianca {item.low_confidence_rate_percent}% · pressao {item.review_pressure_count}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="sq-empty">Ainda nao ha snapshot historico para esta questao. Use “Registrar snapshot” no topo do painel.</div>
                     )}
                   </Card>
                 </div>

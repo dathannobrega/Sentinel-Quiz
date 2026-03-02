@@ -7,12 +7,12 @@ import { useRouter } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
-import { clearStoredAuthToken, persistSessionId, setStoredAuthToken } from "@/lib/auth/storage";
+import { persistSessionId } from "@/lib/auth/storage";
+import { fetchCurrentUser, logoutUser } from "@/lib/auth/session";
 import { getRuntimeConfig } from "@/lib/config/runtime";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
-  AuthTokenResponse,
   AuthUser,
   DomainCatalogResponse,
   Exam,
@@ -29,12 +29,7 @@ import type {
 import { AccountPanel } from "@/features/dashboard/components/account-panel";
 import { ExamLauncher } from "@/features/dashboard/components/exam-launcher";
 import { InsightsPanel } from "@/features/dashboard/components/insights-panel";
-import type {
-  DashboardNotice,
-  LaunchFormValues,
-  LoginFormValues,
-  RegisterFormValues
-} from "@/features/dashboard/types";
+import type { DashboardNotice, LaunchFormValues } from "@/features/dashboard/types";
 
 const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
   scope: "device",
@@ -102,7 +97,7 @@ export function DashboardShell() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDomainLoading, setIsDomainLoading] = useState(false);
-  const [pendingAction, setPendingAction] = useState<"login" | "register" | "logout" | "launch" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"logout" | "launch" | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<DashboardNotice | null>(null);
   const [launchNotice, setLaunchNotice] = useState<DashboardNotice | null>(null);
@@ -116,12 +111,6 @@ export function DashboardShell() {
   const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
   const [studyHistory, setStudyHistory] = useState<StudyHistoryItem[]>([]);
 
-  const [loginValues, setLoginValues] = useState<LoginFormValues>({ email: "", password: "" });
-  const [registerValues, setRegisterValues] = useState<RegisterFormValues>({
-    displayName: "",
-    email: "",
-    password: ""
-  });
   const [launchValues, setLaunchValues] = useState<LaunchFormValues>(DEFAULT_LAUNCH_FORM);
 
   function updateLaunchValue(field: keyof LaunchFormValues, value: LaunchFormValues[keyof LaunchFormValues]) {
@@ -165,15 +154,12 @@ export function DashboardShell() {
 
   async function syncCurrentUser() {
     try {
-      const user = await apiClient.get<AuthUser>("/auth/me", { retryOnUnauthorized: false });
-      setCurrentUser(user);
+      setCurrentUser(await fetchCurrentUser());
     } catch (error) {
-      if (isUnauthorized(error)) {
-        clearStoredAuthToken();
-        setCurrentUser(null);
-        return;
-      }
       setCurrentUser(null);
+      if (!isUnauthorized(error)) {
+        setAuthNotice(toDashboardNotice("warning", "Sessao indisponivel", readErrorMessage(error)));
+      }
     }
   }
 
@@ -242,60 +228,15 @@ export function DashboardShell() {
     setIsRefreshing(false);
   }
 
-  async function handleAuthSubmit(
-    mode: "login" | "register",
-    payload: { email: string; password: string; display_name?: string | null }
-  ) {
-    const email = payload.email.trim();
-    if (!email || !payload.password.trim()) {
-      setAuthNotice(
-        toDashboardNotice("warning", "Campos obrigatorios", "Preencha email e senha antes de continuar.")
-      );
-      return;
-    }
-
-    if (mode === "register" && payload.password.trim().length < 8) {
-      setAuthNotice(
-        toDashboardNotice("warning", "Senha invalida", "Use ao menos 8 caracteres para criar a conta.")
-      );
-      return;
-    }
-
-    setPendingAction(mode);
-    setAuthNotice(null);
-
-    try {
-      const path = mode === "login" ? "/auth/login" : "/auth/register";
-      const response = await apiClient.post<AuthTokenResponse>(path, payload, { retryOnUnauthorized: false });
-      setStoredAuthToken(response.token);
-      setCurrentUser(response.user);
-      setAuthNotice(
-        toDashboardNotice(
-          "success",
-          mode === "login" ? "Sessao iniciada" : "Conta criada",
-          "Seu progresso local foi associado a esta conta quando aplicavel."
-        )
-      );
-      setLoginValues({ email: "", password: "" });
-      setRegisterValues({ displayName: "", email: "", password: "" });
-      await refreshDashboard();
-    } catch (error) {
-      setAuthNotice(toDashboardNotice("danger", "Falha de autenticacao", readErrorMessage(error)));
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
   async function handleLogout() {
     setPendingAction("logout");
     setAuthNotice(null);
 
     try {
-      await apiClient.post<{ ok: boolean }>("/auth/logout");
-    } catch (_error) {
-      // Token may already be invalid. The local cleanup below is still authoritative.
+      await logoutUser();
+    } catch (error) {
+      setAuthNotice(toDashboardNotice("danger", "Falha ao sair", readErrorMessage(error)));
     } finally {
-      clearStoredAuthToken();
       setCurrentUser(null);
       setPendingAction(null);
       setAuthNotice(toDashboardNotice("success", "Sessao encerrada", "Voce voltou ao modo local deste dispositivo."));
@@ -451,31 +392,8 @@ export function DashboardShell() {
           <AccountPanel
             user={currentUser}
             overview={studyOverview}
-            loginValues={loginValues}
-            registerValues={registerValues}
             notice={authNotice}
-            pendingAction={
-              pendingAction === "login" || pendingAction === "register" || pendingAction === "logout"
-                ? pendingAction
-                : null
-            }
-            onLoginChange={(field, value) => setLoginValues((current) => ({ ...current, [field]: value }))}
-            onRegisterChange={(field, value) => setRegisterValues((current) => ({ ...current, [field]: value }))}
-            onLoginSubmit={(event) => {
-              event.preventDefault();
-              void handleAuthSubmit("login", {
-                email: loginValues.email,
-                password: loginValues.password
-              });
-            }}
-            onRegisterSubmit={(event) => {
-              event.preventDefault();
-              void handleAuthSubmit("register", {
-                email: registerValues.email,
-                password: registerValues.password,
-                display_name: registerValues.displayName.trim() || null
-              });
-            }}
+            pendingAction={pendingAction === "logout" ? pendingAction : null}
             onLogout={() => {
               void handleLogout();
             }}

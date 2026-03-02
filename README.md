@@ -8,17 +8,19 @@ Uma aplicação full-stack moderna para simulados de certificações de ciberseg
 
 ## ✨ Funcionalidades Principais
 
-* **Ingestão Dinâmica:** Importação automática de arquivos JSON (`./questions/`) para banco SQL no startup (`SQLite` em dev ou `PostgreSQL` em produção).
+* **Ingestão Dinâmica:** Importação automática de arquivos JSON (`./questions/`) para banco SQL no startup.
 * **Simulado Realista:** Interface SPA configurada para 90 questões com feedback imediato e insights finais.
 * **Study Mode Dedicado:** Blocos de aprendizado separados do simulado, com feedback imediato, nível de confiança, sessão adaptativa e agendamento de revisão.
 * **Exam Mode Adaptativo:** O simulado também pode priorizar revisões pendentes e domínios fracos, mantendo distribuição suficiente para não virar apenas “revisão disfarçada”.
-* **Painel Admin Modernizado:** Gerenciamento de provas e questões via API Key ou usuário autenticado com papel editorial, agora também disponível no frontend Next em `/admin`.
+* **Painel Admin Modernizado:** Gerenciamento de provas e questões via sessão autenticada com papel `admin`, agora também disponível no frontend Next em `/admin`.
+* **Auth Separada no Frontend:** Login e cadastro agora possuem páginas dedicadas (`/login`, `/register`) e o dashboard principal vive em `/dashboard`.
 * **Tutor IA (Gemini):** Integração com Google Gemini para explicar conceitos e dar pistas, garantindo que o usuário aprenda o "porquê" em vez de apenas decorar.
 * **Sessões Isoladas:** Histórico, analytics e revisão ficam escopados por usuário autenticado ou por dispositivo (`X-Client-Key`) para evitar vazamento de progresso entre alunos.
 * **Conta e Estado de Estudo:** Login/cadastro web com sincronização de bookmarks e notas por questão, inclusive com migração automática do progresso local ao entrar na conta.
 * **Revisão Diária e Histórico de Estudo:** A fila de revisão pode gerar blocos dedicados e a aplicação mantém histórico próprio de estudo, separado do histórico de simulados.
 * **Métricas Semanais e Revisão Profunda:** O painel inicial mostra ritmo semanal de estudo/revisão e cada bloco de estudo concluído pode ser reaberto com revisão detalhada por questão.
 * **SRS Incremental:** A fila de revisão agora guarda repetições, lapsos, estabilidade e fator de facilidade para espaçar o retorno de cada questão de forma mais próxima de um SRS real.
+* **Snapshots Editoriais Históricos:** O admin pode registrar snapshots por `question_version` para acompanhar como dificuldade, erro e pressão de revisão evoluem ao longo do tempo.
 
 ## 🚀 Tecnologias
 
@@ -52,7 +54,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ```
 
-O runtime principal agora assume `PostgreSQL`. `SQLite` ficou restrito a cenários legados e migração assistida. Em produção, prefira rodar migrations com Alembic e manter `BOOTSTRAP_SCHEMA=false`.
+O runtime principal agora assume `PostgreSQL`. `SQLite` ficou restrito a cenários legados e migração assistida. Como a aplicação ainda não entrou em produção, a trilha de migrations foi consolidada em um único baseline Alembic alinhado ao schema atual. Em produção, prefira rodar migrations com Alembic e manter `BOOTSTRAP_SCHEMA=false`.
 
 ### 2. Frontend (Next)
 
@@ -100,13 +102,12 @@ docker run -d \
   --name sentinel-quiz \
   -p 8000:8000 \
   -e DATABASE_URL=postgresql+psycopg://sentinel:sentinel@SEU_POSTGRES:5432/sentinel_quiz \
-  -e ADMIN_API_KEY=change-me \
   -e BOOTSTRAP_SCHEMA=false \
   -e RUN_DB_MIGRATIONS=true \
   sentinel-quiz:local
 ```
 
-Se quiser montar um arquivo `.env` dentro do container, ele deve usar as variáveis reais da aplicação (`DATABASE_URL`, `ADMIN_API_KEY`, etc.). Depois monte esse arquivo e defina `APP_ENV_FILE` apontando para o caminho interno montado.
+Se quiser montar um arquivo `.env` dentro do container, ele deve usar as variáveis reais da aplicação (`DATABASE_URL`, `AUTH_COOKIE_*`, etc.). Depois monte esse arquivo e defina `APP_ENV_FILE` apontando para o caminho interno montado.
 Para `docker run` com SQLite em vez de Postgres, mantenha o default de `DATABASE_URL` e monte `-v sentinel_quiz_data:/data`.
 O entrypoint também entende variáveis prefixadas com `APP_`, então você pode reaproveitar `.env.docker.example` em `docker run` se preferir esse formato.
 
@@ -155,6 +156,11 @@ python scripts/migrate_sqlite_to_postgres.py \
   --target postgresql+psycopg://sentinel:sentinel@127.0.0.1:5432/sentinel_quiz
 ```
 
+Como o baseline Alembic foi consolidado, um banco local ja existente pode ser:
+
+1. recriado do zero, ou
+2. receber `alembic stamp head` depois de voce confirmar que o schema atual ja corresponde aos `models`.
+
 ---
 
 ## ⚙️ Configurações (.env)
@@ -166,8 +172,6 @@ O projeto depende de variáveis de ambiente para funcionar corretamente:
 | `DATABASE_URL` | String de conexão do banco (`sqlite:///...` ou `postgresql+psycopg://...`). |
 | `APP_ENV` | Ambiente lógico (`development` ou `production`). Em `production`, o backend valida configurações inseguras antes de iniciar. |
 | `BOOTSTRAP_SCHEMA` | Quando `true`, cria/atualiza o schema base automaticamente no startup. Em produção, prefira `false` com Alembic. |
-| `ADMIN_API_KEY` | Chave para acessar operações editoriais da API e o painel `/admin`. |
-| `ALLOW_ADMIN_API_KEY` | Quando `true`, aceita `X-Admin-Key` apenas fora de produção. Em `production`, esse atalho fica desabilitado. |
 | `AUTH_TOKEN_TTL_HOURS` | Validade dos tokens bearer opacos. |
 | `AUTH_TOKEN_BYTES` | Entropia usada na geração dos tokens bearer. |
 | `AUTH_COOKIE_*` | Define o cookie HttpOnly de sessão (`sentinel_session`), usado pelo frontend novo em vez de `localStorage`. |

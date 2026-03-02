@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.session import engine, SessionLocal
 from app.db.base import Base
-from app.db.migrations import ensure_compat_schema
 from app.middleware.observability import ObservabilityMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.api.routes import router as api_router
@@ -38,7 +37,6 @@ app.add_middleware(ObservabilityMiddleware, settings=settings)
 
 if settings.bootstrap_schema:
     Base.metadata.create_all(bind=engine)
-    ensure_compat_schema(engine)
 
 if settings.is_production() and settings.bootstrap_schema:
     logger.warning(

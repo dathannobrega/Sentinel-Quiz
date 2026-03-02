@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 
+import { AppNavbar } from "@/components/navigation/app-navbar";
+
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +27,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             __html: `window.__SENTINEL_RUNTIME__ = ${runtimeConfigScript};`
           }}
         />
+        <AppNavbar />
         {children}
       </body>
     </html>

@@ -390,6 +390,8 @@ export interface AdminAnalyticsSummary {
   study_attempts: number;
   total_review_pressure: number;
   average_wrong_rate_percent: number;
+  snapshot_batch_count: number;
+  latest_snapshot_at?: string | null;
 }
 
 export interface AdminHardestQuestion {
@@ -438,6 +440,34 @@ export interface AdminQuestionAnalytics {
   hardest_questions: AdminHardestQuestion[];
   weakest_domains: AdminWeakDomain[];
   weakest_exams: AdminWeakExam[];
+}
+
+export interface AdminAnalyticsSnapshotCapture {
+  ok: boolean;
+  schema_ready: boolean;
+  message?: string | null;
+  capture_batch_id?: string | null;
+  captured_at?: string | null;
+  snapshot_count: number;
+}
+
+export interface AdminQuestionAnalyticsSnapshot {
+  id: number;
+  capture_batch_id: string;
+  question_id: string;
+  question_version_id?: number | null;
+  version_number?: number | null;
+  attempts_total: number;
+  exam_attempts: number;
+  study_attempts: number;
+  wrong_count: number;
+  wrong_rate_percent: number;
+  low_confidence_count: number;
+  low_confidence_rate_percent: number;
+  review_pressure_count: number;
+  avg_study_elapsed_seconds?: number | null;
+  difficulty_score: number;
+  captured_at?: string | null;
 }
 
 export interface AdminMutationResponse {

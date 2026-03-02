@@ -1,29 +1,18 @@
-import type { FormEvent } from "react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { formatDateTime, formatScope } from "@/lib/utils/format";
 import type { AuthUser, StudyOverview } from "@/types/api";
 
-import type {
-  DashboardNotice,
-  LoginFormValues,
-  RegisterFormValues
-} from "@/features/dashboard/types";
+import type { DashboardNotice } from "@/features/dashboard/types";
 
 interface AccountPanelProps {
   user: AuthUser | null;
   overview: StudyOverview;
-  loginValues: LoginFormValues;
-  registerValues: RegisterFormValues;
   notice: DashboardNotice | null;
-  pendingAction: "login" | "register" | "logout" | null;
-  onLoginChange: (field: keyof LoginFormValues, value: string) => void;
-  onRegisterChange: (field: keyof RegisterFormValues, value: string) => void;
-  onLoginSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onRegisterSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  pendingAction: "logout" | null;
   onLogout: () => void;
 }
 
@@ -61,14 +50,8 @@ function StudyList({
 export function AccountPanel({
   user,
   overview,
-  loginValues,
-  registerValues,
   notice,
   pendingAction,
-  onLoginChange,
-  onRegisterChange,
-  onLoginSubmit,
-  onRegisterSubmit,
   onLogout
 }: AccountPanelProps) {
   return (
@@ -135,77 +118,28 @@ export function AccountPanel({
           </div>
         ) : (
           <div className="sq-surface-block">
-            <div className="sq-form-grid">
-              <form className="sq-surface-block" onSubmit={onLoginSubmit} noValidate>
-                <Field label="Email" htmlFor="login-email">
-                  <input
-                    id="login-email"
-                    className="sq-input"
-                    type="email"
-                    autoComplete="email"
-                    value={loginValues.email}
-                    onChange={(event) => onLoginChange("email", event.target.value)}
-                  />
-                </Field>
-                <Field label="Senha" htmlFor="login-password">
-                  <input
-                    id="login-password"
-                    className="sq-input"
-                    type="password"
-                    autoComplete="current-password"
-                    value={loginValues.password}
-                    onChange={(event) => onLoginChange("password", event.target.value)}
-                  />
-                </Field>
-                <Button type="submit" busy={pendingAction === "login"}>
-                  Entrar
-                </Button>
-              </form>
-
-              <form className="sq-surface-block" onSubmit={onRegisterSubmit} noValidate>
-                <Field label="Nome" htmlFor="register-name" hint="Opcional. Ajuda a identificar a conta.">
-                  <input
-                    id="register-name"
-                    className="sq-input"
-                    type="text"
-                    autoComplete="name"
-                    value={registerValues.displayName}
-                    onChange={(event) => onRegisterChange("displayName", event.target.value)}
-                  />
-                </Field>
-                <Field label="Email" htmlFor="register-email">
-                  <input
-                    id="register-email"
-                    className="sq-input"
-                    type="email"
-                    autoComplete="email"
-                    value={registerValues.email}
-                    onChange={(event) => onRegisterChange("email", event.target.value)}
-                  />
-                </Field>
-                <Field
-                  label="Senha"
-                  htmlFor="register-password"
-                  hint="Use pelo menos 8 caracteres para manter o login valido."
-                >
-                  <input
-                    id="register-password"
-                    className="sq-input"
-                    type="password"
-                    autoComplete="new-password"
-                    value={registerValues.password}
-                    onChange={(event) => onRegisterChange("password", event.target.value)}
-                  />
-                </Field>
-                <Button type="submit" variant="secondary" busy={pendingAction === "register"}>
-                  Criar conta
-                </Button>
-              </form>
+            <div className="sq-list">
+              <div className="sq-list-item">
+                <div className="sq-list-title">Modo local ativo</div>
+                <div className="sq-list-meta">
+                  Voce ainda pode usar o dispositivo atual, mas o progresso nao esta sincronizado entre navegadores.
+                </div>
+              </div>
+              <div className="sq-list-item">
+                <div className="sq-list-title">Autentique para consolidar o historico</div>
+                <div className="sq-list-meta">
+                  Ao entrar, o backend associa sessoes, bookmarks, notas e revisoes deste dispositivo a sua conta.
+                </div>
+              </div>
             </div>
 
-            <div className="sq-empty">
-              O progresso continua no dispositivo atual mesmo sem conta. Ao entrar depois, o backend mescla sessoes e
-              estado de estudo automaticamente.
+            <div className="sq-actions">
+              <Link href="/login" className="sq-button sq-button--md sq-button--primary">
+                Entrar
+              </Link>
+              <Link href="/register" className="sq-button sq-button--md sq-button--ghost">
+                Criar conta
+              </Link>
             </div>
           </div>
         )}

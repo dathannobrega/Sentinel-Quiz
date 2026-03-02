@@ -232,7 +232,6 @@ export function HistoryShell() {
         exam_id: selectedExamId || null,
         total_questions: Math.max(reviewQueue.recommended_batch_size || 10, 1),
         domains: null,
-        question_ids: null,
         strategy: "review",
         queue_only: true
       };
@@ -277,8 +276,8 @@ export function HistoryShell() {
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/">Dashboard</Link>
-            <Link href="/">Nova sessao</Link>
+            <Link href="/dashboard">Dashboard</Link>
+            <Link href="/dashboard">Nova sessao</Link>
             <Link href="/admin">Admin</Link>
           </div>
         </header>

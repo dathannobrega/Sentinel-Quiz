@@ -16,8 +16,6 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", alias="APP_ENV")
     enforce_production_safety: bool = Field(default=True, alias="ENFORCE_PRODUCTION_SAFETY")
     bootstrap_schema: bool = Field(default=True, alias="BOOTSTRAP_SCHEMA")
-    admin_api_key: str = Field(default="change-me", alias="ADMIN_API_KEY")
-    allow_admin_api_key: bool = Field(default=True, alias="ALLOW_ADMIN_API_KEY")
     auth_token_ttl_hours: int = Field(default=168, alias="AUTH_TOKEN_TTL_HOURS")
     auth_token_bytes: int = Field(default=32, alias="AUTH_TOKEN_BYTES")
     auth_cookie_name: str = Field(default="sentinel_session", alias="AUTH_COOKIE_NAME")
@@ -61,16 +59,11 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return str(self.environment or "").strip().lower() in {"prod", "production"}
 
-    def admin_api_key_enabled(self) -> bool:
-        return bool(self.allow_admin_api_key and not self.is_production())
-
     def validate_runtime(self) -> None:
         if not self.enforce_production_safety or not self.is_production():
             return
         if self.database_url.startswith("sqlite"):
             raise ValueError("Production runtime requires a PostgreSQL-compatible DATABASE_URL, not SQLite.")
-        if self.admin_api_key_enabled() and (not self.admin_api_key or self.admin_api_key.strip() in {"change-me"}):
-            raise ValueError("Production runtime requires a non-default ADMIN_API_KEY.")
         if str(self.auth_cookie_samesite or "").strip().lower() not in {"lax", "strict", "none"}:
             raise ValueError("AUTH_COOKIE_SAMESITE must be one of: lax, strict, none.")
 
