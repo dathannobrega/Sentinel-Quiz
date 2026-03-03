@@ -1,0 +1,37 @@
+{
+  "certification": "CISSP",
+  "domains": [
+    {
+      "id": 1,
+      "name": "Security and Risk Management"
+    },
+    {
+      "id": 2,
+      "name": "Asset Security"
+    },
+    {
+      "id": 3,
+      "name": "Security Architecture and Engineering"
+    },
+    {
+      "id": 4,
+      "name": "Communication and Network Security"
+    },
+    {
+      "id": 5,
+      "name": "Identity and Access Management (IAM)"
+    },
+    {
+      "id": 6,
+      "name": "Security Assessment and Testing"
+    },
+    {
+      "id": 7,
+      "name": "Security Operations"
+    },
+    {
+      "id": 8,
+      "name": "Software Development Security"
+    }
+  ]
+}
