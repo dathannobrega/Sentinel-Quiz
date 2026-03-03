@@ -9,10 +9,12 @@ import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { resetPassword } from "@/lib/auth/session";
+import { useI18n } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
 export default function ResetPasswordPage() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const token = useMemo(() => searchParams.get("token") || "", [searchParams]);
   const [password, setPassword] = useState("");
@@ -21,11 +23,19 @@ export default function ResetPasswordPage() {
 
   async function handleSubmit() {
     if (!token) {
-      setNotice({ tone: "danger", title: "Token ausente", message: "O link de redefinicao esta incompleto." });
+      setNotice({
+        tone: "danger",
+        title: t("common.errors.missingToken"),
+        message: t("password.reset.missingTokenMessage")
+      });
       return;
     }
     if (password.trim().length < 8) {
-      setNotice({ tone: "warning", title: "Senha invalida", message: "Use pelo menos 8 caracteres." });
+      setNotice({
+        tone: "warning",
+        title: t("common.errors.invalidPassword"),
+        message: t("password.reset.invalidPasswordMessage")
+      });
       return;
     }
     setIsSubmitting(true);
@@ -34,14 +44,14 @@ export default function ResetPasswordPage() {
       await resetPassword({ token, new_password: password.trim() });
       setNotice({
         tone: "success",
-        title: "Senha atualizada",
-        message: "Sua senha foi redefinida. Entre novamente com a nova credencial."
+        title: t("password.reset.updatedTitle"),
+        message: t("password.reset.updatedMessage")
       });
     } catch (error) {
       setNotice({
         tone: "danger",
-        title: "Falha ao redefinir",
-        message: error instanceof Error ? error.message : "Nao foi possivel redefinir a senha."
+        title: t("password.reset.failedTitle"),
+        message: error instanceof Error ? error.message : t("password.reset.failedMessage")
       });
     } finally {
       setIsSubmitting(false);
@@ -51,10 +61,10 @@ export default function ResetPasswordPage() {
   return (
     <main className="sq-app-shell">
       <div className="sq-page-stack">
-        <Card title="Definir nova senha" subtitle="Use o link recebido por email para concluir a redefinicao.">
+        <Card title={t("password.reset.title")} subtitle={t("password.reset.subtitle")}>
           <div className="sq-surface-block">
             {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
-            <Field label="Nova senha" htmlFor="reset-password-field" hint="Minimo de 8 caracteres.">
+            <Field label={t("password.reset.passwordLabel")} htmlFor="reset-password-field" hint={t("password.reset.passwordHint")}>
               <input
                 id="reset-password-field"
                 className="sq-input"
@@ -66,10 +76,10 @@ export default function ResetPasswordPage() {
             </Field>
             <div className="sq-actions">
               <Button busy={isSubmitting} onClick={() => void handleSubmit()}>
-                Atualizar senha
+                {t("password.reset.submit")}
               </Button>
               <Link href="/login" className="sq-button sq-button--md sq-button--ghost">
-                Voltar ao login
+                {t("password.forgot.backToLogin")}
               </Link>
             </div>
           </div>

@@ -8,15 +8,21 @@ import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { requestPasswordReset } from "@/lib/auth/session";
+import { useI18n } from "@/lib/i18n";
 
 export default function ForgotPasswordPage() {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "danger" | "warning"; title: string; message: string } | null>(null);
 
   async function handleSubmit() {
     if (!email.trim()) {
-      setNotice({ tone: "warning", title: "Email obrigatorio", message: "Informe o email da conta para continuar." });
+      setNotice({
+        tone: "warning",
+        title: t("password.forgot.emailRequiredTitle"),
+        message: t("password.forgot.emailRequiredMessage")
+      });
       return;
     }
     setIsSubmitting(true);
@@ -25,14 +31,14 @@ export default function ForgotPasswordPage() {
       await requestPasswordReset({ email: email.trim() });
       setNotice({
         tone: "success",
-        title: "Solicitacao registrada",
-        message: "Se a conta existir, um email com o link de redefinicao foi enviado."
+        title: t("password.forgot.requestedTitle"),
+        message: t("password.forgot.requestedMessage")
       });
     } catch (error) {
       setNotice({
         tone: "danger",
-        title: "Falha ao solicitar",
-        message: error instanceof Error ? error.message : "Nao foi possivel iniciar a recuperacao."
+        title: t("password.forgot.failedTitle"),
+        message: error instanceof Error ? error.message : t("password.forgot.failedMessage")
       });
     } finally {
       setIsSubmitting(false);
@@ -42,10 +48,10 @@ export default function ForgotPasswordPage() {
   return (
     <main className="sq-app-shell">
       <div className="sq-page-stack">
-        <Card title="Recuperar senha" subtitle="Solicite um link seguro para redefinir sua senha.">
+        <Card title={t("password.forgot.title")} subtitle={t("password.forgot.subtitle")}>
           <div className="sq-surface-block">
             {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
-            <Field label="Email" htmlFor="forgot-email">
+            <Field label={t("password.forgot.emailLabel")} htmlFor="forgot-email">
               <input
                 id="forgot-email"
                 className="sq-input"
@@ -57,10 +63,10 @@ export default function ForgotPasswordPage() {
             </Field>
             <div className="sq-actions">
               <Button busy={isSubmitting} onClick={() => void handleSubmit()}>
-                Enviar link
+                {t("password.forgot.submit")}
               </Button>
               <Link href="/login" className="sq-button sq-button--md sq-button--ghost">
-                Voltar ao login
+                {t("password.forgot.backToLogin")}
               </Link>
             </div>
           </div>

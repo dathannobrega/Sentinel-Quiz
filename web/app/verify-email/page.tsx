@@ -9,10 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { verifyEmailToken } from "@/lib/auth/session";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
 export default function VerifyEmailPage() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const token = useMemo(() => searchParams.get("token") || "", [searchParams]);
   const [isLoading, setIsLoading] = useState(true);
@@ -22,8 +24,8 @@ export default function VerifyEmailPage() {
     if (!token) {
       setNotice({
         tone: "danger",
-        title: "Token ausente",
-        message: "O link de verificacao esta incompleto."
+        title: t("common.errors.missingToken"),
+        message: t("password.verify.missingTokenMessage")
       });
       setIsLoading(false);
       return;
@@ -35,14 +37,14 @@ export default function VerifyEmailPage() {
       const user = await verifyEmailToken({ token });
       setNotice({
         tone: "success",
-        title: "Email verificado",
-        message: `O email ${user.email} foi validado com sucesso.`
+        title: t("password.verify.successTitle"),
+        message: t("password.verify.successMessage", { email: user.email })
       });
     } catch (error) {
       setNotice({
         tone: "danger",
-        title: "Falha na verificacao",
-        message: error instanceof Error ? error.message : "Nao foi possivel validar o email."
+        title: t("password.verify.failedTitle"),
+        message: error instanceof Error ? error.message : t("password.verify.failedMessage")
       });
     } finally {
       setIsLoading(false);
@@ -66,15 +68,15 @@ export default function VerifyEmailPage() {
   return (
     <main className="sq-app-shell">
       <div className="sq-page-stack">
-        <Card title="Verificacao de email" subtitle="Confirmação de identidade para fortalecer a conta.">
+        <Card title={t("password.verify.title")} subtitle={t("password.verify.subtitle")}>
           <div className="sq-surface-block">
             {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
             <div className="sq-actions">
               <Link href="/login" className="sq-button sq-button--md sq-button--primary">
-                Ir para login
+                {t("password.verify.goToLogin")}
               </Link>
               <Link href="/dashboard" className="sq-button sq-button--md sq-button--ghost">
-                Dashboard
+                {t("common.labels.dashboard")}
               </Link>
             </div>
           </div>

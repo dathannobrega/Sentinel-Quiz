@@ -330,15 +330,15 @@ export function HistoryShell() {
 
   const sessionTab = (
     <div className="sq-page-stack">
-      <Card title="Resumo" subtitle="Leitura rapida do volume recente.">
+      <Card title={t("history.sessions.title")} subtitle={t("history.sessions.subtitle")}>
         <div className="sq-metric-grid">
-          <MetricCard label="Simulados filtrados" value={filteredExamHistory.length} />
-          <MetricCard label="Media dos simulados" value={examAverage === null ? "-" : formatScore(examAverage)} />
-          <MetricCard label="Media do estudo" value={studyAverage === null ? "-" : formatScore(studyAverage)} />
-          <MetricCard label="Fila vencida" value={reviewQueue.due_count} />
-          <MetricCard label="Fila total" value={reviewQueue.total_count} />
+          <MetricCard label={t("history.sessions.filteredExams")} value={filteredExamHistory.length} />
+          <MetricCard label={t("history.sessions.examAverage")} value={examAverage === null ? "-" : formatScore(examAverage)} />
+          <MetricCard label={t("history.sessions.studyAverage")} value={studyAverage === null ? "-" : formatScore(studyAverage)} />
+          <MetricCard label={t("history.sessions.dueQueue")} value={reviewQueue.due_count} />
+          <MetricCard label={t("history.sessions.totalQueue")} value={reviewQueue.total_count} />
           <MetricCard
-            label="Proxima revisao"
+            label={t("history.sessions.nextReview")}
             value={reviewQueue.next_due_at ? formatDateTime(reviewQueue.next_due_at) : "-"}
           />
         </div>
@@ -349,7 +349,7 @@ export function HistoryShell() {
       </Card>
 
       <div className="sq-grid-2">
-        <Card title="Simulados" subtitle="Cada item abre a revisao da sessao correspondente.">
+        <Card title={t("history.sessions.examsTitle")} subtitle={t("history.sessions.examsSubtitle")}>
           {filteredExamHistory.length ? (
             <div className="sq-list">
               {filteredExamHistory.map((item) => (
@@ -371,7 +371,7 @@ export function HistoryShell() {
           )}
         </Card>
 
-        <Card title="Estudo" subtitle="Blocos de estudo e dominios mais sensiveis.">
+        <Card title={t("history.sessions.studiesTitle")} subtitle={t("history.sessions.studiesSubtitle")}>
           {filteredStudyHistory.length ? (
             <div className="sq-list">
               {filteredStudyHistory.map((item) => (
@@ -408,16 +408,16 @@ export function HistoryShell() {
   const reviewTab = (
     <div className="sq-page-stack">
       <div className="sq-grid-2">
-        <Card title="Meta semanal" subtitle="Um alvo pratico para equilibrar estudo novo e revisao.">
+        <Card title={t("history.reviewPanel.weeklyGoalTitle")} subtitle={t("history.reviewPanel.weeklyGoalSubtitle")}>
           <div className="sq-metric-grid">
-            <MetricCard label="Meta de questoes" value={weeklyGoal.weekly_question_target || 0} />
-            <MetricCard label="Meta de revisoes" value={weeklyGoal.weekly_review_target || 0} />
+            <MetricCard label={t("history.reviewPanel.questionGoal")} value={weeklyGoal.weekly_question_target || 0} />
+            <MetricCard label={t("history.reviewPanel.reviewGoal")} value={weeklyGoal.weekly_review_target || 0} />
             <MetricCard
-              label="Novas sugeridas"
+              label={t("history.reviewPanel.newSuggested")}
               value={weeklyGoal.weekly_new_question_target ?? weeklyGoal.new_question_budget}
             />
             <MetricCard
-              label="Conclusao"
+              label={t("history.reviewPanel.completion")}
               value={
                 weeklyGoal.completion_ratio_percent === undefined ? "-" : `${weeklyGoal.completion_ratio_percent}%`
               }
@@ -437,12 +437,12 @@ export function HistoryShell() {
           </div>
         </Card>
 
-        <Card title="Carga prevista" subtitle="Antecipe picos antes de virar backlog.">
+        <Card title={t("history.reviewPanel.forecastTitle")} subtitle={t("history.reviewPanel.forecastSubtitle")}>
           <div className="sq-metric-grid">
-            <MetricCard label="Vencem em 7 dias" value={reviewForecast?.projected_due_next_7_days || 0} />
-            <MetricCard label="Entram em risco" value={reviewForecast?.projected_at_risk_next_7_days || 0} />
-            <MetricCard label="Pico diario" value={reviewForecast?.peak_load_day || 0} />
-            <MetricCard label="Pressao" value={String(reviewForecast?.pressure || "estavel")} />
+            <MetricCard label={t("history.reviewPanel.dueInSevenDays")} value={reviewForecast?.projected_due_next_7_days || 0} />
+            <MetricCard label={t("history.reviewPanel.enteringRisk")} value={reviewForecast?.projected_at_risk_next_7_days || 0} />
+            <MetricCard label={t("history.reviewPanel.peakDay")} value={reviewForecast?.peak_load_day || 0} />
+            <MetricCard label={t("history.reviewPanel.pressure")} value={String(reviewForecast?.pressure || "estavel")} />
           </div>
 
           {reviewQueue.upcoming_load.length ? (
@@ -463,8 +463,8 @@ export function HistoryShell() {
       </div>
 
       <Card
-        title="Fila de revisao"
-        subtitle="Os itens com maior pressao de retorno aparecem primeiro."
+        title={t("history.reviewPanel.queueTitle")}
+        subtitle={t("history.reviewPanel.queueSubtitle")}
         actions={
           <Button
             variant="secondary"
@@ -537,7 +537,7 @@ export function HistoryShell() {
   );
 
   const weeksTab = (
-    <Card title="Ritmo semanal" subtitle="Volume, revisoes e qualidade por semana.">
+    <Card title={t("history.weeksPanel.title")} subtitle={t("history.weeksPanel.subtitle")}>
       {weeklyAnalytics.weeks.length ? (
         <div className="sq-progress-list">
           {weeklyAnalytics.weeks.map((week) => (

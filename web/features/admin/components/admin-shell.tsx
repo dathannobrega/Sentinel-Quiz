@@ -11,6 +11,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient, buildApiUrl } from "@/lib/api/client";
 import { getOrCreateClientKey, getStoredAuthToken } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import type {
   AdminAuditLog,
   AdminAnalyticsSnapshotCapture,
@@ -444,6 +445,7 @@ function formatBreakdown(breakdown: Record<string, number>): string {
 }
 
 export function AdminShell() {
+  const { t } = useI18n();
   const [isBootLoading, setIsBootLoading] = useState(true);
   const [isProtectedLoading, setIsProtectedLoading] = useState(false);
   const [isQuestionLoading, setIsQuestionLoading] = useState(false);
@@ -1085,40 +1087,38 @@ export function AdminShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Sentinel Quiz Admin</div>
-              <p className="sq-page-subtitle">
-                Painel editorial migrado para Next.js com CRUD real, preview de payload e acesso seguro por sessao.
-              </p>
+              <div className="sq-page-title">{t("admin.header.title")}</div>
+              <p className="sq-page-subtitle">{t("admin.header.subtitle")}</p>
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/history">Historico</Link>
+            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
+            <Link href="/history">{t("common.labels.history")}</Link>
           </div>
         </header>
 
         {pageNotice ? (
           <StatusBanner
             tone="warning"
-            title="Acesso editorial"
+            title={t("admin.notices.editorialAccess")}
             message={pageNotice}
             role="alert"
           />
         ) : null}
 
         <Card
-          title="Acesso e manutencao"
-          subtitle="Todas as operacoes editoriais exigem uma sessao autenticada com papel admin."
+          title={t("admin.access.title")}
+          subtitle={t("admin.access.subtitle")}
           actions={
             <div className="sq-actions">
               <Button variant="ghost" size="sm" busy={activeTask === "refresh"} onClick={() => void handleRefresh()}>
-                Atualizar
+                {t("admin.access.refresh")}
               </Button>
               <Button variant="secondary" size="sm" busy={activeTask === "ingest"} onClick={() => void handleIngest()}>
-                Reimportar JSONs
+                {t("admin.access.reimportJson")}
               </Button>
               <Button variant="ghost" size="sm" busy={activeTask === "export"} onClick={() => void handleExport()}>
-                Exportar banco
+                {t("admin.access.exportDatabase")}
               </Button>
             </div>
           }
@@ -1126,31 +1126,31 @@ export function AdminShell() {
           <div className="sq-surface-block">
             <div className="sq-form-grid">
               <div className="sq-surface-block">
-                <div className="sq-list-title">Controle de acesso</div>
+                <div className="sq-list-title">{t("admin.access.accessControlTitle")}</div>
                 <div className="sq-list-meta">
-                  O backend aceita apenas usuarios admin autenticados. O painel nao usa mais chave estatica nem header editorial.
+                  {t("admin.access.accessControlMessage")}
                 </div>
               </div>
 
               <div className="sq-surface-block">
-                <div className="sq-list-title">Resumo rapido</div>
+                <div className="sq-list-title">{t("admin.access.quickSummaryTitle")}</div>
                 <div className="sq-list-meta">{formatBreakdown(overview.question_breakdown)}</div>
               </div>
             </div>
 
-            {toolbarNotice ? <StatusBanner tone="neutral" title="Status" message={toolbarNotice} /> : null}
+            {toolbarNotice ? <StatusBanner tone="neutral" title={t("admin.notices.status")} message={toolbarNotice} /> : null}
 
-            <div className="sq-metric-grid" aria-label="Resumo editorial">
+            <div className="sq-metric-grid" aria-label={t("admin.access.summaryAriaLabel")}>
               <div className="sq-metric-card">
-                <span className="sq-muted">Provas</span>
+                <span className="sq-muted">{t("admin.access.exams")}</span>
                 <strong>{overview.exam_count}</strong>
               </div>
               <div className="sq-metric-card">
-                <span className="sq-muted">Questoes</span>
+                <span className="sq-muted">{t("admin.access.questions")}</span>
                 <strong>{overview.question_count}</strong>
               </div>
               <div className="sq-metric-card">
-                <span className="sq-muted">Sessoes concluidas</span>
+                <span className="sq-muted">{t("admin.access.completedSessions")}</span>
                 <strong>{overview.completed_session_count}</strong>
               </div>
             </div>
@@ -1158,51 +1158,51 @@ export function AdminShell() {
         </Card>
 
         <Card
-          title="Insights editoriais"
-          subtitle="Veja onde o banco esta mais sensivel antes de editar ou publicar."
+          title={t("admin.insights.title")}
+          subtitle={t("admin.insights.subtitle")}
           actions={
             <Button variant="secondary" size="sm" busy={activeTask === "captureSnapshot"} onClick={() => void handleCaptureSnapshot()}>
-              Registrar snapshot
+              {t("admin.insights.captureSnapshot")}
             </Button>
           }
         >
-          <div className="sq-metric-grid" aria-label="Resumo de sinais editoriais">
+          <div className="sq-metric-grid" aria-label={t("admin.insights.summaryAriaLabel")}>
             <div className="sq-metric-card">
-              <span className="sq-muted">Questoes com sinal</span>
+              <span className="sq-muted">{t("admin.insights.questionsWithSignal")}</span>
               <strong>{analytics.summary.questions_with_signals}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Tentativas totais</span>
+              <span className="sq-muted">{t("admin.insights.totalAttempts")}</span>
               <strong>{analytics.summary.total_attempts}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Erro medio</span>
+              <span className="sq-muted">{t("admin.insights.averageError")}</span>
               <strong>{analytics.summary.average_wrong_rate_percent}%</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Pressao de revisao</span>
+              <span className="sq-muted">{t("admin.insights.reviewPressure")}</span>
               <strong>{analytics.summary.total_review_pressure}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Snapshots</span>
+              <span className="sq-muted">{t("admin.insights.snapshots")}</span>
               <strong>{analytics.summary.snapshot_batch_count}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Ultimo snapshot</span>
+              <span className="sq-muted">{t("admin.insights.latestSnapshot")}</span>
               <strong>{analytics.summary.latest_snapshot_at || "-"}</strong>
             </div>
           </div>
 
           <div className="sq-grid-2" style={{ marginTop: "var(--sq-space-5)" }}>
             <div className="sq-surface-block">
-              <div className="sq-list-title">Questoes mais sensiveis</div>
+              <div className="sq-list-title">{t("admin.insights.hardestQuestions")}</div>
               {analytics.hardest_questions.length ? (
                 <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
                   {analytics.hardest_questions.map((item) => (
                     <div key={item.id} className="sq-list-item">
                       <div className="sq-list-title">{item.id}</div>
                       <div className="sq-list-meta">
-                        {item.exam_title || item.exam_id} · {item.domain || "Sem dominio"} · erro {item.wrong_rate_percent}% ·
+                        {item.exam_title || item.exam_id} · {item.domain || t("admin.insights.noDomain")} · erro {item.wrong_rate_percent}% ·
                         score {item.difficulty_score}
                       </div>
                       <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
@@ -1213,14 +1213,14 @@ export function AdminShell() {
                 </div>
               ) : (
                 <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
-                  Ainda nao ha sinal suficiente para destacar questoes.
+                  {t("admin.insights.noSignal")}
                 </div>
               )}
             </div>
 
             <div className="sq-page-stack">
               <div className="sq-surface-block">
-                <div className="sq-list-title">Dominios mais fracos</div>
+                <div className="sq-list-title">{t("admin.insights.weakestDomains")}</div>
                 {analytics.weakest_domains.length ? (
                   <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
                     {analytics.weakest_domains.map((item) => (
@@ -1234,13 +1234,13 @@ export function AdminShell() {
                   </div>
                 ) : (
                   <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
-                    Sem dominios com historico relevante ainda.
+                    {t("admin.insights.noRelevantDomains")}
                   </div>
                 )}
               </div>
 
               <div className="sq-surface-block">
-                <div className="sq-list-title">Provas com maior atrito</div>
+                <div className="sq-list-title">{t("admin.insights.weakestExams")}</div>
                 {analytics.weakest_exams.length ? (
                   <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
                     {analytics.weakest_exams.map((item) => (
@@ -1254,7 +1254,7 @@ export function AdminShell() {
                   </div>
                 ) : (
                   <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
-                    Sem prova com atrito consolidado ainda.
+                    {t("admin.insights.noExamFriction")}
                   </div>
                 )}
               </div>
@@ -1272,24 +1272,24 @@ export function AdminShell() {
         >
           <div className="sq-page-stack">
             <Card
-              title="Explorar questoes"
-              subtitle="Filtre, navegue e carregue uma questao sem sair da mesma tela."
+              title={t("admin.browser.title")}
+              subtitle={t("admin.browser.subtitle")}
               actions={
                 <Button variant="secondary" size="sm" onClick={startNewQuestion}>
-                  Nova questao
+                  {t("admin.browser.newQuestion")}
                 </Button>
               }
             >
               <div className="sq-surface-block">
                 <div className="sq-form-grid">
-                  <Field label="Prova" htmlFor="browser-exam-filter">
+                  <Field label={t("admin.browser.exam")} htmlFor="browser-exam-filter">
                     <select
                       id="browser-exam-filter"
                       className="sq-select"
                       value={browserExamId}
                       onChange={(event) => setBrowserExamId(event.target.value)}
                     >
-                      <option value="">Todas</option>
+                      <option value="">{t("common.filters.all")}</option>
                       {exams.map((exam) => (
                         <option key={exam.id} value={exam.id}>
                           {exam.title}
@@ -1299,9 +1299,9 @@ export function AdminShell() {
                   </Field>
 
                   <Field
-                    label="Buscar"
+                    label={t("admin.browser.search")}
                     htmlFor="admin-question-search"
-                    hint="Procure por ID, dominio, certificacao ou trecho do enunciado."
+                    hint={t("admin.browser.searchHint")}
                   >
                     <input
                       id="admin-question-search"
@@ -1314,11 +1314,13 @@ export function AdminShell() {
                 </div>
 
                 <div className="sq-list-meta">
-                  {isProtectedLoading ? "Atualizando lista..." : `${questionItems.length} questao(oes) encontradas.`}
+                  {isProtectedLoading
+                    ? t("admin.browser.refreshingList")
+                    : t("admin.browser.foundCount", { count: questionItems.length })}
                 </div>
 
                 {questionItems.length ? (
-                  <div className="sq-list" role="list" aria-label="Lista de questoes">
+                  <div className="sq-list" role="list" aria-label={t("admin.browser.listAriaLabel")}>
                     {questionItems.map((item) => {
                       const isActive = item.id === selectedQuestionId;
                       return (
@@ -1343,15 +1345,17 @@ export function AdminShell() {
                             {item.domain ? <span className="sq-chip">{item.domain}</span> : null}
                             {item.difficulty ? <span className="sq-chip">{item.difficulty}</span> : null}
                             {item.editorial_status ? <span className="sq-chip">{item.editorial_status}</span> : null}
-                            {item.draft_version_number ? <span className="sq-chip">draft v{item.draft_version_number}</span> : null}
+                            {item.draft_version_number ? (
+                              <span className="sq-chip">{t("admin.browser.draftVersion", { version: item.draft_version_number })}</span>
+                            ) : null}
                             {item.published_version_number ? (
-                              <span className="sq-chip">pub v{item.published_version_number}</span>
+                              <span className="sq-chip">{t("admin.browser.publishedVersion", { version: item.published_version_number })}</span>
                             ) : null}
                             <span className="sq-chip">
-                              {item.correct_count}/{item.option_count} corretas
+                              {t("admin.browser.correctOptions", { correct: item.correct_count, count: item.option_count })}
                             </span>
-                            <span className="sq-chip">{item.multi_select ? "multi" : "single"}</span>
-                            {item.loaded_from === "draft" ? <span className="sq-chip">rascunho</span> : null}
+                            <span className="sq-chip">{item.multi_select ? t("admin.browser.multi") : t("admin.browser.single")}</span>
+                            {item.loaded_from === "draft" ? <span className="sq-chip">{t("admin.browser.draft")}</span> : null}
                           </div>
                         </button>
                       );
@@ -1359,22 +1363,22 @@ export function AdminShell() {
                   </div>
                 ) : (
                   <div className="sq-empty">
-                    Nenhuma questao carregada. Revise a permissao editorial ou ajuste os filtros para continuar.
+                    {t("admin.browser.empty")}
                   </div>
                 )}
               </div>
             </Card>
 
-            <Card title="Cadastro de prova" subtitle="Atualize o catalogo de provas sem sair do editor.">
+            <Card title={t("admin.examsManager.title")} subtitle={t("admin.examsManager.subtitle")}>
               <div className="sq-surface-block">
-                <Field label="Provas cadastradas" htmlFor="admin-exam-select">
+                <Field label={t("admin.examsManager.registeredExams")} htmlFor="admin-exam-select">
                   <select
                     id="admin-exam-select"
                     className="sq-select"
                     value={examDraft.id}
                     onChange={(event) => applyExamToDraft(event.target.value)}
                   >
-                    <option value="">Selecione uma prova</option>
+                    <option value="">{t("common.filters.selectExam")}</option>
                     {exams.map((exam) => (
                       <option key={exam.id} value={exam.id}>
                         {exam.title} ({exam.id})
@@ -1384,7 +1388,7 @@ export function AdminShell() {
                 </Field>
 
                 <div className="sq-form-grid">
-                  <Field label="ID da prova" htmlFor="admin-exam-id">
+                  <Field label={t("admin.examsManager.examId")} htmlFor="admin-exam-id">
                     <input
                       id="admin-exam-id"
                       className="sq-input"
@@ -1397,7 +1401,7 @@ export function AdminShell() {
                     />
                   </Field>
 
-                  <Field label="Qtd. de questoes" htmlFor="admin-exam-count">
+                  <Field label={t("admin.examsManager.questionCount")} htmlFor="admin-exam-count">
                     <input
                       id="admin-exam-count"
                       className="sq-input"
@@ -1412,7 +1416,7 @@ export function AdminShell() {
                   </Field>
                 </div>
 
-                <Field label="Titulo" htmlFor="admin-exam-title">
+                <Field label={t("admin.examsManager.titleLabel")} htmlFor="admin-exam-title">
                   <input
                     id="admin-exam-title"
                     className="sq-input"
@@ -1425,7 +1429,7 @@ export function AdminShell() {
                   />
                 </Field>
 
-                <Field label="Fonte" htmlFor="admin-exam-source" hint="Ex.: questions/securityplus.json">
+                <Field label={t("admin.examsManager.source")} htmlFor="admin-exam-source" hint={t("admin.examsManager.sourceHint")}>
                   <input
                     id="admin-exam-source"
                     className="sq-input"
@@ -1438,14 +1442,14 @@ export function AdminShell() {
                   />
                 </Field>
 
-                {examNotice ? <StatusBanner tone="neutral" title="Prova" message={examNotice} /> : null}
+                {examNotice ? <StatusBanner tone="neutral" title={t("admin.examsManager.noticeTitle")} message={examNotice} /> : null}
 
                 <div className="sq-actions">
                   <Button busy={activeTask === "saveExam"} onClick={() => void handleSaveExam()}>
-                    Salvar prova
+                    {t("admin.examsManager.saveExam")}
                   </Button>
                   <Button variant="ghost" onClick={clearExamForm}>
-                    Limpar
+                    {t("admin.examsManager.clear")}
                   </Button>
                 </div>
               </div>
@@ -1453,8 +1457,8 @@ export function AdminShell() {
           </div>
 
           <Card
-            title="Editor de questao"
-            subtitle="Edite tudo em um fluxo unico: metadados, alternativas, justificativa, referencias e preview do payload."
+            title={t("admin.editor.title")}
+            subtitle={t("admin.editor.subtitle")}
             actions={
               <div className="sq-actions">
                 <Button
@@ -1463,21 +1467,21 @@ export function AdminShell() {
                   busy={isQuestionLoading}
                   onClick={() => void loadQuestion(questionDraft.lookupId || questionDraft.id)}
                 >
-                  Carregar
+                  {t("admin.editor.load")}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={duplicateQuestion}>
-                  Duplicar
+                  {t("admin.editor.duplicate")}
                 </Button>
                 <Button variant="danger" size="sm" busy={activeTask === "deleteQuestion"} onClick={() => void handleDeleteQuestion()}>
-                  Excluir
+                  {t("admin.editor.delete")}
                 </Button>
               </div>
             }
           >
             <div className="sq-surface-block">
-              {questionNotice ? <StatusBanner tone="neutral" title="Questao" message={questionNotice} /> : null}
+              {questionNotice ? <StatusBanner tone="neutral" title={t("admin.editor.noticeTitle")} message={questionNotice} /> : null}
               {hasQuestionDraftContent && questionValidationError ? (
-                <StatusBanner tone="warning" title="Validacao" message={questionValidationError} />
+                <StatusBanner tone="warning" title={t("admin.editor.validationTitle")} message={questionValidationError} />
               ) : null}
 
               <div className="sq-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>

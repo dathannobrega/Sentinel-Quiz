@@ -12,6 +12,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { clearSessionId } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 import { formatDateTime } from "@/lib/utils/format";
 import type {
@@ -38,17 +39,21 @@ function resolveResultHref(mode: RunnerMode, sessionId: string): string {
   return mode === "study" ? `/study/${sessionId}/result` : `/exam/${sessionId}/result`;
 }
 
-function readRunnerError(error: unknown): string {
+function readRunnerError(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Nao foi possivel carregar esta sessao.";
+  return fallbackMessage;
 }
 
-function buildLiveFeedbackBits(mode: RunnerMode, feedback: ExamAnswerFeedback | StudyAnswerFeedback): string[] {
+function buildLiveFeedbackBits(
+  mode: RunnerMode,
+  feedback: ExamAnswerFeedback | StudyAnswerFeedback,
+  t: (key: string, values?: Record<string, string | number>) => string
+): string[] {
   const bits: string[] = [];
   const insight = feedback.insight || {};
   const message = typeof insight.message === "string" ? insight.message.trim() : "";
@@ -57,21 +62,21 @@ function buildLiveFeedbackBits(mode: RunnerMode, feedback: ExamAnswerFeedback | 
   }
   const remaining = insight.remaining_questions;
   if (typeof remaining === "number") {
-    bits.push(`Restantes: ${remaining}`);
+    bits.push(t("runner.liveFeedback.remaining", { count: remaining }));
   }
   const streak = insight.current_correct_streak;
   if (typeof streak === "number") {
-    bits.push(`Streak atual: ${streak}`);
+    bits.push(t("runner.liveFeedback.currentStreak", { count: streak }));
   }
   if (mode === "study") {
     const studyFeedback = feedback as StudyAnswerFeedback;
     if (studyFeedback.uncertain_correct) {
-      bits.push("Acerto inseguro: segue como sinal de reforco.");
+      bits.push(t("runner.liveFeedback.uncertainCorrect"));
     }
     if (studyFeedback.next_review_at) {
-      bits.push(`Proxima revisao: ${formatDateTime(studyFeedback.next_review_at)}`);
+      bits.push(t("runner.liveFeedback.nextReview", { date: formatDateTime(studyFeedback.next_review_at) }));
     }
-    bits.push(`Fila vencida: ${studyFeedback.review_due_count}`);
+    bits.push(t("runner.liveFeedback.dueQueue", { count: studyFeedback.review_due_count }));
   }
   return bits;
 }
@@ -133,6 +138,7 @@ function formatPedagogicalReference(reference: {
 }
 
 export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps) {
+  const { t } = useI18n();
   const router = useRouter();
   const sessionBasePath = resolveSessionBasePath(mode);
 
@@ -204,7 +210,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setActiveHint(null);
       setHintError(null);
     } catch (error) {
-      setLoadError(readRunnerError(error));
+      setLoadError(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
       setIsBootLoading(false);
     }
@@ -238,7 +244,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setActiveHint(null);
       setHintError(null);
     } catch (error) {
-      setPageNotice(readRunnerError(error));
+      setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
       setIsAdvancing(false);
     }
@@ -279,7 +285,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
 
   const loadCurrentStudyState = useEffectEvent(async (questionId: string) => {
     setIsStudyStateLoading(true);
-    setStudyStateNotice("Carregando status de estudo...");
+    setStudyStateNotice(t("runner.notices.loadingStudyState"));
 
     try {
       const response = await apiClient.get<StudyState>(`/study/questions/${questionId}/state`);
@@ -295,14 +301,14 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setStudyStateDirty(false);
       setStudyStateNotice(
         response.updated_at
-          ? `Sincronizado em ${formatDateTime(response.updated_at)} (${response.scope}).`
-          : `Sem anotacoes salvas ainda (${response.scope}).`
+          ? t("runner.notices.syncedAt", { date: formatDateTime(response.updated_at), scope: response.scope })
+          : t("runner.notices.noSavedNotes", { scope: response.scope })
       );
     } catch (error) {
       if (currentQuestion?.id !== questionId) {
         return;
       }
-      setStudyStateNotice(readRunnerError(error));
+      setStudyStateNotice(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
       if (currentQuestion?.id === questionId) {
         setIsStudyStateLoading(false);
@@ -320,7 +326,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
     }
 
     setIsStudyStateSaving(true);
-    setStudyStateNotice("Salvando status de estudo...");
+    setStudyStateNotice(t("runner.notices.savingStudyState"));
 
     try {
       const response = await apiClient.put<StudyState>(`/study/questions/${currentQuestion.id}/state`, {
@@ -340,12 +346,12 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setStudyStateDirty(false);
       setStudyStateNotice(
         response.updated_at
-          ? `Salvo em ${formatDateTime(response.updated_at)} (${response.scope}).`
-          : `Status sincronizado (${response.scope}).`
+          ? t("runner.notices.savedAt", { date: formatDateTime(response.updated_at), scope: response.scope })
+          : t("runner.notices.syncedStatus", { scope: response.scope })
       );
       return true;
     } catch (error) {
-      setStudyStateNotice(`Nao foi possivel salvar: ${readRunnerError(error)}`);
+      setStudyStateNotice(t("runner.notices.saveFailed", { error: readRunnerError(error, t("runner.errors.loadSession")) }));
       return false;
     } finally {
       setIsStudyStateSaving(false);
@@ -400,18 +406,18 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   }, [sessionState]);
 
   const canSubmit = selectedKeys.length > 0 && !feedback && !isSubmitting && !!currentQuestion && !isExamPaused;
-  const feedbackBits = feedback ? buildLiveFeedbackBits(mode, feedback) : [];
+  const feedbackBits = feedback ? buildLiveFeedbackBits(mode, feedback, t) : [];
 
   const strategyLabel = useMemo(() => {
     const raw = String(sessionState?.selection_strategy || "standard").toLowerCase();
     if (raw === "adaptive") {
-      return "Adaptativa";
+      return t("common.strategies.adaptive");
     }
     if (raw === "review") {
-      return "Revisao";
+      return t("common.labels.review");
     }
-    return "Padrao";
-  }, [sessionState?.selection_strategy]);
+    return t("common.strategies.standard");
+  }, [sessionState?.selection_strategy, t]);
 
   function toggleSelection(optionKey: string) {
     if (!currentQuestion || feedback || isExamPaused) {
@@ -449,7 +455,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       }
       setActiveHint(response);
     } catch (error) {
-      setHintError(readRunnerError(error));
+      setHintError(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
       setIsHintLoading(false);
     }
@@ -506,7 +512,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
         }
         await refreshSessionState();
       }
-      setPageNotice(readRunnerError(error));
+      setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
       setIsSubmitting(false);
     }
@@ -529,14 +535,14 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       }
       setPageNotice(
         response.paused
-          ? "Simulado pausado. O cronometro ficou congelado dentro do limite configurado."
-          : "Simulado retomado. O cronometro voltou a contar."
+          ? t("runner.notices.examPaused")
+          : t("runner.notices.examResumed")
       );
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         await refreshSessionState();
       }
-      setPageNotice(readRunnerError(error));
+      setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
       setIsTogglingPause(false);
     }
@@ -559,13 +565,13 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
         <div className="sq-page-stack">
           <StatusBanner
             tone="danger"
-            title="Nao foi possivel abrir a sessao"
+            title={t("runner.errors.openSessionTitle")}
             message={loadError}
             role="alert"
             action={
               <>
-                <Link href="/dashboard">Voltar ao dashboard</Link>
-                <Link href={resolveResultHref(mode, sessionId)}>Tentar abrir o resultado</Link>
+                <Link href="/dashboard">{t("common.actions.backToDashboard")}</Link>
+                <Link href={resolveResultHref(mode, sessionId)}>{t("common.actions.openResult")}</Link>
               </>
             }
           />
@@ -583,40 +589,44 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">{mode === "study" ? "Modo Estudo" : "Modo Simulado"}</div>
-              <p className="sq-page-subtitle">Pergunta no centro. Ferramentas de apoio ao lado.</p>
+              <div className="sq-page-title">{mode === "study" ? t("runner.header.studyTitle") : t("runner.header.examTitle")}</div>
+              <p className="sq-page-subtitle">{t("runner.header.subtitle")}</p>
             </div>
           </div>
           <div className="sq-inline-actions">
             {isExamMode ? (
               <Button variant="ghost" size="sm" busy={isTogglingPause} onClick={() => void handlePauseToggle()}>
-                {isExamPaused ? "Retomar" : "Pausar"}
+                {isExamPaused ? t("common.actions.resume") : t("common.actions.pause")}
               </Button>
             ) : null}
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/history">Historico</Link>
+            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
+            <Link href="/history">{t("common.labels.history")}</Link>
           </div>
         </header>
 
         <div className="sq-runner-layout">
           <div className="sq-page-stack">
             <Card
-              title={`Questao ${questionNumber} de ${totalQuestions || "-"}`}
+              title={t("runner.questionCard.title", { current: questionNumber, total: totalQuestions || "-" })}
               subtitle={
                 currentQuestion?.multi_select
-                  ? "Selecione todas as alternativas corretas."
-                  : "Selecione uma alternativa."
+                  ? t("runner.questionCard.multiSelect")
+                  : t("runner.questionCard.singleSelect")
               }
               actions={
                 <div className="sq-chip-row">
                   <span className="sq-chip">
                     {mode === "study"
-                      ? `${sessionState?.answered_count ?? 0} respondidas`
-                      : `${sessionState?.correct_count ?? 0} acertos · ${sessionState?.wrong_count ?? 0} erros`}
+                      ? t("runner.questionCard.answered", { count: sessionState?.answered_count ?? 0 })
+                      : t("runner.questionCard.examSummary", {
+                          correct: sessionState?.correct_count ?? 0,
+                          wrong: sessionState?.wrong_count ?? 0
+                        })}
                   </span>
                   {isExamMode ? (
                     <span className="sq-chip">
-                      {isExamPaused ? "Pausado" : "Tempo"} {formatRemainingTime(sessionState?.remaining_seconds)}
+                      {isExamPaused ? t("runner.questionCard.paused") : t("runner.questionCard.time")}{" "}
+                      {formatRemainingTime(sessionState?.remaining_seconds)}
                     </span>
                   ) : null}
                   <span className="sq-chip">{strategyLabel}</span>
@@ -624,12 +634,12 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
               }
             >
               <div className="sq-surface-block">
-                {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
+                {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
                 {isExamPaused ? (
                   <StatusBanner
                     tone="neutral"
-                    title="Simulado pausado"
-                    message="As respostas ficam bloqueadas enquanto a pausa estiver ativa."
+                    title={t("runner.errors.examPausedTitle")}
+                    message={t("runner.errors.examPausedMessage")}
                   />
                 ) : null}
 
@@ -646,7 +656,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     <div
                       className="sq-list"
                       role={currentQuestion.multi_select ? "group" : "radiogroup"}
-                      aria-label="Alternativas"
+                      aria-label={t("runner.questionCard.optionsAriaLabel")}
                     >
                       {currentQuestion.options.map((option) => {
                         const isSelected = selectedKeys.includes(option.key);
@@ -678,7 +688,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     </div>
 
                     {isStudyMode ? (
-                      <Field label="Confianca" htmlFor="confidence-level">
+                      <Field label={t("runner.labels.confidence")} htmlFor="confidence-level">
                         <select
                           id="confidence-level"
                           className="sq-select"
@@ -686,9 +696,9 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                           onChange={(event) => setConfidenceLevel(event.target.value as "guess" | "not_sure" | "confident")}
                           disabled={!!feedback}
                         >
-                          <option value="guess">Chutei</option>
-                          <option value="not_sure">Nao tenho certeza</option>
-                          <option value="confident">Tenho certeza</option>
+                          <option value="guess">{t("common.confidence.guess")}</option>
+                          <option value="not_sure">{t("common.confidence.notSure")}</option>
+                          <option value="confident">{t("common.confidence.confident")}</option>
                         </select>
                       </Field>
                     ) : null}
@@ -696,10 +706,10 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     {feedback ? (
                       <StatusBanner
                         tone={feedback.is_correct ? "success" : "danger"}
-                        title={feedback.is_correct ? "Resposta correta" : "Resposta incorreta"}
+                        title={feedback.is_correct ? t("runner.feedback.correct") : t("runner.feedback.wrong")}
                         message={
                           feedback.justification?.trim() ||
-                          "Sem justificativa cadastrada para esta questao. Revise o topico e siga para a proxima."
+                          t("runner.feedback.missingJustification")
                         }
                         action={
                           feedbackBits.length ? (
@@ -717,7 +727,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
 
                     <div className="sq-actions">
                       <Button busy={isSubmitting} disabled={!canSubmit} onClick={() => void handleSubmit()}>
-                        Confirmar resposta
+                        {t("runner.actions.confirmAnswer")}
                       </Button>
                       <Button
                         variant="ghost"
@@ -725,20 +735,20 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         disabled={!feedback || isStudyStateSaving || isExamPaused}
                         onClick={() => void goNext()}
                       >
-                        {feedback?.finished ? "Ver resultado" : "Proxima questao"}
+                        {feedback?.finished ? t("common.actions.viewResult") : t("common.actions.nextQuestion")}
                       </Button>
                     </div>
                   </>
                 ) : (
-                  <div className="sq-empty">Nenhuma questao ativa encontrada para esta sessao.</div>
+                  <div className="sq-empty">{t("runner.labels.noActiveQuestion")}</div>
                 )}
               </div>
             </Card>
           </div>
 
-          <aside className="sq-runner-sidebar" aria-label="Ferramentas da questao">
+          <aside className="sq-runner-sidebar" aria-label={t("runner.labels.questionToolsAria")}>
             <details className="sq-card sq-disclosure" open>
-              <summary className="sq-disclosure__summary">Ferramentas</summary>
+              <summary className="sq-disclosure__summary">{t("runner.labels.tools")}</summary>
 
               <div className="sq-stack-md">
                 {isStudyMode ? (
@@ -746,21 +756,23 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     <div className="sq-runner-utility">
                       <div className="sq-runner-utility__head">
                         <div>
-                          <div className="sq-list-title">Hints</div>
-                          <div className="sq-list-meta">Abra apenas quando precisar de um empurrao.</div>
+                          <div className="sq-list-title">{t("runner.labels.hints")}</div>
+                          <div className="sq-list-meta">{t("runner.labels.hintsSubtitle")}</div>
                         </div>
-                        <span className="sq-chip">{activeHint ? `Nivel ${activeHint.level}` : "Fechado"}</span>
+                        <span className="sq-chip">
+                          {activeHint ? t("runner.labels.level", { level: activeHint.level }) : t("common.status.closed")}
+                        </span>
                       </div>
 
                       <div className="sq-actions sq-gap-top-sm">
                         <Button variant="ghost" size="sm" busy={isHintLoading} disabled={!!feedback} onClick={() => void handleLoadHint(1)}>
-                          Hint 1
+                          {t("runner.hints.hintButton", { level: 1 })}
                         </Button>
                         <Button variant="ghost" size="sm" busy={isHintLoading} disabled={!!feedback} onClick={() => void handleLoadHint(2)}>
-                          Hint 2
+                          {t("runner.hints.hintButton", { level: 2 })}
                         </Button>
                         <Button variant="ghost" size="sm" busy={isHintLoading} disabled={!!feedback} onClick={() => void handleLoadHint(3)}>
-                          Hint 3
+                          {t("runner.hints.hintButton", { level: 3 })}
                         </Button>
                       </div>
 
@@ -772,7 +784,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                           <div className="sq-list-meta">{activeHint.message}</div>
                           <div className="sq-list-meta">{activeHint.caution}</div>
                           {activeHint.references.length ? (
-                            <div className="sq-list" role="list" aria-label="Referencias sugeridas pelo hint">
+                            <div className="sq-list" role="list" aria-label={t("runner.labels.referencesHintAria")}>
                               {activeHint.references.map((reference, index) => (
                                 <div key={`${reference.label}-${index}`} className="sq-list-item">
                                   <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
@@ -788,7 +800,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                                       rel="noreferrer"
                                       className="sq-text-link"
                                     >
-                                      Abrir trecho
+                                      {t("runner.labels.openExcerpt")}
                                     </a>
                                   ) : null}
                                 </div>
@@ -802,8 +814,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     <div className="sq-runner-utility">
                       <div className="sq-runner-utility__head">
                         <div>
-                          <div className="sq-list-title">Notas</div>
-                          <div className="sq-list-meta">Marque e registre contexto so quando for util.</div>
+                          <div className="sq-list-title">{t("runner.labels.notes")}</div>
+                          <div className="sq-list-meta">{t("runner.labels.notesSubtitle")}</div>
                         </div>
                         <span className="sq-chip">{studyState?.scope || "device"}</span>
                       </div>
@@ -820,14 +832,14 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                               bookmarked: event.target.checked
                             }));
                             setStudyStateDirty(true);
-                            setStudyStateNotice("Alteracoes pendentes...");
+                            setStudyStateNotice(t("runner.studyState.pendingChanges"));
                           }}
                         />
-                        Marcar para revisar depois
+                        {t("runner.labels.reviewLater")}
                       </label>
 
                       <div className="sq-gap-top-sm">
-                        <Field label="Nota" htmlFor="study-note">
+                        <Field label={t("runner.labels.note")} htmlFor="study-note">
                           <textarea
                             id="study-note"
                             className="sq-textarea"
@@ -840,7 +852,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                                 noteText: event.target.value
                               }));
                               setStudyStateDirty(true);
-                              setStudyStateNotice("Alteracoes pendentes...");
+                              setStudyStateNotice(t("runner.studyState.pendingChanges"));
                             }}
                           />
                         </Field>
@@ -854,7 +866,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                           disabled={!studyStateDirty || isStudyStateLoading}
                           onClick={() => void saveCurrentStudyState()}
                         >
-                          Salvar
+                          {t("runner.labels.save")}
                         </Button>
                         <Button
                           variant="ghost"
@@ -866,7 +878,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                             }
                           }}
                         >
-                          Recarregar
+                          {t("runner.labels.reload")}
                         </Button>
                       </div>
 
@@ -875,14 +887,14 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                   </>
                 ) : (
                   <div className="sq-empty sq-empty--compact">
-                    No simulado, mantenha o foco na pergunta. A revisao detalhada aparece no resultado final.
+                    {t("runner.labels.examFocusOnly")}
                   </div>
                 )}
 
                 {feedback?.official_references?.length ? (
                   <div className="sq-runner-utility">
-                    <div className="sq-list-title">Referencias</div>
-                    <div className="sq-list sq-gap-top-sm" role="list" aria-label="Referencias oficiais">
+                    <div className="sq-list-title">{t("runner.labels.references")}</div>
+                    <div className="sq-list sq-gap-top-sm" role="list" aria-label={t("runner.labels.referencesOfficialAria")}>
                       {feedback.official_references.map((reference, index) => (
                         <div key={`${reference.label}-${index}`} className="sq-list-item">
                           <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
@@ -898,7 +910,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                               rel="noreferrer"
                               className="sq-text-link"
                             >
-                              Abrir trecho
+                              {t("runner.labels.openExcerpt")}
                             </a>
                           ) : null}
                         </div>
