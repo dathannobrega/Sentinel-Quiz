@@ -88,6 +88,24 @@ def _normalize_tags(raw_tags) -> list[str]:
     return normalized
 
 
+def _normalize_text(value) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _merge_tags(*groups) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for tag in _normalize_tags(group):
+            key = tag.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(tag)
+    return merged
+
+
 def _clean_citation_value(value):
     if value is None:
         return None
@@ -245,6 +263,58 @@ def _normalize_correct_keys(raw_question: dict, options: list[dict]) -> list[str
     return deduped
 
 
+def _normalize_multi_select(raw_question: dict, correct_options: list[str]) -> bool:
+    return len(correct_options) > 1
+
+
+def _normalize_question_format(raw_question: dict, correct_options: list[str]) -> str | None:
+    explicit = _normalize_text(raw_question.get("question_format"))
+    if explicit:
+        return explicit
+
+    question_type = str(raw_question.get("question_type") or "").strip().lower()
+    if len(correct_options) > 1:
+        return "multiple_response"
+    if question_type == "best_answer":
+        return "best_answer"
+    if question_type in {"single_response", "multiple_response"}:
+        return "single_choice"
+    return None
+
+
+def _build_fallback_rationale(options: list[dict], correct_options: list[str]) -> str:
+    option_map = {str(item.get("key") or "").strip().upper(): str(item.get("text") or "").strip() for item in options}
+    resolved: list[str] = []
+    for key in correct_options:
+        label = str(key or "").strip().upper()
+        if not label:
+            continue
+        text = option_map.get(label)
+        resolved.append(f"{label} ({text})" if text else label)
+
+    if not resolved:
+        return (
+            "The imported answer key identifies this as the correct answer. "
+            "This rationale was generated automatically because the source file did not include a written explanation."
+        )
+
+    label = "options" if len(resolved) != 1 else "option"
+    joined = ", ".join(resolved)
+    return (
+        f"The imported answer key identifies {joined} as the correct {label}. "
+        "This rationale was generated automatically because the source file did not include a written explanation."
+    )
+
+
+def _resolve_rationale(raw_question: dict, options: list[dict], correct_options: list[str]) -> str:
+    return (
+        _normalize_text(raw_question.get("correct_rationale"))
+        or _normalize_text(raw_question.get("justification"))
+        or _normalize_text(raw_question.get("explanation"))
+        or _build_fallback_rationale(options, correct_options)
+    )
+
+
 def _normalize_wrapped_payload(file_name: str, payload: dict) -> list[dict]:
     exam = payload.get("exam") or {}
     questions = payload.get("questions") or []
@@ -271,17 +341,18 @@ def _normalize_wrapped_payload(file_name: str, payload: dict) -> list[dict]:
         if not options or not correct_options:
             continue
 
-        justification = q.get("justification") or q.get("explanation")
+        justification = _resolve_rationale(q, options, correct_options)
         certification = q.get("certification") or default_certification
         domain = q.get("domain") or q.get("topic")
         if not domain and certification == "Security+":
             domain = _infer_security_plus_domain(prompt, options, justification)
 
-        tags = _normalize_tags(q.get("tags"))
+        tags = _merge_tags(q.get("tags"), q.get("cross_domain_tags"))
+        multi_select = _normalize_multi_select(q, correct_options)
         normalized_questions.append({
             "id": qid,
             "question": prompt,
-            "multi_select": bool(q.get("multi_select", False) or len(correct_options) > 1),
+            "multi_select": multi_select,
             "options": options,
             "correct_options": correct_options,
             "justification": justification,
@@ -295,8 +366,8 @@ def _normalize_wrapped_payload(file_name: str, payload: dict) -> list[dict]:
             "blueprint_code": q.get("blueprint_code"),
             "keywords": q.get("keywords"),
             "trap_patterns": q.get("trap_patterns"),
-            "question_format": q.get("question_format"),
-            "correct_rationale": q.get("correct_rationale"),
+            "question_format": _normalize_question_format(q, correct_options),
+            "correct_rationale": _normalize_text(q.get("correct_rationale")) or justification,
             "incorrect_rationales": q.get("incorrect_rationales"),
             "avg_time_seconds": q.get("avg_time_seconds"),
             "global_accuracy_percent": q.get("global_accuracy_percent"),
@@ -347,14 +418,14 @@ def _normalize_flat_payload(file_name: str, payload: list) -> list[dict]:
                 continue
 
             domain = raw.get("domain") or raw.get("domain_primary")
-            justification = raw.get("justification") or raw.get("explanation")
-            tags = _normalize_tags(raw.get("tags"))
-            tags.extend(tag for tag in _normalize_tags(raw.get("cross_domain_tags")) if tag.lower() not in {t.lower() for t in tags})
+            justification = _resolve_rationale(raw, options, correct_options)
+            tags = _merge_tags(raw.get("tags"), raw.get("cross_domain_tags"))
+            multi_select = _normalize_multi_select(raw, correct_options)
 
             normalized_questions.append({
                 "id": qid,
                 "question": prompt,
-                "multi_select": bool(raw.get("multi_select", False) or len(correct_options) > 1),
+                "multi_select": multi_select,
                 "options": options,
                 "correct_options": correct_options,
                 "justification": justification,
@@ -368,8 +439,8 @@ def _normalize_flat_payload(file_name: str, payload: list) -> list[dict]:
                 "blueprint_code": raw.get("blueprint_code"),
                 "keywords": raw.get("keywords"),
                 "trap_patterns": raw.get("trap_patterns"),
-                "question_format": raw.get("question_format"),
-                "correct_rationale": raw.get("correct_rationale"),
+                "question_format": _normalize_question_format(raw, correct_options),
+                "correct_rationale": _normalize_text(raw.get("correct_rationale")) or justification,
                 "incorrect_rationales": raw.get("incorrect_rationales"),
                 "avg_time_seconds": raw.get("avg_time_seconds"),
                 "global_accuracy_percent": raw.get("global_accuracy_percent"),
@@ -481,6 +552,9 @@ def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
                 skipped += 1
                 continue
 
+            imported_questions = 0
+            file_errors: list[str] = []
+
             for bundle in bundles:
                 exam = bundle.get("exam") or {}
                 questions = bundle.get("questions") or []
@@ -508,95 +582,105 @@ def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
                     prompt = q.get("question")
                     if not qid or not prompt:
                         continue
+                    try:
+                        with db.begin_nested():
+                            tags_json = json.dumps(_normalize_tags(q.get("tags")), ensure_ascii=False) if q.get("tags") else None
+                            citations_json = json.dumps(_normalize_citations(q.get("citations")), ensure_ascii=False) if q.get("citations") else None
+                            db_q = db.get(Question, qid)
+                            if not db_q:
+                                db_q = Question(
+                                    id=qid,
+                                    exam_id=exam_id,
+                                    prompt=prompt,
+                                    multi_select=bool(q.get("multi_select", False)),
+                                    domain=q.get("domain"),
+                                    difficulty=q.get("difficulty"),
+                                    certification=q.get("certification"),
+                                    tags_json=tags_json,
+                                    citations_json=citations_json,
+                                )
+                                db.add(db_q)
+                            else:
+                                db_q.exam_id = exam_id
+                                db_q.prompt = prompt
+                                db_q.multi_select = bool(q.get("multi_select", False))
+                                db_q.domain = q.get("domain")
+                                db_q.difficulty = q.get("difficulty")
+                                db_q.certification = q.get("certification")
+                                db_q.tags_json = tags_json
+                                db_q.citations_json = citations_json
 
-                    tags_json = json.dumps(_normalize_tags(q.get("tags")), ensure_ascii=False) if q.get("tags") else None
-                    citations_json = json.dumps(_normalize_citations(q.get("citations")), ensure_ascii=False) if q.get("citations") else None
-                    db_q = db.get(Question, qid)
-                    if not db_q:
-                        db_q = Question(
-                            id=qid,
-                            exam_id=exam_id,
-                            prompt=prompt,
-                            multi_select=bool(q.get("multi_select", False)),
-                            domain=q.get("domain"),
-                            difficulty=q.get("difficulty"),
-                            certification=q.get("certification"),
-                            tags_json=tags_json,
-                            citations_json=citations_json,
-                        )
-                        db.add(db_q)
-                    else:
-                        db_q.exam_id = exam_id
-                        db_q.prompt = prompt
-                        db_q.multi_select = bool(q.get("multi_select", False))
-                        db_q.domain = q.get("domain")
-                        db_q.difficulty = q.get("difficulty")
-                        db_q.certification = q.get("certification")
-                        db_q.tags_json = tags_json
-                        db_q.citations_json = citations_json
+                            if db_q.options:
+                                for opt in list(db_q.options):
+                                    db.delete(opt)
 
-                    if db_q.options:
-                        for opt in list(db_q.options):
-                            db.delete(opt)
+                            correct_set = set((q.get("correct_options") or []))
+                            for opt in q.get("options") or []:
+                                key = str(opt.get("key", "")).strip().upper()
+                                text = str(opt.get("text", "")).strip()
+                                if not key or not text:
+                                    continue
+                                db.add(Option(question_id=qid, key=key, text=text, is_correct=(key in correct_set)))
 
-                    correct_set = set((q.get("correct_options") or []))
-                    for opt in q.get("options") or []:
-                        key = str(opt.get("key", "")).strip().upper()
-                        text = str(opt.get("text", "")).strip()
-                        if not key or not text:
-                            continue
-                        db.add(Option(question_id=qid, key=key, text=text, is_correct=(key in correct_set)))
+                            just = q.get("justification")
+                            db_exp = db.get(Explanation, qid)
+                            if not db_exp:
+                                db.add(Explanation(question_id=qid, justification=just))
+                            else:
+                                db_exp.justification = just
 
-                    just = q.get("justification")
-                    db_exp = db.get(Explanation, qid)
-                    if not db_exp:
-                        db.add(Explanation(question_id=qid, justification=just))
-                    else:
-                        db_exp.justification = just
-
-                    sync_imported_question_publication(
-                        db,
-                        {
-                            "id": qid,
-                            "exam_id": exam_id,
-                            "prompt": prompt,
-                            "multi_select": bool(q.get("multi_select", False)),
-                            "domain": q.get("domain"),
-                            "difficulty": q.get("difficulty"),
-                            "certification": q.get("certification"),
-                            "subject": q.get("subject"),
-                            "subtopic": q.get("subtopic"),
-                            "subdomain": q.get("subdomain"),
-                            "objective_code": q.get("objective_code"),
-                            "blueprint_code": q.get("blueprint_code"),
-                            "keywords": q.get("keywords"),
-                            "trap_patterns": q.get("trap_patterns"),
-                            "question_format": q.get("question_format"),
-                            "tags": _normalize_tags(q.get("tags")),
-                            "citations": _normalize_citations(q.get("citations")),
-                            "options": [
+                            sync_imported_question_publication(
+                                db,
                                 {
-                                    "key": str(opt.get("key", "")).strip().upper(),
-                                    "text": str(opt.get("text", "")).strip(),
-                                    "is_correct": str(opt.get("key", "")).strip().upper() in correct_set,
-                                }
-                                for opt in (q.get("options") or [])
-                                if str(opt.get("key", "")).strip() and str(opt.get("text", "")).strip()
-                            ],
-                            "justification": just,
-                            "correct_rationale": q.get("correct_rationale"),
-                            "incorrect_rationales": q.get("incorrect_rationales"),
-                            "avg_time_seconds": q.get("avg_time_seconds"),
-                            "global_accuracy_percent": q.get("global_accuracy_percent"),
-                            "change_summary": "Import refresh",
-                        },
-                    )
+                                    "id": qid,
+                                    "exam_id": exam_id,
+                                    "prompt": prompt,
+                                    "multi_select": bool(q.get("multi_select", False)),
+                                    "domain": q.get("domain"),
+                                    "difficulty": q.get("difficulty"),
+                                    "certification": q.get("certification"),
+                                    "subject": q.get("subject"),
+                                    "subtopic": q.get("subtopic"),
+                                    "subdomain": q.get("subdomain"),
+                                    "objective_code": q.get("objective_code"),
+                                    "blueprint_code": q.get("blueprint_code"),
+                                    "keywords": q.get("keywords"),
+                                    "trap_patterns": q.get("trap_patterns"),
+                                    "question_format": q.get("question_format"),
+                                    "tags": _normalize_tags(q.get("tags")),
+                                    "citations": _normalize_citations(q.get("citations")),
+                                    "options": [
+                                        {
+                                            "key": str(opt.get("key", "")).strip().upper(),
+                                            "text": str(opt.get("text", "")).strip(),
+                                            "is_correct": str(opt.get("key", "")).strip().upper() in correct_set,
+                                        }
+                                        for opt in (q.get("options") or [])
+                                        if str(opt.get("key", "")).strip() and str(opt.get("text", "")).strip()
+                                    ],
+                                    "justification": just,
+                                    "correct_rationale": q.get("correct_rationale"),
+                                    "incorrect_rationales": q.get("incorrect_rationales"),
+                                    "avg_time_seconds": q.get("avg_time_seconds"),
+                                    "global_accuracy_percent": q.get("global_accuracy_percent"),
+                                    "change_summary": "Import refresh",
+                                },
+                            )
+                        imported_questions += 1
+                    except Exception as exc:
+                        file_errors.append(f"{name}:{qid}: {exc}")
 
             _delete_empty_exams(db)
+
+            if imported_questions == 0 and file_errors:
+                db.rollback()
+                errors.extend(file_errors)
+                continue
 
             if not existing_import:
                 db.add(ImportState(file_name=name, file_sha256=digest))
             db.commit()
+            errors.extend(file_errors)
             imported += 1
 
         except Exception as e:
