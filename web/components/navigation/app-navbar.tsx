@@ -65,7 +65,10 @@ export function AppNavbar() {
     }
     const baseLinks = [
       { href: "/dashboard", label: "Dashboard" },
-      { href: "/history", label: "Historico" }
+      { href: "/start", label: "Iniciar" },
+      { href: "/review", label: "Revisao" },
+      { href: "/history", label: "Historico" },
+      { href: "/settings", label: "Configuracoes" }
     ];
     if (currentUser?.role === "admin") {
       baseLinks.push({ href: "/admin", label: "Admin" });

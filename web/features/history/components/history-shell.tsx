@@ -337,7 +337,8 @@ export function HistoryShell() {
           </div>
           <div className="sq-inline-actions">
             <Link href="/dashboard">Dashboard</Link>
-            <Link href="/dashboard">Nova sessao</Link>
+            <Link href="/start">Nova sessao</Link>
+            <Link href="/review">Revisao</Link>
             <Link href="/admin">Admin</Link>
           </div>
         </header>
@@ -637,7 +638,7 @@ export function HistoryShell() {
             )}
           </Card>
 
-          <Card title="Study Mode" subtitle="Blocos de estudo, confianca e dominios mais sensiveis.">
+          <Card title="Estudo" subtitle="Blocos de estudo, confianca e dominios mais sensiveis.">
             {filteredStudyHistory.length ? (
               <div className="sq-list">
                 {filteredStudyHistory.map((item) => (

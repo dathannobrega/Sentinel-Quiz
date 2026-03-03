@@ -16,7 +16,7 @@ services:
 
   api:
     container_name: ${APP_CONTAINER_NAME:-sentinel-quiz}
-    image: ${APP_IMAGE_NAME:-sentinel-quiz:local}
+    image: sentinel-quiz:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -88,7 +88,7 @@ services:
 
   web:
     container_name: ${APP_WEB_CONTAINER_NAME:-sentinel-quiz-web}
-    image: ${APP_WEB_IMAGE_NAME:-sentinel-quiz-web:local}
+    image: sentinel-quiz-web:local
     build:
       context: ./web
       dockerfile: Dockerfile
@@ -103,7 +103,7 @@ services:
 
   proxy:
     container_name: ${APP_NGINX_CONTAINER_NAME:-sentinel-quiz-proxy}
-    image: ${APP_NGINX_IMAGE_NAME:-sentinel-quiz-proxy:local}
+    image: sentinel-quiz-proxy:local
     build:
       context: ./docker/nginx
       dockerfile: Dockerfile

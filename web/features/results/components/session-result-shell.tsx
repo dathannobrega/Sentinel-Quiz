@@ -274,7 +274,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
             <Link href="/dashboard">Dashboard</Link>
             <Link href="/history">Historico</Link>
             <Link href="/admin">Admin</Link>
-            <Link href="/dashboard">Iniciar nova sessao</Link>
+            <Link href="/start">Iniciar nova sessao</Link>
           </div>
         </header>
 

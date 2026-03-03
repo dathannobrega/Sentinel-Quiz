@@ -582,10 +582,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">{mode === "study" ? "Study Mode" : "Exam Mode"}</div>
-              <p className="sq-page-subtitle">
-                Sessao {sessionId} · estrategia {strategyLabel}. Esta etapa ja roda totalmente no novo frontend.
-              </p>
+              <div className="sq-page-title">{mode === "study" ? "Modo Estudo" : "Modo Simulado"}</div>
+              <p className="sq-page-subtitle">Pergunta no centro. Ferramentas de apoio ao lado.</p>
             </div>
           </div>
           <div className="sq-inline-actions">
@@ -596,140 +594,175 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
             ) : null}
             <Link href="/dashboard">Dashboard</Link>
             <Link href="/history">Historico</Link>
-            <Link href="/admin">Admin</Link>
           </div>
         </header>
 
-        <Card
-          title={`Questao ${questionNumber} de ${totalQuestions || "-"}`}
-          subtitle={
-            currentQuestion?.multi_select
-              ? "Selecione todas as alternativas corretas."
-              : "Selecione uma alternativa."
-          }
-          actions={
-            <div className="sq-chip-row">
-              <span className="sq-chip">
-                {mode === "study"
-                  ? `${sessionState?.answered_count ?? 0} respondidas`
-                  : `${sessionState?.correct_count ?? 0} acertos · ${sessionState?.wrong_count ?? 0} erros`}
-              </span>
-              {isExamMode ? (
-                <span className="sq-chip">
-                  {isExamPaused ? "Pausado" : "Tempo"} {formatRemainingTime(sessionState?.remaining_seconds)}
-                </span>
-              ) : null}
-            </div>
-          }
-        >
-          <div className="sq-surface-block">
-            {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
-            {isExamPaused ? (
-              <StatusBanner
-                tone="neutral"
-                title="Simulado pausado"
-                message="As respostas ficam bloqueadas enquanto a pausa controlada estiver ativa."
-              />
-            ) : null}
-
-            {currentQuestion ? (
-              <>
+        <div className="sq-runner-layout">
+          <div className="sq-page-stack">
+            <Card
+              title={`Questao ${questionNumber} de ${totalQuestions || "-"}`}
+              subtitle={
+                currentQuestion?.multi_select
+                  ? "Selecione todas as alternativas corretas."
+                  : "Selecione uma alternativa."
+              }
+              actions={
                 <div className="sq-chip-row">
-                  {currentQuestion.certification ? <span className="sq-chip">{currentQuestion.certification}</span> : null}
-                  {currentQuestion.domain ? <span className="sq-chip">{currentQuestion.domain}</span> : null}
-                  {currentQuestion.difficulty ? <span className="sq-chip">{currentQuestion.difficulty}</span> : null}
+                  <span className="sq-chip">
+                    {mode === "study"
+                      ? `${sessionState?.answered_count ?? 0} respondidas`
+                      : `${sessionState?.correct_count ?? 0} acertos · ${sessionState?.wrong_count ?? 0} erros`}
+                  </span>
+                  {isExamMode ? (
+                    <span className="sq-chip">
+                      {isExamPaused ? "Pausado" : "Tempo"} {formatRemainingTime(sessionState?.remaining_seconds)}
+                    </span>
+                  ) : null}
+                  <span className="sq-chip">{strategyLabel}</span>
                 </div>
+              }
+            >
+              <div className="sq-surface-block">
+                {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
+                {isExamPaused ? (
+                  <StatusBanner
+                    tone="neutral"
+                    title="Simulado pausado"
+                    message="As respostas ficam bloqueadas enquanto a pausa estiver ativa."
+                  />
+                ) : null}
 
-                <div
-                  style={{
-                    fontSize: "1.08rem",
-                    lineHeight: 1.7
-                  }}
-                >
-                  {currentQuestion.prompt}
-                </div>
+                {currentQuestion ? (
+                  <>
+                    <div className="sq-chip-row">
+                      {currentQuestion.certification ? <span className="sq-chip">{currentQuestion.certification}</span> : null}
+                      {currentQuestion.domain ? <span className="sq-chip">{currentQuestion.domain}</span> : null}
+                      {currentQuestion.difficulty ? <span className="sq-chip">{currentQuestion.difficulty}</span> : null}
+                    </div>
 
-                <div className="sq-list" role="list" aria-label="Alternativas">
-                  {currentQuestion.options.map((option) => {
-                    const isSelected = selectedKeys.includes(option.key);
-                    const isConfirmedCorrect = !!feedback && feedback.is_correct && isSelected;
-                    const isWrongSelection = !!feedback && !feedback.is_correct && isSelected;
-
-                    return (
-                      <button
-                        key={option.key}
-                        type="button"
-                        role={currentQuestion.multi_select ? "checkbox" : "radio"}
-                        aria-checked={isSelected}
-                        onClick={() => toggleSelection(option.key)}
-                        disabled={!!feedback || isExamPaused}
-                        className="sq-list-item"
-                        style={{
-                          textAlign: "left",
-                          borderColor: isConfirmedCorrect
-                            ? "rgba(15,157,88,0.32)"
-                            : isWrongSelection
-                              ? "rgba(209,67,67,0.28)"
-                              : isSelected
-                                ? "rgba(21,122,110,0.32)"
-                                : "var(--sq-border)",
-                          background: isConfirmedCorrect
-                            ? "rgba(15,157,88,0.08)"
-                            : isWrongSelection
-                              ? "rgba(209,67,67,0.08)"
-                              : isSelected
-                                ? "rgba(21,122,110,0.08)"
-                                : "rgba(255,255,255,0.74)"
-                        }}
-                      >
-                        <div style={{ display: "flex", gap: "var(--sq-space-3)", alignItems: "flex-start" }}>
-                          <span className="sq-chip">{option.key}</span>
-                          <span>{option.text}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {isStudyMode ? (
-                  <div className="sq-surface-block">
-                    <Field
-                      label="Confianca"
-                      htmlFor="confidence-level"
-                      hint="Esse nivel alimenta o algoritmo de repeticao e a proxima revisao."
-                    >
-                      <select
-                        id="confidence-level"
-                        className="sq-select"
-                        value={confidenceLevel}
-                        onChange={(event) => setConfidenceLevel(event.target.value as "guess" | "not_sure" | "confident")}
-                        disabled={!!feedback}
-                      >
-                        <option value="guess">Chutei</option>
-                        <option value="not_sure">Nao tenho certeza</option>
-                        <option value="confident">Tenho certeza</option>
-                      </select>
-                    </Field>
+                    <div className="sq-runner-question">{currentQuestion.prompt}</div>
 
                     <div
-                      className="sq-list-item"
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "var(--sq-space-3)"
-                      }}
+                      className="sq-list"
+                      role={currentQuestion.multi_select ? "group" : "radiogroup"}
+                      aria-label="Alternativas"
                     >
-                      <div className="sq-progress-head">
+                      {currentQuestion.options.map((option) => {
+                        const isSelected = selectedKeys.includes(option.key);
+                        const isConfirmedCorrect = !!feedback && feedback.is_correct && isSelected;
+                        const isWrongSelection = !!feedback && !feedback.is_correct && isSelected;
+
+                        return (
+                          <button
+                            key={option.key}
+                            type="button"
+                            role={currentQuestion.multi_select ? "checkbox" : "radio"}
+                            aria-checked={isSelected}
+                            onClick={() => toggleSelection(option.key)}
+                            disabled={!!feedback || isExamPaused}
+                            className="sq-list-item sq-runner-option"
+                            style={{
+                              borderColor: isConfirmedCorrect
+                                ? "rgba(15,157,88,0.32)"
+                                : isWrongSelection
+                                  ? "rgba(209,67,67,0.28)"
+                                  : isSelected
+                                    ? "rgba(21,122,110,0.32)"
+                                    : "var(--sq-border)",
+                              background: isConfirmedCorrect
+                                ? "rgba(15,157,88,0.08)"
+                                : isWrongSelection
+                                  ? "rgba(209,67,67,0.08)"
+                                  : isSelected
+                                    ? "rgba(21,122,110,0.08)"
+                                    : "rgba(255,255,255,0.74)"
+                            }}
+                          >
+                            <div className="sq-runner-option__body">
+                              <span className="sq-chip">{option.key}</span>
+                              <span>{option.text}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {isStudyMode ? (
+                      <Field label="Confianca" htmlFor="confidence-level">
+                        <select
+                          id="confidence-level"
+                          className="sq-select"
+                          value={confidenceLevel}
+                          onChange={(event) => setConfidenceLevel(event.target.value as "guess" | "not_sure" | "confident")}
+                          disabled={!!feedback}
+                        >
+                          <option value="guess">Chutei</option>
+                          <option value="not_sure">Nao tenho certeza</option>
+                          <option value="confident">Tenho certeza</option>
+                        </select>
+                      </Field>
+                    ) : null}
+
+                    {feedback ? (
+                      <StatusBanner
+                        tone={feedback.is_correct ? "success" : "danger"}
+                        title={feedback.is_correct ? "Resposta correta" : "Resposta incorreta"}
+                        message={
+                          feedback.justification?.trim() ||
+                          "Sem justificativa cadastrada para esta questao. Revise o topico e siga para a proxima."
+                        }
+                        action={
+                          feedbackBits.length ? (
+                            <div className="sq-chip-row">
+                              {feedbackBits.map((item) => (
+                                <span key={item} className="sq-chip">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          ) : undefined
+                        }
+                      />
+                    ) : null}
+
+                    <div className="sq-actions">
+                      <Button busy={isSubmitting} disabled={!canSubmit} onClick={() => void handleSubmit()}>
+                        Confirmar resposta
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        busy={isAdvancing}
+                        disabled={!feedback || isStudyStateSaving || isExamPaused}
+                        onClick={() => void goNext()}
+                      >
+                        {feedback?.finished ? "Ver resultado" : "Proxima questao"}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="sq-empty">Nenhuma questao ativa encontrada para esta sessao.</div>
+                )}
+              </div>
+            </Card>
+          </div>
+
+          <aside className="sq-runner-sidebar" aria-label="Ferramentas da questao">
+            <details className="sq-card sq-disclosure" open>
+              <summary className="sq-disclosure__summary">Ferramentas</summary>
+
+              <div className="sq-stack-md">
+                {isStudyMode ? (
+                  <>
+                    <div className="sq-runner-utility">
+                      <div className="sq-runner-utility__head">
                         <div>
-                          <div className="sq-list-title">Hints graduais</div>
-                          <div className="sq-list-meta">
-                            Avance por camadas: conceito, recorte e pegadinha. O hint nunca abre o gabarito.
-                          </div>
+                          <div className="sq-list-title">Hints</div>
+                          <div className="sq-list-meta">Abra apenas quando precisar de um empurrao.</div>
                         </div>
-                        <span className="sq-chip">{activeHint ? `Nivel ${activeHint.level}` : "Sem hint aberto"}</span>
+                        <span className="sq-chip">{activeHint ? `Nivel ${activeHint.level}` : "Fechado"}</span>
                       </div>
 
-                      <div className="sq-actions">
+                      <div className="sq-actions sq-gap-top-sm">
                         <Button variant="ghost" size="sm" busy={isHintLoading} disabled={!!feedback} onClick={() => void handleLoadHint(1)}>
                           Hint 1
                         </Button>
@@ -741,10 +774,10 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         </Button>
                       </div>
 
-                      {hintError ? <div className="sq-list-meta">{hintError}</div> : null}
+                      {hintError ? <div className="sq-list-meta sq-gap-top-sm">{hintError}</div> : null}
 
                       {activeHint ? (
-                        <div className="sq-surface-block">
+                        <div className="sq-stack-sm sq-gap-top-sm">
                           <div className="sq-list-title">{activeHint.title}</div>
                           <div className="sq-list-meta">{activeHint.message}</div>
                           <div className="sq-list-meta">{activeHint.caution}</div>
@@ -763,6 +796,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                                       )}
                                       target="_blank"
                                       rel="noreferrer"
+                                      className="sq-text-link"
                                     >
                                       Abrir trecho
                                     </a>
@@ -775,33 +809,16 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                       ) : null}
                     </div>
 
-                    <div
-                      className="sq-list-item"
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "var(--sq-space-3)"
-                      }}
-                    >
-                      <div className="sq-progress-head">
+                    <div className="sq-runner-utility">
+                      <div className="sq-runner-utility__head">
                         <div>
-                          <div className="sq-list-title">Revisao pessoal</div>
-                          <div className="sq-list-meta">
-                            Bookmark e nota sincronizados por questao no mesmo fluxo do study mode.
-                          </div>
+                          <div className="sq-list-title">Notas</div>
+                          <div className="sq-list-meta">Marque e registre contexto so quando for util.</div>
                         </div>
                         <span className="sq-chip">{studyState?.scope || "device"}</span>
                       </div>
 
-                      <label
-                        htmlFor="study-bookmark"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "var(--sq-space-2)",
-                          fontWeight: 700
-                        }}
-                      >
+                      <label htmlFor="study-bookmark" className="sq-checkbox-row sq-gap-top-sm">
                         <input
                           id="study-bookmark"
                           type="checkbox"
@@ -819,29 +836,27 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         Marcar para revisar depois
                       </label>
 
-                      <Field
-                        label="Nota"
-                        htmlFor="study-note"
-                        hint="Use este campo para registrar contexto, pegadinhas e por que voce errou."
-                      >
-                        <textarea
-                          id="study-note"
-                          className="sq-textarea"
-                          rows={5}
-                          value={studyDraft.noteText}
-                          disabled={isStudyStateLoading}
-                          onChange={(event) => {
-                            setStudyDraft((current) => ({
-                              ...current,
-                              noteText: event.target.value
-                            }));
-                            setStudyStateDirty(true);
-                            setStudyStateNotice("Alteracoes pendentes...");
-                          }}
-                        />
-                      </Field>
+                      <div className="sq-gap-top-sm">
+                        <Field label="Nota" htmlFor="study-note">
+                          <textarea
+                            id="study-note"
+                            className="sq-textarea"
+                            rows={5}
+                            value={studyDraft.noteText}
+                            disabled={isStudyStateLoading}
+                            onChange={(event) => {
+                              setStudyDraft((current) => ({
+                                ...current,
+                                noteText: event.target.value
+                              }));
+                              setStudyStateDirty(true);
+                              setStudyStateNotice("Alteracoes pendentes...");
+                            }}
+                          />
+                        </Field>
+                      </div>
 
-                      <div className="sq-actions">
+                      <div className="sq-actions sq-gap-top-sm">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -849,7 +864,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                           disabled={!studyStateDirty || isStudyStateLoading}
                           onClick={() => void saveCurrentStudyState()}
                         >
-                          Salvar anotacoes
+                          Salvar
                         </Button>
                         <Button
                           variant="ghost"
@@ -865,81 +880,46 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         </Button>
                       </div>
 
-                      {studyStateNotice ? <div className="sq-list-meta">{studyStateNotice}</div> : null}
+                      {studyStateNotice ? <div className="sq-list-meta sq-gap-top-sm">{studyStateNotice}</div> : null}
+                    </div>
+                  </>
+                ) : (
+                  <div className="sq-empty sq-empty--compact">
+                    No simulado, mantenha o foco na pergunta. A revisao detalhada aparece no resultado final.
+                  </div>
+                )}
+
+                {feedback?.official_references?.length ? (
+                  <div className="sq-runner-utility">
+                    <div className="sq-list-title">Referencias</div>
+                    <div className="sq-list sq-gap-top-sm" role="list" aria-label="Referencias oficiais">
+                      {feedback.official_references.map((reference, index) => (
+                        <div key={`${reference.label}-${index}`} className="sq-list-item">
+                          <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
+                          {reference.material_path ? (
+                            <a
+                              href={buildMaterialPreviewHref(
+                                reference.material_path,
+                                reference.locator,
+                                reference.page_start,
+                                reference.page_end
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="sq-text-link"
+                            >
+                              Abrir trecho
+                            </a>
+                          ) : null}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : null}
-
-                {feedback ? (
-                  <StatusBanner
-                    tone={feedback.is_correct ? "success" : "danger"}
-                    title={feedback.is_correct ? "Resposta correta" : "Resposta incorreta"}
-                    message={
-                      feedback.justification?.trim() ||
-                      "Sem justificativa cadastrada para esta questao. Revise o topico e siga para a proxima."
-                    }
-                    action={
-                      feedbackBits.length ? (
-                        <div className="sq-chip-row">
-                          {feedbackBits.map((item) => (
-                            <span key={item} className="sq-chip">
-                              {item}
-                            </span>
-                          ))}
-                        </div>
-                      ) : undefined
-                    }
-                  />
-                ) : null}
-
-                {feedback?.official_references?.length ? (
-                  <div className="sq-list" role="list" aria-label="Referencias oficiais">
-                    {feedback.official_references.map((reference, index) => (
-                      <div key={`${reference.label}-${index}`} className="sq-list-item">
-                        <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
-                        {reference.material_path ? (
-                          <a
-                            href={buildMaterialPreviewHref(
-                              reference.material_path,
-                              reference.locator,
-                              reference.page_start,
-                              reference.page_end
-                            )}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Abrir trecho
-                          </a>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className="sq-actions">
-                  <Button busy={isSubmitting} disabled={!canSubmit} onClick={() => void handleSubmit()}>
-                    Confirmar resposta
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    busy={isAdvancing}
-                    disabled={!feedback || isStudyStateSaving || isExamPaused}
-                    onClick={() => void goNext()}
-                  >
-                    {feedback?.finished ? "Ver resultado" : "Proxima questao"}
-                  </Button>
-                </div>
-
-                <div className="sq-empty">
-                  Navegacao sequencial: a API atual avanca a sessao a cada resposta. A revisao completa fica disponivel
-                  no resultado final.
-                </div>
-              </>
-            ) : (
-              <div className="sq-empty">Nenhuma questao ativa encontrada para esta sessao.</div>
-            )}
-          </div>
-        </Card>
+              </div>
+            </details>
+          </aside>
+        </div>
       </div>
     </main>
   );
