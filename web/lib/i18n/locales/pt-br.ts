@@ -2,17 +2,17 @@ export const ptBRMessages = {
   metadata: {
     title: "Sentinel Quiz | Security+ e CISSP",
     description:
-      "Treine para Security+ e CISSP com simulados, estudo guiado, revisao inteligente e metricas por dominio."
+      "Treine para Security+ e CISSP com simulados, estudo guiado, revisão inteligente e métricas por domínio."
   },
   common: {
     appName: "Sentinel Quiz",
     labels: {
       dashboard: "Dashboard",
       start: "Iniciar",
-      review: "Revisao",
-      history: "Historico",
-      settings: "Configuracoes",
-      admin: "Administracao",
+      review: "Revisão",
+      history: "Histórico",
+      settings: "Configurações",
+      admin: "Administração",
       exam: "Simulado",
       study: "Estudo"
     },
@@ -23,35 +23,35 @@ export const ptBRMessages = {
       refresh: "Atualizar",
       continue: "Continuar",
       retry: "Tentar novamente",
-      openHistory: "Abrir historico",
+      openHistory: "Abrir histórico",
       reviewNow: "Revisar agora",
-      newSession: "Nova sessao",
+      newSession: "Nova sessão",
       seeDetails: "Ver detalhes",
       resume: "Retomar",
       pause: "Pausar",
       goToDashboard: "Ir para o dashboard",
       backToDashboard: "Voltar ao dashboard",
       openResult: "Tentar abrir o resultado",
-      resendVerification: "Reenviar verificacao",
-      startFree: "Comecar gratis",
+      resendVerification: "Reenviar verificação",
+      startFree: "Começar grátis",
       seeDemo: "Ver demo",
-      alreadyHaveAccount: "Ja tenho conta",
-      goToStart: "Iniciar nova sessao",
-      nextQuestion: "Proxima questao",
+      alreadyHaveAccount: "Já tenho conta",
+      goToStart: "Iniciar nova sessão",
+      nextQuestion: "Próxima questão",
       viewResult: "Ver resultado"
     },
     status: {
       marked: "marcada",
       withNote: "com nota",
-      syncingSession: "Sincronizando sessao...",
+      syncingSession: "Sincronizando sessão...",
       updating: "Atualizando",
       upToDate: "Em dia"
     },
     filters: {
       all: "Todas",
       everything: "Tudo",
-      allDomains: "Todos os dominios",
-      mixedRandom: "Misturar todas (random)",
+      allDomains: "Todos os domínios",
+      mixedRandom: "Misturar todas (aleatório)",
       selectExam: "Selecione uma prova"
     },
     reviewStates: {
@@ -62,46 +62,46 @@ export const ptBRMessages = {
       mastered: "Dominadas"
     },
     strategies: {
-      standard: "Padrao",
+      standard: "Padrão",
       adaptive: "Adaptativa"
     },
     confidence: {
       guess: "Chutei",
-      notSure: "Nao tenho certeza",
+      notSure: "Não tenho certeza",
       confident: "Tenho certeza"
     },
     errors: {
       unexpected: "Ocorreu um erro inesperado.",
-      attention: "Atencao",
+      attention: "Atenção",
       partialLoad: "Carga parcial",
-      sessionUnavailable: "Sessao indisponivel",
-      authFailure: "Falha de autenticacao"
+      sessionUnavailable: "Sessão indisponível",
+      authFailure: "Falha de autenticação"
     }
   },
   navigation: {
-    ariaLabel: "Navegacao principal",
+    ariaLabel: "Navegação principal",
     brandTitle: "Sentinel Quiz",
-    brandSubtitle: "Simulados, estudo guiado e revisao inteligente para Security+ e CISSP.",
+    brandSubtitle: "Simulados, estudo guiado e revisão inteligente para Security+ e CISSP.",
     publicLinks: {
       howItWorks: "Como funciona",
       faq: "FAQ"
     },
     errors: {
-      sessionRefresh: "Nao foi possivel atualizar a sessao."
+      sessionRefresh: "Não foi possível atualizar a sessão."
     }
   },
   dashboard: {
     defaults: {
-      recommendedNextAction: "Comece uma sessao curta para retomar o ritmo."
+      recommendedNextAction: "Comece uma sessão curta para retomar o ritmo."
     },
     loadError: "Nem tudo foi carregado: {items}.",
     failedAreas: {
       weakAreas: "lacunas",
       pace: "ritmo",
-      review: "revisao",
-      history: "historico",
-      examSessions: "sessoes de simulado",
-      studySessions: "sessoes de estudo"
+      review: "revisão",
+      history: "histórico",
+      examSessions: "sessões de simulado",
+      studySessions: "sessões de estudo"
     },
     modes: {
       examMixed: "Simulado misto",
@@ -109,50 +109,50 @@ export const ptBRMessages = {
     },
     header: {
       title: "Hoje",
-      subtitle: "Seu foco de hoje: revisar o que venceu e manter consistencia."
+      subtitle: "Seu foco de hoje: revisar o que venceu e manter consistência."
     },
     todayCard: {
       title: "Hoje",
-      subtitle: "Uma acao principal: limpar o que esta vencido.",
-      dueReviews: "Revisoes vencidas",
-      dailyProgress: "Progresso diario",
-      latestScore: "Ultimo score",
-      nextStep: "Proximo passo"
+      subtitle: "Uma ação principal: limpar o que está vencido.",
+      dueReviews: "Revisões vencidas",
+      dailyProgress: "Progresso diário",
+      latestScore: "Último score",
+      nextStep: "Próximo passo"
     },
     continueCard: {
       title: "Continuar",
       subtitle: "Retome apenas o que ainda faz sentido.",
-      empty: "Nenhuma sessao ativa. Abra um novo bloco quando quiser."
+      empty: "Nenhuma sessão ativa. Abra um novo bloco quando quiser."
     },
     weakAreasCard: {
       title: "Pontos fracos",
-      subtitle: "Somente os sinais mais uteis para decidir o proximo bloco.",
-      empty: "Sem historico suficiente para destacar lacunas ainda."
+      subtitle: "Somente os sinais mais úteis para decidir o próximo bloco.",
+      empty: "Sem histórico suficiente para destacar lacunas ainda."
     },
     summaryCard: {
-      title: "Resumo rapido",
-      subtitle: "Contexto minimo para nao perder o ritmo.",
+      title: "Resumo rápido",
+      subtitle: "Contexto mínimo para não perder o ritmo.",
       currentStreak: "Streak atual",
       bestStreak: "Melhor streak",
       week: "Semana",
-      reviewGoal: "Meta de revisao",
-      nextReview: "Proxima revisao",
-      update: "Atualizacao"
+      reviewGoal: "Meta de revisão",
+      nextReview: "Próxima revisão",
+      update: "Atualização"
     }
   },
   launcher: {
     card: {
-      title: "Comecar sessao",
+      title: "Começar sessão",
       subtitle: "Escolha o essencial e inicie em poucos segundos."
     },
     fields: {
-      certification: "Certificacao",
+      certification: "Certificação",
       mode: "Modo",
-      questions: "Questoes",
+      questions: "Questões",
       timeMinutes: "Tempo (min)",
-      advancedFilters: "Filtros avancados",
-      domain: "Dominio",
-      strategy: "Estrategia",
+      advancedFilters: "Filtros avançados",
+      domain: "Domínio",
+      strategy: "Estratégia",
       difficulty: "Dificuldade",
       tags: "Tags"
     },
@@ -165,7 +165,7 @@ export const ptBRMessages = {
       notes: "Com nota",
       incorrect: "Erradas",
       unseen: "Novas",
-      lowConfidence: "Baixa confianca"
+      lowConfidence: "Baixa confiança"
     },
     actions: {
       createStudyBlock: "Criar bloco de estudo",
@@ -174,117 +174,117 @@ export const ptBRMessages = {
   },
   start: {
     errors: {
-      searchUnavailable: "Busca de questoes indisponivel: {message}",
+      searchUnavailable: "Busca de questões indisponível: {message}",
       unexpected: "Ocorreu um erro inesperado.",
-      createSessionTitle: "Nao foi possivel criar a sessao",
-      invalidQuantityTitle: "Quantidade invalida",
-      invalidQuantityMessage: "Informe pelo menos 1 questao.",
+      createSessionTitle: "Não foi possível criar a sessão",
+      invalidQuantityTitle: "Quantidade inválida",
+      invalidQuantityMessage: "Informe pelo menos 1 questão.",
       quantityLimitTitle: "Quantidade acima do limite",
-      quantityLimitMessage: "O limite atual para {mode} e {count} questoes.",
-      invalidTimeTitle: "Tempo invalido",
+      quantityLimitMessage: "O limite atual para {mode} é {count} questões.",
+      invalidTimeTitle: "Tempo inválido",
       invalidTimeMessage: "Use entre 5 e 360 minutos."
     },
     notices: {
-      loadingDomainsTitle: "Atualizando dominios",
-      loadingDomainsMessage: "Carregando os filtros da certificacao."
+      loadingDomainsTitle: "Atualizando domínios",
+      loadingDomainsMessage: "Carregando os filtros da certificação."
     },
     header: {
       title: "Iniciar",
-      subtitle: "Monte um bloco curto, comece rapido e deixe o resto sob demanda."
+      subtitle: "Monte um bloco curto, comece rápido e deixe o resto sob demanda."
     },
     discovery: {
-      summary: "Explorar banco de questoes",
+      summary: "Explorar banco de questões",
       foundCount: "{count} encontrada(s)",
-      title: "Descobrir questoes",
+      title: "Descobrir questões",
       subtitle: "Procure no banco apenas quando precisar refinar o recorte.",
       query: "Texto",
-      domain: "Dominio",
+      domain: "Domínio",
       tag: "Tag",
       queryPlaceholder: "Ex.: cryptography, asset, incident",
       tagPlaceholder: "Ex.: access control",
       bookmarkedOnly: "Apenas marcadas",
       notesOnly: "Apenas com nota",
-      resultsAriaLabel: "Resultados da busca de questoes",
+      resultsAriaLabel: "Resultados da busca de questões",
       loading: "Atualizando resultados...",
-      empty: "Nenhuma questao encontrada com os filtros atuais."
+      empty: "Nenhuma questão encontrada com os filtros atuais."
     }
   },
   review: {
     errors: {
-      loadQueue: "Nao foi possivel carregar a fila de revisao."
+      loadQueue: "Não foi possível carregar a fila de revisão."
     },
     header: {
-      title: "Revisao",
+      title: "Revisão",
       subtitle: "Priorize o que vence agora e mantenha a fila sob controle."
     },
     todayCard: {
       title: "Fila de hoje",
-      subtitle: "Uma unica acao principal: revisar o que ja esta vencido.",
+      subtitle: "Uma única ação principal: revisar o que já está vencido.",
       due: "Vencidas",
       total: "Total na fila",
       suggestedBatch: "Lote sugerido"
     },
     filters: {
       title: "Refinar fila",
-      subtitle: "Ajuste o recorte sem transformar a revisao em um painel pesado.",
-      certification: "Certificacao",
+      subtitle: "Ajuste o recorte sem transformar a revisão em um painel pesado.",
+      certification: "Certificação",
       state: "Recorte",
       refine: "Refino",
-      bookmarksOnly: "So marcadas",
-      notesOnly: "So com nota"
+      bookmarksOnly: "Só marcadas",
+      notesOnly: "Só com nota"
     },
     priorityCard: {
       title: "Itens priorizados",
-      subtitle: "Os itens mais sensiveis ficam no topo."
+      subtitle: "Os itens mais sensíveis ficam no topo."
     },
-    empty: "Nenhum item de revisao pendente no momento.",
+    empty: "Nenhum item de revisão pendente no momento.",
     queueState: {
-      overdue: "atrasada ha {days} dia(s)",
+      overdue: "atrasada há {days} dia(s)",
       dueToday: "vence hoje",
-      atRisk: "vence em ate 48h",
-      mastered: "ja consolidada",
+      atRisk: "vence em até 48h",
+      mastered: "já consolidada",
       scheduledFor: "agendada para {date}",
       scheduled: "agendada"
     }
   },
   settings: {
     header: {
-      title: "Configuracoes",
-      subtitle: "Conta, sincronizacao e o seu caderno pessoal em um lugar separado."
+      title: "Configurações",
+      subtitle: "Conta, sincronização e o seu caderno pessoal em um lugar separado."
     },
     notices: {
-      loggedOutTitle: "Sessao encerrada",
-      loggedOutMessage: "Voce voltou ao modo local deste dispositivo.",
+      loggedOutTitle: "Sessão encerrada",
+      loggedOutMessage: "Você voltou ao modo local deste dispositivo.",
       logoutFailureTitle: "Falha ao sair"
     }
   },
   account: {
     card: {
-      title: "Conta e sincronizacao",
+      title: "Conta e sincronização",
       subtitle: "Sincronize progresso entre dispositivos sem perder o fallback local."
     },
     summary: {
       ariaLabel: "Resumo da conta",
-      bookmarks: "Bookmarks",
+      bookmarks: "Marcadores",
       notes: "Notas",
-      dueReviews: "Revisoes vencidas"
+      dueReviews: "Revisões vencidas"
     },
     lists: {
       updatedAt: "Atualizado em {date}",
-      recentBookmarks: "Bookmarks recentes",
+      recentBookmarks: "Marcadores recentes",
       recentNotes: "Notas recentes",
-      reviewQueue: "Fila de revisao",
-      noBookmarks: "Nenhum bookmark salvo ainda.",
+      reviewQueue: "Fila de revisão",
+      noBookmarks: "Nenhum marcador salvo ainda.",
       noNotes: "Nenhuma nota salva ainda.",
-      noDueReviews: "Nenhuma revisao vencida no momento."
+      noDueReviews: "Nenhuma revisão vencida no momento."
     },
     guest: {
       localModeTitle: "Modo local ativo",
       localModeMessage:
-        "Voce ainda pode usar o dispositivo atual, mas o progresso nao esta sincronizado entre navegadores.",
-      signInTitle: "Autentique para consolidar o historico",
+        "Você ainda pode usar o dispositivo atual, mas o progresso não está sincronizado entre navegadores.",
+      signInTitle: "Autentique para consolidar o histórico",
       signInMessage:
-        "Ao entrar, o backend associa sessoes, bookmarks, notas e revisoes deste dispositivo a sua conta."
+        "Ao entrar, o backend associa sessões, marcadores, notas e revisões deste dispositivo à sua conta."
     },
     user: {
       roleLabel: "papel",
@@ -293,73 +293,73 @@ export const ptBRMessages = {
   },
   insights: {
     empty: {
-      exams: "Nenhum simulado concluido ainda. Crie um primeiro bloco para popular esse painel.",
-      study: "Nenhum bloco de estudo concluido ainda.",
-      weakAreas: "Sem historico suficiente para detectar lacunas ainda."
+      exams: "Nenhum simulado concluído ainda. Crie um primeiro bloco para popular esse painel.",
+      study: "Nenhum bloco de estudo concluído ainda.",
+      weakAreas: "Sem histórico suficiente para detectar lacunas ainda."
     },
     titles: {
-      weakAreas: "Lacunas e dependencia por area",
-      weakAreasSubtitle: "Esse bloco traduz o historico atual em prioridade de estudo por certificacao.",
-      queueAndActivity: "Fila de revisao e atividade",
-      queueAndActivitySubtitle: "Visibilidade rapida do que esta pendente e do que ja foi estudado.",
-      latestExams: "Ultimos simulados",
-      latestStudy: "Ultimos blocos de estudo"
+      weakAreas: "Lacunas e dependência por área",
+      weakAreasSubtitle: "Esse bloco traduz o histórico atual em prioridade de estudo por certificação.",
+      queueAndActivity: "Fila de revisão e atividade",
+      queueAndActivitySubtitle: "Visibilidade rápida do que está pendente e do que já foi estudado.",
+      latestExams: "Últimos simulados",
+      latestStudy: "Últimos blocos de estudo"
     },
     labels: {
       recentErrors: "{ratio}% de erros recentes",
       focus: "Foco",
-      dueReviews: "Revisoes vencidas",
+      dueReviews: "Revisões vencidas",
       recentExams: "Simulados recentes",
       studyBlocks: "Blocos de estudo",
       mixedExam: "Simulado misto",
       mixedStudy: "Bloco misto",
       correctAnswers: "corretas",
-      strategy: "estrategia",
+      strategy: "estratégia",
       reviewedOn: "revisado em {date}"
     }
   },
   history: {
     errors: {
-      loadHistory: "Nao foi possivel carregar o historico agora.",
+      loadHistory: "Não foi possível carregar o histórico agora.",
       partialLoad: "Alguns blocos falharam ao carregar: {items}."
     },
     failedAreas: {
       exams: "provas",
       examSessions: "simulados",
       study: "estudo",
-      weekly: "analise semanal",
-      reviewQueue: "fila de revisao"
+      weekly: "análise semanal",
+      reviewQueue: "fila de revisão"
     },
     header: {
-      title: "Historico e analises",
-      subtitle: "Sessoes, revisao e ritmo semanal separados por contexto."
+      title: "Histórico e análises",
+      subtitle: "Sessões, revisão e ritmo semanal separados por contexto."
     },
     filters: {
       title: "Filtros",
       subtitle: "Refine a leitura sem transformar tudo em um megapainel.",
       exam: "Prova",
-      minimumScore: "Nota minima",
+      minimumScore: "Nota mínima",
       search: "Busca"
     },
     tabs: {
-      sessions: "Sessoes",
-      review: "Revisao",
+      sessions: "Sessões",
+      review: "Revisão",
       weeks: "Semanas"
     }
   },
   results: {
     errors: {
-      loadResult: "Nao foi possivel carregar o resultado desta sessao.",
-      bannerTitle: "Nao foi possivel carregar o resultado",
-      missingReview: "A sessao nao retornou dados de revisao."
+      loadResult: "Não foi possível carregar o resultado desta sessão.",
+      bannerTitle: "Não foi possível carregar o resultado",
+      missingReview: "A sessão não retornou dados de revisão."
     },
     insights: {
       answered: "Respondidas: {count}",
-      accuracy: "Precisao: {value}%",
-      averagePerQuestion: "Media por questao: {value}s",
-      weakestDomain: "Dominio mais sensivel: {label}",
-      weakestDomainWithErrors: "Dominio mais sensivel: {label} ({count} erro(s))",
-      reviewDueAfter: "Fila vencida apos o bloco: {count}"
+      accuracy: "Precisão: {value}%",
+      averagePerQuestion: "Média por questão: {value}s",
+      weakestDomain: "Domínio mais sensível: {label}",
+      weakestDomainWithErrors: "Domínio mais sensível: {label} ({count} erro(s))",
+      reviewDueAfter: "Fila vencida após o bloco: {count}"
     },
     readiness: {
       excellent: "Excelente",
@@ -371,7 +371,7 @@ export const ptBRMessages = {
       openMaterial: "Abrir material"
     },
     reviewBlock: {
-      question: "Questao {number}",
+      question: "Questão {number}",
       noMetadata: "Sem metadados",
       correct: "Correta",
       wrong: "Errada",
@@ -379,31 +379,31 @@ export const ptBRMessages = {
       selectedSuffix: " (sua escolha)"
     },
     header: {
-      title: "Resultado da sessao",
-      mixedSession: "Sessao mista",
-      completedAt: "concluida em {date}"
+      title: "Resultado da sessão",
+      mixedSession: "Sessão mista",
+      completedAt: "concluída em {date}"
     },
     summary: {
       studyTitle: "{score} de aproveitamento em estudo",
-      examTitle: "{score} de score · prontidao {readiness}",
-      strategySubtitle: "Estrategia {strategy}.",
+      examTitle: "{score} de score · prontidão {readiness}",
+      strategySubtitle: "Estratégia {strategy}.",
       score: "Score",
-      readiness: "Prontidao",
+      readiness: "Prontidão",
       correct: "Acertos",
       wrong: "Erros",
       answered: "Respondidas",
-      questions: "Questoes",
+      questions: "Questões",
       timeUsed: "Tempo usado",
       timeLimit: "Limite",
       timedOutTitle: "Simulado encerrado por tempo",
       timedOutMessage:
-        "O backend aplicou auto-submit quando o cronometro zerou. Revise primeiro os itens errados e os que ficaram sem resposta."
+        "O backend aplicou auto-submit quando o cronômetro zerou. Revise primeiro os itens errados e os que ficaram sem resposta."
     },
     reviewCard: {
-      title: "Revisao guiada",
-      subtitle: "Abra cada questao apenas quando precisar revisar o detalhe.",
-      questionCount: "{count} questoes",
-      empty: "Nenhuma questao foi encontrada para esta revisao."
+      title: "Revisão guiada",
+      subtitle: "Abra cada questão apenas quando precisar revisar o detalhe.",
+      questionCount: "{count} questões",
+      empty: "Nenhuma questão foi encontrada para esta revisão."
     }
   },
   runner: {
@@ -413,14 +413,14 @@ export const ptBRMessages = {
       subtitle: "Pergunta no centro. Ferramentas de apoio ao lado."
     },
     labels: {
-      confidence: "Confianca",
-      noActiveQuestion: "Nenhuma questao ativa encontrada para esta sessao.",
+      confidence: "Confiança",
+      noActiveQuestion: "Nenhuma questão ativa encontrada para esta sessão.",
       tools: "Ferramentas",
-      hints: "Hints",
-      hintsSubtitle: "Abra apenas quando precisar de um empurrao.",
+      hints: "Dicas",
+      hintsSubtitle: "Abra apenas quando precisar de um empurrão.",
       notes: "Notas",
-      notesSubtitle: "Marque e registre contexto so quando for util.",
-      references: "Referencias"
+      notesSubtitle: "Marque e registre contexto só quando for útil.",
+      references: "Referências"
     }
   }
 } as const;
