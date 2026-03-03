@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { MetricCard } from "@/components/ui/metric-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { apiClient } from "@/lib/api/client";
@@ -194,20 +196,12 @@ export function DashboardShell() {
           >
             <div className="sq-stack-md">
               <div className="sq-metric-grid">
-                <div className="sq-metric-card">
-                  <span className="sq-muted">Revisoes vencidas</span>
-                  <strong>{studyOverview.due_review_count}</strong>
-                </div>
-                <div className="sq-metric-card">
-                  <span className="sq-muted">Progresso diario</span>
-                  <strong>
-                    {engagement.daily_goal.completed}/{engagement.daily_goal.target}
-                  </strong>
-                </div>
-                <div className="sq-metric-card">
-                  <span className="sq-muted">Ultimo score</span>
-                  <strong>{latestExam ? formatScore(latestExam.score_percent) : "-"}</strong>
-                </div>
+                <MetricCard label="Revisoes vencidas" value={studyOverview.due_review_count} />
+                <MetricCard
+                  label="Progresso diario"
+                  value={`${engagement.daily_goal.completed}/${engagement.daily_goal.target}`}
+                />
+                <MetricCard label="Ultimo score" value={latestExam ? formatScore(latestExam.score_percent) : "-"} />
               </div>
 
               <div className="sq-list-item">
@@ -241,7 +235,7 @@ export function DashboardShell() {
                 ))}
               </div>
             ) : (
-              <div className="sq-empty">Nenhuma sessao ativa. Abra um novo bloco quando quiser.</div>
+              <EmptyState description="Nenhuma sessao ativa. Abra um novo bloco quando quiser." />
             )}
           </Card>
 
@@ -264,7 +258,7 @@ export function DashboardShell() {
                 ))}
               </div>
             ) : (
-              <div className="sq-empty">Sem historico suficiente para destacar lacunas ainda.</div>
+              <EmptyState description="Sem historico suficiente para destacar lacunas ainda." />
             )}
           </Card>
         </div>
@@ -279,34 +273,21 @@ export function DashboardShell() {
           }
         >
           <div className="sq-metric-grid">
-            <div className="sq-metric-card">
-              <span className="sq-muted">Streak atual</span>
-              <strong>{engagement.streak.current_days}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">Melhor streak</span>
-              <strong>{engagement.streak.best_days}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">Semana</span>
-              <strong>
-                {engagement.weekly_goal.completed}/{engagement.weekly_goal.target}
-              </strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">Meta de revisao</span>
-              <strong>
-                {engagement.daily_review_goal.completed}/{engagement.daily_review_goal.target}
-              </strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">Proxima revisao</span>
-              <strong>{studyOverview.next_due_at ? formatDateTime(studyOverview.next_due_at) : "-"}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">Atualizacao</span>
-              <strong>{isRefreshing ? "Atualizando" : "Em dia"}</strong>
-            </div>
+            <MetricCard label="Streak atual" value={engagement.streak.current_days} />
+            <MetricCard label="Melhor streak" value={engagement.streak.best_days} />
+            <MetricCard
+              label="Semana"
+              value={`${engagement.weekly_goal.completed}/${engagement.weekly_goal.target}`}
+            />
+            <MetricCard
+              label="Meta de revisao"
+              value={`${engagement.daily_review_goal.completed}/${engagement.daily_review_goal.target}`}
+            />
+            <MetricCard
+              label="Proxima revisao"
+              value={studyOverview.next_due_at ? formatDateTime(studyOverview.next_due_at) : "-"}
+            />
+            <MetricCard label="Atualizacao" value={isRefreshing ? "Atualizando" : "Em dia"} />
           </div>
         </Card>
       </div>

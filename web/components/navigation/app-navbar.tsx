@@ -71,7 +71,7 @@ export function AppNavbar() {
       { href: "/settings", label: "Configuracoes" }
     ];
     if (currentUser?.role === "admin") {
-      baseLinks.push({ href: "/admin", label: "Admin" });
+      baseLinks.push({ href: "/admin", label: "Administracao" });
     }
     return baseLinks;
   }, [currentUser, pathname]);

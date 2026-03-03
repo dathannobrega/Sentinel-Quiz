@@ -6,9 +6,13 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { MetricCard } from "@/components/ui/metric-card";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { Tabs } from "@/components/ui/tabs";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
@@ -17,7 +21,6 @@ import type {
   Exam,
   ReviewQueueGoals,
   ReviewQueueSnapshot,
-  ReviewQueueStateBreakdown,
   SessionHistoryItem,
   SessionResponse,
   StudyHistoryItem,
@@ -195,7 +198,7 @@ export function HistoryShell() {
       setWeeklyAnalytics(results[3].value);
     } else {
       setWeeklyAnalytics(DEFAULT_WEEKLY_ANALYTICS);
-      failed.push("analytics semanal");
+      failed.push("analise semanal");
     }
 
     if (results[4].status === "fulfilled") {
@@ -214,7 +217,7 @@ export function HistoryShell() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const refreshReviewQueue = useEffectEvent(async () => {
     try {
@@ -232,7 +235,7 @@ export function HistoryShell() {
       return;
     }
     void refreshReviewQueue();
-  }, [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, isLoading]);
+  }, [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, isLoading, refreshReviewQueue]);
 
   const filteredExamHistory = useMemo(() => {
     return examHistory.filter((item) => {
@@ -258,8 +261,6 @@ export function HistoryShell() {
   const examAverage = averageScore(filteredExamHistory);
   const studyAverage = averageScore(filteredStudyHistory);
   const recommendation = String(weeklyAnalytics.summary.recommendation || "").trim();
-  const reviewStateBreakdown: ReviewQueueStateBreakdown =
-    weeklyAnalytics.summary.review_state_breakdown || reviewQueue.state_breakdown;
   const weeklyGoal: ReviewQueueGoals & {
     weekly_question_target?: number;
     weekly_new_question_target?: number;
@@ -320,6 +321,239 @@ export function HistoryShell() {
     );
   }
 
+  const sessionTab = (
+    <div className="sq-page-stack">
+      <Card title="Resumo" subtitle="Leitura rapida do volume recente.">
+        <div className="sq-metric-grid">
+          <MetricCard label="Simulados filtrados" value={filteredExamHistory.length} />
+          <MetricCard label="Media dos simulados" value={examAverage === null ? "-" : formatScore(examAverage)} />
+          <MetricCard label="Media do estudo" value={studyAverage === null ? "-" : formatScore(studyAverage)} />
+          <MetricCard label="Fila vencida" value={reviewQueue.due_count} />
+          <MetricCard label="Fila total" value={reviewQueue.total_count} />
+          <MetricCard
+            label="Proxima revisao"
+            value={reviewQueue.next_due_at ? formatDateTime(reviewQueue.next_due_at) : "-"}
+          />
+        </div>
+
+        {recommendation ? (
+          <EmptyState className="sq-gap-top-md" size="compact" description={recommendation} />
+        ) : null}
+      </Card>
+
+      <div className="sq-grid-2">
+        <Card title="Simulados" subtitle="Cada item abre a revisao da sessao correspondente.">
+          {filteredExamHistory.length ? (
+            <div className="sq-list">
+              {filteredExamHistory.map((item) => (
+                <Link
+                  key={item.id}
+                  href={resolveExamResultHref(item)}
+                  className="sq-list-item sq-list-link"
+                >
+                  <div className="sq-list-title">{item.exam_title || item.exam_id || "Sessao mista"}</div>
+                  <div className="sq-list-meta">
+                    {formatScore(item.score_percent)} · {item.correct_count}/{item.total_questions} corretas ·{" "}
+                    {formatDateTime(item.completed_at)}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState description="Nenhum simulado encontrado para os filtros atuais." />
+          )}
+        </Card>
+
+        <Card title="Estudo" subtitle="Blocos de estudo e dominios mais sensiveis.">
+          {filteredStudyHistory.length ? (
+            <div className="sq-list">
+              {filteredStudyHistory.map((item) => (
+                <Link
+                  key={item.id}
+                  href={resolveStudyResultHref(item)}
+                  className="sq-list-item sq-list-link"
+                >
+                  <div className="sq-list-title">{item.exam_title || item.exam_id || "Bloco misto"}</div>
+                  <div className="sq-list-meta">
+                    {formatScore(item.score_percent)} · estrategia {item.selection_strategy} ·{" "}
+                    {formatDateTime(item.completed_at)}
+                  </div>
+                  {item.weakest_domains.length ? (
+                    <div className="sq-chip-row sq-gap-top-sm">
+                      {item.weakest_domains.slice(0, 3).map((label) => (
+                        <span key={`${item.id}-${label}`} className="sq-chip">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState description="Nenhum bloco de estudo encontrado para os filtros atuais." />
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+
+  const reviewTab = (
+    <div className="sq-page-stack">
+      <div className="sq-grid-2">
+        <Card title="Meta semanal" subtitle="Um alvo pratico para equilibrar estudo novo e revisao.">
+          <div className="sq-metric-grid">
+            <MetricCard label="Meta de questoes" value={weeklyGoal.weekly_question_target || 0} />
+            <MetricCard label="Meta de revisoes" value={weeklyGoal.weekly_review_target || 0} />
+            <MetricCard
+              label="Novas sugeridas"
+              value={weeklyGoal.weekly_new_question_target ?? weeklyGoal.new_question_budget}
+            />
+            <MetricCard
+              label="Conclusao"
+              value={
+                weeklyGoal.completion_ratio_percent === undefined ? "-" : `${weeklyGoal.completion_ratio_percent}%`
+              }
+            />
+          </div>
+
+          <div className="sq-list sq-gap-top-md">
+            <div className="sq-list-item">
+              <div className="sq-list-title">
+                {weeklyGoal.on_track === false ? "Voce esta abaixo da meta" : "Ritmo semanal em linha"}
+              </div>
+              <div className="sq-list-meta">
+                Proximo passo: {weeklyGoal.suggested_daily_question_target || 0} nova(s) +{" "}
+                {weeklyGoal.suggested_daily_review_target || weeklyGoal.daily_review_target || 0} revisao(oes) por dia.
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Carga prevista" subtitle="Antecipe picos antes de virar backlog.">
+          <div className="sq-metric-grid">
+            <MetricCard label="Vencem em 7 dias" value={reviewForecast?.projected_due_next_7_days || 0} />
+            <MetricCard label="Entram em risco" value={reviewForecast?.projected_at_risk_next_7_days || 0} />
+            <MetricCard label="Pico diario" value={reviewForecast?.peak_load_day || 0} />
+            <MetricCard label="Pressao" value={String(reviewForecast?.pressure || "estavel")} />
+          </div>
+
+          {reviewQueue.upcoming_load.length ? (
+            <div className="sq-list sq-gap-top-md">
+              {reviewQueue.upcoming_load.map((day) => (
+                <div key={day.date} className="sq-list-item">
+                  <div className="sq-list-title">{day.label}</div>
+                  <div className="sq-list-meta">
+                    {day.due_count} vencendo · {day.at_risk_count} entrando em risco
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState className="sq-gap-top-md" size="compact" description="Sem carga futura relevante no momento." />
+          )}
+        </Card>
+      </div>
+
+      <Card
+        title="Fila de revisao"
+        subtitle="Os itens com maior pressao de retorno aparecem primeiro."
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            busy={isStartingReview}
+            disabled={!reviewQueue.items.length}
+            onClick={() => void startRecommendedReview()}
+          >
+            Iniciar revisao
+          </Button>
+        }
+      >
+        <div className="sq-form-grid sq-gap-bottom-md">
+          <Field label="Recorte" htmlFor="review-state-filter">
+            <select
+              id="review-state-filter"
+              className="sq-select"
+              value={reviewStateFilter}
+              onChange={(event) => setReviewStateFilter(event.target.value)}
+            >
+              <option value="">Tudo</option>
+              <option value="due_today">Vence hoje</option>
+              <option value="overdue">Atrasadas</option>
+              <option value="at_risk">Em risco</option>
+              <option value="scheduled">Agendadas</option>
+              <option value="mastered">Dominadas</option>
+            </select>
+          </Field>
+
+          <Field label="Refino" htmlFor="review-bookmark-toggle">
+            <div className="sq-checkbox-grid">
+              <label id="review-bookmark-toggle" className="sq-checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={reviewBookmarksOnly}
+                  onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
+                />
+                So marcadas
+              </label>
+              <label className="sq-checkbox-row">
+                <input type="checkbox" checked={reviewNotesOnly} onChange={(event) => setReviewNotesOnly(event.target.checked)} />
+                So com nota
+              </label>
+            </div>
+          </Field>
+        </div>
+
+        {reviewQueue.items.length ? (
+          <div className="sq-list">
+            {reviewQueue.items.slice(0, 8).map((item) => (
+              <div key={item.question_id} className="sq-list-item">
+                <div className="sq-list-title">{item.prompt}</div>
+                <div className="sq-list-meta">
+                  {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item)}
+                </div>
+                {(item.bookmarked || item.has_note) ? (
+                  <div className="sq-chip-row sq-gap-top-sm">
+                    {item.bookmarked ? <span className="sq-chip">marcada</span> : null}
+                    {item.has_note ? <span className="sq-chip">com nota</span> : null}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState description="Nenhum item de revisao pendente no momento." />
+        )}
+      </Card>
+    </div>
+  );
+
+  const weeksTab = (
+    <Card title="Ritmo semanal" subtitle="Volume, revisoes e qualidade por semana.">
+      {weeklyAnalytics.weeks.length ? (
+        <div className="sq-progress-list">
+          {weeklyAnalytics.weeks.map((week) => (
+            <div key={week.week_start} className="sq-surface-block">
+              <div className="sq-progress-head">
+                <div>
+                  <div className="sq-list-title">{week.label}</div>
+                  <div className="sq-progress-meta">
+                    Estudo: {week.study_questions} · Revisao: {week.review_questions} · Sessoes: {week.completed_sessions}
+                  </div>
+                </div>
+                <div className="sq-progress-meta">{week.accuracy_percent}% de precisao</div>
+              </div>
+              <ProgressBar value={week.accuracy_percent} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState description="Sem dados semanais suficientes ainda." />
+      )}
+    </Card>
+  );
+
   return (
     <main className="sq-app-shell">
       <div className="sq-page-stack">
@@ -329,24 +563,22 @@ export function HistoryShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Historico e analytics</div>
-              <p className="sq-page-subtitle">
-                Historico consolidado de simulados, estudo, fila de revisao e ritmo semanal, agora no frontend Next.
-              </p>
+              <div className="sq-page-title">Historico e analises</div>
+              <p className="sq-page-subtitle">Sessoes, revisao e ritmo semanal separados por contexto.</p>
             </div>
           </div>
           <div className="sq-inline-actions">
             <Link href="/dashboard">Dashboard</Link>
             <Link href="/start">Nova sessao</Link>
             <Link href="/review">Revisao</Link>
-            <Link href="/admin">Admin</Link>
+            <Link href="/admin">Administracao</Link>
           </div>
         </header>
 
         {loadError ? <StatusBanner tone="warning" title="Carga parcial" message={loadError} /> : null}
         {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
 
-        <Card title="Filtros" subtitle="Refine a leitura do historico sem recarregar a pagina.">
+        <Card title="Filtros" subtitle="Refine a leitura sem transformar tudo em um megapainel.">
           <div className="sq-form-grid">
             <Field label="Prova" htmlFor="history-exam-filter">
               <select
@@ -378,11 +610,7 @@ export function HistoryShell() {
               </select>
             </Field>
 
-            <Field
-              label="Busca"
-              htmlFor="history-search-filter"
-              hint="Procure por prova, estrategia ou dominios fracos do study."
-            >
+            <Field label="Busca" htmlFor="history-search-filter">
               <input
                 id="history-search-filter"
                 className="sq-input"
@@ -394,282 +622,30 @@ export function HistoryShell() {
           </div>
         </Card>
 
-        <div className="sq-grid-2">
-          <Card title="Resumo" subtitle="Leitura rapida do volume e da tendencia atual.">
-            <div className="sq-metric-grid">
-              <div className="sq-metric-card">
-                <span className="sq-muted">Simulados filtrados</span>
-                <strong>{filteredExamHistory.length}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Media dos simulados</span>
-                <strong>{examAverage === null ? "-" : formatScore(examAverage)}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Media do study</span>
-                <strong>{studyAverage === null ? "-" : formatScore(studyAverage)}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Fila vencida</span>
-                <strong>{reviewQueue.due_count}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Fila total</span>
-                <strong>{reviewQueue.total_count}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Em risco</span>
-                <strong>{reviewStateBreakdown.at_risk}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Atrasadas</span>
-                <strong>{reviewStateBreakdown.overdue || 0}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Dominadas</span>
-                <strong>{reviewStateBreakdown.mastered}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Proxima revisao</span>
-                <strong>{reviewQueue.next_due_at ? formatDateTime(reviewQueue.next_due_at) : "-"}</strong>
-              </div>
-            </div>
-
-            {recommendation ? (
-              <div className="sq-empty" style={{ marginTop: "var(--sq-space-4)" }}>
-                {recommendation}
-              </div>
-            ) : null}
-          </Card>
-
-          <Card title="Meta semanal" subtitle="Um alvo pratico para equilibrar estudo novo e revisao.">
-            <div className="sq-metric-grid">
-              <div className="sq-metric-card">
-                <span className="sq-muted">Meta de questoes</span>
-                <strong>{weeklyGoal.weekly_question_target || 0}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Meta de revisoes</span>
-                <strong>{weeklyGoal.weekly_review_target || 0}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Novas sugeridas</span>
-                <strong>{weeklyGoal.weekly_new_question_target ?? weeklyGoal.new_question_budget}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Conclusao</span>
-                <strong>
-                  {weeklyGoal.completion_ratio_percent === undefined ? "-" : `${weeklyGoal.completion_ratio_percent}%`}
-                </strong>
-              </div>
-            </div>
-
-            <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
-              <div className="sq-list-item">
-                <div className="sq-list-title">
-                  {weeklyGoal.on_track === false ? "Voce esta abaixo da meta" : "Ritmo semanal em linha"}
-                </div>
-                <div className="sq-list-meta">
-                  Proximo passo recomendado: {weeklyGoal.suggested_daily_question_target || 0} nova(s) +{" "}
-                  {weeklyGoal.suggested_daily_review_target || weeklyGoal.daily_review_target || 0} revisao(oes) por dia.
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card title="Carga prevista" subtitle="Antecipe picos da fila para nao virar backlog.">
-            <div className="sq-metric-grid">
-              <div className="sq-metric-card">
-                <span className="sq-muted">Vencem em 7 dias</span>
-                <strong>{reviewForecast?.projected_due_next_7_days || 0}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Entram em risco</span>
-                <strong>{reviewForecast?.projected_at_risk_next_7_days || 0}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Pico diario</span>
-                <strong>{reviewForecast?.peak_load_day || 0}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Pressao</span>
-                <strong>{String(reviewForecast?.pressure || "stable")}</strong>
-              </div>
-            </div>
-
-            {reviewQueue.upcoming_load.length ? (
-              <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
-                {reviewQueue.upcoming_load.map((day) => (
-                  <div key={day.date} className="sq-list-item">
-                    <div className="sq-list-title">{day.label}</div>
-                    <div className="sq-list-meta">
-                      {day.due_count} vencendo · {day.at_risk_count} entrando em risco
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="sq-empty" style={{ marginTop: "var(--sq-space-4)" }}>
-                Sem carga futura relevante no momento.
-              </div>
-            )}
-          </Card>
-
-          <Card
-            title="Fila de revisao"
-            subtitle="Os itens com maior pressao de retorno aparecem primeiro."
-            actions={
-              <Button
-                variant="secondary"
-                size="sm"
-                busy={isStartingReview}
-                disabled={!reviewQueue.items.length}
-                onClick={() => void startRecommendedReview()}
-              >
-                Iniciar revisao
-              </Button>
+        <Tabs
+          ariaLabel="Areas do historico"
+          defaultValue="sessions"
+          items={[
+            {
+              id: "sessions",
+              label: "Sessoes",
+              badge: filteredExamHistory.length + filteredStudyHistory.length,
+              content: sessionTab
+            },
+            {
+              id: "review",
+              label: "Revisao",
+              badge: reviewQueue.due_count,
+              content: reviewTab
+            },
+            {
+              id: "weeks",
+              label: "Semanas",
+              badge: weeklyAnalytics.weeks.length,
+              content: weeksTab
             }
-          >
-            <div className="sq-form-grid" style={{ marginBottom: "var(--sq-space-4)" }}>
-              <Field label="Recorte" htmlFor="review-state-filter">
-                <select
-                  id="review-state-filter"
-                  className="sq-select"
-                  value={reviewStateFilter}
-                  onChange={(event) => setReviewStateFilter(event.target.value)}
-                >
-                  <option value="">Tudo</option>
-                  <option value="due_today">Vence hoje</option>
-                  <option value="overdue">Atrasadas</option>
-                  <option value="at_risk">Em risco</option>
-                  <option value="scheduled">Agendadas</option>
-                  <option value="mastered">Dominadas</option>
-                </select>
-              </Field>
-
-              <Field label="Refino" htmlFor="review-bookmark-toggle" hint="Aplique contexto do seu caderno pessoal.">
-                <div style={{ display: "flex", gap: "var(--sq-space-4)", flexWrap: "wrap", minHeight: "44px", alignItems: "center" }}>
-                  <label id="review-bookmark-toggle" style={{ display: "flex", alignItems: "center", gap: "var(--sq-space-2)", fontWeight: 700 }}>
-                    <input
-                      type="checkbox"
-                      checked={reviewBookmarksOnly}
-                      onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
-                    />
-                    So marcadas
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "var(--sq-space-2)", fontWeight: 700 }}>
-                    <input type="checkbox" checked={reviewNotesOnly} onChange={(event) => setReviewNotesOnly(event.target.checked)} />
-                    So com nota
-                  </label>
-                </div>
-              </Field>
-            </div>
-
-            {reviewQueue.items.length ? (
-              <div className="sq-list">
-                {reviewQueue.items.slice(0, 6).map((item) => (
-                  <div key={item.question_id} className="sq-list-item">
-                    <div className="sq-list-title">{item.prompt}</div>
-                    <div className="sq-list-meta">
-                      {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item)}
-                    </div>
-                    {(item.bookmarked || item.has_note) ? (
-                      <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-2)" }}>
-                        {item.bookmarked ? <span className="sq-chip">bookmark</span> : null}
-                        {item.has_note ? <span className="sq-chip">nota</span> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="sq-empty">Nenhum item de revisao pendente no momento.</div>
-            )}
-          </Card>
-        </div>
-
-        <Card title="Ritmo semanal" subtitle="Volume, revisoes e qualidade por semana.">
-          {weeklyAnalytics.weeks.length ? (
-            <div className="sq-progress-list">
-              {weeklyAnalytics.weeks.map((week) => (
-                <div key={week.week_start} className="sq-surface-block">
-                  <div className="sq-progress-head">
-                    <div>
-                      <div className="sq-list-title">{week.label}</div>
-                      <div className="sq-progress-meta">
-                        Estudo: {week.study_questions} · Revisao: {week.review_questions} · Sessoes:{" "}
-                        {week.completed_sessions}
-                      </div>
-                    </div>
-                    <div className="sq-progress-meta">{week.accuracy_percent}% de precisao</div>
-                  </div>
-                  <div className="sq-progress-track" aria-hidden="true">
-                    <div className="sq-progress-fill" style={{ width: `${Math.max(0, Math.min(100, week.accuracy_percent))}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="sq-empty">Sem dados semanais suficientes ainda.</div>
-          )}
-        </Card>
-
-        <div className="sq-grid-2">
-          <Card title="Simulados" subtitle="Cada item abre a revisao da sessao correspondente.">
-            {filteredExamHistory.length ? (
-              <div className="sq-list">
-                {filteredExamHistory.map((item) => (
-                  <Link
-                    key={item.id}
-                    href={resolveExamResultHref(item)}
-                    className="sq-list-item"
-                    style={{ display: "block", textDecoration: "none" }}
-                  >
-                    <div className="sq-list-title">{item.exam_title || item.exam_id || "Sessao mista"}</div>
-                    <div className="sq-list-meta">
-                      {formatScore(item.score_percent)} · {item.correct_count}/{item.total_questions} corretas ·{" "}
-                      {formatDateTime(item.completed_at)}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="sq-empty">Nenhum simulado encontrado para os filtros atuais.</div>
-            )}
-          </Card>
-
-          <Card title="Estudo" subtitle="Blocos de estudo, confianca e dominios mais sensiveis.">
-            {filteredStudyHistory.length ? (
-              <div className="sq-list">
-                {filteredStudyHistory.map((item) => (
-                  <Link
-                    key={item.id}
-                    href={resolveStudyResultHref(item)}
-                    className="sq-list-item"
-                    style={{ display: "block", textDecoration: "none" }}
-                  >
-                    <div className="sq-list-title">{item.exam_title || item.exam_id || "Bloco misto"}</div>
-                    <div className="sq-list-meta">
-                      {formatScore(item.score_percent)} · estrategia {item.selection_strategy} ·{" "}
-                      {formatDateTime(item.completed_at)}
-                    </div>
-                    {item.weakest_domains.length ? (
-                      <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-2)" }}>
-                        {item.weakest_domains.slice(0, 3).map((label) => (
-                          <span key={`${item.id}-${label}`} className="sq-chip">
-                            {label}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="sq-empty">Nenhum bloco de estudo encontrado para os filtros atuais.</div>
-            )}
-          </Card>
-        </div>
+          ]}
+        />
       </div>
     </main>
   );

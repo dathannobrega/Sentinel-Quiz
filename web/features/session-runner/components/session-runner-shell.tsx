@@ -12,6 +12,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { clearSessionId } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { cn } from "@/lib/utils/cn";
 import { formatDateTime } from "@/lib/utils/format";
 import type {
   ExamAnswerFeedback,
@@ -660,23 +661,12 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                             aria-checked={isSelected}
                             onClick={() => toggleSelection(option.key)}
                             disabled={!!feedback || isExamPaused}
-                            className="sq-list-item sq-runner-option"
-                            style={{
-                              borderColor: isConfirmedCorrect
-                                ? "rgba(15,157,88,0.32)"
-                                : isWrongSelection
-                                  ? "rgba(209,67,67,0.28)"
-                                  : isSelected
-                                    ? "rgba(21,122,110,0.32)"
-                                    : "var(--sq-border)",
-                              background: isConfirmedCorrect
-                                ? "rgba(15,157,88,0.08)"
-                                : isWrongSelection
-                                  ? "rgba(209,67,67,0.08)"
-                                  : isSelected
-                                    ? "rgba(21,122,110,0.08)"
-                                    : "rgba(255,255,255,0.74)"
-                            }}
+                            className={cn(
+                              "sq-list-item sq-runner-option sq-choice-card",
+                              isConfirmedCorrect && "sq-choice-card--correct",
+                              isWrongSelection && "sq-choice-card--wrong",
+                              !isConfirmedCorrect && !isWrongSelection && isSelected && "sq-choice-card--selected"
+                            )}
                           >
                             <div className="sq-runner-option__body">
                               <span className="sq-chip">{option.key}</span>

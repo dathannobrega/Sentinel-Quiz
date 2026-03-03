@@ -256,6 +256,14 @@ button:disabled {
   padding: var(--sq-space-6);
 }
 
+.sq-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sq-space-4);
+  margin-bottom: var(--sq-space-5);
+}
+
 .sq-section-title {
   margin: 0;
   font-family: var(--sq-font-display);
@@ -494,6 +502,9 @@ button:disabled {
   border-radius: var(--sq-radius-md);
   background: rgba(255, 255, 255, 0.56);
   color: var(--sq-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sq-space-3);
 }
 
 .sq-progress-list {
@@ -607,7 +618,34 @@ button:disabled {
   text-align: left;
 }
 
+.sq-choice-card {
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.sq-choice-card--selected {
+  border-color: rgba(21, 122, 110, 0.32);
+  background: rgba(21, 122, 110, 0.08);
+}
+
+.sq-choice-card--correct {
+  border-color: rgba(15, 157, 88, 0.32);
+  background: rgba(15, 157, 88, 0.08);
+}
+
+.sq-choice-card--wrong {
+  border-color: rgba(209, 67, 67, 0.28);
+  background: rgba(209, 67, 67, 0.08);
+}
+
 .sq-runner-option__body {
+  display: flex;
+  gap: var(--sq-space-3);
+  align-items: flex-start;
+}
+
+.sq-choice-card__body {
   display: flex;
   gap: var(--sq-space-3);
   align-items: flex-start;
@@ -629,6 +667,53 @@ button:disabled {
 
 .sq-empty--compact {
   padding: var(--sq-space-4);
+}
+
+.sq-list-link {
+  display: block;
+  text-decoration: none;
+}
+
+.sq-status-banner {
+  border-radius: var(--sq-radius-md);
+  padding: var(--sq-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sq-space-3);
+}
+
+.sq-status-banner--neutral {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--sq-border);
+}
+
+.sq-status-banner--success {
+  background: rgba(15, 157, 88, 0.08);
+  border: 1px solid rgba(15, 157, 88, 0.16);
+}
+
+.sq-status-banner--warning {
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.18);
+}
+
+.sq-status-banner--danger {
+  background: rgba(209, 67, 67, 0.08);
+  border: 1px solid rgba(209, 67, 67, 0.18);
+}
+
+.sq-status-banner__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sq-space-1);
+}
+
+.sq-status-banner__title {
+  display: block;
+}
+
+.sq-status-banner__message {
+  color: var(--sq-text);
 }
 
 .sq-inline-actions {
@@ -673,6 +758,90 @@ button:disabled {
   padding: 0 var(--sq-space-5) var(--sq-space-5);
 }
 
+.sq-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sq-space-5);
+}
+
+.sq-tabs__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sq-space-2);
+}
+
+.sq-tabs__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sq-space-2);
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--sq-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--sq-text-muted);
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.sq-tabs__trigger--active {
+  background: rgba(21, 122, 110, 0.12);
+  border-color: rgba(21, 122, 110, 0.2);
+  color: var(--sq-accent-strong);
+}
+
+.sq-tabs__panel {
+  display: block;
+}
+
+.sq-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sq-space-3);
+}
+
+.sq-accordion__item {
+  border: 1px solid var(--sq-border);
+  border-radius: var(--sq-radius-md);
+  background: rgba(255, 255, 255, 0.78);
+  overflow: hidden;
+}
+
+.sq-accordion__summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sq-space-3);
+  padding: var(--sq-space-4);
+  cursor: pointer;
+  list-style: none;
+}
+
+.sq-accordion__summary::-webkit-details-marker {
+  display: none;
+}
+
+.sq-accordion__content {
+  padding: 0 var(--sq-space-4) var(--sq-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sq-space-3);
+}
+
+.sq-chip--success {
+  background: rgba(15, 157, 88, 0.1);
+  color: var(--sq-success);
+}
+
+.sq-chip--danger {
+  background: rgba(209, 67, 67, 0.1);
+  color: var(--sq-danger);
+}
+
+.sq-result-prompt {
+  line-height: 1.7;
+}
+
 @keyframes sq-shimmer {
   from {
     background-position: 200% 0;
@@ -696,6 +865,11 @@ button:disabled {
   .sq-nav-cluster {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .sq-section-header,
+  .sq-accordion__summary {
+    flex-direction: column;
   }
 }
 

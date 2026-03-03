@@ -3,11 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
+import { Accordion, AccordionItem } from "@/components/ui/accordion";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { MetricCard } from "@/components/ui/metric-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { cn } from "@/lib/utils/cn";
 import { buildMaterialPreviewHref } from "@/lib/utils/materials";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
@@ -135,20 +139,17 @@ function ReviewBlock({
   const questionNumber = "question_number" in question ? question.question_number : index + 1;
 
   return (
-    <div className="sq-list-item" style={{ display: "flex", flexDirection: "column", gap: "var(--sq-space-3)" }}>
-      <div className="sq-progress-head">
-        <div>
-          <div className="sq-list-title">Questao {questionNumber}</div>
-          <div className="sq-list-meta">
-            {[question.certification, question.domain, question.difficulty].filter(Boolean).join(" · ") || "Sem metadados"}
-          </div>
-        </div>
-        <span className="sq-chip" style={{ background: question.is_correct ? "rgba(15,157,88,0.1)" : "rgba(209,67,67,0.1)" }}>
+    <AccordionItem
+      title={`Questao ${questionNumber}`}
+      subtitle={[question.certification, question.domain, question.difficulty].filter(Boolean).join(" · ") || "Sem metadados"}
+      meta={
+        <span className={cn("sq-chip", question.is_correct ? "sq-chip--success" : "sq-chip--danger")}>
           {question.is_correct ? "Correta" : "Errada"}
         </span>
-      </div>
-
-      <div style={{ lineHeight: 1.7 }}>{question.prompt}</div>
+      }
+      defaultOpen={index === 0}
+    >
+      <div className="sq-result-prompt">{question.prompt}</div>
 
       <div className="sq-list">
         {question.options.map((option) => {
@@ -158,21 +159,13 @@ function ReviewBlock({
           return (
             <div
               key={`${question.id}-${option.key}`}
-              className="sq-list-item"
-              style={{
-                borderColor: isCorrect
-                  ? "rgba(15,157,88,0.28)"
-                  : isSelected
-                    ? "rgba(209,67,67,0.24)"
-                    : "var(--sq-border)",
-                background: isCorrect
-                  ? "rgba(15,157,88,0.06)"
-                  : isSelected
-                    ? "rgba(209,67,67,0.05)"
-                    : "rgba(255,255,255,0.78)"
-              }}
+              className={cn(
+                "sq-list-item sq-choice-card",
+                isCorrect && "sq-choice-card--correct",
+                !isCorrect && isSelected && "sq-choice-card--wrong"
+              )}
             >
-              <div style={{ display: "flex", gap: "var(--sq-space-3)", alignItems: "flex-start" }}>
+              <div className="sq-choice-card__body">
                 <span className="sq-chip">{option.key}</span>
                 <span>
                   {option.text}
@@ -185,9 +178,9 @@ function ReviewBlock({
         })}
       </div>
 
-      {question.justification ? <div className="sq-empty">{question.justification}</div> : null}
+      {question.justification ? <EmptyState size="compact" description={question.justification} /> : null}
       <CitationLinks citations={question.citations} />
-    </div>
+    </AccordionItem>
   );
 }
 
@@ -273,45 +266,33 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
           <div className="sq-inline-actions">
             <Link href="/dashboard">Dashboard</Link>
             <Link href="/history">Historico</Link>
-            <Link href="/admin">Admin</Link>
+            <Link href="/admin">Administracao</Link>
             <Link href="/start">Iniciar nova sessao</Link>
           </div>
         </header>
 
-        <Card title={headerCopy} subtitle={`Estrategia ${result.strategy}. Revisao completa das respostas abaixo.`}>
+        <Card title={headerCopy} subtitle={`Estrategia ${result.strategy}.`}>
           <div className="sq-surface-block">
             <div className="sq-metric-grid">
-              <div className="sq-metric-card">
-                <span className="sq-muted">Score</span>
-                <strong>{formatScore(result.score_percent)}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Prontidao</span>
-                <strong>{readiness.label}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Acertos</span>
-                <strong>{result.correct_count}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">Erros</span>
-                <strong>{result.wrong_count}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">{mode === "study" ? "Respondidas" : "Questoes"}</span>
-                <strong>{"answered_count" in result ? result.answered_count : result.total_questions}</strong>
-              </div>
+              <MetricCard label="Score" value={formatScore(result.score_percent)} />
+              <MetricCard label="Prontidao" value={readiness.label} />
+              <MetricCard label="Acertos" value={result.correct_count} />
+              <MetricCard label="Erros" value={result.wrong_count} />
+              <MetricCard
+                label={mode === "study" ? "Respondidas" : "Questoes"}
+                value={"answered_count" in result ? result.answered_count : result.total_questions}
+              />
               {examResult?.time_spent_seconds !== undefined && examResult?.time_spent_seconds !== null ? (
-                <div className="sq-metric-card">
-                  <span className="sq-muted">Tempo usado</span>
-                  <strong>{Math.max(Math.round(examResult.time_spent_seconds / 60), 1)} min</strong>
-                </div>
+                <MetricCard
+                  label="Tempo usado"
+                  value={`${Math.max(Math.round(examResult.time_spent_seconds / 60), 1)} min`}
+                />
               ) : null}
               {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (
-                <div className="sq-metric-card">
-                  <span className="sq-muted">Limite</span>
-                  <strong>{Math.max(Math.round(examResult.time_limit_seconds / 60), 1)} min</strong>
-                </div>
+                <MetricCard
+                  label="Limite"
+                  value={`${Math.max(Math.round(examResult.time_limit_seconds / 60), 1)} min`}
+                />
               ) : null}
             </div>
 
@@ -337,17 +318,17 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
         <Card
           title="Revisao guiada"
-          subtitle="Selecao marcada, gabarito, justificativa e links para material quando houver."
+          subtitle="Abra cada questao apenas quando precisar revisar o detalhe."
           actions={<span className="sq-chip">{reviewQuestions.length} questoes</span>}
         >
           {reviewQuestions.length ? (
-            <div className="sq-list" style={{ gap: "var(--sq-space-4)" }}>
+            <Accordion>
               {reviewQuestions.map((question, index) => (
                 <ReviewBlock key={`${question.id}-${index}`} index={index} question={question} />
               ))}
-            </div>
+            </Accordion>
           ) : (
-            <div className="sq-empty">Nenhuma questao foi encontrada para esta revisao.</div>
+            <EmptyState description="Nenhuma questao foi encontrada para esta revisao." />
           )}
         </Card>
       </div>
