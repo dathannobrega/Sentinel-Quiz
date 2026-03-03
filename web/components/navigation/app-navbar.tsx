@@ -8,16 +8,17 @@ import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api/client";
 import { fetchCurrentUser, logoutUser } from "@/lib/auth/session";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import type { AuthUser } from "@/types/api";
 
-function readNavError(error: unknown): string {
+function readNavError(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Nao foi possivel atualizar a sessao.";
+  return fallbackMessage;
 }
 
 function isDashboardPath(pathname: string): boolean {
@@ -29,6 +30,7 @@ function shouldHideNavbar(pathname: string): boolean {
 }
 
 export function AppNavbar() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -43,7 +45,7 @@ export function AppNavbar() {
       setCurrentUser(await fetchCurrentUser());
     } catch (error) {
       setCurrentUser(null);
-      setNavNotice(readNavError(error));
+      setNavNotice(readNavError(error, t("navigation.errors.sessionRefresh")));
     } finally {
       setSessionState("ready");
     }
@@ -59,22 +61,22 @@ export function AppNavbar() {
   const links = useMemo(() => {
     if (!currentUser && pathname === "/") {
       return [
-        { href: "/#como-funciona", label: "Como funciona" },
-        { href: "/#faq", label: "FAQ" }
+        { href: "/#como-funciona", label: t("navigation.publicLinks.howItWorks") },
+        { href: "/#faq", label: t("navigation.publicLinks.faq") }
       ];
     }
     const baseLinks = [
-      { href: "/dashboard", label: "Dashboard" },
-      { href: "/start", label: "Iniciar" },
-      { href: "/review", label: "Revisao" },
-      { href: "/history", label: "Historico" },
-      { href: "/settings", label: "Configuracoes" }
+      { href: "/dashboard", label: t("common.labels.dashboard") },
+      { href: "/start", label: t("common.labels.start") },
+      { href: "/review", label: t("common.labels.review") },
+      { href: "/history", label: t("common.labels.history") },
+      { href: "/settings", label: t("common.labels.settings") }
     ];
     if (currentUser?.role === "admin") {
-      baseLinks.push({ href: "/admin", label: "Administracao" });
+      baseLinks.push({ href: "/admin", label: t("common.labels.admin") });
     }
     return baseLinks;
-  }, [currentUser, pathname]);
+  }, [currentUser, pathname, t]);
 
   async function handleLogout() {
     setPendingAction("logout");
@@ -85,7 +87,7 @@ export function AppNavbar() {
       router.push("/login");
       router.refresh();
     } catch (error) {
-      setNavNotice(readNavError(error));
+      setNavNotice(readNavError(error, t("navigation.errors.sessionRefresh")));
     } finally {
       setPendingAction(null);
     }
@@ -96,16 +98,16 @@ export function AppNavbar() {
   }
 
   return (
-    <nav className="sq-global-nav" aria-label="Navegacao principal">
+    <nav className="sq-global-nav" aria-label={t("navigation.ariaLabel")}>
       <div className="sq-global-nav__inner">
         <div className="sq-brand">
           <div className="sq-logo" aria-hidden="true">
             SQ
           </div>
           <div className="sq-brand-copy">
-            <div className="sq-page-title">Sentinel Quiz</div>
+            <div className="sq-page-title">{t("navigation.brandTitle")}</div>
             <p className="sq-page-subtitle">
-              Simulados, estudo guiado e revisao inteligente para Security+ e CISSP.
+              {t("navigation.brandSubtitle")}
             </p>
           </div>
         </div>
@@ -134,7 +136,7 @@ export function AppNavbar() {
           </div>
 
           <div className="sq-nav-account">
-            {sessionState === "loading" ? <span className="sq-chip">Sincronizando sessao...</span> : null}
+            {sessionState === "loading" ? <span className="sq-chip">{t("common.status.syncingSession")}</span> : null}
 
             {sessionState === "ready" && currentUser ? (
               <>
@@ -142,7 +144,7 @@ export function AppNavbar() {
                   {currentUser.display_name || currentUser.email} · {currentUser.role}
                 </span>
                 <Button variant="ghost" size="sm" busy={pendingAction === "logout"} onClick={() => void handleLogout()}>
-                  Sair
+                  {t("common.actions.signOut")}
                 </Button>
               </>
             ) : null}
@@ -150,10 +152,10 @@ export function AppNavbar() {
             {sessionState === "ready" && !currentUser ? (
               <>
                 <Link href="/login" className="sq-nav-link">
-                  Entrar
+                  {t("common.actions.signIn")}
                 </Link>
                 <Link href="/register" className="sq-button sq-button--sm sq-button--primary">
-                  Criar conta
+                  {t("common.actions.createAccount")}
                 </Link>
               </>
             ) : null}

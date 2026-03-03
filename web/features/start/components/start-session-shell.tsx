@@ -10,6 +10,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import type {
   DomainCatalogResponse,
   Exam,
@@ -66,14 +67,14 @@ function toNotice(
   return { tone, title, message };
 }
 
-function readErrorMessage(error: unknown): string {
+function readErrorMessage(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Ocorreu um erro inesperado.";
+  return fallbackMessage;
 }
 
 function parseCsvFilter(value: string): string[] | null {
@@ -85,6 +86,7 @@ function parseCsvFilter(value: string): string[] | null {
 }
 
 export function StartSessionShell() {
+  const { t } = useI18n();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isDomainLoading, setIsDomainLoading] = useState(false);
@@ -124,7 +126,7 @@ export function StartSessionShell() {
       setExams(await apiClient.get<Exam[]>("/exams"));
     } catch (error) {
       setExams([]);
-      setPageNotice(readErrorMessage(error));
+      setPageNotice(readErrorMessage(error, t("start.errors.unexpected")));
     } finally {
       setIsLoading(false);
     }
@@ -171,7 +173,7 @@ export function StartSessionShell() {
       setQuestionSearch(response);
     } catch (error) {
       setQuestionSearch({ items: [], total: 0, limit: 8, offset: 0, applied_filters: {} });
-      setPageNotice(`Busca de questoes indisponivel: ${readErrorMessage(error)}`);
+      setPageNotice(t("start.errors.searchUnavailable", { message: readErrorMessage(error, t("start.errors.unexpected")) }));
     } finally {
       setIsDiscoveryLoading(false);
     }
@@ -233,7 +235,9 @@ export function StartSessionShell() {
 
   async function handleLaunch() {
     if (launchValues.totalQuestions < 1) {
-      setLaunchNotice(toNotice("warning", "Quantidade invalida", "Informe pelo menos 1 questao."));
+      setLaunchNotice(
+        toNotice("warning", t("start.errors.invalidQuantityTitle"), t("start.errors.invalidQuantityMessage"))
+      );
       return;
     }
 
@@ -242,15 +246,18 @@ export function StartSessionShell() {
       setLaunchNotice(
         toNotice(
           "warning",
-          "Quantidade acima do limite",
-          `O limite atual para ${launchValues.mode === "study" ? "estudo" : "simulado"} e ${maxQuestions} questoes.`
+          t("start.errors.quantityLimitTitle"),
+          t("start.errors.quantityLimitMessage", {
+            mode: launchValues.mode === "study" ? t("common.labels.study").toLowerCase() : t("common.labels.exam").toLowerCase(),
+            count: maxQuestions
+          })
         )
       );
       return;
     }
 
     if (launchValues.mode === "exam" && (launchValues.timeLimitMinutes < 5 || launchValues.timeLimitMinutes > 360)) {
-      setLaunchNotice(toNotice("warning", "Tempo invalido", "Use entre 5 e 360 minutos."));
+      setLaunchNotice(toNotice("warning", t("start.errors.invalidTimeTitle"), t("start.errors.invalidTimeMessage")));
       return;
     }
 
@@ -302,7 +309,9 @@ export function StartSessionShell() {
         router.push(launchValues.mode === "study" ? `/study/${session.id}` : `/exam/${session.id}`);
       });
     } catch (error) {
-      setLaunchNotice(toNotice("danger", "Nao foi possivel criar a sessao", readErrorMessage(error)));
+      setLaunchNotice(
+        toNotice("danger", t("start.errors.createSessionTitle"), readErrorMessage(error, t("start.errors.unexpected")))
+      );
     } finally {
       setPendingLaunch(false);
     }
@@ -338,18 +347,18 @@ export function StartSessionShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Iniciar</div>
-              <p className="sq-page-subtitle">Monte um bloco curto, comece rapido e deixe o resto sob demanda.</p>
+              <div className="sq-page-title">{t("start.header.title")}</div>
+              <p className="sq-page-subtitle">{t("start.header.subtitle")}</p>
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/review">Revisao</Link>
-            <Link href="/history">Historico</Link>
+            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
+            <Link href="/review">{t("common.labels.review")}</Link>
+            <Link href="/history">{t("common.labels.history")}</Link>
           </div>
         </header>
 
-        {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
+        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
 
         <ExamLauncher
           exams={exams}
@@ -357,7 +366,7 @@ export function StartSessionShell() {
           values={launchValues}
           notice={
             isDomainLoading && !launchNotice
-              ? toNotice("neutral", "Atualizando dominios", "Carregando os filtros da certificacao.")
+              ? toNotice("neutral", t("start.notices.loadingDomainsTitle"), t("start.notices.loadingDomainsMessage"))
               : launchNotice
           }
           pending={pendingLaunch}
@@ -369,40 +378,40 @@ export function StartSessionShell() {
 
         <details className="sq-card sq-disclosure" open={shouldExpandDiscovery ? true : undefined}>
           <summary className="sq-disclosure__summary">
-            Explorar banco de questoes
-            <span className="sq-chip">{questionSearch.total} encontrada(s)</span>
+            {t("start.discovery.summary")}
+            <span className="sq-chip">{t("start.discovery.foundCount", { count: questionSearch.total })}</span>
           </summary>
 
           <div className="sq-stack-md">
             <div className="sq-form-grid">
-              <Field label="Texto" htmlFor="question-search-query">
+              <Field label={t("start.discovery.query")} htmlFor="question-search-query">
                 <input
                   id="question-search-query"
                   className="sq-input"
                   value={discoveryFilters.query}
                   onChange={(event) => setDiscoveryFilters((current) => ({ ...current, query: event.target.value }))}
-                  placeholder="Ex.: cryptography, asset, incident"
+                  placeholder={t("start.discovery.queryPlaceholder")}
                 />
               </Field>
 
-              <Field label="Tag" htmlFor="question-search-tag">
+              <Field label={t("start.discovery.tag")} htmlFor="question-search-tag">
                 <input
                   id="question-search-tag"
                   className="sq-input"
                   value={discoveryFilters.tag}
                   onChange={(event) => setDiscoveryFilters((current) => ({ ...current, tag: event.target.value }))}
-                  placeholder="Ex.: access control"
+                  placeholder={t("start.discovery.tagPlaceholder")}
                 />
               </Field>
 
-              <Field label="Dominio" htmlFor="question-search-domain">
+              <Field label={t("start.discovery.domain")} htmlFor="question-search-domain">
                 <select
                   id="question-search-domain"
                   className="sq-select"
                   value={discoveryFilters.domain}
                   onChange={(event) => setDiscoveryFilters((current) => ({ ...current, domain: event.target.value }))}
                 >
-                  <option value="">Todos os dominios</option>
+                  <option value="">{t("common.filters.allDomains")}</option>
                   {domains.map((domainItem) => (
                     <option key={domainItem.value} value={domainItem.value}>
                       {domainItem.label}
@@ -421,7 +430,7 @@ export function StartSessionShell() {
                         setDiscoveryFilters((current) => ({ ...current, bookmarkedOnly: event.target.checked }))
                       }
                     />
-                    Apenas marcadas
+                    {t("start.discovery.bookmarkedOnly")}
                   </label>
                   <label className="sq-checkbox-row">
                     <input
@@ -429,15 +438,15 @@ export function StartSessionShell() {
                       checked={discoveryFilters.notesOnly}
                       onChange={(event) => setDiscoveryFilters((current) => ({ ...current, notesOnly: event.target.checked }))}
                     />
-                    Apenas com nota
+                    {t("start.discovery.notesOnly")}
                   </label>
                 </div>
               </div>
             </div>
 
-            <div className="sq-list" role="list" aria-label="Resultados da busca de questoes">
+            <div className="sq-list" role="list" aria-label={t("start.discovery.resultsAriaLabel")}>
               {isDiscoveryLoading ? (
-                <div className="sq-empty sq-empty--compact">Atualizando resultados...</div>
+                <div className="sq-empty sq-empty--compact">{t("start.discovery.loading")}</div>
               ) : questionSearch.items.length ? (
                 questionSearch.items.map((item) => (
                   <div key={item.id} className="sq-list-item">
@@ -453,13 +462,13 @@ export function StartSessionShell() {
                           {tag}
                         </span>
                       ))}
-                      {item.is_bookmarked ? <span className="sq-chip">marcada</span> : null}
-                      {item.has_note ? <span className="sq-chip">com nota</span> : null}
+                      {item.is_bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
+                      {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="sq-empty">Nenhuma questao encontrada com os filtros atuais.</div>
+                <div className="sq-empty">{t("start.discovery.empty")}</div>
               )}
             </div>
           </div>

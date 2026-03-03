@@ -5,7 +5,7 @@ import type { DetailsHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 
 import { cn } from "@/lib/utils/cn";
 
-interface AccordionProps extends HTMLAttributes<HTMLDivElement> {}
+type AccordionProps = HTMLAttributes<HTMLDivElement>;
 
 interface AccordionItemProps extends DetailsHTMLAttributes<HTMLDetailsElement> {
   title: string;
@@ -42,9 +42,9 @@ export function AccordionItem({
       <summary className="sq-accordion__summary">
         <div>
           <div className="sq-list-title">{title}</div>
-          {subtitle ? <div className="sq-list-meta">{subtitle}</div> : null}
+          {subtitle && <div className="sq-list-meta">{subtitle}</div>}
         </div>
-        {meta ? <div className="sq-chip-row">{meta}</div> : null}
+        {meta && <div className="sq-chip-row">{meta}</div>}
       </summary>
       <div className="sq-accordion__content">{children}</div>
     </details>

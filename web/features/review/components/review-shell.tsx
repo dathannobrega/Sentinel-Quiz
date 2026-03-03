@@ -12,6 +12,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import { formatDateTime } from "@/lib/utils/format";
 import type { Exam, ReviewQueueSnapshot, SessionResponse, StudySessionRequest } from "@/types/api";
 
@@ -37,30 +38,35 @@ const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
   items: []
 };
 
-function readReviewError(error: unknown): string {
+function readReviewError(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Nao foi possivel carregar a fila de revisao.";
+  return fallbackMessage;
 }
 
-function describeQueueState(item: ReviewQueueSnapshot["items"][number]): string {
+function describeQueueState(
+  item: ReviewQueueSnapshot["items"][number],
+  t: (key: string, values?: Record<string, string | number>) => string
+): string {
   if (item.is_overdue) {
-    return `atrasada ha ${item.overdue_days} dia(s)`;
+    return t("review.queueState.overdue", { days: item.overdue_days });
   }
   if (item.state === "due_now") {
-    return "vence hoje";
+    return t("review.queueState.dueToday");
   }
   if (item.state === "at_risk") {
-    return "vence em ate 48h";
+    return t("review.queueState.atRisk");
   }
   if (item.state === "mastered") {
-    return "ja consolidada";
+    return t("review.queueState.mastered");
   }
-  return item.due_at ? `agendada para ${formatDateTime(item.due_at)}` : "agendada";
+  return item.due_at
+    ? t("review.queueState.scheduledFor", { date: formatDateTime(item.due_at) })
+    : t("review.queueState.scheduled");
 }
 
 function buildReviewQueueQuery(
@@ -88,6 +94,7 @@ function buildReviewQueueQuery(
 }
 
 export function ReviewShell() {
+  const { t } = useI18n();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isStartingReview, setIsStartingReview] = useState(false);
@@ -116,14 +123,14 @@ export function ReviewShell() {
       setExams(results[0].value);
     } else {
       setExams([]);
-      setPageNotice(readReviewError(results[0].reason));
+      setPageNotice(readReviewError(results[0].reason, t("review.errors.loadQueue")));
     }
 
     if (results[1].status === "fulfilled") {
       setReviewQueue(results[1].value);
     } else {
       setReviewQueue(DEFAULT_REVIEW_QUEUE);
-      setPageNotice(readReviewError(results[1].reason));
+      setPageNotice(readReviewError(results[1].reason, t("review.errors.loadQueue")));
     }
 
     setIsLoading(false);
@@ -136,7 +143,7 @@ export function ReviewShell() {
       );
       setReviewQueue(snapshot);
     } catch (error) {
-      setPageNotice(readReviewError(error));
+      setPageNotice(readReviewError(error, t("review.errors.loadQueue")));
     }
   });
 
@@ -178,7 +185,7 @@ export function ReviewShell() {
         router.push(`/study/${response.id}`);
       });
     } catch (error) {
-      setPageNotice(readReviewError(error));
+      setPageNotice(readReviewError(error, t("review.errors.loadQueue")));
     } finally {
       setIsStartingReview(false);
     }
@@ -204,22 +211,22 @@ export function ReviewShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Revisao</div>
-              <p className="sq-page-subtitle">Priorize o que vence agora e mantenha a fila sob controle.</p>
+              <div className="sq-page-title">{t("review.header.title")}</div>
+              <p className="sq-page-subtitle">{t("review.header.subtitle")}</p>
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/start">Iniciar</Link>
-            <Link href="/history">Historico</Link>
+            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
+            <Link href="/start">{t("common.labels.start")}</Link>
+            <Link href="/history">{t("common.labels.history")}</Link>
           </div>
         </header>
 
-        {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
+        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
 
         <Card
-          title="Fila de hoje"
-          subtitle="Uma unica acao principal: revisar o que ja esta vencido."
+          title={t("review.todayCard.title")}
+          subtitle={t("review.todayCard.subtitle")}
           actions={
             <Button
               variant="secondary"
@@ -228,37 +235,37 @@ export function ReviewShell() {
               disabled={!reviewQueue.items.length}
               onClick={() => void startRecommendedReview()}
             >
-              Revisar agora
+              {t("common.actions.reviewNow")}
             </Button>
           }
         >
           <div className="sq-metric-grid">
             <div className="sq-metric-card">
-              <span className="sq-muted">Vencidas</span>
+              <span className="sq-muted">{t("review.todayCard.due")}</span>
               <strong>{reviewQueue.due_count}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Total na fila</span>
+              <span className="sq-muted">{t("review.todayCard.total")}</span>
               <strong>{reviewQueue.total_count}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Lote sugerido</span>
+              <span className="sq-muted">{t("review.todayCard.suggestedBatch")}</span>
               <strong>{reviewQueue.recommended_batch_size || 0}</strong>
             </div>
           </div>
         </Card>
 
-        <Card title="Refinar fila" subtitle="Ajuste o recorte sem transformar a revisao em um painel pesado.">
+        <Card title={t("review.filters.title")} subtitle={t("review.filters.subtitle")}>
           <div className="sq-stack-md">
             <div className="sq-form-grid">
-              <Field label="Certificacao" htmlFor="review-exam-filter">
+              <Field label={t("review.filters.certification")} htmlFor="review-exam-filter">
                 <select
                   id="review-exam-filter"
                   className="sq-select"
                   value={selectedExamId}
                   onChange={(event) => setSelectedExamId(event.target.value)}
                 >
-                  <option value="">Todas</option>
+                  <option value="">{t("common.filters.all")}</option>
                   {exams.map((exam) => (
                     <option key={exam.id} value={exam.id}>
                       {exam.title}
@@ -267,19 +274,19 @@ export function ReviewShell() {
                 </select>
               </Field>
 
-              <Field label="Recorte" htmlFor="review-state-filter">
+              <Field label={t("review.filters.state")} htmlFor="review-state-filter">
                 <select
                   id="review-state-filter"
                   className="sq-select"
                   value={reviewStateFilter}
                   onChange={(event) => setReviewStateFilter(event.target.value)}
                 >
-                  <option value="">Tudo</option>
-                  <option value="due_today">Vence hoje</option>
-                  <option value="overdue">Atrasadas</option>
-                  <option value="at_risk">Em risco</option>
-                  <option value="scheduled">Agendadas</option>
-                  <option value="mastered">Dominadas</option>
+                  <option value="">{t("common.filters.everything")}</option>
+                  <option value="due_today">{t("common.reviewStates.dueToday")}</option>
+                  <option value="overdue">{t("common.reviewStates.overdue")}</option>
+                  <option value="at_risk">{t("common.reviewStates.atRisk")}</option>
+                  <option value="scheduled">{t("common.reviewStates.scheduled")}</option>
+                  <option value="mastered">{t("common.reviewStates.mastered")}</option>
                 </select>
               </Field>
             </div>
@@ -291,36 +298,36 @@ export function ReviewShell() {
                   checked={reviewBookmarksOnly}
                   onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
                 />
-                So marcadas
+                {t("review.filters.bookmarksOnly")}
               </label>
               <label className="sq-checkbox-row">
                 <input type="checkbox" checked={reviewNotesOnly} onChange={(event) => setReviewNotesOnly(event.target.checked)} />
-                So com nota
+                {t("review.filters.notesOnly")}
               </label>
             </div>
           </div>
         </Card>
 
-        <Card title="Itens priorizados" subtitle="Os itens mais sensiveis ficam no topo.">
+        <Card title={t("review.priorityCard.title")} subtitle={t("review.priorityCard.subtitle")}>
           {reviewQueue.items.length ? (
             <div className="sq-list">
               {reviewQueue.items.map((item) => (
                 <div key={item.question_id} className="sq-list-item">
                   <div className="sq-list-title">{item.prompt}</div>
                   <div className="sq-list-meta">
-                    {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item)}
+                    {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item, t)}
                   </div>
                   {(item.bookmarked || item.has_note) ? (
                     <div className="sq-chip-row sq-gap-top-sm">
-                      {item.bookmarked ? <span className="sq-chip">marcada</span> : null}
-                      {item.has_note ? <span className="sq-chip">com nota</span> : null}
+                      {item.bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
+                      {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
                     </div>
                   ) : null}
                 </div>
               ))}
             </div>
           ) : (
-            <div className="sq-empty">Nenhum item de revisao pendente no momento.</div>
+            <div className="sq-empty">{t("review.empty")}</div>
           )}
         </Card>
       </div>

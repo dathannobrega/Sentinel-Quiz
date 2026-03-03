@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 import { buildMaterialPreviewHref } from "@/lib/utils/materials";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
@@ -35,75 +36,87 @@ function resolveResultBasePath(mode: ResultMode): string {
   return mode === "study" ? "/study/sessions" : "/sessions";
 }
 
-function readResultError(error: unknown): string {
+function readResultError(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Nao foi possivel carregar o resultado desta sessao.";
+  return fallbackMessage;
 }
 
-function renderInsightLines(result: ExamResult | StudyResult): string[] {
+function renderInsightLines(
+  result: ExamResult | StudyResult,
+  t: (key: string, values?: Record<string, string | number>) => string
+): string[] {
   const summary = (result.insight?.summary as Record<string, unknown> | undefined) || {};
   const lines: string[] = [];
 
   const attempted = summary.attempted;
   if (typeof attempted === "number") {
-    lines.push(`Respondidas: ${attempted}`);
+    lines.push(t("results.insights.answered", { count: attempted }));
   } else if ("answered_count" in result) {
-    lines.push(`Respondidas: ${result.answered_count}`);
+    lines.push(t("results.insights.answered", { count: result.answered_count }));
   }
 
   const accuracy = summary.accuracy_percent;
   if (typeof accuracy === "number") {
-    lines.push(`Precisao: ${accuracy}%`);
+    lines.push(t("results.insights.accuracy", { value: accuracy }));
   }
 
   const avgSeconds = summary.avg_seconds_per_question;
   if (typeof avgSeconds === "number") {
-    lines.push(`Media por questao: ${avgSeconds}s`);
+    lines.push(t("results.insights.averagePerQuestion", { value: avgSeconds }));
   }
 
   const weakestDomains = result.insight?.weakest_domains;
   if (Array.isArray(weakestDomains) && weakestDomains.length) {
     const first = weakestDomains[0] as { label?: string; wrong?: number } | string;
     if (typeof first === "string") {
-      lines.push(`Dominio mais sensivel: ${first}`);
+      lines.push(t("results.insights.weakestDomain", { label: first }));
     } else if (first && typeof first === "object" && first.label) {
-      lines.push(`Dominio mais sensivel: ${first.label} (${first.wrong ?? 0} erro(s))`);
+      lines.push(t("results.insights.weakestDomainWithErrors", { label: first.label, count: first.wrong ?? 0 }));
     }
   }
 
   if ("review_due_count" in result && typeof result.review_due_count === "number") {
-    lines.push(`Fila vencida apos o bloco: ${result.review_due_count}`);
+    lines.push(t("results.insights.reviewDueAfter", { count: result.review_due_count }));
   }
 
   return lines;
 }
 
-function resolveReadiness(scorePercent: number): { label: string } {
+function resolveReadiness(
+  scorePercent: number,
+  t: (key: string, values?: Record<string, string | number>) => string
+): { label: string } {
   if (scorePercent >= 90) {
-    return { label: "Excelente" };
+    return { label: t("results.readiness.excellent") };
   }
   if (scorePercent >= 80) {
-    return { label: "Bom" };
+    return { label: t("results.readiness.good") };
   }
   if (scorePercent >= 70) {
-    return { label: "Ok" };
+    return { label: t("results.readiness.ok") };
   }
-  return { label: "Em ajuste" };
+  return { label: t("results.readiness.tuning") };
 }
 
-function CitationLinks({ citations }: { citations?: CitationItem[] | null }) {
+function CitationLinks({
+  citations,
+  openMaterialLabel
+}: {
+  citations?: CitationItem[] | null;
+  openMaterialLabel: string;
+}) {
   if (!citations?.length) {
     return null;
   }
 
   const previewLinks = citations
     .map((citation) => ({
-      label: String(citation.reference || citation.source || "Abrir material"),
+      label: String(citation.reference || citation.source || openMaterialLabel),
       href: buildMaterialPreviewHref(citation)
     }))
     .filter((item) => item.href);
@@ -131,20 +144,24 @@ function CitationLinks({ citations }: { citations?: CitationItem[] | null }) {
 
 function ReviewBlock({
   index,
-  question
+  question,
+  t,
+  openMaterialLabel
 }: {
   index: number;
   question: ReviewQuestion | StudyReviewQuestion;
+  t: (key: string, values?: Record<string, string | number>) => string;
+  openMaterialLabel: string;
 }) {
   const questionNumber = "question_number" in question ? question.question_number : index + 1;
 
   return (
     <AccordionItem
-      title={`Questao ${questionNumber}`}
-      subtitle={[question.certification, question.domain, question.difficulty].filter(Boolean).join(" · ") || "Sem metadados"}
+      title={t("results.reviewBlock.question", { number: questionNumber })}
+      subtitle={[question.certification, question.domain, question.difficulty].filter(Boolean).join(" · ") || t("results.reviewBlock.noMetadata")}
       meta={
         <span className={cn("sq-chip", question.is_correct ? "sq-chip--success" : "sq-chip--danger")}>
-          {question.is_correct ? "Correta" : "Errada"}
+          {question.is_correct ? t("results.reviewBlock.correct") : t("results.reviewBlock.wrong")}
         </span>
       }
       defaultOpen={index === 0}
@@ -169,8 +186,8 @@ function ReviewBlock({
                 <span className="sq-chip">{option.key}</span>
                 <span>
                   {option.text}
-                  {isCorrect ? " (correta)" : ""}
-                  {!isCorrect && isSelected ? " (sua escolha)" : ""}
+                  {isCorrect ? t("results.reviewBlock.correctSuffix") : ""}
+                  {!isCorrect && isSelected ? t("results.reviewBlock.selectedSuffix") : ""}
                 </span>
               </div>
             </div>
@@ -179,12 +196,13 @@ function ReviewBlock({
       </div>
 
       {question.justification ? <EmptyState size="compact" description={question.justification} /> : null}
-      <CitationLinks citations={question.citations} />
+      <CitationLinks citations={question.citations} openMaterialLabel={openMaterialLabel} />
     </AccordionItem>
   );
 }
 
 export function SessionResultShell({ sessionId, mode }: SessionResultShellProps) {
+  const { t } = useI18n();
   const basePath = resolveResultBasePath(mode);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -198,7 +216,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
       const response = await apiClient.get<SessionReview | StudySessionReview>(`${basePath}/${sessionId}/review`);
       setReview(response);
     } catch (error) {
-      setLoadError(readResultError(error));
+      setLoadError(readResultError(error, t("results.errors.loadResult")));
     } finally {
       setIsLoading(false);
     }
@@ -210,7 +228,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
   const result = review?.result || null;
   const reviewQuestions = review?.questions || [];
-  const insightLines = useMemo(() => (result ? renderInsightLines(result) : []), [result]);
+  const insightLines = useMemo(() => (result ? renderInsightLines(result, t) : []), [result, t]);
 
   if (isLoading) {
     return (
@@ -229,10 +247,10 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
         <div className="sq-page-stack">
           <StatusBanner
             tone="danger"
-            title="Nao foi possivel carregar o resultado"
-            message={loadError || "A sessao nao retornou dados de revisao."}
+            title={t("results.errors.bannerTitle")}
+            message={loadError || t("results.errors.missingReview")}
             role="alert"
-            action={<Link href="/dashboard">Voltar ao dashboard</Link>}
+            action={<Link href="/dashboard">{t("common.actions.goToDashboard")}</Link>}
           />
         </div>
       </main>
@@ -241,11 +259,14 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
   const sessionMeta = review.session;
   const examResult = mode === "exam" ? (result as ExamResult) : null;
-  const readiness = resolveReadiness(result.score_percent);
+  const readiness = resolveReadiness(result.score_percent, t);
   const headerCopy =
     mode === "study"
-      ? `${formatScore(result.score_percent)} de aproveitamento em estudo`
-      : `${formatScore(result.score_percent)} de score · prontidao ${readiness.label.toLowerCase()}`;
+      ? t("results.summary.studyTitle", { score: formatScore(result.score_percent) })
+      : t("results.summary.examTitle", {
+          score: formatScore(result.score_percent),
+          readiness: readiness.label.toLowerCase()
+        });
 
   return (
     <main className="sq-app-shell">
@@ -256,41 +277,41 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Resultado da sessao</div>
+              <div className="sq-page-title">{t("results.header.title")}</div>
               <p className="sq-page-subtitle">
-                {sessionMeta.exam_title || sessionMeta.exam_id || "Sessao mista"} · concluida em{" "}
-                {formatDateTime(sessionMeta.completed_at)}
+                {sessionMeta.exam_title || sessionMeta.exam_id || t("results.header.mixedSession")} ·{" "}
+                {t("results.header.completedAt", { date: formatDateTime(sessionMeta.completed_at) })}
               </p>
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/history">Historico</Link>
-            <Link href="/admin">Administracao</Link>
-            <Link href="/start">Iniciar nova sessao</Link>
+            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
+            <Link href="/history">{t("common.labels.history")}</Link>
+            <Link href="/admin">{t("common.labels.admin")}</Link>
+            <Link href="/start">{t("common.actions.goToStart")}</Link>
           </div>
         </header>
 
-        <Card title={headerCopy} subtitle={`Estrategia ${result.strategy}.`}>
+        <Card title={headerCopy} subtitle={t("results.summary.strategySubtitle", { strategy: result.strategy })}>
           <div className="sq-surface-block">
             <div className="sq-metric-grid">
-              <MetricCard label="Score" value={formatScore(result.score_percent)} />
-              <MetricCard label="Prontidao" value={readiness.label} />
-              <MetricCard label="Acertos" value={result.correct_count} />
-              <MetricCard label="Erros" value={result.wrong_count} />
+              <MetricCard label={t("results.summary.score")} value={formatScore(result.score_percent)} />
+              <MetricCard label={t("results.summary.readiness")} value={readiness.label} />
+              <MetricCard label={t("results.summary.correct")} value={result.correct_count} />
+              <MetricCard label={t("results.summary.wrong")} value={result.wrong_count} />
               <MetricCard
-                label={mode === "study" ? "Respondidas" : "Questoes"}
+                label={mode === "study" ? t("results.summary.answered") : t("results.summary.questions")}
                 value={"answered_count" in result ? result.answered_count : result.total_questions}
               />
               {examResult?.time_spent_seconds !== undefined && examResult?.time_spent_seconds !== null ? (
                 <MetricCard
-                  label="Tempo usado"
+                  label={t("results.summary.timeUsed")}
                   value={`${Math.max(Math.round(examResult.time_spent_seconds / 60), 1)} min`}
                 />
               ) : null}
               {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (
                 <MetricCard
-                  label="Limite"
+                  label={t("results.summary.timeLimit")}
                   value={`${Math.max(Math.round(examResult.time_limit_seconds / 60), 1)} min`}
                 />
               ) : null}
@@ -299,8 +320,8 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
             {examResult?.timed_out ? (
               <StatusBanner
                 tone="warning"
-                title="Simulado encerrado por tempo"
-                message="O backend aplicou auto-submit quando o cronometro zerou. Revise primeiro os itens errados e os que ficaram sem resposta."
+                title={t("results.summary.timedOutTitle")}
+                message={t("results.summary.timedOutMessage")}
               />
             ) : null}
 
@@ -317,18 +338,24 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
         </Card>
 
         <Card
-          title="Revisao guiada"
-          subtitle="Abra cada questao apenas quando precisar revisar o detalhe."
-          actions={<span className="sq-chip">{reviewQuestions.length} questoes</span>}
+          title={t("results.reviewCard.title")}
+          subtitle={t("results.reviewCard.subtitle")}
+          actions={<span className="sq-chip">{t("results.reviewCard.questionCount", { count: reviewQuestions.length })}</span>}
         >
           {reviewQuestions.length ? (
             <Accordion>
               {reviewQuestions.map((question, index) => (
-                <ReviewBlock key={`${question.id}-${index}`} index={index} question={question} />
+                <ReviewBlock
+                  key={`${question.id}-${index}`}
+                  index={index}
+                  question={question}
+                  t={t}
+                  openMaterialLabel={t("results.citations.openMaterial")}
+                />
               ))}
             </Accordion>
           ) : (
-            <EmptyState description="Nenhuma questao foi encontrada para esta revisao." />
+            <EmptyState description={t("results.reviewCard.empty")} />
           )}
         </Card>
       </div>

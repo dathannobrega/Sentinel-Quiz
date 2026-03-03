@@ -1,6 +1,9 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { useI18n } from "@/lib/i18n";
 import { StatusBanner } from "@/components/ui/status-banner";
 import type { DomainCatalogEntry, Exam } from "@/types/api";
 
@@ -25,6 +28,7 @@ export function ExamLauncher({
   onChange,
   onSubmit
 }: ExamLauncherProps) {
+  const { t } = useI18n();
   const isStudy = values.mode === "study";
   const canLaunch = values.totalQuestions > 0;
   const hasAdvancedFilters =
@@ -32,21 +36,21 @@ export function ExamLauncher({
 
   return (
     <Card
-      title="Comecar sessao"
-      subtitle="Escolha o essencial e inicie em poucos segundos."
+      title={t("launcher.card.title")}
+      subtitle={t("launcher.card.subtitle")}
     >
       <div className="sq-surface-block">
         {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
 
         <div className="sq-form-grid">
-          <Field label="Certificacao" htmlFor="exam-id">
+          <Field label={t("launcher.fields.certification")} htmlFor="exam-id">
             <select
               id="exam-id"
               className="sq-select"
               value={values.examId}
               onChange={(event) => onChange("examId", event.target.value)}
             >
-              <option value="">Misturar todas (random)</option>
+              <option value="">{t("common.filters.mixedRandom")}</option>
               {exams.map((exam) => (
                 <option key={exam.id} value={exam.id}>
                   {exam.title}
@@ -55,19 +59,19 @@ export function ExamLauncher({
             </select>
           </Field>
 
-          <Field label="Modo" htmlFor="session-mode">
+          <Field label={t("launcher.fields.mode")} htmlFor="session-mode">
             <select
               id="session-mode"
               className="sq-select"
               value={values.mode}
               onChange={(event) => onChange("mode", event.target.value as LaunchFormValues["mode"])}
             >
-              <option value="exam">Simulado</option>
-              <option value="study">Estudo</option>
+              <option value="exam">{t("common.labels.exam")}</option>
+              <option value="study">{t("common.labels.study")}</option>
             </select>
           </Field>
 
-          <Field label="Questoes" htmlFor="total-questions">
+          <Field label={t("launcher.fields.questions")} htmlFor="total-questions">
             <input
               id="total-questions"
               className="sq-input"
@@ -80,7 +84,7 @@ export function ExamLauncher({
           </Field>
 
           {!isStudy ? (
-            <Field label="Tempo (min)" htmlFor="time-limit-minutes">
+            <Field label={t("launcher.fields.timeMinutes")} htmlFor="time-limit-minutes">
               <input
                 id="time-limit-minutes"
                 className="sq-input"
@@ -96,13 +100,13 @@ export function ExamLauncher({
 
         <details className="sq-disclosure sq-list-item" open={hasAdvancedFilters ? true : undefined}>
           <summary className="sq-disclosure__summary">
-            Filtros avancados
-            <span className="sq-chip">{hasAdvancedFilters ? "ativos" : "opcionais"}</span>
+            {t("launcher.fields.advancedFilters")}
+            <span className="sq-chip">{hasAdvancedFilters ? t("launcher.advanced.active") : t("launcher.advanced.optional")}</span>
           </summary>
 
           <div className="sq-stack-md">
             <div className="sq-form-grid">
-              <Field label="Dominio" htmlFor="exam-domain">
+              <Field label={t("launcher.fields.domain")} htmlFor="exam-domain">
                 <select
                   id="exam-domain"
                   className="sq-select"
@@ -110,7 +114,7 @@ export function ExamLauncher({
                   onChange={(event) => onChange("domain", event.target.value)}
                   disabled={!domains.length}
                 >
-                  <option value="">Todos os dominios</option>
+                  <option value="">{t("common.filters.allDomains")}</option>
                   {domains.map((domain) => (
                     <option key={`${domain.value}-${domain.label}`} value={domain.value}>
                       {domain.label} ({domain.question_count})
@@ -120,32 +124,32 @@ export function ExamLauncher({
               </Field>
 
               {isStudy ? (
-                <Field label="Estrategia" htmlFor="study-strategy">
+                <Field label={t("launcher.fields.strategy")} htmlFor="study-strategy">
                   <select
                     id="study-strategy"
                     className="sq-select"
                     value={values.studyStrategy}
                     onChange={(event) => onChange("studyStrategy", event.target.value as LaunchFormValues["studyStrategy"])}
                   >
-                    <option value="standard">Padrao</option>
-                    <option value="adaptive">Adaptativa</option>
+                    <option value="standard">{t("common.strategies.standard")}</option>
+                    <option value="adaptive">{t("common.strategies.adaptive")}</option>
                   </select>
                 </Field>
               ) : (
-                <Field label="Estrategia" htmlFor="exam-strategy">
+                <Field label={t("launcher.fields.strategy")} htmlFor="exam-strategy">
                   <select
                     id="exam-strategy"
                     className="sq-select"
                     value={values.examStrategy}
                     onChange={(event) => onChange("examStrategy", event.target.value as LaunchFormValues["examStrategy"])}
                   >
-                    <option value="standard">Padrao</option>
-                    <option value="adaptive">Adaptativa</option>
+                    <option value="standard">{t("common.strategies.standard")}</option>
+                    <option value="adaptive">{t("common.strategies.adaptive")}</option>
                   </select>
                 </Field>
               )}
 
-              <Field label="Dificuldade" htmlFor="difficulty-query">
+              <Field label={t("launcher.fields.difficulty")} htmlFor="difficulty-query">
                 <input
                   id="difficulty-query"
                   className="sq-input"
@@ -155,7 +159,7 @@ export function ExamLauncher({
                 />
               </Field>
 
-              <Field label="Tags" htmlFor="tag-query">
+              <Field label={t("launcher.fields.tags")} htmlFor="tag-query">
                 <input
                   id="tag-query"
                   className="sq-input"
@@ -168,11 +172,11 @@ export function ExamLauncher({
 
             <div className="sq-checkbox-grid">
               {[
-                ["bookmarkedOnly", "Marcadas"],
-                ["notesOnly", "Com nota"],
-                ["incorrectOnly", "Erradas"],
-                ["unseenOnly", "Novas"],
-                ["lowConfidenceOnly", "Baixa confianca"]
+                ["bookmarkedOnly", t("launcher.filters.bookmarked")],
+                ["notesOnly", t("launcher.filters.notes")],
+                ["incorrectOnly", t("launcher.filters.incorrect")],
+                ["unseenOnly", t("launcher.filters.unseen")],
+                ["lowConfidenceOnly", t("launcher.filters.lowConfidence")]
               ].map(([field, label]) => (
                 <label key={field} className="sq-checkbox-row">
                   <input
@@ -189,7 +193,7 @@ export function ExamLauncher({
 
         <div className="sq-actions">
           <Button busy={pending} disabled={!canLaunch} onClick={onSubmit}>
-            {isStudy ? "Criar bloco de estudo" : "Criar simulado"}
+            {isStudy ? t("launcher.actions.createStudyBlock") : t("launcher.actions.createExam")}
           </Button>
         </div>
       </div>

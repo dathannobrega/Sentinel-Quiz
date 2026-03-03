@@ -8,6 +8,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { fetchCurrentUser, logoutUser } from "@/lib/auth/session";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import type { AuthUser, StudyOverview } from "@/types/api";
 
 import { AccountPanel } from "@/features/dashboard/components/account-panel";
@@ -24,14 +25,14 @@ const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
   due_reviews: []
 };
 
-function readErrorMessage(error: unknown): string {
+function readErrorMessage(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Ocorreu um erro inesperado.";
+  return fallbackMessage;
 }
 
 function isUnauthorized(error: unknown): boolean {
@@ -47,6 +48,7 @@ function toNotice(
 }
 
 export function SettingsShell() {
+  const { t } = useI18n();
   const [isLoading, setIsLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<"logout" | null>(null);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export function SettingsShell() {
       setStudyOverview(overviewResult.value);
     } else {
       setStudyOverview(DEFAULT_STUDY_OVERVIEW);
-      setPageNotice(readErrorMessage(overviewResult.reason));
+      setPageNotice(readErrorMessage(overviewResult.reason, t("common.errors.unexpected")));
     }
 
     if (userResult.status === "fulfilled") {
@@ -76,7 +78,9 @@ export function SettingsShell() {
     } else {
       setCurrentUser(null);
       if (!isUnauthorized(userResult.reason)) {
-        setAuthNotice(toNotice("warning", "Sessao indisponivel", readErrorMessage(userResult.reason)));
+        setAuthNotice(
+          toNotice("warning", t("common.errors.sessionUnavailable"), readErrorMessage(userResult.reason, t("common.errors.unexpected")))
+        );
       }
     }
 
@@ -94,9 +98,11 @@ export function SettingsShell() {
     try {
       await logoutUser();
       setCurrentUser(null);
-      setAuthNotice(toNotice("success", "Sessao encerrada", "Voce voltou ao modo local deste dispositivo."));
+      setAuthNotice(toNotice("success", t("settings.notices.loggedOutTitle"), t("settings.notices.loggedOutMessage")));
     } catch (error) {
-      setAuthNotice(toNotice("danger", "Falha ao sair", readErrorMessage(error)));
+      setAuthNotice(
+        toNotice("danger", t("settings.notices.logoutFailureTitle"), readErrorMessage(error, t("common.errors.unexpected")))
+      );
     }
 
     setPendingAction(null);
@@ -122,18 +128,18 @@ export function SettingsShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Configuracoes</div>
-              <p className="sq-page-subtitle">Conta, sincronizacao e o seu caderno pessoal em um lugar separado.</p>
+              <div className="sq-page-title">{t("settings.header.title")}</div>
+              <p className="sq-page-subtitle">{t("settings.header.subtitle")}</p>
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/start">Iniciar</Link>
-            <Link href="/review">Revisao</Link>
+            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
+            <Link href="/start">{t("common.labels.start")}</Link>
+            <Link href="/review">{t("common.labels.review")}</Link>
           </div>
         </header>
 
-        {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
+        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
 
         <AccountPanel
           user={currentUser}

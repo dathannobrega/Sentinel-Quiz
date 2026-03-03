@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { apiClient } from "@/lib/api/client";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   ActiveSessionItem,
@@ -30,24 +31,29 @@ const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
   due_reviews: []
 };
 
-const DEFAULT_ENGAGEMENT: EngagementSnapshot = {
-  daily_goal: { target: 10, completed: 0, remaining: 10, progress_percent: 0, reached: false },
-  daily_review_goal: { target: 5, completed: 0, remaining: 5, progress_percent: 0, reached: false },
-  weekly_goal: { target: 50, completed: 0, remaining: 50, progress_percent: 0, reached: false },
-  weekly_review_goal: { target: 30, completed: 0, remaining: 30, progress_percent: 0, reached: false },
-  streak: { current_days: 0, best_days: 0, total_active_days: 0, goal_completed_today: false },
-  adaptive_profile: { recovery_mode: false, low_confidence_bias: 0, variety_floor_percent: 0, focus_domains: [] },
-  review_backlog_due: 0,
-  recommended_next_action: "Comece uma sessao curta para retomar o ritmo."
-};
+function createDefaultEngagement(recommendedNextAction: string): EngagementSnapshot {
+  return {
+    daily_goal: { target: 10, completed: 0, remaining: 10, progress_percent: 0, reached: false },
+    daily_review_goal: { target: 5, completed: 0, remaining: 5, progress_percent: 0, reached: false },
+    weekly_goal: { target: 50, completed: 0, remaining: 50, progress_percent: 0, reached: false },
+    weekly_review_goal: { target: 30, completed: 0, remaining: 30, progress_percent: 0, reached: false },
+    streak: { current_days: 0, best_days: 0, total_active_days: 0, goal_completed_today: false },
+    adaptive_profile: { recovery_mode: false, low_confidence_bias: 0, variety_floor_percent: 0, focus_domains: [] },
+    review_backlog_due: 0,
+    recommended_next_action: recommendedNextAction
+  };
+}
 
 export function DashboardShell() {
+  const { t } = useI18n();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [weakAreas, setWeakAreas] = useState<WeakAreasResponse["certifications"]>([]);
-  const [engagement, setEngagement] = useState<EngagementSnapshot>(DEFAULT_ENGAGEMENT);
+  const [engagement, setEngagement] = useState<EngagementSnapshot>(() =>
+    createDefaultEngagement(t("dashboard.defaults.recommendedNextAction"))
+  );
   const [studyOverview, setStudyOverview] = useState<StudyOverview>(DEFAULT_STUDY_OVERVIEW);
   const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
   const [activeExamSessions, setActiveExamSessions] = useState<ActiveSessionItem[]>([]);
@@ -78,46 +84,46 @@ export function DashboardShell() {
       setWeakAreas(results[0].value.certifications);
     } else {
       setWeakAreas([]);
-      failedLabels.push("lacunas");
+      failedLabels.push(t("dashboard.failedAreas.weakAreas"));
     }
 
     if (results[1].status === "fulfilled") {
       setEngagement(results[1].value);
     } else {
-      setEngagement(DEFAULT_ENGAGEMENT);
-      failedLabels.push("ritmo");
+      setEngagement(createDefaultEngagement(t("dashboard.defaults.recommendedNextAction")));
+      failedLabels.push(t("dashboard.failedAreas.pace"));
     }
 
     if (results[2].status === "fulfilled") {
       setStudyOverview(results[2].value);
     } else {
       setStudyOverview(DEFAULT_STUDY_OVERVIEW);
-      failedLabels.push("revisao");
+      failedLabels.push(t("dashboard.failedAreas.review"));
     }
 
     if (results[3].status === "fulfilled") {
       setExamHistory(results[3].value);
     } else {
       setExamHistory([]);
-      failedLabels.push("historico");
+      failedLabels.push(t("dashboard.failedAreas.history"));
     }
 
     if (results[4].status === "fulfilled") {
       setActiveExamSessions(results[4].value);
     } else {
       setActiveExamSessions([]);
-      failedLabels.push("sessoes de simulado");
+      failedLabels.push(t("dashboard.failedAreas.examSessions"));
     }
 
     if (results[5].status === "fulfilled") {
       setActiveStudySessions(results[5].value);
     } else {
       setActiveStudySessions([]);
-      failedLabels.push("sessoes de estudo");
+      failedLabels.push(t("dashboard.failedAreas.studySessions"));
     }
 
     if (failedLabels.length) {
-      setLoadError(`Nem tudo foi carregado: ${failedLabels.join(", ")}.`);
+      setLoadError(t("dashboard.loadError", { items: failedLabels.join(", ") }));
     }
 
     setIsRefreshing(false);
@@ -129,10 +135,14 @@ export function DashboardShell() {
 
   const latestExam = examHistory[0] || null;
   const activeSessions = useMemo(() => {
-    const examItems = activeExamSessions.map((session) => ({ ...session, modeLabel: "Simulado", href: `/exam/${session.id}` }));
-    const studyItems = activeStudySessions.map((session) => ({ ...session, modeLabel: "Estudo", href: `/study/${session.id}` }));
+    const examItems = activeExamSessions.map((session) => ({ ...session, modeLabel: t("common.labels.exam"), href: `/exam/${session.id}` }));
+    const studyItems = activeStudySessions.map((session) => ({
+      ...session,
+      modeLabel: t("common.labels.study"),
+      href: `/study/${session.id}`
+    }));
     return [...examItems, ...studyItems].slice(0, 3);
-  }, [activeExamSessions, activeStudySessions]);
+  }, [activeExamSessions, activeStudySessions, t]);
 
   const weakFocus = useMemo(() => {
     return weakAreas
@@ -171,52 +181,52 @@ export function DashboardShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Hoje</div>
-              <p className="sq-page-subtitle">Seu foco de hoje: revisar o que venceu e manter consistencia.</p>
+              <div className="sq-page-title">{t("dashboard.header.title")}</div>
+              <p className="sq-page-subtitle">{t("dashboard.header.subtitle")}</p>
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/start">Iniciar</Link>
-            <Link href="/review">Revisao</Link>
-            <Link href="/settings">Configuracoes</Link>
+            <Link href="/start">{t("common.labels.start")}</Link>
+            <Link href="/review">{t("common.labels.review")}</Link>
+            <Link href="/settings">{t("common.labels.settings")}</Link>
           </div>
         </header>
 
-        {loadError ? <StatusBanner tone="warning" title="Carga parcial" message={loadError} /> : null}
+        {loadError ? <StatusBanner tone="warning" title={t("common.errors.partialLoad")} message={loadError} /> : null}
 
         <div className="sq-grid-3">
           <Card
-            title="Hoje"
-            subtitle="Uma acao principal: limpar o que esta vencido."
+            title={t("dashboard.todayCard.title")}
+            subtitle={t("dashboard.todayCard.subtitle")}
             actions={
               <Link href="/review" className="sq-button sq-button--sm sq-button--primary">
-                Revisar agora
+                {t("common.actions.reviewNow")}
               </Link>
             }
           >
             <div className="sq-stack-md">
               <div className="sq-metric-grid">
-                <MetricCard label="Revisoes vencidas" value={studyOverview.due_review_count} />
+                <MetricCard label={t("dashboard.todayCard.dueReviews")} value={studyOverview.due_review_count} />
                 <MetricCard
-                  label="Progresso diario"
+                  label={t("dashboard.todayCard.dailyProgress")}
                   value={`${engagement.daily_goal.completed}/${engagement.daily_goal.target}`}
                 />
-                <MetricCard label="Ultimo score" value={latestExam ? formatScore(latestExam.score_percent) : "-"} />
+                <MetricCard label={t("dashboard.todayCard.latestScore")} value={latestExam ? formatScore(latestExam.score_percent) : "-"} />
               </div>
 
               <div className="sq-list-item">
-                <div className="sq-list-title">Proximo passo</div>
+                <div className="sq-list-title">{t("dashboard.todayCard.nextStep")}</div>
                 <div className="sq-list-meta">{engagement.recommended_next_action}</div>
               </div>
             </div>
           </Card>
 
           <Card
-            title="Continuar"
-            subtitle="Retome apenas o que ainda faz sentido."
+            title={t("dashboard.continueCard.title")}
+            subtitle={t("dashboard.continueCard.subtitle")}
             actions={
               <Link href="/start" className="sq-text-link">
-                Nova sessao
+                {t("common.actions.newSession")}
               </Link>
             }
           >
@@ -224,27 +234,32 @@ export function DashboardShell() {
               <div className="sq-list">
                 {activeSessions.map((session) => (
                   <div key={session.id} className="sq-list-item">
-                    <div className="sq-list-title">{session.exam_title || `${session.modeLabel} misto`}</div>
+                    <div className="sq-list-title">
+                      {session.exam_title ||
+                        (session.modeLabel === t("common.labels.exam")
+                          ? t("dashboard.modes.examMixed")
+                          : t("dashboard.modes.studyMixed"))}
+                    </div>
                     <div className="sq-list-meta">
                       {session.modeLabel} · {session.answered_count}/{session.total_questions} · {session.progress_percent}%
                     </div>
                     <Link href={session.href} className="sq-text-link">
-                      Retomar
+                      {t("common.actions.resume")}
                     </Link>
                   </div>
                 ))}
               </div>
             ) : (
-              <EmptyState description="Nenhuma sessao ativa. Abra um novo bloco quando quiser." />
+              <EmptyState description={t("dashboard.continueCard.empty")} />
             )}
           </Card>
 
           <Card
-            title="Pontos fracos"
-            subtitle="Somente os sinais mais uteis para decidir o proximo bloco."
+            title={t("dashboard.weakAreasCard.title")}
+            subtitle={t("dashboard.weakAreasCard.subtitle")}
             actions={
               <Link href="/history" className="sq-text-link">
-                Ver detalhes
+                {t("common.actions.seeDetails")}
               </Link>
             }
           >
@@ -258,36 +273,39 @@ export function DashboardShell() {
                 ))}
               </div>
             ) : (
-              <EmptyState description="Sem historico suficiente para destacar lacunas ainda." />
+              <EmptyState description={t("dashboard.weakAreasCard.empty")} />
             )}
           </Card>
         </div>
 
         <Card
-          title="Resumo rapido"
-          subtitle="Contexto minimo para nao perder o ritmo."
+          title={t("dashboard.summaryCard.title")}
+          subtitle={t("dashboard.summaryCard.subtitle")}
           actions={
             <Link href="/history" className="sq-button sq-button--sm sq-button--ghost">
-              Abrir historico
+              {t("common.actions.openHistory")}
             </Link>
           }
         >
           <div className="sq-metric-grid">
-            <MetricCard label="Streak atual" value={engagement.streak.current_days} />
-            <MetricCard label="Melhor streak" value={engagement.streak.best_days} />
+            <MetricCard label={t("dashboard.summaryCard.currentStreak")} value={engagement.streak.current_days} />
+            <MetricCard label={t("dashboard.summaryCard.bestStreak")} value={engagement.streak.best_days} />
             <MetricCard
-              label="Semana"
+              label={t("dashboard.summaryCard.week")}
               value={`${engagement.weekly_goal.completed}/${engagement.weekly_goal.target}`}
             />
             <MetricCard
-              label="Meta de revisao"
+              label={t("dashboard.summaryCard.reviewGoal")}
               value={`${engagement.daily_review_goal.completed}/${engagement.daily_review_goal.target}`}
             />
             <MetricCard
-              label="Proxima revisao"
+              label={t("dashboard.summaryCard.nextReview")}
               value={studyOverview.next_due_at ? formatDateTime(studyOverview.next_due_at) : "-"}
             />
-            <MetricCard label="Atualizacao" value={isRefreshing ? "Atualizando" : "Em dia"} />
+            <MetricCard
+              label={t("dashboard.summaryCard.update")}
+              value={isRefreshing ? t("common.status.updating") : t("common.status.upToDate")}
+            />
           </div>
         </Card>
       </div>

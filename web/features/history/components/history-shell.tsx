@@ -16,6 +16,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { useI18n } from "@/lib/i18n";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   Exam,
@@ -55,14 +56,14 @@ const DEFAULT_WEEKLY_ANALYTICS: StudyWeeklyAnalytics = {
   summary: {}
 };
 
-function readHistoryError(error: unknown): string {
+function readHistoryError(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Nao foi possivel carregar o historico agora.";
+  return fallbackMessage;
 }
 
 function normalizeSearch(value: string): string {
@@ -93,20 +94,25 @@ function resolveStudyResultHref(item: StudyHistoryItem): string {
   return `/study/${item.id}/result`;
 }
 
-function describeQueueState(item: ReviewQueueSnapshot["items"][number]): string {
+function describeQueueState(
+  item: ReviewQueueSnapshot["items"][number],
+  t: (key: string, values?: Record<string, string | number>) => string
+): string {
   if (item.is_overdue) {
-    return `atrasada ha ${item.overdue_days} dia(s)`;
+    return t("review.queueState.overdue", { days: item.overdue_days });
   }
   if (item.state === "due_now") {
-    return "vence hoje";
+    return t("review.queueState.dueToday");
   }
   if (item.state === "at_risk") {
-    return "vence em ate 48h";
+    return t("review.queueState.atRisk");
   }
   if (item.state === "mastered") {
-    return "ja consolidada";
+    return t("review.queueState.mastered");
   }
-  return item.due_at ? `agendada para ${formatDateTime(item.due_at)}` : "agendada";
+  return item.due_at
+    ? t("review.queueState.scheduledFor", { date: formatDateTime(item.due_at) })
+    : t("review.queueState.scheduled");
 }
 
 function buildReviewQueueQuery(
@@ -134,6 +140,7 @@ function buildReviewQueueQuery(
 }
 
 export function HistoryShell() {
+  const { t } = useI18n();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isStartingReview, setIsStartingReview] = useState(false);
@@ -177,39 +184,39 @@ export function HistoryShell() {
       setExams(results[0].value);
     } else {
       setExams([]);
-      failed.push("provas");
+      failed.push(t("history.failedAreas.exams"));
     }
 
     if (results[1].status === "fulfilled") {
       setExamHistory(results[1].value);
     } else {
       setExamHistory([]);
-      failed.push("simulados");
+      failed.push(t("history.failedAreas.examSessions"));
     }
 
     if (results[2].status === "fulfilled") {
       setStudyHistory(results[2].value);
     } else {
       setStudyHistory([]);
-      failed.push("estudo");
+      failed.push(t("history.failedAreas.study"));
     }
 
     if (results[3].status === "fulfilled") {
       setWeeklyAnalytics(results[3].value);
     } else {
       setWeeklyAnalytics(DEFAULT_WEEKLY_ANALYTICS);
-      failed.push("analise semanal");
+      failed.push(t("history.failedAreas.weekly"));
     }
 
     if (results[4].status === "fulfilled") {
       setReviewQueue(results[4].value);
     } else {
       setReviewQueue(DEFAULT_REVIEW_QUEUE);
-      failed.push("fila de revisao");
+      failed.push(t("history.failedAreas.reviewQueue"));
     }
 
     if (failed.length) {
-      setLoadError(`Alguns blocos falharam ao carregar: ${failed.join(", ")}.`);
+      setLoadError(t("history.errors.partialLoad", { items: failed.join(", ") }));
     }
 
     setIsLoading(false);
@@ -226,7 +233,7 @@ export function HistoryShell() {
       );
       setReviewQueue(snapshot);
     } catch (error) {
-      setPageNotice(readHistoryError(error));
+      setPageNotice(readHistoryError(error, t("history.errors.loadHistory")));
     }
   });
 
@@ -303,7 +310,7 @@ export function HistoryShell() {
         router.push(`/study/${response.id}`);
       });
     } catch (error) {
-      setPageNotice(readHistoryError(error));
+      setPageNotice(readHistoryError(error, t("history.errors.loadHistory")));
     } finally {
       setIsStartingReview(false);
     }
@@ -466,28 +473,28 @@ export function HistoryShell() {
             disabled={!reviewQueue.items.length}
             onClick={() => void startRecommendedReview()}
           >
-            Iniciar revisao
+            {t("common.actions.reviewNow")}
           </Button>
         }
       >
         <div className="sq-form-grid sq-gap-bottom-md">
-          <Field label="Recorte" htmlFor="review-state-filter">
+          <Field label={t("review.filters.state")} htmlFor="review-state-filter">
             <select
               id="review-state-filter"
               className="sq-select"
               value={reviewStateFilter}
               onChange={(event) => setReviewStateFilter(event.target.value)}
             >
-              <option value="">Tudo</option>
-              <option value="due_today">Vence hoje</option>
-              <option value="overdue">Atrasadas</option>
-              <option value="at_risk">Em risco</option>
-              <option value="scheduled">Agendadas</option>
-              <option value="mastered">Dominadas</option>
+              <option value="">{t("common.filters.everything")}</option>
+              <option value="due_today">{t("common.reviewStates.dueToday")}</option>
+              <option value="overdue">{t("common.reviewStates.overdue")}</option>
+              <option value="at_risk">{t("common.reviewStates.atRisk")}</option>
+              <option value="scheduled">{t("common.reviewStates.scheduled")}</option>
+              <option value="mastered">{t("common.reviewStates.mastered")}</option>
             </select>
           </Field>
 
-          <Field label="Refino" htmlFor="review-bookmark-toggle">
+          <Field label={t("review.filters.refine")} htmlFor="review-bookmark-toggle">
             <div className="sq-checkbox-grid">
               <label id="review-bookmark-toggle" className="sq-checkbox-row">
                 <input
@@ -495,11 +502,11 @@ export function HistoryShell() {
                   checked={reviewBookmarksOnly}
                   onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
                 />
-                So marcadas
+                {t("review.filters.bookmarksOnly")}
               </label>
               <label className="sq-checkbox-row">
                 <input type="checkbox" checked={reviewNotesOnly} onChange={(event) => setReviewNotesOnly(event.target.checked)} />
-                So com nota
+                {t("review.filters.notesOnly")}
               </label>
             </div>
           </Field>
@@ -511,19 +518,19 @@ export function HistoryShell() {
               <div key={item.question_id} className="sq-list-item">
                 <div className="sq-list-title">{item.prompt}</div>
                 <div className="sq-list-meta">
-                  {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item)}
+                  {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item, t)}
                 </div>
                 {(item.bookmarked || item.has_note) ? (
                   <div className="sq-chip-row sq-gap-top-sm">
-                    {item.bookmarked ? <span className="sq-chip">marcada</span> : null}
-                    {item.has_note ? <span className="sq-chip">com nota</span> : null}
+                    {item.bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
+                    {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
                   </div>
                 ) : null}
               </div>
             ))}
           </div>
         ) : (
-          <EmptyState description="Nenhum item de revisao pendente no momento." />
+          <EmptyState description={t("review.empty")} />
         )}
       </Card>
     </div>
@@ -563,31 +570,31 @@ export function HistoryShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">Historico e analises</div>
-              <p className="sq-page-subtitle">Sessoes, revisao e ritmo semanal separados por contexto.</p>
+              <div className="sq-page-title">{t("history.header.title")}</div>
+              <p className="sq-page-subtitle">{t("history.header.subtitle")}</p>
             </div>
           </div>
           <div className="sq-inline-actions">
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/start">Nova sessao</Link>
-            <Link href="/review">Revisao</Link>
-            <Link href="/admin">Administracao</Link>
+            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
+            <Link href="/start">{t("common.actions.newSession")}</Link>
+            <Link href="/review">{t("common.labels.review")}</Link>
+            <Link href="/admin">{t("common.labels.admin")}</Link>
           </div>
         </header>
 
-        {loadError ? <StatusBanner tone="warning" title="Carga parcial" message={loadError} /> : null}
-        {pageNotice ? <StatusBanner tone="warning" title="Atencao" message={pageNotice} /> : null}
+        {loadError ? <StatusBanner tone="warning" title={t("common.errors.partialLoad")} message={loadError} /> : null}
+        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
 
-        <Card title="Filtros" subtitle="Refine a leitura sem transformar tudo em um megapainel.">
+        <Card title={t("history.filters.title")} subtitle={t("history.filters.subtitle")}>
           <div className="sq-form-grid">
-            <Field label="Prova" htmlFor="history-exam-filter">
+            <Field label={t("history.filters.exam")} htmlFor="history-exam-filter">
               <select
                 id="history-exam-filter"
                 className="sq-select"
                 value={selectedExamId}
                 onChange={(event) => setSelectedExamId(event.target.value)}
               >
-                <option value="">Todas</option>
+                <option value="">{t("common.filters.all")}</option>
                 {exams.map((exam) => (
                   <option key={exam.id} value={exam.id}>
                     {exam.title}
@@ -596,21 +603,21 @@ export function HistoryShell() {
               </select>
             </Field>
 
-            <Field label="Nota minima" htmlFor="history-score-filter">
+            <Field label={t("history.filters.minimumScore")} htmlFor="history-score-filter">
               <select
                 id="history-score-filter"
                 className="sq-select"
                 value={minimumScore}
                 onChange={(event) => setMinimumScore(event.target.value)}
               >
-                <option value="0">Todas</option>
+                <option value="0">{t("common.filters.all")}</option>
                 <option value="70">70%+</option>
                 <option value="80">80%+</option>
                 <option value="90">90%+</option>
               </select>
             </Field>
 
-            <Field label="Busca" htmlFor="history-search-filter">
+            <Field label={t("history.filters.search")} htmlFor="history-search-filter">
               <input
                 id="history-search-filter"
                 className="sq-input"
@@ -623,24 +630,24 @@ export function HistoryShell() {
         </Card>
 
         <Tabs
-          ariaLabel="Areas do historico"
+          ariaLabel={t("history.header.title")}
           defaultValue="sessions"
           items={[
             {
               id: "sessions",
-              label: "Sessoes",
+              label: t("history.tabs.sessions"),
               badge: filteredExamHistory.length + filteredStudyHistory.length,
               content: sessionTab
             },
             {
               id: "review",
-              label: "Revisao",
+              label: t("history.tabs.review"),
               badge: reviewQueue.due_count,
               content: reviewTab
             },
             {
               id: "weeks",
-              label: "Semanas",
+              label: t("history.tabs.weeks"),
               badge: weeklyAnalytics.weeks.length,
               content: weeksTab
             }

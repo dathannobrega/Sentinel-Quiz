@@ -2,15 +2,18 @@ import type { ReactNode } from "react";
 import type { Metadata } from "next";
 
 import { AppNavbar } from "@/components/navigation/app-navbar";
+import { getMessages, I18nProvider, type AppLocale } from "@/lib/i18n";
 
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
 
+const defaultLocale: AppLocale = "pt-BR";
+const messages = getMessages(defaultLocale);
+
 export const metadata: Metadata = {
-  title: "Sentinel Quiz | Security+ e CISSP",
-  description:
-    "Treine para Security+ e CISSP com simulados, estudo guiado, revisao inteligente e metricas por dominio."
+  title: messages.metadata.title,
+  description: messages.metadata.description
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -20,15 +23,17 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   const runtimeConfigScript = JSON.stringify(runtimeConfig).replace(/</g, "\\u003c");
 
   return (
-    <html lang="pt-BR">
+    <html lang={defaultLocale}>
       <body>
         <script
           dangerouslySetInnerHTML={{
             __html: `window.__SENTINEL_RUNTIME__ = ${runtimeConfigScript};`
           }}
         />
-        <AppNavbar />
-        {children}
+        <I18nProvider locale={defaultLocale} messages={messages}>
+          <AppNavbar />
+          {children}
+        </I18nProvider>
       </body>
     </html>
   );

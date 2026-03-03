@@ -1,5 +1,8 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n";
 import { formatDate, formatDateTime, formatScore } from "@/lib/utils/format";
 import type { SessionHistoryItem, StudyHistoryItem, StudyOverview, WeakAreaTrack } from "@/types/api";
 
@@ -12,18 +15,24 @@ interface InsightsPanelProps {
   onRefresh: () => void;
 }
 
-function SessionSummary({ history }: { history: SessionHistoryItem[] }) {
+function SessionSummary({
+  history,
+  t
+}: {
+  history: SessionHistoryItem[];
+  t: (key: string, values?: Record<string, string | number>) => string;
+}) {
   if (!history.length) {
-    return <div className="sq-empty">Nenhum simulado concluido ainda. Crie um primeiro bloco para popular esse painel.</div>;
+    return <div className="sq-empty">{t("insights.empty.exams")}</div>;
   }
 
   return (
     <div className="sq-list">
       {history.slice(0, 4).map((item) => (
         <div key={item.id} className="sq-list-item">
-          <div className="sq-list-title">{item.exam_title || item.exam_id || "Simulado misto"}</div>
+          <div className="sq-list-title">{item.exam_title || item.exam_id || t("insights.labels.mixedExam")}</div>
           <div className="sq-list-meta">
-            {formatScore(item.score_percent)} · {item.correct_count}/{item.total_questions} corretas ·{" "}
+            {formatScore(item.score_percent)} · {item.correct_count}/{item.total_questions} {t("insights.labels.correctAnswers")} ·{" "}
             {formatDateTime(item.completed_at)}
           </div>
         </div>
@@ -32,18 +41,25 @@ function SessionSummary({ history }: { history: SessionHistoryItem[] }) {
   );
 }
 
-function StudySummary({ history }: { history: StudyHistoryItem[] }) {
+function StudySummary({
+  history,
+  t
+}: {
+  history: StudyHistoryItem[];
+  t: (key: string, values?: Record<string, string | number>) => string;
+}) {
   if (!history.length) {
-    return <div className="sq-empty">Nenhum bloco de estudo concluido ainda.</div>;
+    return <div className="sq-empty">{t("insights.empty.study")}</div>;
   }
 
   return (
     <div className="sq-list">
       {history.slice(0, 4).map((item) => (
         <div key={item.id} className="sq-list-item">
-          <div className="sq-list-title">{item.exam_title || item.exam_id || "Bloco misto"}</div>
+          <div className="sq-list-title">{item.exam_title || item.exam_id || t("insights.labels.mixedStudy")}</div>
           <div className="sq-list-meta">
-            {formatScore(item.score_percent)} · estrategia {item.selection_strategy} · revisado em {formatDate(item.completed_at)}
+            {formatScore(item.score_percent)} · {t("insights.labels.strategy")} {item.selection_strategy} ·{" "}
+            {t("insights.labels.reviewedOn", { date: formatDate(item.completed_at) })}
           </div>
         </div>
       ))}
@@ -51,9 +67,15 @@ function StudySummary({ history }: { history: StudyHistoryItem[] }) {
   );
 }
 
-function WeakAreaSummary({ tracks }: { tracks: WeakAreaTrack[] }) {
+function WeakAreaSummary({
+  tracks,
+  t
+}: {
+  tracks: WeakAreaTrack[];
+  t: (key: string, values?: Record<string, string | number>) => string;
+}) {
   if (!tracks.length) {
-    return <div className="sq-empty">Sem historico suficiente para detectar lacunas ainda.</div>;
+    return <div className="sq-empty">{t("insights.empty.weakAreas")}</div>;
   }
 
   return (
@@ -69,7 +91,7 @@ function WeakAreaSummary({ tracks }: { tracks: WeakAreaTrack[] }) {
                 <div className="sq-list-title">{track.certification}</div>
                 <div className="sq-progress-meta">{track.message}</div>
               </div>
-              <div className="sq-progress-meta">{ratio}% de erros recentes</div>
+              <div className="sq-progress-meta">{t("insights.labels.recentErrors", { ratio })}</div>
             </div>
             <div className="sq-progress-track" aria-hidden="true">
               <div className="sq-progress-fill" style={{ width: `${ratio}%` }} />
@@ -77,7 +99,7 @@ function WeakAreaSummary({ tracks }: { tracks: WeakAreaTrack[] }) {
             <div className="sq-chip-row">
               {focus ? (
                 <span className="sq-chip">
-                  Foco: {focus.label} ({focus.wrong}/{focus.total})
+                  {t("insights.labels.focus")}: {focus.label} ({focus.wrong}/{focus.total})
                 </span>
               ) : null}
               {track.domains.slice(0, 2).map((domain) => (
@@ -101,36 +123,38 @@ export function InsightsPanel({
   refreshing,
   onRefresh
 }: InsightsPanelProps) {
+  const { t } = useI18n();
+
   return (
     <div className="sq-grid-2">
       <Card
-        title="Lacunas e dependencia por area"
-        subtitle="Esse bloco traduz o historico atual em prioridade de estudo por certificacao."
+        title={t("insights.titles.weakAreas")}
+        subtitle={t("insights.titles.weakAreasSubtitle")}
         actions={
           <Button variant="ghost" size="sm" busy={refreshing} onClick={onRefresh}>
-            Atualizar
+            {t("common.actions.refresh")}
           </Button>
         }
       >
-        <WeakAreaSummary tracks={weakAreas} />
+        <WeakAreaSummary tracks={weakAreas} t={t} />
       </Card>
 
       <Card
-        title="Fila de revisao e atividade"
-        subtitle="Visibilidade rapida do que esta pendente e do que ja foi estudado."
+        title={t("insights.titles.queueAndActivity")}
+        subtitle={t("insights.titles.queueAndActivitySubtitle")}
       >
         <div className="sq-surface-block">
           <div className="sq-metric-grid">
             <div className="sq-metric-card">
-              <span className="sq-muted">Revisoes vencidas</span>
+              <span className="sq-muted">{t("insights.labels.dueReviews")}</span>
               <strong>{studyOverview.due_review_count}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Simulados recentes</span>
+              <span className="sq-muted">{t("insights.labels.recentExams")}</span>
               <strong>{examHistory.length}</strong>
             </div>
             <div className="sq-metric-card">
-              <span className="sq-muted">Blocos de estudo</span>
+              <span className="sq-muted">{t("insights.labels.studyBlocks")}</span>
               <strong>{studyHistory.length}</strong>
             </div>
           </div>
@@ -139,12 +163,12 @@ export function InsightsPanel({
 
           <div className="sq-grid-2">
             <div className="sq-surface-block">
-              <div className="sq-list-title">Ultimos simulados</div>
-              <SessionSummary history={examHistory} />
+              <div className="sq-list-title">{t("insights.titles.latestExams")}</div>
+              <SessionSummary history={examHistory} t={t} />
             </div>
             <div className="sq-surface-block">
-              <div className="sq-list-title">Ultimos blocos de estudo</div>
-              <StudySummary history={studyHistory} />
+              <div className="sq-list-title">{t("insights.titles.latestStudy")}</div>
+              <StudySummary history={studyHistory} t={t} />
             </div>
           </div>
         </div>
