@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { LandingPageShell } from "@/features/marketing/components/landing-page-shell";
 
 export default function HomePage() {
-  redirect("/dashboard");
+  return <LandingPageShell />;
 }

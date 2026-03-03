@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import Settings
-from app.middleware.observability import resolve_request_identity
+from app.middleware.observability import resolve_rate_limit_identity, resolve_request_identity
 
 
 logger = logging.getLogger("app.security.rate_limit")
@@ -63,9 +63,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         bucket_name, policy = self._resolve_policy(path)
-        identity = resolve_request_identity(request)
+        identity = resolve_rate_limit_identity(request)
         request.state.rate_limit_bucket = bucket_name
-        request.state.identity_hint = getattr(request.state, "identity_hint", None) or identity
+        request.state.identity_hint = getattr(request.state, "identity_hint", None) or resolve_request_identity(request)
         key = f"{bucket_name}:{identity}"
         now = time.monotonic()
 
@@ -87,6 +87,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "bucket": bucket_name,
                     "path": path,
                     "identity": identity,
+                    "identity_hint": getattr(request.state, "identity_hint", None),
                     "retry_after_seconds": retry_after,
                 },
             )

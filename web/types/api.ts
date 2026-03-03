@@ -167,6 +167,7 @@ export interface AuthUser {
   display_name?: string | null;
   role: string;
   is_active: boolean;
+  email_verified: boolean;
   created_at: string;
 }
 
@@ -175,6 +176,19 @@ export interface AuthTokenResponse {
   token_type: string;
   expires_at: string;
   user: AuthUser;
+}
+
+export interface EmailChallengeRequest {
+  email?: string | null;
+}
+
+export interface EmailChallengeConsumeRequest {
+  token: string;
+}
+
+export interface PasswordResetRequest {
+  token: string;
+  new_password: string;
 }
 
 export type SessionMode = "exam" | "study";

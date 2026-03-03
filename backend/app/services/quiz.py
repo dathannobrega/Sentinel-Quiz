@@ -6,7 +6,7 @@ import random
 import uuid
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, false, select
+from sqlalchemy import and_, false, func, select
 from app.models import (
     Exam,
     Question,
@@ -39,6 +39,25 @@ DEFAULT_EXAM_MAX_PAUSE_SECONDS = 300
 SELECTION_MIX_KEY = "_selection_mix"
 SESSION_CONFIG_KEY = "_session_config"
 ACTIVE_FILTERS_KEY = "_active_filters"
+BLUEPRINT_WEIGHT_PRESETS = {
+    "security+": {
+        "General Security Concepts": 12.0,
+        "Threats, Vulnerabilities and Mitigations": 22.0,
+        "Security Architecture": 18.0,
+        "Security Operations": 28.0,
+        "Security Program Management and Oversight": 20.0,
+    },
+    "cissp": {
+        "Security and Risk Management": 16.0,
+        "Asset Security": 10.0,
+        "Security Architecture and Engineering": 13.0,
+        "Communication and Network Security": 13.0,
+        "Identity and Access Management (IAM)": 13.0,
+        "Security Assessment and Testing": 12.0,
+        "Security Operations": 13.0,
+        "Software Development Security": 10.0,
+    },
+}
 
 
 def _score_percent(correct: int, total: int) -> float:
@@ -241,6 +260,222 @@ def _normalize_strategy(value: str | None) -> str:
     if normalized not in {"standard", "adaptive"}:
         raise ValueError("Exam strategy must be one of: standard, adaptive.")
     return normalized
+
+
+def _resolve_blueprint_weight_preset(
+    db: Session,
+    *,
+    exam_id: Optional[str],
+    question_ids: list[str],
+) -> dict[str, float]:
+    if not question_ids:
+        return {}
+
+    rows = db.execute(
+        select(Question.certification, func.count(Question.id))
+        .where(Question.id.in_(question_ids))
+        .group_by(Question.certification)
+        .order_by(func.count(Question.id).desc())
+    ).all()
+    if not rows:
+        return {}
+
+    certification = str(rows[0][0] or "").strip().lower()
+    if certification in BLUEPRINT_WEIGHT_PRESETS:
+        return dict(BLUEPRINT_WEIGHT_PRESETS[certification])
+
+    normalized_exam_id = str(exam_id or "").strip().lower()
+    return dict(BLUEPRINT_WEIGHT_PRESETS.get(normalized_exam_id, {}))
+
+
+def _build_domain_quota_map(
+    question_rows: list[tuple[str, str | None]],
+    total_questions: int,
+    *,
+    blueprint_weights: dict[str, float] | None = None,
+) -> tuple[dict[str, int], bool]:
+    domain_buckets: dict[str, list[str]] = {}
+    for question_id, domain in question_rows:
+        domain_label = str(domain or "Sem dominio").strip() or "Sem dominio"
+        domain_buckets.setdefault(domain_label, []).append(question_id)
+
+    if not domain_buckets:
+        return {}, False
+
+    domain_labels = sorted(domain_buckets)
+    provided_weights = blueprint_weights or {}
+    matched_weight_labels = [label for label in domain_labels if label in provided_weights]
+    use_blueprint = bool(matched_weight_labels)
+    weighted_domains: list[tuple[str, float]] = []
+
+    if use_blueprint:
+        smallest_known = min((provided_weights[label] for label in matched_weight_labels), default=5.0)
+        fallback_weight = max(smallest_known * 0.35, 3.0)
+        for label in domain_labels:
+            weighted_domains.append((label, float(provided_weights.get(label, fallback_weight))))
+    else:
+        for label in domain_labels:
+            weighted_domains.append((label, 1.0))
+
+    total_weight = sum(weight for _label, weight in weighted_domains) or float(len(weighted_domains))
+    quotas = {label: 0 for label in domain_labels}
+    remainders: list[tuple[float, str]] = []
+
+    for label, weight in weighted_domains:
+        available = len(domain_buckets[label])
+        raw_quota = (total_questions * weight) / total_weight
+        base_quota = min(int(math.floor(raw_quota)), available)
+        quotas[label] = base_quota
+        remainders.append((raw_quota - math.floor(raw_quota), label))
+
+    if total_questions >= len(domain_labels):
+        missing = [label for label in domain_labels if quotas[label] == 0 and len(domain_buckets[label]) > 0]
+        for label in missing:
+            donor = max(
+                (candidate for candidate in domain_labels if quotas[candidate] > 1),
+                key=lambda item: quotas[item],
+                default=None,
+            )
+            if donor:
+                quotas[donor] -= 1
+                quotas[label] += 1
+
+    remaining = max(total_questions - sum(quotas.values()), 0)
+    remainders.sort(key=lambda item: (-item[0], item[1].lower()))
+    while remaining > 0:
+        allocated = False
+        for _remainder, label in remainders:
+            available = len(domain_buckets[label])
+            if quotas[label] >= available:
+                continue
+            quotas[label] += 1
+            remaining -= 1
+            allocated = True
+            if remaining <= 0:
+                break
+        if not allocated:
+            break
+
+    return quotas, use_blueprint
+
+
+def _weighted_domain_sample(
+    question_rows: list[tuple[str, str | None]],
+    *,
+    total_questions: int,
+    blueprint_weights: dict[str, float] | None = None,
+) -> tuple[list[str], bool]:
+    if not question_rows or total_questions <= 0:
+        return [], False
+
+    domain_buckets: dict[str, list[str]] = {}
+    for question_id, domain in question_rows:
+        domain_label = str(domain or "Sem dominio").strip() or "Sem dominio"
+        domain_buckets.setdefault(domain_label, []).append(question_id)
+
+    for bucket in domain_buckets.values():
+        random.shuffle(bucket)
+
+    quotas, use_blueprint = _build_domain_quota_map(
+        question_rows,
+        total_questions,
+        blueprint_weights=blueprint_weights,
+    )
+    if not quotas:
+        pool = [question_id for question_id, _domain in question_rows]
+        random.shuffle(pool)
+        return pool[:total_questions], False
+
+    staged: dict[str, list[str]] = {}
+    for domain_label, quota in quotas.items():
+        if quota > 0:
+            staged[domain_label] = domain_buckets[domain_label][:quota]
+
+    selected: list[str] = []
+    ordered_domains = sorted(
+        staged,
+        key=lambda label: (-len(staged[label]), label.lower()),
+    )
+    while True:
+        progressed = False
+        for domain_label in ordered_domains:
+            bucket = staged.get(domain_label) or []
+            if not bucket:
+                continue
+            selected.append(bucket.pop())
+            progressed = True
+            if len(selected) >= total_questions:
+                return selected[:total_questions], use_blueprint
+        if not progressed:
+            break
+
+    if len(selected) < total_questions:
+        selected_set = set(selected)
+        fallback = [question_id for question_id, _domain in question_rows if question_id not in selected_set]
+        random.shuffle(fallback)
+        selected.extend(fallback[: max(total_questions - len(selected), 0)])
+
+    return selected[:total_questions], use_blueprint
+
+
+def _build_question_domain_map(question_rows: list[tuple[str, str | None]]) -> dict[str, str]:
+    domain_map: dict[str, str] = {}
+    for question_id, domain in question_rows:
+        domain_map[question_id] = str(domain or "Sem dominio").strip() or "Sem dominio"
+    return domain_map
+
+
+def _select_candidates_with_domain_targets(
+    candidates: list[str],
+    *,
+    limit: int,
+    question_domains: dict[str, str],
+    domain_targets: dict[str, int] | None = None,
+    already_selected: list[str] | None = None,
+) -> list[str]:
+    if limit <= 0:
+        return []
+
+    blocked = set(already_selected or [])
+    ordered_candidates = _dedupe_question_ids(candidates, blocked=blocked)
+    if not ordered_candidates:
+        return []
+    if not domain_targets:
+        return ordered_candidates[:limit]
+
+    selected_counts: dict[str, int] = {}
+    for question_id in already_selected or []:
+        domain_label = question_domains.get(question_id, "Sem dominio")
+        selected_counts[domain_label] = selected_counts.get(domain_label, 0) + 1
+
+    remaining = list(ordered_candidates)
+    picked: list[str] = []
+
+    while remaining and len(picked) < limit:
+        best_index = 0
+        best_score: tuple[int, int, int, int] | None = None
+
+        for index, question_id in enumerate(remaining):
+            domain_label = question_domains.get(question_id, "Sem dominio")
+            target = max(int(domain_targets.get(domain_label, 0) or 0), 0)
+            current = selected_counts.get(domain_label, 0)
+            deficit = max(target - current, 0)
+            score = (
+                1 if deficit > 0 else 0,
+                deficit,
+                -current,
+                -index,
+            )
+            if best_score is None or score > best_score:
+                best_index = index
+                best_score = score
+
+        question_id = remaining.pop(best_index)
+        picked.append(question_id)
+        domain_label = question_domains.get(question_id, "Sem dominio")
+        selected_counts[domain_label] = selected_counts.get(domain_label, 0) + 1
+
+    return picked
 
 
 def _sanitize_selection_mix(selection_mix: dict[str, int] | None) -> dict[str, int]:
@@ -861,11 +1096,26 @@ def _build_exam_question_pool(
     if total_questions > len(qids):
         total_questions = len(qids)
 
+    blueprint_weights = (
+        _resolve_blueprint_weight_preset(db, exam_id=exam_id, question_ids=qids)
+        if exam_id and not normalized_domains
+        else {}
+    )
+    domain_targets, used_blueprint = _build_domain_quota_map(
+        question_rows,
+        total_questions,
+        blueprint_weights=blueprint_weights,
+    )
+    question_domains = _build_question_domain_map(question_rows)
+
     if resolved_strategy != "adaptive":
-        pool = list(qids)
-        random.shuffle(pool)
-        selected = pool[:total_questions]
-        return selected, resolved_strategy, {"random": len(selected)}
+        selected, used_blueprint = _weighted_domain_sample(
+            question_rows,
+            total_questions=total_questions,
+            blueprint_weights=blueprint_weights,
+        )
+        mix = {"blueprint_weighted": len(selected)} if used_blueprint else {"balanced_random": len(selected)}
+        return selected, resolved_strategy, mix
 
     seen_ids = _owner_seen_question_ids(
         db,
@@ -903,25 +1153,56 @@ def _build_exam_question_pool(
 
     selected: list[str] = []
     due_target = min(len(due_now), max(1, math.ceil(total_questions * 0.2))) if due_now else 0
-    selected.extend(due_now[:due_target])
+    selected.extend(
+        _select_candidates_with_domain_targets(
+            due_now,
+            limit=due_target,
+            question_domains=question_domains,
+            domain_targets=domain_targets,
+            already_selected=selected,
+        )
+    )
     blocked = set(selected)
 
     remaining = total_questions - len(selected)
     if remaining > 0:
         weak_target = min(remaining, max(1, math.ceil(total_questions * 0.45))) if weak_domains else 0
-        weak_candidates = _dedupe_question_ids(weak_new + weak_seen, blocked=blocked)
-        selected.extend(weak_candidates[:weak_target])
+        selected.extend(
+            _select_candidates_with_domain_targets(
+                weak_new + weak_seen,
+                limit=weak_target,
+                question_domains=question_domains,
+                domain_targets=domain_targets,
+                already_selected=selected,
+            )
+        )
         blocked = set(selected)
 
     remaining = total_questions - len(selected)
     if remaining > 0:
         fresh_target = min(remaining, max(1, math.ceil(total_questions * 0.2))) if fresh_questions else 0
-        selected.extend(_dedupe_question_ids(fresh_questions, blocked=blocked)[:fresh_target])
+        selected.extend(
+            _select_candidates_with_domain_targets(
+                fresh_questions,
+                limit=fresh_target,
+                question_domains=question_domains,
+                domain_targets=domain_targets,
+                already_selected=selected,
+            )
+        )
         blocked = set(selected)
 
     remaining = total_questions - len(selected)
     if remaining > 0:
-        selected.extend(_dedupe_question_ids(fallback, blocked=blocked)[:remaining])
+        selected.extend(
+            _select_candidates_with_domain_targets(
+                fallback,
+                limit=remaining,
+                question_domains=question_domains,
+                domain_targets=domain_targets,
+                already_selected=selected,
+            )
+        )
 
     selected = selected[:total_questions]
     if not selected:
@@ -937,6 +1218,8 @@ def _build_exam_question_pool(
         "fresh": len(fresh_selected),
         "carry_over": max(len(selected) - len(due_selected) - len(weak_selected) - len(fresh_selected), 0),
     }
+    if used_blueprint:
+        mix["blueprint_weighted"] = len(selected)
     return selected, resolved_strategy, mix
 
 

@@ -37,7 +37,7 @@ export function ExamLauncher({
   return (
     <Card
       title="Configurar prova"
-      subtitle="A jornada principal agora inicia e continua no frontend Next, sem dependencias do frontend legado."
+      subtitle="Monte um bloco objetivo: certifique-se, assunto, estrategia, volume e filtros que fazem sentido para o momento."
     >
       <div className="sq-surface-block">
         {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
@@ -120,7 +120,7 @@ export function ExamLauncher({
             <Field
               label="Estrategia"
               htmlFor="exam-strategy"
-              hint="O modo adaptativo prioriza dominios fracos e itens com mais necessidade de revisao."
+              hint="O modo padrao respeita o blueprint oficial quando houver. O adaptativo prioriza dominios fracos e revisao."
             >
               <select
                 id="exam-strategy"

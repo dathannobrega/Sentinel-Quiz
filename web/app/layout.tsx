@@ -8,9 +8,9 @@ import "./globals.css";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Sentinel Quiz | Frontend Modernizado",
+  title: "Sentinel Quiz | Security+ e CISSP",
   description:
-    "Migracao incremental do frontend do Sentinel Quiz para Next.js, React e TypeScript com foco em UX."
+    "Treine para Security+ e CISSP com simulados, estudo guiado, revisao inteligente e metricas por dominio."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

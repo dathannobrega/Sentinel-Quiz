@@ -10,7 +10,7 @@ import { Field } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError } from "@/lib/api/client";
-import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "@/lib/auth/session";
+import { fetchCurrentUser, loginUser, logoutUser, registerUser, requestEmailVerification } from "@/lib/auth/session";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import type { AuthUser } from "@/types/api";
 
@@ -40,7 +40,7 @@ function readAuthError(error: unknown): string {
 export function AuthShell({ mode }: { mode: AuthMode }) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<"submit" | "logout" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"submit" | "logout" | "resend" | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [loginValues, setLoginValues] = useState({ email: "", password: "" });
@@ -117,6 +117,28 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
       setNotice(toNotice("success", "Sessao encerrada", "Voce voltou ao modo local deste dispositivo."));
     } catch (error) {
       setNotice(toNotice("danger", "Falha ao sair", readAuthError(error)));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleResendVerification() {
+    if (!currentUser) {
+      return;
+    }
+    setPendingAction("resend");
+    setNotice(null);
+    try {
+      await requestEmailVerification({ email: currentUser.email });
+      setNotice(
+        toNotice(
+          "success",
+          "Verificacao reenviada",
+          "Se o email existir e estiver ativo, voce recebera um novo link de verificacao."
+        )
+      );
+    } catch (error) {
+      setNotice(toNotice("danger", "Falha ao reenviar", readAuthError(error)));
     } finally {
       setPendingAction(null);
     }
@@ -204,11 +226,21 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                   <div className="sq-list-meta">
                     {currentUser.email} · papel {currentUser.role}
                   </div>
+                  <div className="sq-chip-row">
+                    <span className="sq-chip">
+                      {currentUser.email_verified ? "Email verificado" : "Email pendente"}
+                    </span>
+                  </div>
 
                   <div className="sq-actions" style={{ marginTop: "var(--sq-space-4)" }}>
                     <Link href="/dashboard" className="sq-button sq-button--md sq-button--primary">
                       Ir para o dashboard
                     </Link>
+                    {!currentUser.email_verified ? (
+                      <Button variant="ghost" busy={pendingAction === "resend"} onClick={() => void handleResendVerification()}>
+                        Reenviar verificacao
+                      </Button>
+                    ) : null}
                     <Button variant="ghost" busy={pendingAction === "logout"} onClick={() => void handleLogout()}>
                       Sair
                     </Button>
@@ -288,6 +320,11 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                     >
                       {isLogin ? "Ir para cadastro" : "Ja tenho conta"}
                     </Link>
+                    {isLogin ? (
+                      <Link href="/forgot-password" className="sq-button sq-button--md sq-button--ghost">
+                        Esqueci a senha
+                      </Link>
+                    ) : null}
                   </div>
                 </form>
               )}

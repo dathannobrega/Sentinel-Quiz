@@ -57,6 +57,12 @@ export function AppNavbar() {
   }, [pathname, syncSession]);
 
   const links = useMemo(() => {
+    if (!currentUser && pathname === "/") {
+      return [
+        { href: "/#como-funciona", label: "Como funciona" },
+        { href: "/#faq", label: "FAQ" }
+      ];
+    }
     const baseLinks = [
       { href: "/dashboard", label: "Dashboard" },
       { href: "/history", label: "Historico" }
@@ -65,7 +71,7 @@ export function AppNavbar() {
       baseLinks.push({ href: "/admin", label: "Admin" });
     }
     return baseLinks;
-  }, [currentUser]);
+  }, [currentUser, pathname]);
 
   async function handleLogout() {
     setPendingAction("logout");
@@ -96,7 +102,7 @@ export function AppNavbar() {
           <div className="sq-brand-copy">
             <div className="sq-page-title">Sentinel Quiz</div>
             <p className="sq-page-subtitle">
-              Plataforma de estudo, simulados e governanca editorial em uma unica interface.
+              Simulados, estudo guiado e revisao inteligente para Security+ e CISSP.
             </p>
           </div>
         </div>
@@ -107,6 +113,8 @@ export function AppNavbar() {
               const active =
                 link.href === "/dashboard"
                   ? isDashboardPath(pathname)
+                  : link.href.includes("#")
+                    ? false
                   : pathname === link.href || pathname.startsWith(`${link.href}/`);
 
               return (

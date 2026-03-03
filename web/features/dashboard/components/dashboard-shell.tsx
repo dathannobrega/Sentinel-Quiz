@@ -208,7 +208,7 @@ export function DashboardShell() {
 
   useEffect(() => {
     void boot();
-  }, []);
+  }, [boot]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -232,7 +232,7 @@ export function DashboardShell() {
 
   useEffect(() => {
     void loadDomains(launchValues.examId);
-  }, [launchValues.examId]);
+  }, [launchValues.examId, loadDomains]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -348,7 +348,7 @@ export function DashboardShell() {
     setIsRefreshing(false);
   }
 
-  async function refreshQuestionSearch() {
+  const refreshQuestionSearch = useEffectEvent(async () => {
     setIsDiscoveryLoading(true);
     try {
       const params = new URLSearchParams();
@@ -380,7 +380,7 @@ export function DashboardShell() {
     } finally {
       setIsDiscoveryLoading(false);
     }
-  }
+  });
 
   useEffect(() => {
     void refreshQuestionSearch();
@@ -390,7 +390,8 @@ export function DashboardShell() {
     discoveryFilters.tag,
     discoveryFilters.bookmarkedOnly,
     discoveryFilters.notesOnly,
-    launchValues.examId
+    launchValues.examId,
+    refreshQuestionSearch
   ]);
 
   async function handleLogout() {
@@ -490,6 +491,16 @@ export function DashboardShell() {
   }
 
   const heroStats = computeHeroStats(examHistory, studyOverview.due_review_count);
+  const activeSessionCount = activeExamSessions.length + activeStudySessions.length;
+  const shouldExpandDiscovery =
+    isDiscoveryLoading ||
+    Boolean(
+      discoveryFilters.query.trim() ||
+        discoveryFilters.domain ||
+        discoveryFilters.tag.trim() ||
+        discoveryFilters.bookmarkedOnly ||
+        discoveryFilters.notesOnly
+    );
 
   if (isLoading) {
     return (
@@ -509,24 +520,6 @@ export function DashboardShell() {
   return (
     <main className="sq-app-shell">
       <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <div className="sq-page-title">Sentinel Quiz</div>
-              <p className="sq-page-subtitle">
-                Migracao incremental para Next.js App Router + TypeScript, preservando o backend e o fluxo atual.
-              </p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/history">Historico</Link>
-            <Link href="/admin">Admin</Link>
-          </div>
-        </header>
-
         <section
           className="sq-card sq-hero"
           style={{
@@ -538,12 +531,11 @@ export function DashboardShell() {
           }}
         >
           <div className="sq-hero-copy">
-            <div className="sq-eyebrow">Jornada principal migrada</div>
-            <h1 className="sq-hero-title">Dashboard, prova, revisao e edicao agora rodam no app React.</h1>
+            <div className="sq-eyebrow">Painel principal</div>
+            <h1 className="sq-hero-title">Foque no que importa: ritmo, lacunas e proxima acao.</h1>
             <p className="sq-hero-lead">
-              O frontend Next agora cobre a trilha principal do aluno e o painel editorial, com estados tipados,
-              integracao direta com o backend, navegacao consistente e o legado mantido apenas como fallback de
-              rollback durante a transicao final.
+              Este dashboard resume apenas o necessario para manter consistencia: desempenho recente, backlog de revisao,
+              sessoes ativas e os filtros para iniciar o proximo bloco com criterio.
             </p>
             {loadError ? (
               <StatusBanner tone="warning" title="Carga parcial" message={loadError} role="alert" />
@@ -552,26 +544,24 @@ export function DashboardShell() {
 
           <div className="sq-stat-grid" aria-label="Resumo rapido">
             <div className="sq-stat">
-              <div className="sq-stat-label">Ultimo score</div>
+              <div className="sq-stat-label">Score recente</div>
               <div className="sq-stat-value">{formatScore(heroStats.latest?.score_percent)}</div>
               <div className="sq-stat-meta">{formatDateTime(heroStats.latest?.completed_at)}</div>
             </div>
             <div className="sq-stat">
-              <div className="sq-stat-label">Melhor score</div>
-              <div className="sq-stat-value">{formatScore(heroStats.best?.score_percent)}</div>
-              <div className="sq-stat-meta">{formatDateTime(heroStats.best?.completed_at)}</div>
-            </div>
-            <div className="sq-stat">
-              <div className="sq-stat-label">Simulados concluidos</div>
-              <div className="sq-stat-value">{heroStats.totalSessions}</div>
-              <div className="sq-stat-meta">Historico filtrado pelo usuario atual</div>
+              <div className="sq-stat-label">Media recente</div>
+              <div className="sq-stat-value">{heroStats.average !== null ? formatScore(heroStats.average) : "-"}</div>
+              <div className="sq-stat-meta">Ultimos {Math.min(examHistory.length, 5)} simulado(s)</div>
             </div>
             <div className="sq-stat">
               <div className="sq-stat-label">Revisoes vencidas</div>
               <div className="sq-stat-value">{heroStats.dueReviewCount}</div>
-              <div className="sq-stat-meta">
-                Media recente: {heroStats.average !== null ? formatScore(heroStats.average) : "-"}
-              </div>
+              <div className="sq-stat-meta">Atacar isso primeiro reduz retrabalho</div>
+            </div>
+            <div className="sq-stat">
+              <div className="sq-stat-label">Sessoes abertas</div>
+              <div className="sq-stat-value">{activeSessionCount}</div>
+              <div className="sq-stat-meta">{heroStats.totalSessions} simulado(s) concluidos</div>
             </div>
           </div>
         </section>
@@ -589,31 +579,31 @@ export function DashboardShell() {
 
           <div className="sq-stat-grid" aria-label="Ritmo atual">
             <div className="sq-stat">
-              <div className="sq-stat-label">Meta diaria</div>
+              <div className="sq-stat-label">Hoje</div>
               <div className="sq-stat-value">
                 {engagement.daily_goal.completed}/{engagement.daily_goal.target}
               </div>
-              <div className="sq-stat-meta">{engagement.daily_goal.progress_percent}% concluido</div>
+              <div className="sq-stat-meta">{engagement.daily_goal.progress_percent}% da meta diaria</div>
             </div>
             <div className="sq-stat">
-              <div className="sq-stat-label">Revisao diaria</div>
+              <div className="sq-stat-label">Revisao</div>
               <div className="sq-stat-value">
                 {engagement.daily_review_goal.completed}/{engagement.daily_review_goal.target}
               </div>
               <div className="sq-stat-meta">{engagement.review_backlog_due} item(ns) vencido(s)</div>
             </div>
             <div className="sq-stat">
-              <div className="sq-stat-label">Meta semanal</div>
+              <div className="sq-stat-label">Semana</div>
               <div className="sq-stat-value">
                 {engagement.weekly_goal.completed}/{engagement.weekly_goal.target}
               </div>
               <div className="sq-stat-meta">{engagement.weekly_goal.progress_percent}% da semana</div>
             </div>
             <div className="sq-stat">
-              <div className="sq-stat-label">Perfil adaptativo</div>
-              <div className="sq-stat-value">{engagement.adaptive_profile.recovery_mode ? "Recuperacao" : "Estavel"}</div>
+              <div className="sq-stat-label">Ritmo</div>
+              <div className="sq-stat-value">{engagement.streak.current_days} dia(s)</div>
               <div className="sq-stat-meta">
-                Baixa seguranca: {engagement.adaptive_profile.low_confidence_bias}%
+                {engagement.adaptive_profile.recovery_mode ? "Modo recuperacao ativo" : "Ritmo estavel"}
               </div>
             </div>
           </div>
@@ -635,7 +625,7 @@ export function DashboardShell() {
               </div>
             </div>
             <div className="sq-list-item">
-              <div className="sq-list-title">Melhor streak</div>
+              <div className="sq-list-title">Historico de consistencia</div>
               <div className="sq-list-meta">
                 {engagement.streak.best_days} dia(s) · {engagement.streak.total_active_days} dia(s) ativos no total
               </div>
@@ -643,67 +633,77 @@ export function DashboardShell() {
           </div>
         </section>
 
-        <section className="sq-card">
-          <div className="sq-progress-head">
-            <div>
-              <div className="sq-list-title">Continuidade entre devices</div>
-              <div className="sq-list-meta">
-                Sessoes em aberto ficam no backend e podem ser retomadas em qualquer device autenticado.
+        {activeSessionCount ? (
+          <section className="sq-card">
+            <div className="sq-progress-head">
+              <div>
+                <div className="sq-list-title">Retomar sessoes</div>
+                <div className="sq-list-meta">
+                  Sessoes em aberto ficam no backend e podem ser retomadas em qualquer device autenticado.
+                </div>
+              </div>
+              <span className="sq-chip">{activeSessionCount} ativa(s)</span>
+            </div>
+
+            <div className="sq-grid-2">
+              <div className="sq-list" role="list" aria-label="Sessoes de prova em andamento">
+                <div className="sq-list-title">Provas em andamento</div>
+                {activeExamSessions.length ? (
+                  activeExamSessions.map((session) => (
+                    <div key={session.id} className="sq-list-item">
+                      <div className="sq-list-title">{session.exam_title || "Simulado misto"}</div>
+                      <div className="sq-list-meta">
+                        {session.answered_count}/{session.total_questions} · {session.progress_percent}% · {session.selection_strategy}
+                      </div>
+                      <Link href={`/exam/${session.id}`}>Retomar prova</Link>
+                    </div>
+                  ))
+                ) : (
+                  <div className="sq-empty">Nenhuma prova aberta no momento.</div>
+                )}
+              </div>
+
+              <div className="sq-list" role="list" aria-label="Sessoes de estudo em andamento">
+                <div className="sq-list-title">Study sessions em andamento</div>
+                {activeStudySessions.length ? (
+                  activeStudySessions.map((session) => (
+                    <div key={session.id} className="sq-list-item">
+                      <div className="sq-list-title">{session.exam_title || "Study misto"}</div>
+                      <div className="sq-list-meta">
+                        {session.answered_count}/{session.total_questions} · {session.progress_percent}% · {session.selection_strategy}
+                      </div>
+                      <Link href={`/study/${session.id}`}>Retomar estudo</Link>
+                    </div>
+                  ))
+                ) : (
+                  <div className="sq-empty">Nenhuma sessao de estudo aberta no momento.</div>
+                )}
               </div>
             </div>
-            <span className="sq-chip">{activeExamSessions.length + activeStudySessions.length} ativa(s)</span>
-          </div>
+          </section>
+        ) : null}
 
-          <div className="sq-grid-2">
-            <div className="sq-list" role="list" aria-label="Sessoes de prova em andamento">
-              <div className="sq-list-title">Provas em andamento</div>
-              {activeExamSessions.length ? (
-                activeExamSessions.map((session) => (
-                  <div key={session.id} className="sq-list-item">
-                    <div className="sq-list-title">{session.exam_title || "Simulado misto"}</div>
-                    <div className="sq-list-meta">
-                      {session.answered_count}/{session.total_questions} · {session.progress_percent}% · {session.selection_strategy}
-                    </div>
-                    <Link href={`/exam/${session.id}`}>Retomar prova</Link>
-                  </div>
-                ))
-              ) : (
-                <div className="sq-empty">Nenhuma prova aberta no momento.</div>
-              )}
-            </div>
+        <details className="sq-card sq-disclosure" open={shouldExpandDiscovery ? true : undefined}>
+          <summary className="sq-disclosure__summary">
+            Explorar banco de questoes
+            <span className="sq-chip">{questionSearch.total} encontrada(s)</span>
+          </summary>
 
-            <div className="sq-list" role="list" aria-label="Sessoes de estudo em andamento">
-              <div className="sq-list-title">Study sessions em andamento</div>
-              {activeStudySessions.length ? (
-                activeStudySessions.map((session) => (
-                  <div key={session.id} className="sq-list-item">
-                    <div className="sq-list-title">{session.exam_title || "Study misto"}</div>
-                    <div className="sq-list-meta">
-                      {session.answered_count}/{session.total_questions} · {session.progress_percent}% · {session.selection_strategy}
-                    </div>
-                    <Link href={`/study/${session.id}`}>Retomar estudo</Link>
-                  </div>
-                ))
-              ) : (
-                <div className="sq-empty">Nenhuma sessao de estudo aberta no momento.</div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="sq-card">
-          <div className="sq-progress-head">
+          <div className="sq-progress-head" style={{ marginTop: "var(--sq-space-4)" }}>
             <div>
               <div className="sq-list-title">Busca unificada de questoes</div>
               <div className="sq-list-meta">
                 Combine dominio, tag, keyword e texto parcial. Os filtros ficam persistidos neste navegador.
               </div>
             </div>
-            <span className="sq-chip">{questionSearch.total} encontrada(s)</span>
           </div>
 
           <div className="sq-grid-2">
-            <Field label="Texto / keyword" htmlFor="question-search-query" hint="Busca por enunciado, keyword, tag, dominio ou certificacao.">
+            <Field
+              label="Texto / keyword"
+              htmlFor="question-search-query"
+              hint="Busca por enunciado, keyword, tag, dominio ou certificacao."
+            >
               <input
                 id="question-search-query"
                 className="sq-input"
@@ -723,7 +723,11 @@ export function DashboardShell() {
               />
             </Field>
 
-            <Field label="Dominio" htmlFor="question-search-domain" hint="Reaproveita o mesmo catalogo ja carregado para a prova selecionada.">
+            <Field
+              label="Dominio"
+              htmlFor="question-search-domain"
+              hint="Reaproveita o mesmo catalogo ja carregado para a prova selecionada."
+            >
               <select
                 id="question-search-domain"
                 className="sq-select"
@@ -761,7 +765,7 @@ export function DashboardShell() {
             </div>
           </div>
 
-          <div className="sq-list" role="list" aria-label="Resultados da busca de questoes">
+          <div className="sq-list" role="list" aria-label="Resultados da busca de questoes" style={{ marginTop: "var(--sq-space-4)" }}>
             {isDiscoveryLoading ? (
               <div className="sq-empty">Atualizando resultados...</div>
             ) : questionSearch.items.length ? (
@@ -788,7 +792,7 @@ export function DashboardShell() {
               <div className="sq-empty">Nenhuma questao encontrada com os filtros atuais.</div>
             )}
           </div>
-        </section>
+        </details>
 
         <div className="sq-grid-2">
           <AccountPanel

@@ -79,6 +79,19 @@ function renderInsightLines(result: ExamResult | StudyResult): string[] {
   return lines;
 }
 
+function resolveReadiness(scorePercent: number): { label: string } {
+  if (scorePercent >= 90) {
+    return { label: "Excelente" };
+  }
+  if (scorePercent >= 80) {
+    return { label: "Bom" };
+  }
+  if (scorePercent >= 70) {
+    return { label: "Ok" };
+  }
+  return { label: "Em ajuste" };
+}
+
 function CitationLinks({ citations }: { citations?: CitationItem[] | null }) {
   if (!citations?.length) {
     return null;
@@ -200,7 +213,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
   useEffect(() => {
     void load();
-  }, [sessionId, mode]);
+  }, [sessionId, mode, load]);
 
   const result = review?.result || null;
   const reviewQuestions = review?.questions || [];
@@ -235,12 +248,11 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
   const sessionMeta = review.session;
   const examResult = mode === "exam" ? (result as ExamResult) : null;
+  const readiness = resolveReadiness(result.score_percent);
   const headerCopy =
     mode === "study"
       ? `${formatScore(result.score_percent)} de aproveitamento em estudo`
-      : examResult?.passed
-        ? `Aprovado (${formatScore(result.score_percent)})`
-        : `Abaixo da meta (${formatScore(result.score_percent)})`;
+      : `${formatScore(result.score_percent)} de score · prontidao ${readiness.label.toLowerCase()}`;
 
   return (
     <main className="sq-app-shell">
@@ -269,6 +281,14 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
         <Card title={headerCopy} subtitle={`Estrategia ${result.strategy}. Revisao completa das respostas abaixo.`}>
           <div className="sq-surface-block">
             <div className="sq-metric-grid">
+              <div className="sq-metric-card">
+                <span className="sq-muted">Score</span>
+                <strong>{formatScore(result.score_percent)}</strong>
+              </div>
+              <div className="sq-metric-card">
+                <span className="sq-muted">Prontidao</span>
+                <strong>{readiness.label}</strong>
+              </div>
               <div className="sq-metric-card">
                 <span className="sq-muted">Acertos</span>
                 <strong>{result.correct_count}</strong>

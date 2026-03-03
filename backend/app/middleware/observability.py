@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 import uuid
@@ -8,33 +9,50 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.core.config import Settings
+from app.core.config import Settings, settings
 
 
 logger = logging.getLogger("app.http")
 
 
-def resolve_client_ip(request: Request) -> str:
+def resolve_client_ip(request: Request, *, trust_forwarded: bool | None = None) -> str:
+    should_trust_forwarded = settings.trust_forwarded_for_header if trust_forwarded is None else bool(trust_forwarded)
     forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    if forwarded:
+    if should_trust_forwarded and forwarded:
         return forwarded
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
 
 
-def resolve_request_identity(request: Request) -> str:
+def _hash_identity_fragment(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def resolve_supplemental_identity(request: Request) -> str | None:
     client_key = str(request.headers.get("x-client-key") or "").strip()
     if client_key:
-        return f"client:{client_key[:64]}"
+        return f"client:{_hash_identity_fragment(client_key[:64])}"
 
     authorization = str(request.headers.get("authorization") or "").strip()
     if authorization.lower().startswith("bearer "):
-        token_hint = authorization[7:23].strip()
-        if token_hint:
-            return f"token:{token_hint}"
+        token = authorization[7:].strip()
+        if token:
+            return f"token:{_hash_identity_fragment(token)}"
+    return None
 
-    return f"ip:{resolve_client_ip(request)}"
+
+def resolve_request_identity(request: Request) -> str:
+    base_ip = resolve_client_ip(request)
+    supplemental = resolve_supplemental_identity(request)
+    if supplemental:
+        return f"ip:{base_ip}|{supplemental}"
+    return f"ip:{base_ip}"
+
+
+def resolve_rate_limit_identity(request: Request) -> str:
+    base_ip = resolve_client_ip(request)
+    return f"ip:{base_ip}"
 
 
 def _sanitize_request_id(value: str | None) -> str | None:

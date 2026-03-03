@@ -1,6 +1,12 @@
 import { ApiError, apiClient } from "@/lib/api/client";
 import { clearStoredAuthToken, setStoredAuthToken } from "@/lib/auth/storage";
-import type { AuthTokenResponse, AuthUser } from "@/types/api";
+import type {
+  AuthTokenResponse,
+  AuthUser,
+  EmailChallengeConsumeRequest,
+  EmailChallengeRequest,
+  PasswordResetRequest
+} from "@/types/api";
 
 function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
@@ -49,4 +55,28 @@ export async function logoutUser(): Promise<void> {
   } finally {
     clearStoredAuthToken();
   }
+}
+
+export async function requestEmailVerification(payload: EmailChallengeRequest): Promise<void> {
+  await apiClient.post<{ ok: boolean }>("/auth/request-email-verification", payload, {
+    retryOnUnauthorized: false
+  });
+}
+
+export async function verifyEmailToken(payload: EmailChallengeConsumeRequest): Promise<AuthUser> {
+  return apiClient.post<AuthUser>("/auth/verify-email", payload, {
+    retryOnUnauthorized: false
+  });
+}
+
+export async function requestPasswordReset(payload: EmailChallengeRequest): Promise<void> {
+  await apiClient.post<{ ok: boolean }>("/auth/request-password-reset", payload, {
+    retryOnUnauthorized: false
+  });
+}
+
+export async function resetPassword(payload: PasswordResetRequest): Promise<void> {
+  await apiClient.post<{ ok: boolean }>("/auth/reset-password", payload, {
+    retryOnUnauthorized: false
+  });
 }

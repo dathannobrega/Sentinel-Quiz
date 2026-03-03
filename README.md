@@ -126,9 +126,12 @@ docker run -d \
 
 Para Portainer, use `docker-compose.portainer.yml` como stack base:
 
-- troque `APP_IMAGE_NAME` e `APP_WEB_IMAGE_NAME` para as imagens publicadas no registry
+- troque `APP_IMAGE_NAME`, `APP_WEB_IMAGE_NAME` e `APP_NGINX_IMAGE_NAME` para as imagens publicadas no registry
 - configure as variáveis `APP_*` no painel do stack
+- publique o app pelo proxy em `APP_NGINX_HOST`; a API passa a sair em `http(s)://<host>/api`
+- o proxy gera um certificado autoassinado no startup usando `APP_NGINX_HOST` como `CN/SAN`
 - mantenha o volume `postgres_data` para persistência do banco
+- mantenha também `proxy_certs` se quiser persistir a chave/certificado entre reinícios
 - monte também o diretório/volume de `material` externamente se quiser preview de referência no app
 - para schema controlado por migration, use `APP_BOOTSTRAP_SCHEMA=false` e `APP_RUN_DB_MIGRATIONS=true`
 - o default dessa stack já assume `APP_ENV=production`; se o banco for `sqlite`, a API vai recusar o boot por segurança
@@ -346,12 +349,13 @@ Se o backend não estiver na mesma origem, defina:
 NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
 ```
 
-## 🐳 Docker com API + Web
+## 🐳 Docker com Proxy + API + Web
 
 O `docker-compose.yml` agora sobe:
 
-1. `api` em `http://localhost:8000`
-2. `web` em `http://localhost:3000`
+1. `proxy` em `http://localhost`, redirecionando para `https://localhost` com certificado autoassinado
+2. `web` internamente na porta `3000`
+3. `api` internamente na porta `8000`, publicada externamente em `/api`
 
 Fluxo local:
 
@@ -359,20 +363,41 @@ Fluxo local:
 docker compose up --build
 ```
 
-Variáveis novas para o frontend container:
+Acesse a interface por `https://localhost` (ou `http://localhost`, que redireciona). O frontend usa a mesma origem para chamar `/api`, então não é mais necessário expor `web` e `api` diretamente no host.
+
+Variáveis principais para o proxy/runtime:
 
 ```bash
-APP_WEB_IMAGE_NAME=sentinel-quiz-web:local
-APP_WEB_PORT=3000
-APP_PUBLIC_API_ORIGIN=http://localhost:8000
+APP_NGINX_HOST=localhost
+APP_NGINX_ALT_NAMES=
+APP_NGINX_CERT_DAYS=3650
+APP_PUBLIC_WEB_ORIGIN=
+APP_PUBLIC_API_ORIGIN=
 ```
 
-No Portainer, a stack agora espera duas imagens:
+`APP_NGINX_HOST` deve receber apenas o host/domínio, sem `http://` ou `https://`.
+Se `APP_PUBLIC_WEB_ORIGIN` ficar vazio, a API deriva automaticamente `https://<APP_NGINX_HOST>`.
+
+Quando estiver em produção com domínio público, use:
+
+```bash
+APP_NGINX_HOST=quiz.seudominio.com
+APP_NGINX_ALT_NAMES=www.quiz.seudominio.com
+APP_PUBLIC_WEB_ORIGIN=https://quiz.seudominio.com
+APP_AUTH_COOKIE_SECURE=true
+```
+
+O certificado continua sendo autoassinado; o navegador vai exigir confiança manual ou importação da CA/chave em ambientes controlados.
+Deixe `APP_PUBLIC_API_ORIGIN` vazio para o frontend usar a mesma origem do proxy. Só preencha esse valor se quiser forçar chamadas para outro backend.
+
+No Portainer, a stack agora espera tres imagens:
 
 1. `APP_IMAGE_NAME` para a API
 2. `APP_WEB_IMAGE_NAME` para o frontend Next
+3. `APP_NGINX_IMAGE_NAME` para o proxy Nginx
 
-O workflow `docker-publish.yml` passou a publicar ambas no GHCR:
+O workflow `docker-publish.yml` deve publicar as tres imagens no GHCR:
 
 1. `ghcr.io/<owner>/<repo>` (API)
 2. `ghcr.io/<owner>/<repo>-web` (frontend)
+3. `ghcr.io/<owner>/<repo>-proxy` (Nginx)
