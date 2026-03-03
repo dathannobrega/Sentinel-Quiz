@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response
@@ -85,13 +85,18 @@ def _serialize_user(user: User) -> AuthUserOut:
 
 def _set_auth_cookie(response: Response, token: str, expires_at: datetime) -> None:
     domain = str(settings.auth_cookie_domain or "").strip() or None
+    expires_at_utc = (
+        expires_at.replace(tzinfo=timezone.utc)
+        if expires_at.tzinfo is None or expires_at.utcoffset() is None
+        else expires_at.astimezone(timezone.utc)
+    )
     response.set_cookie(
         key=settings.auth_cookie_name,
         value=token,
         httponly=True,
         secure=bool(settings.auth_cookie_secure or settings.is_production()),
         samesite=str(settings.auth_cookie_samesite or "lax").strip().lower(),
-        expires=expires_at,
+        expires=expires_at_utc,
         path="/",
         domain=domain,
     )
