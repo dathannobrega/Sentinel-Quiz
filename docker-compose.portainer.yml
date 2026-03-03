@@ -16,7 +16,7 @@ services:
 
   api:
     container_name: ${APP_CONTAINER_NAME:-sentinel-quiz}
-    image: ${APP_IMAGE_NAME:-ghcr.io/owner/sentinel-quiz:latest}
+    image: ${APP_IMAGE_NAME:-ghcr.io/dathannobrega/sentinel-quiz:latest}
     pull_policy: always
     restart: unless-stopped
     depends_on:
@@ -84,7 +84,7 @@ services:
 
   web:
     container_name: ${APP_WEB_CONTAINER_NAME:-sentinel-quiz-web}
-    image: ${APP_WEB_IMAGE_NAME:-ghcr.io/owner/sentinel-quiz-web:latest}
+    image: ${APP_WEB_IMAGE_NAME:-ghcr.io/dathannobrega/sentinel-quiz-web:latest}
     pull_policy: always
     restart: unless-stopped
     depends_on:
@@ -97,7 +97,7 @@ services:
 
   proxy:
     container_name: ${APP_NGINX_CONTAINER_NAME:-sentinel-quiz-proxy}
-    image: ${APP_NGINX_IMAGE_NAME:-ghcr.io/owner/sentinel-quiz-proxy:latest}
+    image: ${APP_NGINX_IMAGE_NAME:-ghcr.io/dathannobrega/sentinel-quiz-proxy:latest}
     pull_policy: always
     restart: unless-stopped
     depends_on:
