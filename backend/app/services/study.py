@@ -312,6 +312,13 @@ def _classify_review_queue_item(
     return state, overdue_days, is_overdue
 
 
+def _bucket_rows(buckets: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"label": label, **data}
+        for label, data in buckets.items()
+    ]
+
+
 def build_review_queue_snapshot(
     db: Session,
     *,
@@ -2640,7 +2647,7 @@ def compute_study_result(db: Session, session: StudySession) -> dict[str, Any]:
                 "avg_seconds_per_question": avg_seconds,
             },
             "by_type": by_type,
-            "by_domain": by_domain,
+            "by_domain": _bucket_rows(by_domain),
             "weakest_domains": weakest_domains,
             "missed_sample": missed_sample,
             "focus": focus,

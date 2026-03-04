@@ -45,6 +45,13 @@ function createDefaultEngagement(recommendedNextAction: string): EngagementSnaps
   };
 }
 
+function formatSecondsMetric(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return "-";
+  }
+  return `${Math.round(value)}s`;
+}
+
 export function DashboardShell() {
   const { t } = useI18n();
   const [isLoading, setIsLoading] = useState(true);
@@ -322,6 +329,68 @@ export function DashboardShell() {
             />
           </div>
         </Card>
+
+        {readiness?.domain_scores?.length ? (
+          <Card
+            title="Mastery por domínio"
+            subtitle="O readiness agora explicita lacunas por domínio, com acerto, confiança e ritmo."
+            actions={
+              <Link href="/review" className="sq-text-link">
+                {t("common.actions.reviewNow")}
+              </Link>
+            }
+          >
+            <div className="sq-page-stack">
+              {[...readiness.domain_scores]
+                .sort((left, right) => left.score_percent - right.score_percent || left.domain.localeCompare(right.domain))
+                .slice(0, 5)
+                .map((item) => (
+                  <div key={item.domain} className="sq-surface-block">
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "var(--sq-space-3)",
+                        alignItems: "center"
+                      }}
+                    >
+                      <div className="sq-list-title">{item.domain}</div>
+                      <div className="sq-list-meta">{formatScore(item.score_percent)}</div>
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "var(--sq-space-3)",
+                        height: 8,
+                        borderRadius: 999,
+                        background: "rgba(148, 163, 184, 0.18)",
+                        overflow: "hidden"
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${Math.max(4, Math.min(item.score_percent, 100))}%`,
+                          height: "100%",
+                          borderRadius: 999,
+                          background:
+                            item.score_percent >= 80
+                              ? "linear-gradient(90deg, rgba(21,128,61,0.82), rgba(74,222,128,0.76))"
+                              : item.score_percent >= 65
+                                ? "linear-gradient(90deg, rgba(180,83,9,0.82), rgba(251,191,36,0.76))"
+                                : "linear-gradient(90deg, rgba(185,28,28,0.82), rgba(248,113,113,0.76))"
+                        }}
+                      />
+                    </div>
+                    <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
+                      <span className="sq-chip">acerto {formatScore(item.accuracy_percent)}</span>
+                      <span className="sq-chip">{item.attempts} tentativa(s)</span>
+                      <span className="sq-chip">ritmo {formatSecondsMetric(item.avg_elapsed_seconds)}</span>
+                      <span className="sq-chip">baixa confiança {item.low_confidence_count}</span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </Card>
+        ) : null}
       </div>
     </main>
   );

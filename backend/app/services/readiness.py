@@ -163,6 +163,17 @@ def build_readiness_snapshot(
         top = weakest_domains[0]
         label = top.get("label") or top.get("domain") or "Sem dominio"
         drivers.append(f"{label} segue como o ponto de maior atrito na sessao atual.")
+    slowest_domain = None
+    for item in domain_scores:
+        avg_elapsed = item.get("avg_elapsed_seconds")
+        if not isinstance(avg_elapsed, (int, float)):
+            continue
+        if slowest_domain is None or float(avg_elapsed) > float(slowest_domain["avg_elapsed_seconds"]):
+            slowest_domain = item
+    if slowest_domain and float(slowest_domain["avg_elapsed_seconds"]) > 95.0:
+        drivers.append(
+            f"Velocidade: {slowest_domain['domain']} esta lenta ({round(float(slowest_domain['avg_elapsed_seconds']))}s por questao em media)."
+        )
     if last_seen_at and last_seen_at < now - timedelta(days=7):
         drivers.append("Sua recencia caiu; volte a revisar nas proximas 24 horas.")
     elif not tracked_questions:

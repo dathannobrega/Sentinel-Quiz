@@ -141,6 +141,74 @@ function formatPedagogicalReference(reference: {
   return parts.join(" · ");
 }
 
+function ExamNavigatorPanel({
+  reviewScreen,
+  sessionState,
+  isLoading,
+  onJump,
+  minimal = false
+}: {
+  reviewScreen: ExamReviewScreen | null;
+  sessionState: SessionResponse | null;
+  isLoading: boolean;
+  onJump: (position: number) => void;
+  minimal?: boolean;
+}) {
+  const answeredCount = reviewScreen?.answered_count ?? sessionState?.answered_count ?? 0;
+  const totalQuestions = reviewScreen?.total_questions ?? sessionState?.total_questions ?? 0;
+
+  return (
+    <div className="sq-runner-utility">
+      <div className="sq-runner-utility__head">
+        <div>
+          <div className="sq-list-title">{minimal ? "Navegação" : "Navegador da prova"}</div>
+          <div className="sq-list-meta">
+            {minimal ? "Fluxo enxuto, sem recursos pedagógicos." : "Vá e volte livremente antes de enviar."}
+          </div>
+        </div>
+        <span className="sq-chip">{`${answeredCount}/${totalQuestions}`}</span>
+      </div>
+
+      {reviewScreen ? (
+        <>
+          <div className="sq-chip-row sq-gap-top-sm">
+            <span className="sq-chip">Pendentes: {reviewScreen.unanswered_count}</span>
+            <span className="sq-chip">Marcadas: {reviewScreen.marked_for_review_count}</span>
+          </div>
+          <div className="sq-chip-row sq-gap-top-sm">
+            {reviewScreen.items.map((item) => (
+              <button
+                key={`${item.question_id}-${item.position}`}
+                type="button"
+                className="sq-chip"
+                onClick={() => onJump(item.position)}
+                style={{
+                  borderColor: item.is_current
+                    ? "rgba(15, 118, 110, 0.45)"
+                    : item.marked_for_review
+                      ? "rgba(245, 158, 11, 0.35)"
+                      : undefined,
+                  background: item.is_current
+                    ? "rgba(15, 118, 110, 0.12)"
+                    : item.answered
+                      ? "rgba(34, 197, 94, 0.1)"
+                      : undefined
+                }}
+              >
+                {item.position + 1}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="sq-list-meta sq-gap-top-sm">
+          {isLoading ? "Carregando status da prova..." : "Sem dados do navegador ainda."}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps) {
   const { t } = useI18n();
   const router = useRouter();
@@ -834,17 +902,19 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                 {isExamPaused ? t("common.actions.resume") : t("common.actions.pause")}
               </Button>
             ) : null}
-            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
-            <Link href="/history">{t("common.labels.history")}</Link>
+            {!isExamDayMode ? <Link href="/dashboard">{t("common.labels.dashboard")}</Link> : null}
+            {!isExamDayMode ? <Link href="/history">{t("common.labels.history")}</Link> : null}
           </div>
         </header>
 
-        <div className="sq-runner-layout">
+        <div className="sq-runner-layout" style={isExamDayMode ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}>
           <div className="sq-page-stack">
             <Card
               title={t("runner.questionCard.title", { current: questionNumber, total: totalQuestions || "-" })}
               subtitle={
-                currentQuestion?.multi_select
+                isExamDayMode
+                  ? "Modo prova: sem correção instantânea e sem recursos pedagógicos."
+                  : currentQuestion?.multi_select
                   ? t("runner.questionCard.multiSelect")
                   : t("runner.questionCard.singleSelect")
               }
@@ -853,24 +923,44 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                   <span className="sq-chip">
                     {mode === "study"
                       ? t("runner.questionCard.answered", { count: sessionState?.answered_count ?? 0 })
+                      : isExamDayMode
+                        ? `${sessionState?.answered_count ?? 0}/${sessionState?.total_questions ?? 0} respondidas`
                       : t("runner.questionCard.examSummary", {
                           correct: sessionState?.correct_count ?? 0,
                           wrong: sessionState?.wrong_count ?? 0
                         })}
                   </span>
                   {isExamMode ? (
-                    <span className="sq-chip">
+                    <span
+                      className="sq-chip"
+                      style={
+                        isExamDayMode
+                          ? {
+                              fontWeight: 700,
+                              background: "rgba(127, 29, 29, 0.08)",
+                              borderColor: "rgba(127, 29, 29, 0.22)"
+                            }
+                          : undefined
+                      }
+                    >
                       {isExamPaused ? t("runner.questionCard.paused") : t("runner.questionCard.time")}{" "}
                       {formatRemainingTime(sessionState?.remaining_seconds)}
                     </span>
                   ) : null}
-                  <span className="sq-chip">{strategyLabel}</span>
+                  {!isExamDayMode ? <span className="sq-chip">{strategyLabel}</span> : null}
                   {isExamDayMode ? <span className="sq-chip">Exam day</span> : null}
                 </div>
               }
             >
               <div className="sq-surface-block">
                 {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
+                {isExamDayMode ? (
+                  <StatusBanner
+                    tone="neutral"
+                    title="Modo prova ativo"
+                    message="Correção instantânea, tutor, referências e saídas rápidas foram reduzidos para simular o dia da prova."
+                  />
+                ) : null}
                 {isExamPaused ? (
                   <StatusBanner
                     tone="neutral"
@@ -881,12 +971,18 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
 
                 {currentQuestion ? (
                   <>
-                    <div className="sq-chip-row">
-                      {currentQuestion.certification ? <span className="sq-chip">{currentQuestion.certification}</span> : null}
-                      {currentQuestion.domain ? <span className="sq-chip">{currentQuestion.domain}</span> : null}
-                      {currentQuestion.difficulty ? <span className="sq-chip">{currentQuestion.difficulty}</span> : null}
-                      {currentQuestion.marked_for_review ? <span className="sq-chip">Marcada para revisão</span> : null}
-                    </div>
+                    {!isExamDayMode ? (
+                      <div className="sq-chip-row">
+                        {currentQuestion.certification ? <span className="sq-chip">{currentQuestion.certification}</span> : null}
+                        {currentQuestion.domain ? <span className="sq-chip">{currentQuestion.domain}</span> : null}
+                        {currentQuestion.difficulty ? <span className="sq-chip">{currentQuestion.difficulty}</span> : null}
+                        {currentQuestion.marked_for_review ? <span className="sq-chip">Marcada para revisão</span> : null}
+                      </div>
+                    ) : currentQuestion.marked_for_review ? (
+                      <div className="sq-chip-row">
+                        <span className="sq-chip">Marcada para revisão</span>
+                      </div>
+                    ) : null}
 
                     <div className="sq-runner-question">{currentQuestion.prompt}</div>
 
@@ -941,25 +1037,43 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     ) : null}
 
                     {feedback ? (
-                      <StatusBanner
-                        tone={feedback.is_correct ? "success" : "danger"}
-                        title={feedback.is_correct ? t("runner.feedback.correct") : t("runner.feedback.wrong")}
-                        message={
-                          feedback.feedback_summary?.trim() ||
-                          feedback.justification?.trim() ||
-                          t("runner.feedback.missingJustification")
-                        }
-                        action={
-                          feedbackBits.length ? (
-                            <div className="sq-chip-row">
-                              {feedbackBits.map((item) => (
-                                <span key={item} className="sq-chip">
-                                  {item}
-                                </span>
-                              ))}
-                            </div>
-                          ) : undefined
-                        }
+                      isExamDayMode ? (
+                        <StatusBanner
+                          tone="neutral"
+                          title="Resposta registrada"
+                          message="No modo prova, o gabarito e a análise detalhada só aparecem depois do envio final."
+                        />
+                      ) : (
+                        <StatusBanner
+                          tone={feedback.is_correct ? "success" : "danger"}
+                          title={feedback.is_correct ? t("runner.feedback.correct") : t("runner.feedback.wrong")}
+                          message={
+                            feedback.feedback_summary?.trim() ||
+                            feedback.justification?.trim() ||
+                            t("runner.feedback.missingJustification")
+                          }
+                          action={
+                            feedbackBits.length ? (
+                              <div className="sq-chip-row">
+                                {feedbackBits.map((item) => (
+                                  <span key={item} className="sq-chip">
+                                    {item}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : undefined
+                          }
+                        />
+                      )
+                    ) : null}
+
+                    {isExamDayMode && isExamMode ? (
+                      <ExamNavigatorPanel
+                        reviewScreen={reviewScreen}
+                        sessionState={sessionState}
+                        isLoading={isReviewScreenLoading}
+                        onJump={(position) => void handleJumpToPosition(position)}
+                        minimal
                       />
                     ) : null}
 
@@ -999,6 +1113,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
             </Card>
           </div>
 
+          {!isExamDayMode ? (
           <aside className="sq-runner-sidebar" aria-label={t("runner.labels.questionToolsAria")}>
             <details className="sq-card sq-disclosure" open>
               <summary className="sq-disclosure__summary">{t("runner.labels.tools")}</summary>
@@ -1140,56 +1255,12 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                   </>
                 ) : (
                   <>
-                    <div className="sq-runner-utility">
-                      <div className="sq-runner-utility__head">
-                        <div>
-                          <div className="sq-list-title">Navegador da prova</div>
-                          <div className="sq-list-meta">Vá e volte livremente antes de enviar.</div>
-                        </div>
-                        <span className="sq-chip">
-                          {reviewScreen
-                            ? `${reviewScreen.answered_count}/${reviewScreen.total_questions}`
-                            : `${sessionState?.answered_count ?? 0}/${sessionState?.total_questions ?? 0}`}
-                        </span>
-                      </div>
-
-                      {reviewScreen ? (
-                        <>
-                          <div className="sq-chip-row sq-gap-top-sm">
-                            <span className="sq-chip">Pendentes: {reviewScreen.unanswered_count}</span>
-                            <span className="sq-chip">Marcadas: {reviewScreen.marked_for_review_count}</span>
-                          </div>
-                          <div className="sq-chip-row sq-gap-top-sm">
-                            {reviewScreen.items.map((item) => (
-                              <button
-                                key={`${item.question_id}-${item.position}`}
-                                type="button"
-                                className="sq-chip"
-                                onClick={() => void handleJumpToPosition(item.position)}
-                                style={{
-                                  borderColor: item.is_current
-                                    ? "rgba(15, 118, 110, 0.45)"
-                                    : item.marked_for_review
-                                      ? "rgba(245, 158, 11, 0.35)"
-                                      : undefined,
-                                  background: item.is_current
-                                    ? "rgba(15, 118, 110, 0.12)"
-                                    : item.answered
-                                      ? "rgba(34, 197, 94, 0.1)"
-                                      : undefined
-                                }}
-                              >
-                                {item.position + 1}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="sq-list-meta sq-gap-top-sm">
-                          {isReviewScreenLoading ? "Carregando status da prova..." : "Sem dados do navegador ainda."}
-                        </div>
-                      )}
-                    </div>
+                    <ExamNavigatorPanel
+                      reviewScreen={reviewScreen}
+                      sessionState={sessionState}
+                      isLoading={isReviewScreenLoading}
+                      onJump={(position) => void handleJumpToPosition(position)}
+                    />
 
                     {!isExamDayMode && feedback ? (
                       <div className="sq-runner-utility">
@@ -1290,6 +1361,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
               </div>
             </details>
           </aside>
+          ) : null}
         </div>
       </div>
     </main>

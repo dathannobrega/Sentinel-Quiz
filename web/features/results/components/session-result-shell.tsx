@@ -27,6 +27,7 @@ import type {
   StudyResult,
   StudyReviewQuestion,
   StudySessionReview,
+  TimingBreakdown,
   TutorReply
 } from "@/types/api";
 
@@ -99,10 +100,21 @@ function buildReviewDomainHref(domain: string): string {
   return `/review?${params.toString()}`;
 }
 
+function formatSecondsMetric(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return "-";
+  }
+  return `${Math.round(value)}s`;
+}
+
 function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undefined }) {
   if (!readiness) {
     return null;
   }
+
+  const rankedDomains = [...(readiness.domain_scores || [])]
+    .sort((left, right) => left.score_percent - right.score_percent || left.domain.localeCompare(right.domain))
+    .slice(0, 5);
 
   return (
     <Card
@@ -124,6 +136,74 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
             ))}
           </div>
         ) : null}
+        {rankedDomains.length ? (
+          <div className="sq-page-stack" style={{ marginTop: "var(--sq-space-4)" }}>
+            <div className="sq-list-title">Domínio por domínio</div>
+            {rankedDomains.map((domain) => (
+              <div key={domain.domain} className="sq-surface-block">
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "var(--sq-space-3)",
+                    alignItems: "center"
+                  }}
+                >
+                  <div className="sq-list-title">{domain.domain}</div>
+                  <div className="sq-list-meta">{formatScore(domain.score_percent)}</div>
+                </div>
+                <div
+                  style={{
+                    marginTop: "var(--sq-space-3)",
+                    height: 8,
+                    borderRadius: 999,
+                    background: "rgba(148, 163, 184, 0.18)",
+                    overflow: "hidden"
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.max(4, Math.min(domain.score_percent, 100))}%`,
+                      height: "100%",
+                      borderRadius: 999,
+                      background:
+                        domain.score_percent >= 80
+                          ? "linear-gradient(90deg, rgba(21,128,61,0.82), rgba(74,222,128,0.76))"
+                          : domain.score_percent >= 65
+                            ? "linear-gradient(90deg, rgba(180,83,9,0.82), rgba(251,191,36,0.76))"
+                            : "linear-gradient(90deg, rgba(185,28,28,0.82), rgba(248,113,113,0.76))"
+                    }}
+                  />
+                </div>
+                <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
+                  <span className="sq-chip">acerto {formatScore(domain.accuracy_percent)}</span>
+                  <span className="sq-chip">{domain.attempts} tentativa(s)</span>
+                  <span className="sq-chip">ritmo {formatSecondsMetric(domain.avg_elapsed_seconds)}</span>
+                  <span className="sq-chip">baixa confiança {domain.low_confidence_count}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
+function TimingCard({ timing }: { timing: TimingBreakdown | null | undefined }) {
+  if (!timing) {
+    return null;
+  }
+
+  return (
+    <Card title="Ritmo da sessão" subtitle="Velocidade e dispersão agora entram de forma explícita na leitura de prontidão.">
+      <div className="sq-surface-block">
+        <div className="sq-metric-grid">
+          <MetricCard label="Duração" value={formatSecondsMetric(timing.duration_seconds)} />
+          <MetricCard label="Média por questão" value={formatSecondsMetric(timing.avg_seconds_per_question)} />
+          <MetricCard label="Mais rápida" value={formatSecondsMetric(timing.fastest_seconds)} />
+          <MetricCard label="Mais lenta" value={formatSecondsMetric(timing.slowest_seconds)} />
+        </div>
       </div>
     </Card>
   );
@@ -524,6 +604,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
         </Card>
 
         <ReadinessCard readiness={readinessScore} />
+        <TimingCard timing={resultInsight?.timing} />
         <StudyPlanCard items={studyPlan} />
 
         <Card

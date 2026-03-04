@@ -226,6 +226,13 @@ def _top_bucket_entries(buckets: dict[str, dict], *, reverse: bool = False, limi
     return items[:limit]
 
 
+def _bucket_rows(buckets: dict[str, dict]) -> list[dict]:
+    return [
+        {"label": label, **data}
+        for label, data in buckets.items()
+    ]
+
+
 def _normalize_text_filters(values: Optional[list[str]]) -> list[str]:
     if not values:
         return []
@@ -1486,10 +1493,10 @@ def _analyze_session(session: ExamSession, rows) -> dict:
             "single_select": ss,
             "multi_select": ms,
         },
-        "by_domain": by_domain,
-        "by_difficulty": by_difficulty,
-        "by_certification": by_certification,
-        "by_exam": by_exam,
+        "by_domain": _bucket_rows(by_domain),
+        "by_difficulty": _bucket_rows(by_difficulty),
+        "by_certification": _bucket_rows(by_certification),
+        "by_exam": _bucket_rows(by_exam),
         "weakest_domains": weakest_domains,
         "strongest_domains": strongest_domains,
         "patterns": patterns,
