@@ -7,7 +7,6 @@ import { fetchCurrentUser } from "@/lib/auth/session";
 import type {
   AdminDomainCatalogPage,
   AdminQuestionIssueUpdateInput,
-  AuthUser,
   AdminUser,
   AdminUserUpdateInput,
   QuestionIssue,
