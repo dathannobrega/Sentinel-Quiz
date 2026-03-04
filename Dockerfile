@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY backend/app /app/app
 COPY backend/alembic /app/alembic
 COPY backend/alembic.ini /app/alembic.ini
+COPY material /app/material
 COPY questions /questions
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 

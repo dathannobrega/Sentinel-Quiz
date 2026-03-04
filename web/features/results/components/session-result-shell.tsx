@@ -13,7 +13,7 @@ import { ApiError, apiClient } from "@/lib/api/client";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
-import { buildMaterialPreviewHref } from "@/lib/utils/materials";
+import { buildTheoryReaderHref } from "@/lib/utils/materials";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   CitationItem,
@@ -278,7 +278,7 @@ function CitationLinks({
   const previewLinks = citations
     .map((citation) => ({
       label: String(citation.reference || citation.source || openMaterialLabel),
-      href: buildMaterialPreviewHref(citation)
+      href: buildTheoryReaderHref(citation)
     }))
     .filter((item) => item.href);
 
@@ -289,15 +289,13 @@ function CitationLinks({
   return (
     <div className="sq-chip-row">
       {previewLinks.slice(0, 3).map((item) => (
-        <a
+        <Link
           key={`${item.label}-${item.href}`}
           className="sq-chip"
           href={item.href || "#"}
-          target="_blank"
-          rel="noreferrer noopener"
         >
           {item.label}
-        </a>
+        </Link>
       ))}
     </div>
   );

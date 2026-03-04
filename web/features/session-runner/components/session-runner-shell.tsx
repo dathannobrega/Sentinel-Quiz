@@ -13,6 +13,7 @@ import { ApiError, apiClient } from "@/lib/api/client";
 import { clearSessionId } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
+import { buildTheoryReaderHref } from "@/lib/utils/materials";
 import { cn } from "@/lib/utils/cn";
 import { formatDateTime } from "@/lib/utils/format";
 import type {
@@ -103,20 +104,6 @@ function buildHintEndpoint(mode: RunnerMode, sessionId: string, questionId: stri
     return null;
   }
   return `/study/sessions/${sessionId}/questions/${questionId}/hint?level=${level}`;
-}
-
-function buildMaterialPreviewHref(materialPath: string, locator?: string | null, pageStart?: number | null, pageEnd?: number | null) {
-  const params = new URLSearchParams({ material_path: materialPath });
-  if (locator) {
-    params.set("locator", locator);
-  }
-  if (typeof pageStart === "number") {
-    params.set("page_start", String(pageStart));
-  }
-  if (typeof pageEnd === "number") {
-    params.set("page_end", String(pageEnd));
-  }
-  return `/api/materials/preview?${params.toString()}`;
 }
 
 function formatPedagogicalReference(reference: {
@@ -1158,14 +1145,16 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                                   <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
                                   {reference.material_path ? (
                                     <a
-                                      href={buildMaterialPreviewHref(
-                                        reference.material_path,
-                                        reference.locator,
-                                        reference.page_start,
-                                        reference.page_end
-                                      )}
-                                      target="_blank"
-                                      rel="noreferrer"
+                                      href={
+                                        buildTheoryReaderHref({
+                                          material_path: reference.material_path,
+                                          locator: reference.locator,
+                                          page_start: reference.page_start,
+                                          page_end: reference.page_end,
+                                          source: reference.label,
+                                          reference: reference.reference,
+                                        }) || "#"
+                                      }
                                       className="sq-text-link"
                                     >
                                       {t("runner.labels.openExcerpt")}
@@ -1340,14 +1329,16 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                           <div className="sq-list-title">{formatPedagogicalReference(reference)}</div>
                           {reference.material_path ? (
                             <a
-                              href={buildMaterialPreviewHref(
-                                reference.material_path,
-                                reference.locator,
-                                reference.page_start,
-                                reference.page_end
-                              )}
-                              target="_blank"
-                              rel="noreferrer"
+                              href={
+                                buildTheoryReaderHref({
+                                  material_path: reference.material_path,
+                                  locator: reference.locator,
+                                  page_start: reference.page_start,
+                                  page_end: reference.page_end,
+                                  source: reference.label,
+                                  reference: reference.reference,
+                                }) || "#"
+                              }
                               className="sq-text-link"
                             >
                               {t("runner.labels.openExcerpt")}

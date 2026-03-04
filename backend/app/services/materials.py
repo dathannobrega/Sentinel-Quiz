@@ -30,7 +30,7 @@ def resolve_material_file(material_path: str) -> Path:
         raise FileNotFoundError("Material path is required.")
 
     base_dir = resolve_material_dir()
-    repo_material = (REPO_ROOT / "material").resolve()
+    allowed_roots = _allowed_material_roots(base_dir)
 
     candidates: list[Path] = []
     if not Path(raw_path).is_absolute():
@@ -39,21 +39,31 @@ def resolve_material_file(material_path: str) -> Path:
             relative_name = raw_path.split("/", 1)[1]
             if base_dir:
                 candidates.append((base_dir / relative_name).resolve())
-            candidates.append((repo_material / relative_name).resolve())
+            for root in allowed_roots:
+                candidates.append((root / relative_name).resolve())
         else:
             if base_dir:
                 candidates.append((base_dir / raw_path).resolve())
-            candidates.append((repo_material / raw_path).resolve())
-
-    allowed_roots = [repo_material]
-    if base_dir:
-        allowed_roots.append(base_dir.resolve())
+            for root in allowed_roots:
+                candidates.append((root / raw_path).resolve())
+    else:
+        candidates.append(Path(raw_path).resolve())
 
     for candidate in candidates:
         if not candidate.is_file():
             continue
         if any(_is_relative_to(candidate, root) for root in allowed_roots):
             return candidate
+
+    filename = Path(raw_path).name.strip()
+    if filename:
+        direct_name_match = _find_material_by_name(filename, allowed_roots)
+        if direct_name_match:
+            return direct_name_match
+
+        normalized_name_match = _find_material_by_normalized_name(filename, allowed_roots)
+        if normalized_name_match:
+            return normalized_name_match
 
     raise FileNotFoundError(f"Material not found: {raw_path}")
 
@@ -249,3 +259,47 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _allowed_material_roots(base_dir: Path | None = None) -> list[Path]:
+    repo_material = (REPO_ROOT / "material").resolve()
+    roots: list[Path] = []
+    for candidate in [base_dir.resolve() if base_dir else None, repo_material]:
+        if not candidate or not candidate.is_dir():
+            continue
+        if candidate in roots:
+            continue
+        roots.append(candidate)
+    return roots
+
+
+def _find_material_by_name(filename: str, roots: list[Path]) -> Path | None:
+    requested = str(filename or "").strip().lower()
+    if not requested:
+        return None
+    for root in roots:
+        direct = (root / filename).resolve()
+        if direct.is_file() and _is_relative_to(direct, root):
+            return direct
+        for candidate in sorted(path for path in root.rglob("*") if path.is_file()):
+            if candidate.name.lower() == requested and _is_relative_to(candidate.resolve(), root):
+                return candidate.resolve()
+    return None
+
+
+def _normalize_material_name(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    return normalized
+
+
+def _find_material_by_normalized_name(filename: str, roots: list[Path]) -> Path | None:
+    requested = _normalize_material_name(Path(filename).name)
+    if not requested:
+        return None
+    for root in roots:
+        for candidate in sorted(path for path in root.rglob("*") if path.is_file()):
+            if not _is_relative_to(candidate.resolve(), root):
+                continue
+            if _normalize_material_name(candidate.name) == requested:
+                return candidate.resolve()
+    return None

@@ -82,4 +82,21 @@ app.include_router(study_router)
 
 material_path = resolve_material_dir()
 if material_path and material_path.is_dir():
+    material_files = [path for path in material_path.iterdir() if path.is_file()]
+    if not material_files:
+        logger.warning(
+            "Material directory is mounted but empty; excerpt preview will fail for referenced books.",
+            extra={
+                "event": "material_dir_empty",
+                "material_dir": str(material_path),
+            },
+        )
     app.mount("/materials", StaticFiles(directory=str(material_path), html=False), name="materials")
+else:
+    logger.warning(
+        "Material directory is unavailable; excerpt preview will be disabled.",
+        extra={
+            "event": "material_dir_missing",
+            "material_dir": settings.material_dir,
+        },
+    )
