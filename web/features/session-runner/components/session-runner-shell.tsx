@@ -1349,11 +1349,11 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                               href={
                                 buildTheoryReaderHref({
                                   material_path: reference.material_path,
-                                  locator: reference.locator,
+                                  locator: reference.locator ?? undefined,
                                   page_start: reference.page_start,
                                   page_end: reference.page_end,
                                   source: reference.label,
-                                  reference: reference.reference,
+                                  reference: reference.reference ?? undefined,
                                 }) || "#"
                               }
                               className="sq-text-link"
