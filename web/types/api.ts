@@ -44,6 +44,139 @@ export interface PedagogicalReferenceItem {
   is_official: boolean;
 }
 
+export interface WeakDomainInsight {
+  label: string;
+  total: number;
+  wrong: number;
+  score_percent: number;
+}
+
+export interface StudyPlanItem {
+  domain: string;
+  wrong: number;
+  total: number;
+  score_percent: number;
+  topics: string[];
+  resources: string[];
+  reason: string;
+  action: string;
+}
+
+export interface TimingBreakdown {
+  duration_seconds?: number | null;
+  avg_seconds_per_question?: number | null;
+  fastest_seconds?: number | null;
+  slowest_seconds?: number | null;
+}
+
+export interface ReadinessDomainScore {
+  domain: string;
+  score_percent: number;
+  accuracy_percent: number;
+  attempts: number;
+  avg_elapsed_seconds?: number | null;
+  low_confidence_count: number;
+}
+
+export interface ReadinessScore {
+  score_percent: number;
+  projected_score_percent: number;
+  band: "strong" | "stable" | "developing" | "at_risk" | string;
+  recommended_minutes: number;
+  tracked_questions: number;
+  factors: string[];
+  domain_scores: ReadinessDomainScore[];
+  weakest_domains: ReadinessDomainScore[];
+}
+
+export interface LiveInsight {
+  accuracy_percent?: number;
+  remaining_questions?: number;
+  current_correct_streak?: number;
+  weakest_area?: Record<string, unknown> | null;
+  message?: string;
+}
+
+export interface ResultInsight {
+  summary: Record<string, unknown>;
+  by_type?: Record<string, unknown>;
+  by_domain?: Array<Record<string, unknown>>;
+  by_difficulty?: Array<Record<string, unknown>>;
+  by_certification?: Array<Record<string, unknown>>;
+  by_exam?: Array<Record<string, unknown>>;
+  weakest_domains?: WeakDomainInsight[];
+  strongest_domains?: Array<Record<string, unknown>>;
+  patterns?: string[];
+  focus?: string[];
+  study_plan?: StudyPlanItem[];
+  readiness?: ReadinessScore | null;
+  timing?: TimingBreakdown | null;
+  recommendation?: string | null;
+  missed_sample?: Array<Record<string, unknown>>;
+  live?: LiveInsight | null;
+}
+
+export interface ExamRuntimeQuestion extends QuestionItem {
+  selected_keys?: string[];
+  is_answered?: boolean;
+  marked_for_review?: boolean;
+  elapsed_seconds?: number | null;
+}
+
+export interface ReviewScreenQuestionStatus {
+  position: number;
+  question_id: string;
+  answered: boolean;
+  selected_keys: string[];
+  marked_for_review: boolean;
+  is_current: boolean;
+}
+
+export interface ExamReviewScreen {
+  session_id: string;
+  total_questions: number;
+  answered_count: number;
+  unanswered_count: number;
+  marked_for_review_count: number;
+  current_position: number;
+  items: ReviewScreenQuestionStatus[];
+}
+
+export interface TutorRequestPayload {
+  user_message?: string | null;
+  mode?: "help" | "why_wrong" | "review";
+}
+
+export interface TutorReply {
+  message: string;
+  blocked: boolean;
+  model?: string | null;
+}
+
+export interface QuestionIssueRequest {
+  session_id?: string | null;
+  mode: "exam" | "study" | "review";
+  category: "gabarito" | "explicacao" | "referencia" | "clareza";
+  message: string;
+  question_version_id?: number | null;
+}
+
+export interface QuestionIssue {
+  id: number;
+  question_id: string;
+  question_version_id?: number | null;
+  session_id?: string | null;
+  mode: string;
+  category: string;
+  status: string;
+  message: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  certification?: string | null;
+  domain?: string | null;
+  prompt_excerpt?: string | null;
+}
+
 export interface QuestionHint {
   question_id: string;
   level: number;
@@ -208,6 +341,7 @@ export interface SessionRequest {
   low_confidence_only?: boolean;
   strategy: ExamStrategy;
   time_limit_minutes?: number | null;
+  experience_mode?: "standard" | "exam_day";
 }
 
 export interface StudySessionRequest {
@@ -234,9 +368,12 @@ export interface SessionResponse {
   active_filters?: Record<string, unknown>;
   total_questions: number;
   current_index: number;
+  current_position?: number;
   correct_count: number;
   wrong_count: number;
   answered_count?: number;
+  marked_for_review_count?: number;
+  experience_mode?: "standard" | "exam_day";
   time_limit_seconds?: number | null;
   remaining_seconds?: number | null;
   expires_at?: string | null;
@@ -422,22 +559,29 @@ export interface StudyWeeklyAnalytics {
 
 export interface SessionQuestionResponse {
   finished: boolean;
-  question?: QuestionItem;
+  question?: ExamRuntimeQuestion;
   progress_index?: number;
+  current_position?: number;
   total_questions?: number;
   answered_count?: number;
+  marked_for_review_count?: number;
+  experience_mode?: "standard" | "exam_day";
 }
 
 export interface ExamAnswerFeedback {
   is_correct: boolean;
   justification?: string | null;
+  feedback_summary?: string | null;
   progress_index: number;
+  current_position?: number;
   total_questions: number;
+  answered_count: number;
   correct_count: number;
   wrong_count: number;
+  marked_for_review_count?: number;
   finished: boolean;
   official_references?: PedagogicalReferenceItem[];
-  insight?: Record<string, unknown> | null;
+  insight?: LiveInsight | null;
 }
 
 export interface StudyAnswerFeedback extends ExamAnswerFeedback {
@@ -462,7 +606,7 @@ export interface ExamResult {
   time_limit_seconds?: number | null;
   time_spent_seconds?: number | null;
   timed_out?: boolean;
-  insight: Record<string, unknown>;
+  insight: ResultInsight;
 }
 
 export interface StudyResult {
@@ -476,7 +620,7 @@ export interface StudyResult {
   strategy: string;
   selection_mix: Record<string, number>;
   review_due_count: number;
-  insight: Record<string, unknown>;
+  insight: ResultInsight;
 }
 
 export interface ReviewQuestion {

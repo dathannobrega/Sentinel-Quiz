@@ -432,8 +432,10 @@ class ExamSession(Base):
     selection_strategy: Mapped[str] = mapped_column(String(24), nullable=False, default="standard", index=True)
     selection_mix_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=90)
+    experience_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="standard", index=True)
 
     current_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, index=True)
@@ -456,6 +458,8 @@ class SessionQuestion(Base):
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("exam_sessions.id", ondelete="CASCADE"), nullable=False)
     question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    marked_for_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     session: Mapped["ExamSession"] = relationship(back_populates="questions")
 
@@ -470,12 +474,42 @@ class SessionAnswer(Base):
 
     selected_keys: Mapped[str] = mapped_column(String(255), nullable=False)  # comma-separated keys
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    elapsed_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     answered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     session: Mapped["ExamSession"] = relationship(back_populates="answers")
 
     __table_args__ = (UniqueConstraint("session_id", "question_id", name="uq_session_question_answer"),)
+
+
+class QuestionIssue(Base):
+    __tablename__ = "question_issues"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="exam", index=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_question_issues_owner_scope_xor",
+        ),
+    )
 
 
 class StudySession(Base):

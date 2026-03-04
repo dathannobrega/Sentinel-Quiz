@@ -16,6 +16,7 @@ from app.models import (
     QuestionVersion,
     ReferenceCatalog,
 )
+from app.services.reference_resolver import build_official_reference_summaries as resolve_official_reference_summaries
 
 
 CONFIDENCE_SIGNAL_TO_LEVEL = {
@@ -282,56 +283,7 @@ def build_official_reference_summaries(
     *,
     limit: int = 4,
 ) -> list[dict[str, Any]]:
-    question, version = _load_question_version(db, question_id)
-    if not question:
-        return []
-
-    if version:
-        rows = _sync_reference_catalog_for_version(db, version)
-    else:
-        rows = []
-
-    if not rows:
-        citations = _load_citation_dicts(question.citations_json)
-        items: list[dict[str, Any]] = []
-        for citation in citations[:limit]:
-            items.append(
-                {
-                    "source_kind": "citation",
-                    "label": _clean_text(citation.get("reference")) or _clean_text(citation.get("source")) or "Material interno",
-                    "reference": _clean_text(citation.get("reference")),
-                    "material_path": _clean_text(citation.get("material_path")),
-                    "locator": _clean_text(citation.get("locator")),
-                    "page_start": citation.get("page_start"),
-                    "page_end": citation.get("page_end"),
-                    "is_official": False,
-                }
-            )
-        return items
-
-    sorted_rows = sorted(
-        rows,
-        key=lambda item: (
-            0 if item.is_official else 1,
-            item.source_kind,
-            item.id,
-        ),
-    )
-    items: list[dict[str, Any]] = []
-    for row in sorted_rows[:limit]:
-        items.append(
-            {
-                "source_kind": row.source_kind,
-                "label": row.label,
-                "reference": row.reference_text,
-                "material_path": row.material_path,
-                "locator": row.locator,
-                "page_start": row.page_start,
-                "page_end": row.page_end,
-                "is_official": bool(row.is_official),
-            }
-        )
-    return items
+    return resolve_official_reference_summaries(db, question_id, limit=limit)
 
 
 def _build_hint_rows(

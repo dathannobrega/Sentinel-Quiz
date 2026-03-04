@@ -16,12 +16,16 @@ import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 import { formatDateTime } from "@/lib/utils/format";
 import type {
+  ExamReviewScreen,
   ExamAnswerFeedback,
+  LiveInsight,
   QuestionHint,
+  QuestionIssueRequest,
   SessionQuestionResponse,
   SessionResponse,
   StudyAnswerFeedback,
-  StudyState
+  StudyState,
+  TutorReply
 } from "@/types/api";
 
 type RunnerMode = "exam" | "study";
@@ -55,7 +59,7 @@ function buildLiveFeedbackBits(
   t: (key: string, values?: Record<string, string | number>) => string
 ): string[] {
   const bits: string[] = [];
-  const insight = feedback.insight || {};
+  const insight = (feedback.insight || {}) as LiveInsight;
   const message = typeof insight.message === "string" ? insight.message.trim() : "";
   if (message) {
     bits.push(message);
@@ -164,13 +168,25 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   const [activeHint, setActiveHint] = useState<QuestionHint | null>(null);
   const [isHintLoading, setIsHintLoading] = useState(false);
   const [hintError, setHintError] = useState<string | null>(null);
+  const [reviewScreen, setReviewScreen] = useState<ExamReviewScreen | null>(null);
+  const [isReviewScreenLoading, setIsReviewScreenLoading] = useState(false);
+  const [isFinalizingExam, setIsFinalizingExam] = useState(false);
+  const [isTutorLoading, setIsTutorLoading] = useState(false);
+  const [tutorReply, setTutorReply] = useState<TutorReply | null>(null);
+  const [tutorError, setTutorError] = useState<string | null>(null);
+  const [isIssueSubmitting, setIsIssueSubmitting] = useState(false);
+  const [issueCategory, setIssueCategory] = useState<QuestionIssueRequest["category"]>("clareza");
+  const [issueMessage, setIssueMessage] = useState("");
+  const [issueNotice, setIssueNotice] = useState<string | null>(null);
 
   const currentQuestion = questionState?.question || null;
-  const questionNumber = (questionState?.progress_index ?? 0) + 1;
+  const currentPosition = questionState?.current_position ?? sessionState?.current_position ?? questionState?.progress_index ?? 0;
+  const questionNumber = currentPosition + 1;
   const totalQuestions = questionState?.total_questions ?? sessionState?.total_questions ?? 0;
   const isStudyMode = mode === "study";
   const isExamMode = mode === "exam";
   const isExamPaused = isExamMode && !!sessionState?.paused && !sessionState?.finished;
+  const isExamDayMode = isExamMode && sessionState?.experience_mode === "exam_day";
 
   const refreshSessionState = useEffectEvent(async (): Promise<SessionResponse | null> => {
     const response = await apiClient.get<SessionResponse>(`${sessionBasePath}/${sessionId}`);
@@ -185,27 +201,76 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
     return response;
   });
 
+  const refreshReviewScreen = useEffectEvent(async () => {
+    if (!isExamMode) {
+      return;
+    }
+    setIsReviewScreenLoading(true);
+    try {
+      const response = await apiClient.get<ExamReviewScreen>(`/sessions/${sessionId}/review-screen`);
+      setReviewScreen(response);
+    } catch {
+      setReviewScreen(null);
+    } finally {
+      setIsReviewScreenLoading(false);
+    }
+  });
+
+  const loadExamQuestionAt = useEffectEvent(async (position: number) => {
+    const response = await apiClient.get<SessionQuestionResponse>(`/sessions/${sessionId}/questions/${position}`);
+    if (response.finished) {
+      clearSessionId(mode);
+      startTransition(() => {
+        router.replace(resolveResultHref(mode, sessionId));
+      });
+      return;
+    }
+    setQuestionState(response);
+    setSessionState((current) =>
+      current
+        ? {
+            ...current,
+            current_position: response.current_position ?? current.current_position,
+            current_index: response.progress_index ?? current.current_index,
+            answered_count: response.answered_count ?? current.answered_count,
+            marked_for_review_count: response.marked_for_review_count ?? current.marked_for_review_count,
+            experience_mode: response.experience_mode ?? current.experience_mode
+          }
+        : current
+    );
+    setSelectedKeys(response.question?.selected_keys || []);
+    setQuestionStartedAt(Date.now());
+    setFeedback(null);
+    setActiveHint(null);
+    setHintError(null);
+    setTutorReply(null);
+    setTutorError(null);
+  });
+
   const boot = useEffectEvent(async () => {
     setIsBootLoading(true);
     setLoadError(null);
 
     try {
-      const [sessionResponse, nextResponse] = await Promise.all([
-        apiClient.get<SessionResponse>(`${sessionBasePath}/${sessionId}`),
-        apiClient.get<SessionQuestionResponse>(`${sessionBasePath}/${sessionId}/next`)
-      ]);
+      const sessionResponse = await apiClient.get<SessionResponse>(`${sessionBasePath}/${sessionId}`);
 
       setSessionState(sessionResponse);
-      if (nextResponse.finished) {
-        clearSessionId(mode);
-        startTransition(() => {
-          router.replace(resolveResultHref(mode, sessionId));
-        });
-        return;
+      if (mode === "exam") {
+        await loadExamQuestionAt(sessionResponse.current_position ?? sessionResponse.current_index ?? 0);
+        await refreshReviewScreen();
+      } else {
+        const nextResponse = await apiClient.get<SessionQuestionResponse>(`${sessionBasePath}/${sessionId}/next`);
+        if (nextResponse.finished) {
+          clearSessionId(mode);
+          startTransition(() => {
+            router.replace(resolveResultHref(mode, sessionId));
+          });
+          return;
+        }
+        setQuestionState(nextResponse);
+        setSelectedKeys(nextResponse.question?.selected_keys || []);
       }
-      setQuestionState(nextResponse);
       setQuestionStartedAt(Date.now());
-      setSelectedKeys([]);
       setFeedback(null);
       setActiveHint(null);
       setHintError(null);
@@ -228,21 +293,44 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
         }
       }
 
-      const nextResponse = await apiClient.get<SessionQuestionResponse>(`${sessionBasePath}/${sessionId}/next`);
-      if (nextResponse.finished) {
-        clearSessionId(mode);
-        startTransition(() => {
-          router.replace(resolveResultHref(mode, sessionId));
-        });
-        return;
-      }
+      if (isExamMode) {
+        await loadExamQuestionAt(Math.min(currentPosition + 1, Math.max(totalQuestions - 1, 0)));
+        await refreshReviewScreen();
+      } else {
+        const nextResponse = await apiClient.get<SessionQuestionResponse>(`${sessionBasePath}/${sessionId}/next`);
+        if (nextResponse.finished) {
+          clearSessionId(mode);
+          startTransition(() => {
+            router.replace(resolveResultHref(mode, sessionId));
+          });
+          return;
+        }
 
-      setQuestionState(nextResponse);
-      setSelectedKeys([]);
+        setQuestionState(nextResponse);
+        setSelectedKeys(nextResponse.question?.selected_keys || []);
+      }
       setFeedback(null);
       setQuestionStartedAt(Date.now());
       setActiveHint(null);
       setHintError(null);
+      setTutorReply(null);
+      setTutorError(null);
+    } catch (error) {
+      setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
+    } finally {
+      setIsAdvancing(false);
+    }
+  });
+
+  const goPrevious = useEffectEvent(async () => {
+    if (!isExamMode) {
+      return;
+    }
+    setIsAdvancing(true);
+    setPageNotice(null);
+    try {
+      await loadExamQuestionAt(Math.max(currentPosition - 1, 0));
+      await refreshReviewScreen();
     } catch (error) {
       setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
@@ -376,6 +464,11 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
   }, [currentQuestion?.id, isStudyMode]);
 
   useEffect(() => {
+    setIssueMessage("");
+    setIssueNotice(null);
+  }, [currentQuestion?.id]);
+
+  useEffect(() => {
     if (!isStudyMode || !currentQuestion || !studyStateDirty || isStudyStateSaving) {
       return;
     }
@@ -481,13 +574,14 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
             }
           : {
               question_id: currentQuestion.id,
-              selected_keys: selectedKeys
+              selected_keys: selectedKeys,
+              elapsed_seconds: elapsedSeconds
             };
 
-      const response = await apiClient.post<ExamAnswerFeedback | StudyAnswerFeedback>(
-        `${sessionBasePath}/${sessionId}/answer`,
-        payload
-      );
+      const response =
+        mode === "study"
+          ? await apiClient.post<ExamAnswerFeedback | StudyAnswerFeedback>(`${sessionBasePath}/${sessionId}/answer`, payload)
+          : await apiClient.put<ExamAnswerFeedback>(`/sessions/${sessionId}/questions/${currentQuestion.id}/response`, payload);
 
       setFeedback(response);
       setSessionState((current) =>
@@ -495,14 +589,19 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
           ? {
               ...current,
               current_index: response.progress_index,
+              current_position: response.current_position ?? response.progress_index,
               correct_count: response.correct_count,
               wrong_count: response.wrong_count,
               finished: response.finished,
-              answered_count:
-                mode === "study" && "answered_count" in response ? response.answered_count : current.answered_count
+              answered_count: response.answered_count,
+              marked_for_review_count:
+                "marked_for_review_count" in response ? response.marked_for_review_count : current.marked_for_review_count
             }
           : current
       );
+      if (isExamMode) {
+        await refreshReviewScreen();
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         const detail = error.message.toLowerCase();
@@ -515,6 +614,142 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
       setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleToggleMarkForReview() {
+    if (!isExamMode || !currentQuestion) {
+      return;
+    }
+    setPageNotice(null);
+    try {
+      const response = await apiClient.post<{
+        question_id: string;
+        marked_for_review: boolean;
+        marked_for_review_count: number;
+        current_position: number;
+      }>(`/sessions/${sessionId}/questions/${currentQuestion.id}/mark-review`);
+      setQuestionState((current) =>
+        current?.question
+          ? {
+              ...current,
+              current_position: response.current_position,
+              marked_for_review_count: response.marked_for_review_count,
+              question: {
+                ...current.question,
+                marked_for_review: response.marked_for_review
+              }
+            }
+          : current
+      );
+      setSessionState((current) =>
+        current
+          ? {
+              ...current,
+              current_position: response.current_position,
+              marked_for_review_count: response.marked_for_review_count
+            }
+          : current
+      );
+      await refreshReviewScreen();
+    } catch (error) {
+      setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
+    }
+  }
+
+  async function handleJumpToPosition(position: number) {
+    if (!isExamMode) {
+      return;
+    }
+    setPageNotice(null);
+    try {
+      const response = await apiClient.post<SessionQuestionResponse>(`/sessions/${sessionId}/navigation`, { position });
+      if (response.finished) {
+        clearSessionId(mode);
+        startTransition(() => {
+          router.replace(resolveResultHref(mode, sessionId));
+        });
+        return;
+      }
+      setQuestionState(response);
+      setSessionState((current) =>
+        current
+          ? {
+              ...current,
+              current_position: response.current_position ?? current.current_position,
+              current_index: response.progress_index ?? current.current_index,
+              answered_count: response.answered_count ?? current.answered_count,
+              marked_for_review_count: response.marked_for_review_count ?? current.marked_for_review_count,
+              experience_mode: response.experience_mode ?? current.experience_mode
+            }
+          : current
+      );
+      setSelectedKeys(response.question?.selected_keys || []);
+      setFeedback(null);
+      setQuestionStartedAt(Date.now());
+      setTutorReply(null);
+      setTutorError(null);
+      await refreshReviewScreen();
+    } catch (error) {
+      setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
+    }
+  }
+
+  async function handleSubmitExamNow() {
+    if (!isExamMode) {
+      return;
+    }
+    setIsFinalizingExam(true);
+    setPageNotice(null);
+    try {
+      await apiClient.post(`/sessions/${sessionId}/submit`, {});
+      clearSessionId(mode);
+      startTransition(() => {
+        router.replace(resolveResultHref(mode, sessionId));
+      });
+    } catch (error) {
+      setPageNotice(readRunnerError(error, t("runner.errors.loadSession")));
+    } finally {
+      setIsFinalizingExam(false);
+    }
+  }
+
+  async function handleAskTutor(modeValue: "help" | "why_wrong" | "review") {
+    if (!isExamMode || !currentQuestion || !feedback || isExamDayMode) {
+      return;
+    }
+    setIsTutorLoading(true);
+    setTutorError(null);
+    try {
+      const response = await apiClient.post<TutorReply>(`/sessions/${sessionId}/questions/${currentQuestion.id}/tutor`, { mode: modeValue });
+      setTutorReply(response);
+    } catch (error) {
+      setTutorReply(null);
+      setTutorError(readRunnerError(error, t("runner.errors.loadSession")));
+    } finally {
+      setIsTutorLoading(false);
+    }
+  }
+
+  async function handleReportIssue() {
+    if (!currentQuestion || issueMessage.trim().length < 8) {
+      return;
+    }
+    setIsIssueSubmitting(true);
+    setIssueNotice(null);
+    try {
+      await apiClient.post(`/questions/${currentQuestion.id}/issues`, {
+        session_id: sessionId,
+        mode: isStudyMode ? "study" : "exam",
+        category: issueCategory,
+        message: issueMessage.trim()
+      } satisfies QuestionIssueRequest);
+      setIssueMessage("");
+      setIssueNotice("Reporte enviado para o backlog editorial.");
+    } catch (error) {
+      setIssueNotice(readRunnerError(error, t("runner.errors.loadSession")));
+    } finally {
+      setIsIssueSubmitting(false);
     }
   }
 
@@ -630,6 +865,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     </span>
                   ) : null}
                   <span className="sq-chip">{strategyLabel}</span>
+                  {isExamDayMode ? <span className="sq-chip">Exam day</span> : null}
                 </div>
               }
             >
@@ -649,6 +885,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                       {currentQuestion.certification ? <span className="sq-chip">{currentQuestion.certification}</span> : null}
                       {currentQuestion.domain ? <span className="sq-chip">{currentQuestion.domain}</span> : null}
                       {currentQuestion.difficulty ? <span className="sq-chip">{currentQuestion.difficulty}</span> : null}
+                      {currentQuestion.marked_for_review ? <span className="sq-chip">Marcada para revisão</span> : null}
                     </div>
 
                     <div className="sq-runner-question">{currentQuestion.prompt}</div>
@@ -708,6 +945,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         tone={feedback.is_correct ? "success" : "danger"}
                         title={feedback.is_correct ? t("runner.feedback.correct") : t("runner.feedback.wrong")}
                         message={
+                          feedback.feedback_summary?.trim() ||
                           feedback.justification?.trim() ||
                           t("runner.feedback.missingJustification")
                         }
@@ -726,17 +964,32 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     ) : null}
 
                     <div className="sq-actions">
+                      {isExamMode ? (
+                        <Button variant="ghost" disabled={isExamPaused || !currentQuestion} onClick={() => void handleToggleMarkForReview()}>
+                          {currentQuestion.marked_for_review ? "Desmarcar revisão" : "Marcar revisão"}
+                        </Button>
+                      ) : null}
+                      {isExamMode ? (
+                        <Button variant="ghost" busy={isAdvancing} disabled={isExamPaused || currentPosition <= 0} onClick={() => void goPrevious()}>
+                          Anterior
+                        </Button>
+                      ) : null}
                       <Button busy={isSubmitting} disabled={!canSubmit} onClick={() => void handleSubmit()}>
                         {t("runner.actions.confirmAnswer")}
                       </Button>
                       <Button
                         variant="ghost"
                         busy={isAdvancing}
-                        disabled={!feedback || isStudyStateSaving || isExamPaused}
+                        disabled={(isStudyMode && !feedback) || isStudyStateSaving || isExamPaused}
                         onClick={() => void goNext()}
                       >
                         {feedback?.finished ? t("common.actions.viewResult") : t("common.actions.nextQuestion")}
                       </Button>
+                      {isExamMode ? (
+                        <Button variant="secondary" size="sm" busy={isFinalizingExam} disabled={isExamPaused} onClick={() => void handleSubmitExamNow()}>
+                          Enviar prova
+                        </Button>
+                      ) : null}
                     </div>
                   </>
                 ) : (
@@ -886,12 +1139,128 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     </div>
                   </>
                 ) : (
-                  <div className="sq-empty sq-empty--compact">
-                    {t("runner.labels.examFocusOnly")}
-                  </div>
+                  <>
+                    <div className="sq-runner-utility">
+                      <div className="sq-runner-utility__head">
+                        <div>
+                          <div className="sq-list-title">Navegador da prova</div>
+                          <div className="sq-list-meta">Vá e volte livremente antes de enviar.</div>
+                        </div>
+                        <span className="sq-chip">
+                          {reviewScreen
+                            ? `${reviewScreen.answered_count}/${reviewScreen.total_questions}`
+                            : `${sessionState?.answered_count ?? 0}/${sessionState?.total_questions ?? 0}`}
+                        </span>
+                      </div>
+
+                      {reviewScreen ? (
+                        <>
+                          <div className="sq-chip-row sq-gap-top-sm">
+                            <span className="sq-chip">Pendentes: {reviewScreen.unanswered_count}</span>
+                            <span className="sq-chip">Marcadas: {reviewScreen.marked_for_review_count}</span>
+                          </div>
+                          <div className="sq-chip-row sq-gap-top-sm">
+                            {reviewScreen.items.map((item) => (
+                              <button
+                                key={`${item.question_id}-${item.position}`}
+                                type="button"
+                                className="sq-chip"
+                                onClick={() => void handleJumpToPosition(item.position)}
+                                style={{
+                                  borderColor: item.is_current
+                                    ? "rgba(15, 118, 110, 0.45)"
+                                    : item.marked_for_review
+                                      ? "rgba(245, 158, 11, 0.35)"
+                                      : undefined,
+                                  background: item.is_current
+                                    ? "rgba(15, 118, 110, 0.12)"
+                                    : item.answered
+                                      ? "rgba(34, 197, 94, 0.1)"
+                                      : undefined
+                                }}
+                              >
+                                {item.position + 1}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="sq-list-meta sq-gap-top-sm">
+                          {isReviewScreenLoading ? "Carregando status da prova..." : "Sem dados do navegador ainda."}
+                        </div>
+                      )}
+                    </div>
+
+                    {!isExamDayMode && feedback ? (
+                      <div className="sq-runner-utility">
+                        <div className="sq-runner-utility__head">
+                          <div>
+                            <div className="sq-list-title">Tutor da questão</div>
+                            <div className="sq-list-meta">Disponível após responder, sem sair da prova.</div>
+                          </div>
+                        </div>
+                        <div className="sq-actions sq-gap-top-sm">
+                          <Button variant="ghost" size="sm" busy={isTutorLoading} onClick={() => void handleAskTutor("help")}>
+                            Me explique
+                          </Button>
+                          <Button variant="ghost" size="sm" busy={isTutorLoading} onClick={() => void handleAskTutor("why_wrong")}>
+                            Por que errei?
+                          </Button>
+                          <Button variant="ghost" size="sm" busy={isTutorLoading} onClick={() => void handleAskTutor("review")}>
+                            Revisar assunto
+                          </Button>
+                        </div>
+                        {tutorError ? <div className="sq-list-meta sq-gap-top-sm">{tutorError}</div> : null}
+                        {tutorReply ? <div className="sq-list-meta sq-gap-top-sm">{tutorReply.message}</div> : null}
+                      </div>
+                    ) : null}
+
+                    <div className="sq-runner-utility">
+                      <div className="sq-runner-utility__head">
+                        <div>
+                          <div className="sq-list-title">Reportar questão</div>
+                          <div className="sq-list-meta">Isso alimenta o backlog editorial.</div>
+                        </div>
+                      </div>
+                      <div className="sq-gap-top-sm">
+                        <Field label="Categoria" htmlFor="exam-issue-category">
+                          <select
+                            id="exam-issue-category"
+                            className="sq-select"
+                            value={issueCategory}
+                            onChange={(event) =>
+                              setIssueCategory(event.target.value as QuestionIssueRequest["category"])
+                            }
+                          >
+                            <option value="clareza">Clareza</option>
+                            <option value="gabarito">Gabarito</option>
+                            <option value="explicacao">Explicação</option>
+                            <option value="referencia">Referência</option>
+                          </select>
+                        </Field>
+                      </div>
+                      <div className="sq-gap-top-sm">
+                        <Field label="Detalhe" htmlFor="exam-issue-message">
+                          <textarea
+                            id="exam-issue-message"
+                            className="sq-textarea"
+                            rows={4}
+                            value={issueMessage}
+                            onChange={(event) => setIssueMessage(event.target.value)}
+                          />
+                        </Field>
+                      </div>
+                      <div className="sq-actions sq-gap-top-sm">
+                        <Button variant="ghost" size="sm" busy={isIssueSubmitting} disabled={issueMessage.trim().length < 8} onClick={() => void handleReportIssue()}>
+                          Enviar reporte
+                        </Button>
+                      </div>
+                      {issueNotice ? <div className="sq-list-meta sq-gap-top-sm">{issueNotice}</div> : null}
+                    </div>
+                  </>
                 )}
 
-                {feedback?.official_references?.length ? (
+                {feedback?.official_references?.length && !isExamDayMode ? (
                   <div className="sq-runner-utility">
                     <div className="sq-list-title">{t("runner.labels.references")}</div>
                     <div className="sq-list sq-gap-top-sm" role="list" aria-label={t("runner.labels.referencesOfficialAria")}>

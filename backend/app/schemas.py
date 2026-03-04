@@ -36,6 +36,7 @@ class CreateSessionIn(BaseModel):
     low_confidence_only: bool = False
     strategy: str = Field(default="standard", description="standard or adaptive.")
     time_limit_minutes: Optional[int] = Field(default=None, ge=1, le=360)
+    experience_mode: str = Field(default="standard", description="standard or exam_day.")
 
 class SessionOut(BaseModel):
     id: str
@@ -45,8 +46,12 @@ class SessionOut(BaseModel):
     active_filters: Dict[str, Any] = Field(default_factory=dict)
     total_questions: int
     current_index: int
+    current_position: int = 0
+    answered_count: int = 0
     correct_count: int
     wrong_count: int
+    marked_for_review_count: int = 0
+    experience_mode: str = "standard"
     time_limit_seconds: Optional[int] = None
     remaining_seconds: Optional[int] = None
     expires_at: Optional[str] = None
@@ -63,8 +68,12 @@ class SessionStateOut(BaseModel):
     active_filters: Dict[str, Any] = Field(default_factory=dict)
     total_questions: int
     current_index: int
+    current_position: int = 0
+    answered_count: int = 0
     correct_count: int
     wrong_count: int
+    marked_for_review_count: int = 0
+    experience_mode: str = "standard"
     time_limit_seconds: Optional[int] = None
     remaining_seconds: Optional[int] = None
     expires_at: Optional[str] = None
@@ -76,6 +85,7 @@ class SessionStateOut(BaseModel):
 class AnswerIn(BaseModel):
     question_id: str
     selected_keys: List[str]
+    elapsed_seconds: Optional[int] = Field(default=None, ge=0, le=86400)
 
 
 class PedagogicalReferenceOut(BaseModel):
@@ -100,16 +110,166 @@ class QuestionHintOut(BaseModel):
     references: List[PedagogicalReferenceOut] = Field(default_factory=list)
 
 
+class WeakDomainOut(BaseModel):
+    label: str
+    total: int
+    wrong: int
+    score_percent: float
+
+
+class StudyPlanItemOut(BaseModel):
+    domain: str
+    wrong: int
+    total: int
+    score_percent: float
+    topics: List[str] = Field(default_factory=list)
+    resources: List[str] = Field(default_factory=list)
+    reason: str
+    action: str
+
+
+class TimingBreakdownOut(BaseModel):
+    duration_seconds: Optional[float] = None
+    avg_seconds_per_question: Optional[float] = None
+    fastest_seconds: Optional[float] = None
+    slowest_seconds: Optional[float] = None
+
+
+class ReadinessDomainOut(BaseModel):
+    domain: str
+    score_percent: float
+    accuracy_percent: float = 0.0
+    attempts: int = 0
+    avg_elapsed_seconds: Optional[float] = None
+    low_confidence_count: int = 0
+
+
+class ReadinessScoreOut(BaseModel):
+    score_percent: float
+    projected_score_percent: float
+    band: str
+    recommended_minutes: int
+    tracked_questions: int = 0
+    factors: List[str] = Field(default_factory=list)
+    domain_scores: List[ReadinessDomainOut] = Field(default_factory=list)
+    weakest_domains: List[ReadinessDomainOut] = Field(default_factory=list)
+
+
+class LiveInsightOut(BaseModel):
+    accuracy_percent: float = 0.0
+    remaining_questions: int = 0
+    current_correct_streak: int = 0
+    weakest_area: Optional[Dict[str, Any]] = None
+    message: str = ""
+
+
+class ResultInsightOut(BaseModel):
+    summary: Dict[str, Any] = Field(default_factory=dict)
+    by_type: Dict[str, Any] = Field(default_factory=dict)
+    by_domain: List[Dict[str, Any]] = Field(default_factory=list)
+    by_difficulty: List[Dict[str, Any]] = Field(default_factory=list)
+    by_certification: List[Dict[str, Any]] = Field(default_factory=list)
+    by_exam: List[Dict[str, Any]] = Field(default_factory=list)
+    weakest_domains: List[WeakDomainOut] = Field(default_factory=list)
+    strongest_domains: List[Dict[str, Any]] = Field(default_factory=list)
+    patterns: List[str] = Field(default_factory=list)
+    focus: List[str] = Field(default_factory=list)
+    study_plan: List[StudyPlanItemOut] = Field(default_factory=list)
+    readiness: Optional[ReadinessScoreOut] = None
+    timing: Optional[TimingBreakdownOut] = None
+    recommendation: Optional[str] = None
+    missed_sample: List[Dict[str, Any]] = Field(default_factory=list)
+    live: Optional[LiveInsightOut] = None
+
+
+class ExamRuntimeQuestionOut(BaseModel):
+    id: str
+    exam_id: str
+    prompt: str
+    multi_select: bool
+    domain: Optional[str] = None
+    difficulty: Optional[str] = None
+    certification: Optional[str] = None
+    tags: Optional[List[str]] = None
+    options: List[OptionOut]
+    selected_keys: List[str] = Field(default_factory=list)
+    is_answered: bool = False
+    marked_for_review: bool = False
+    elapsed_seconds: Optional[int] = None
+
+
+class ExamQuestionStateOut(BaseModel):
+    finished: bool
+    question: Optional[ExamRuntimeQuestionOut] = None
+    progress_index: Optional[int] = None
+    current_position: Optional[int] = None
+    total_questions: Optional[int] = None
+    answered_count: Optional[int] = None
+    marked_for_review_count: Optional[int] = None
+    experience_mode: Optional[str] = None
+
+
+class ExamNavigationIn(BaseModel):
+    position: int = Field(..., ge=0)
+
+
+class ReviewScreenQuestionStatusOut(BaseModel):
+    position: int
+    question_id: str
+    answered: bool
+    selected_keys: List[str] = Field(default_factory=list)
+    marked_for_review: bool = False
+    is_current: bool = False
+
+
+class ExamReviewScreenOut(BaseModel):
+    session_id: str
+    total_questions: int
+    answered_count: int
+    unanswered_count: int
+    marked_for_review_count: int
+    current_position: int
+    items: List[ReviewScreenQuestionStatusOut] = Field(default_factory=list)
+
+
+class QuestionIssueIn(BaseModel):
+    session_id: Optional[str] = None
+    mode: str = Field(default="exam", max_length=16)
+    category: str = Field(..., max_length=32)
+    message: str = Field(..., min_length=8, max_length=2000)
+    question_version_id: Optional[int] = None
+
+
+class QuestionIssueOut(BaseModel):
+    id: int
+    question_id: str
+    question_version_id: Optional[int] = None
+    session_id: Optional[str] = None
+    mode: str
+    category: str
+    status: str
+    message: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    certification: Optional[str] = None
+    domain: Optional[str] = None
+    prompt_excerpt: Optional[str] = None
+
+
 class AnswerFeedbackOut(BaseModel):
     is_correct: bool
     justification: Optional[str] = None
+    feedback_summary: Optional[str] = None
     progress_index: int
+    current_position: Optional[int] = None
     total_questions: int
+    answered_count: int = 0
     correct_count: int
     wrong_count: int
+    marked_for_review_count: int = 0
     finished: bool
     official_references: List[PedagogicalReferenceOut] = Field(default_factory=list)
-    insight: Optional[dict] = None
+    insight: Optional[LiveInsightOut] = None
 
 class ResultOut(BaseModel):
     session_id: str
@@ -124,7 +284,7 @@ class ResultOut(BaseModel):
     time_limit_seconds: Optional[int] = None
     time_spent_seconds: Optional[int] = None
     timed_out: bool = False
-    insight: dict
+    insight: ResultInsightOut
 
 class SessionHistoryOut(BaseModel):
     id: str
@@ -286,6 +446,7 @@ class StudyAnswerIn(BaseModel):
 class StudyAnswerFeedbackOut(BaseModel):
     is_correct: bool
     justification: Optional[str] = None
+    feedback_summary: Optional[str] = None
     progress_index: int
     total_questions: int
     answered_count: int
@@ -298,7 +459,7 @@ class StudyAnswerFeedbackOut(BaseModel):
     next_review_at: Optional[str] = None
     review_due_count: int = 0
     official_references: List[PedagogicalReferenceOut] = Field(default_factory=list)
-    insight: Optional[dict] = None
+    insight: Optional[LiveInsightOut] = None
 
 
 class StudyResultOut(BaseModel):
@@ -312,7 +473,7 @@ class StudyResultOut(BaseModel):
     strategy: str = "standard"
     selection_mix: Dict[str, int] = Field(default_factory=dict)
     review_due_count: int = 0
-    insight: dict
+    insight: ResultInsightOut
 
 
 class StudyHistoryOut(BaseModel):

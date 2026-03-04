@@ -35,11 +35,12 @@ from app.services.metrics import (
     record_review_schedule_event,
     record_session_metrics,
 )
+from app.services.readiness import build_readiness_snapshot
 from app.services.pedagogy import (
-    build_official_reference_summaries,
     confidence_signal_from_level,
     normalize_confidence_level as normalize_pedagogical_confidence,
 )
+from app.services.reference_resolver import build_feedback_summary, build_official_reference_summaries
 
 
 NOTE_MAX_LENGTH = 4000
@@ -2448,8 +2449,8 @@ def answer_study_question(
         owner_client_key=owner_client_key,
     )
 
-    explanation = db.get(Explanation, question_id)
     official_references = build_official_reference_summaries(db, question_id, limit=4)
+    feedback_summary = build_feedback_summary(db, question_id, is_correct=is_correct)
     remaining = max(session.total_questions - session.current_index, 0)
     if not is_correct:
         message = "Erro convertido em revisao. Esta questao voltara rapidamente para reforco."
@@ -2462,7 +2463,8 @@ def answer_study_question(
 
     return {
         "is_correct": is_correct,
-        "justification": _feedback_explanation(explanation.justification if explanation else None, is_correct=is_correct),
+        "justification": feedback_summary,
+        "feedback_summary": feedback_summary,
         "progress_index": session.current_index,
         "total_questions": session.total_questions,
         "answered_count": session.answered_count,
@@ -2643,12 +2645,25 @@ def compute_study_result(db: Session, session: StudySession) -> dict[str, Any]:
             "missed_sample": missed_sample,
             "focus": focus,
             "patterns": patterns,
+            "timing": {
+                "duration_seconds": duration_seconds,
+                "avg_seconds_per_question": avg_seconds,
+                "fastest_seconds": None,
+                "slowest_seconds": None,
+            },
             "recommendation": (
                 "Use o study mode para trabalhar apenas as questoes vencidas e marque confianca de forma honesta."
             ),
             "study_plan": study_plan,
         },
     }
+    result["insight"]["readiness"] = build_readiness_snapshot(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+        due_count=due_count,
+    )
     record_session_metrics(
         db,
         session_id=session.id,

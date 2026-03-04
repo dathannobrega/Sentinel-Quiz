@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,8 @@ import type {
   AdminReviewActionInput,
   AdminRollbackInput,
   CitationItem,
-  Exam
+  Exam,
+  QuestionIssue
 } from "@/types/api";
 
 interface ExamDraft {
@@ -444,8 +445,14 @@ function formatBreakdown(breakdown: Record<string, number>): string {
   return entries.map(([label, count]) => `${label}: ${count}`).join(" | ");
 }
 
-export function AdminShell() {
+interface AdminShellProps {
+  initialQuestionId?: string | null;
+  editorOnly?: boolean;
+}
+
+export function AdminShell({ initialQuestionId = null, editorOnly = false }: AdminShellProps) {
   const { t } = useI18n();
+  const initialQuestionHydrated = useRef(false);
   const [isBootLoading, setIsBootLoading] = useState(true);
   const [isProtectedLoading, setIsProtectedLoading] = useState(false);
   const [isQuestionLoading, setIsQuestionLoading] = useState(false);
@@ -476,6 +483,7 @@ export function AdminShell() {
   const [questionVersions, setQuestionVersions] = useState<AdminQuestionVersion[]>([]);
   const [questionAudit, setQuestionAudit] = useState<AdminAuditLog[]>([]);
   const [questionAnalyticsHistory, setQuestionAnalyticsHistory] = useState<AdminQuestionAnalyticsSnapshot[]>([]);
+  const [questionIssues, setQuestionIssues] = useState<QuestionIssue[]>([]);
   const [questionQuality, setQuestionQuality] = useState<QuestionQuality | null>(null);
   const [questionQualitySignature, setQuestionQualitySignature] = useState("");
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
@@ -584,6 +592,15 @@ export function AdminShell() {
   });
 
   const refreshProtectedData = useEffectEvent(async () => {
+    if (editorOnly) {
+      setOverview(DEFAULT_ADMIN_OVERVIEW);
+      setAnalytics(DEFAULT_ADMIN_ANALYTICS);
+      setQuestionItems([]);
+      setQuestionIssues([]);
+      setPageNotice(null);
+      return;
+    }
+
     setIsProtectedLoading(true);
     setPageNotice(null);
 
@@ -596,10 +613,11 @@ export function AdminShell() {
       params.set("search", deferredQuestionSearch.trim());
     }
 
-    const [overviewResult, analyticsResult, questionsResult] = await Promise.allSettled([
+    const [overviewResult, analyticsResult, questionsResult, issuesResult] = await Promise.allSettled([
       apiClient.get<AdminOverview>("/admin/overview", requestOptions),
       apiClient.get<AdminQuestionAnalytics>("/admin/analytics/questions?limit=8", requestOptions),
-      apiClient.get<AdminQuestionSummary[]>(`/admin/questions?${params.toString()}`, requestOptions)
+      apiClient.get<AdminQuestionSummary[]>(`/admin/questions?${params.toString()}`, requestOptions),
+      apiClient.get<QuestionIssue[]>("/admin/question-issues?limit=8", requestOptions)
     ]);
 
     const failures: string[] = [];
@@ -625,6 +643,13 @@ export function AdminShell() {
       failures.push("lista de questoes");
     }
 
+    if (issuesResult.status === "fulfilled") {
+      setQuestionIssues(issuesResult.value);
+    } else {
+      setQuestionIssues([]);
+      failures.push("backlog de issues");
+    }
+
     if (failures.length) {
       const primaryError =
         overviewResult.status === "rejected"
@@ -633,6 +658,8 @@ export function AdminShell() {
             ? analyticsResult.reason
             : questionsResult.status === "rejected"
               ? questionsResult.reason
+              : issuesResult.status === "rejected"
+                ? issuesResult.reason
               : null;
       setPageNotice(
         `${readAdminError(primaryError, "Nao foi possivel carregar o painel editorial.")} Blocos afetados: ${failures.join(", ")}.`
@@ -679,6 +706,34 @@ export function AdminShell() {
       setIsBootLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    initialQuestionHydrated.current = false;
+  }, [initialQuestionId]);
+
+  useEffect(() => {
+    if (isBootLoading) {
+      return;
+    }
+    if (initialQuestionId) {
+      if (initialQuestionHydrated.current) {
+        return;
+      }
+      initialQuestionHydrated.current = true;
+      void loadQuestion(initialQuestionId);
+      return;
+    }
+    if (editorOnly && !selectedQuestionId && !questionDraft.id.trim()) {
+      setSelectedQuestionId(null);
+      setQuestionDraft(createEmptyQuestionDraft(browserExamId || examDraft.id || questionDraft.examId));
+      setQuestionVersions([]);
+      setQuestionAudit([]);
+      setQuestionAnalyticsHistory([]);
+      setQuestionQuality(null);
+      setQuestionQualitySignature("");
+      setQuestionNotice("Novo rascunho pronto para edicao.");
+    }
+  }, [browserExamId, editorOnly, examDraft.id, initialQuestionId, isBootLoading, questionDraft.examId, questionDraft.id, selectedQuestionId]);
 
   useEffect(() => {
     if (isBootLoading) {
@@ -1092,6 +1147,7 @@ export function AdminShell() {
             </div>
           </div>
           <div className="sq-inline-actions">
+            {editorOnly ? <Link href="/admin">Painel editorial</Link> : null}
             <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
             <Link href="/history">{t("common.labels.history")}</Link>
           </div>
@@ -1106,161 +1162,186 @@ export function AdminShell() {
           />
         ) : null}
 
-        <Card
-          title={t("admin.access.title")}
-          subtitle={t("admin.access.subtitle")}
-          actions={
-            <div className="sq-actions">
-              <Button variant="ghost" size="sm" busy={activeTask === "refresh"} onClick={() => void handleRefresh()}>
-                {t("admin.access.refresh")}
-              </Button>
-              <Button variant="secondary" size="sm" busy={activeTask === "ingest"} onClick={() => void handleIngest()}>
-                {t("admin.access.reimportJson")}
-              </Button>
-              <Button variant="ghost" size="sm" busy={activeTask === "export"} onClick={() => void handleExport()}>
-                {t("admin.access.exportDatabase")}
-              </Button>
-            </div>
-          }
-        >
-          <div className="sq-surface-block">
-            <div className="sq-form-grid">
+        {!editorOnly ? (
+          <>
+            <Card
+              title={t("admin.access.title")}
+              subtitle={t("admin.access.subtitle")}
+              actions={
+                <div className="sq-actions">
+                  <Button variant="ghost" size="sm" busy={activeTask === "refresh"} onClick={() => void handleRefresh()}>
+                    {t("admin.access.refresh")}
+                  </Button>
+                  <Button variant="secondary" size="sm" busy={activeTask === "ingest"} onClick={() => void handleIngest()}>
+                    {t("admin.access.reimportJson")}
+                  </Button>
+                  <Button variant="ghost" size="sm" busy={activeTask === "export"} onClick={() => void handleExport()}>
+                    {t("admin.access.exportDatabase")}
+                  </Button>
+                </div>
+              }
+            >
               <div className="sq-surface-block">
-                <div className="sq-list-title">{t("admin.access.accessControlTitle")}</div>
-                <div className="sq-list-meta">
-                  {t("admin.access.accessControlMessage")}
+                <div className="sq-form-grid">
+                  <div className="sq-surface-block">
+                    <div className="sq-list-title">{t("admin.access.accessControlTitle")}</div>
+                    <div className="sq-list-meta">
+                      {t("admin.access.accessControlMessage")}
+                    </div>
+                  </div>
+
+                  <div className="sq-surface-block">
+                    <div className="sq-list-title">{t("admin.access.quickSummaryTitle")}</div>
+                    <div className="sq-list-meta">{formatBreakdown(overview.question_breakdown)}</div>
+                  </div>
+                </div>
+
+                {toolbarNotice ? <StatusBanner tone="neutral" title={t("admin.notices.status")} message={toolbarNotice} /> : null}
+
+                <div className="sq-metric-grid" aria-label={t("admin.access.summaryAriaLabel")}>
+                  <div className="sq-metric-card">
+                    <span className="sq-muted">{t("admin.access.exams")}</span>
+                    <strong>{overview.exam_count}</strong>
+                  </div>
+                  <div className="sq-metric-card">
+                    <span className="sq-muted">{t("admin.access.questions")}</span>
+                    <strong>{overview.question_count}</strong>
+                  </div>
+                  <div className="sq-metric-card">
+                    <span className="sq-muted">{t("admin.access.completedSessions")}</span>
+                    <strong>{overview.completed_session_count}</strong>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card
+              title={t("admin.insights.title")}
+              subtitle={t("admin.insights.subtitle")}
+              actions={
+                <Button variant="secondary" size="sm" busy={activeTask === "captureSnapshot"} onClick={() => void handleCaptureSnapshot()}>
+                  {t("admin.insights.captureSnapshot")}
+                </Button>
+              }
+            >
+              <div className="sq-metric-grid" aria-label={t("admin.insights.summaryAriaLabel")}>
+                <div className="sq-metric-card">
+                  <span className="sq-muted">{t("admin.insights.questionsWithSignal")}</span>
+                  <strong>{analytics.summary.questions_with_signals}</strong>
+                </div>
+                <div className="sq-metric-card">
+                  <span className="sq-muted">{t("admin.insights.totalAttempts")}</span>
+                  <strong>{analytics.summary.total_attempts}</strong>
+                </div>
+                <div className="sq-metric-card">
+                  <span className="sq-muted">{t("admin.insights.averageError")}</span>
+                  <strong>{analytics.summary.average_wrong_rate_percent}%</strong>
+                </div>
+                <div className="sq-metric-card">
+                  <span className="sq-muted">{t("admin.insights.reviewPressure")}</span>
+                  <strong>{analytics.summary.total_review_pressure}</strong>
+                </div>
+                <div className="sq-metric-card">
+                  <span className="sq-muted">{t("admin.insights.snapshots")}</span>
+                  <strong>{analytics.summary.snapshot_batch_count}</strong>
+                </div>
+                <div className="sq-metric-card">
+                  <span className="sq-muted">{t("admin.insights.latestSnapshot")}</span>
+                  <strong>{analytics.summary.latest_snapshot_at || "-"}</strong>
                 </div>
               </div>
 
-              <div className="sq-surface-block">
-                <div className="sq-list-title">{t("admin.access.quickSummaryTitle")}</div>
-                <div className="sq-list-meta">{formatBreakdown(overview.question_breakdown)}</div>
-              </div>
-            </div>
+              <div className="sq-grid-2" style={{ marginTop: "var(--sq-space-5)" }}>
+                <div className="sq-surface-block">
+                  <div className="sq-list-title">{t("admin.insights.hardestQuestions")}</div>
+                  {analytics.hardest_questions.length ? (
+                    <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                      {analytics.hardest_questions.map((item) => (
+                        <div key={item.id} className="sq-list-item">
+                          <div className="sq-list-title">{item.id}</div>
+                          <div className="sq-list-meta">
+                            {item.exam_title || item.exam_id} · {item.domain || t("admin.insights.noDomain")} · erro {item.wrong_rate_percent}% ·
+                            score {item.difficulty_score}
+                          </div>
+                          <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
+                            {item.prompt}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
+                      {t("admin.insights.noSignal")}
+                    </div>
+                  )}
+                </div>
 
-            {toolbarNotice ? <StatusBanner tone="neutral" title={t("admin.notices.status")} message={toolbarNotice} /> : null}
+                <div className="sq-page-stack">
+                  <div className="sq-surface-block">
+                    <div className="sq-list-title">{t("admin.insights.weakestDomains")}</div>
+                    {analytics.weakest_domains.length ? (
+                      <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                        {analytics.weakest_domains.map((item) => (
+                          <div key={item.domain} className="sq-list-item">
+                            <div className="sq-list-title">{item.domain}</div>
+                            <div className="sq-list-meta">
+                              erro {item.wrong_rate_percent}% · {item.attempts_total} tentativa(s) · pressao {item.review_pressure_count}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
+                        {t("admin.insights.noRelevantDomains")}
+                      </div>
+                    )}
+                  </div>
 
-            <div className="sq-metric-grid" aria-label={t("admin.access.summaryAriaLabel")}>
-              <div className="sq-metric-card">
-                <span className="sq-muted">{t("admin.access.exams")}</span>
-                <strong>{overview.exam_count}</strong>
+                  <div className="sq-surface-block">
+                    <div className="sq-list-title">{t("admin.insights.weakestExams")}</div>
+                    {analytics.weakest_exams.length ? (
+                      <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                        {analytics.weakest_exams.map((item) => (
+                          <div key={item.exam_id} className="sq-list-item">
+                            <div className="sq-list-title">{item.exam_title}</div>
+                            <div className="sq-list-meta">
+                              {item.exam_id} · erro {item.wrong_rate_percent}% · {item.tracked_questions} questao(oes) com sinal
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
+                        {t("admin.insights.noExamFriction")}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">{t("admin.access.questions")}</span>
-                <strong>{overview.question_count}</strong>
-              </div>
-              <div className="sq-metric-card">
-                <span className="sq-muted">{t("admin.access.completedSessions")}</span>
-                <strong>{overview.completed_session_count}</strong>
-              </div>
-            </div>
-          </div>
-        </Card>
+            </Card>
 
-        <Card
-          title={t("admin.insights.title")}
-          subtitle={t("admin.insights.subtitle")}
-          actions={
-            <Button variant="secondary" size="sm" busy={activeTask === "captureSnapshot"} onClick={() => void handleCaptureSnapshot()}>
-              {t("admin.insights.captureSnapshot")}
-            </Button>
-          }
-        >
-          <div className="sq-metric-grid" aria-label={t("admin.insights.summaryAriaLabel")}>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("admin.insights.questionsWithSignal")}</span>
-              <strong>{analytics.summary.questions_with_signals}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("admin.insights.totalAttempts")}</span>
-              <strong>{analytics.summary.total_attempts}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("admin.insights.averageError")}</span>
-              <strong>{analytics.summary.average_wrong_rate_percent}%</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("admin.insights.reviewPressure")}</span>
-              <strong>{analytics.summary.total_review_pressure}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("admin.insights.snapshots")}</span>
-              <strong>{analytics.summary.snapshot_batch_count}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("admin.insights.latestSnapshot")}</span>
-              <strong>{analytics.summary.latest_snapshot_at || "-"}</strong>
-            </div>
-          </div>
-
-          <div className="sq-grid-2" style={{ marginTop: "var(--sq-space-5)" }}>
-            <div className="sq-surface-block">
-              <div className="sq-list-title">{t("admin.insights.hardestQuestions")}</div>
-              {analytics.hardest_questions.length ? (
-                <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
-                  {analytics.hardest_questions.map((item) => (
+            <Card title="Backlog de issues" subtitle="Reportes recentes enviados pelos alunos para triagem editorial.">
+              {questionIssues.length ? (
+                <div className="sq-list">
+                  {questionIssues.map((item) => (
                     <div key={item.id} className="sq-list-item">
-                      <div className="sq-list-title">{item.id}</div>
+                      <div className="sq-list-title">
+                        #{item.id} · {item.category} · {item.status}
+                      </div>
                       <div className="sq-list-meta">
-                        {item.exam_title || item.exam_id} · {item.domain || t("admin.insights.noDomain")} · erro {item.wrong_rate_percent}% ·
-                        score {item.difficulty_score}
+                        {item.certification || "Sem certificacao"} · {item.domain || "Sem dominio"} · {item.question_id}
                       </div>
-                      <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
-                        {item.prompt}
-                      </div>
+                      {item.prompt_excerpt ? <div className="sq-list-meta">{item.prompt_excerpt}</div> : null}
+                      <div className="sq-list-meta">{item.message}</div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
-                  {t("admin.insights.noSignal")}
-                </div>
+                <div className="sq-empty">Nenhum issue recente no backlog.</div>
               )}
-            </div>
-
-            <div className="sq-page-stack">
-              <div className="sq-surface-block">
-                <div className="sq-list-title">{t("admin.insights.weakestDomains")}</div>
-                {analytics.weakest_domains.length ? (
-                  <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
-                    {analytics.weakest_domains.map((item) => (
-                      <div key={item.domain} className="sq-list-item">
-                        <div className="sq-list-title">{item.domain}</div>
-                        <div className="sq-list-meta">
-                          erro {item.wrong_rate_percent}% · {item.attempts_total} tentativa(s) · pressao {item.review_pressure_count}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
-                    {t("admin.insights.noRelevantDomains")}
-                  </div>
-                )}
-              </div>
-
-              <div className="sq-surface-block">
-                <div className="sq-list-title">{t("admin.insights.weakestExams")}</div>
-                {analytics.weakest_exams.length ? (
-                  <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
-                    {analytics.weakest_exams.map((item) => (
-                      <div key={item.exam_id} className="sq-list-item">
-                        <div className="sq-list-title">{item.exam_title}</div>
-                        <div className="sq-list-meta">
-                          {item.exam_id} · erro {item.wrong_rate_percent}% · {item.tracked_questions} questao(oes) com sinal
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="sq-empty" style={{ marginTop: "var(--sq-space-3)" }}>
-                    {t("admin.insights.noExamFriction")}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </Card>
+            </Card>
+          </>
+        ) : null}
 
         <div
           style={{
@@ -1270,7 +1351,8 @@ export function AdminShell() {
             alignItems: "start"
           }}
         >
-          <div className="sq-page-stack">
+          {!editorOnly ? (
+            <div className="sq-page-stack">
             <Card
               title={t("admin.browser.title")}
               subtitle={t("admin.browser.subtitle")}
@@ -1454,11 +1536,16 @@ export function AdminShell() {
                 </div>
               </div>
             </Card>
-          </div>
+            </div>
+          ) : null}
 
           <Card
-            title={t("admin.editor.title")}
-            subtitle={t("admin.editor.subtitle")}
+            title={editorOnly ? "Editor de questões" : t("admin.editor.title")}
+            subtitle={
+              editorOnly
+                ? "Workspace focado para criar, revisar e publicar uma questão sem o ruído do painel operacional."
+                : t("admin.editor.subtitle")
+            }
             actions={
               <div className="sq-actions">
                 <Button
@@ -1472,6 +1559,13 @@ export function AdminShell() {
                 <Button variant="ghost" size="sm" onClick={duplicateQuestion}>
                   {t("admin.editor.duplicate")}
                 </Button>
+                {editorOnly ? (
+                  <Link href="/admin">Voltar ao painel</Link>
+                ) : (
+                  <Link href={questionDraft.id.trim() ? `/admin/questions/${encodeURIComponent(questionDraft.id.trim())}` : "/admin/questions/new"}>
+                    Editor dedicado
+                  </Link>
+                )}
                 <Button variant="danger" size="sm" busy={activeTask === "deleteQuestion"} onClick={() => void handleDeleteQuestion()}>
                   {t("admin.editor.delete")}
                 </Button>

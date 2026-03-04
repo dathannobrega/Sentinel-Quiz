@@ -11,7 +11,6 @@ from app.models import (
     Exam,
     Question,
     Option,
-    Explanation,
     ExamSession,
     SessionQuestion,
     SessionAnswer,
@@ -27,7 +26,8 @@ from app.services.metrics import (
     record_question_attempt_metrics,
     record_session_metrics,
 )
-from app.services.pedagogy import build_official_reference_summaries
+from app.services.readiness import build_readiness_snapshot
+from app.services.reference_resolver import build_feedback_summary, build_official_reference_summaries
 from typing import Optional, Dict, Any
 
 PASS_THRESHOLD = 90.0
@@ -1495,6 +1495,12 @@ def _analyze_session(session: ExamSession, rows) -> dict:
         "patterns": patterns,
         "focus": focus,
         "study_plan": study_plan,
+        "timing": {
+            "duration_seconds": duration_seconds,
+            "avg_seconds_per_question": avg_seconds_per_question,
+            "fastest_seconds": fastest_seconds,
+            "slowest_seconds": slowest_seconds,
+        },
         "recommendation": (
             "Abaixo de 90%. Refaça as erradas e concentre a revisao nas areas com maior volume de falhas."
             if not passed else
@@ -1539,6 +1545,7 @@ def create_session(
     low_confidence_only: bool = False,
     strategy: str = "standard",
     time_limit_minutes: Optional[int] = None,
+    experience_mode: str = "standard",
     owner_user_id: Optional[str] = None,
     owner_client_key: Optional[str] = None,
 ) -> ExamSession:
@@ -1574,6 +1581,10 @@ def create_session(
     if time_limit_minutes:
         session_config["time_limit_seconds"] = max(int(time_limit_minutes) * 60, MIN_EXAM_TIME_LIMIT_SECONDS)
 
+    normalized_experience_mode = str(experience_mode or "standard").strip().lower()
+    if normalized_experience_mode not in {"standard", "exam_day"}:
+        normalized_experience_mode = "standard"
+
     sid = str(uuid.uuid4())
     session = ExamSession(
         id=sid,
@@ -1588,6 +1599,8 @@ def create_session(
         ),
         total_questions=total_questions,
         current_index=0,
+        current_position=0,
+        experience_mode=normalized_experience_mode,
         correct_count=0,
         wrong_count=0,
     )
@@ -1693,6 +1706,8 @@ def resume_exam_session(db: Session, session: ExamSession) -> ExamSession:
 
 def serialize_exam_session(session: ExamSession) -> dict[str, Any]:
     timing = _build_exam_timing_metadata(session)
+    answered_count = len(session.answers)
+    marked_for_review_count = sum(1 for item in session.questions if item.marked_for_review)
     return {
         "id": session.id,
         "exam_id": session.exam_id,
@@ -1701,8 +1716,12 @@ def serialize_exam_session(session: ExamSession) -> dict[str, Any]:
         "active_filters": _parse_active_filters(session.selection_mix_json),
         "total_questions": session.total_questions,
         "current_index": session.current_index,
+        "current_position": session.current_position,
+        "answered_count": answered_count,
         "correct_count": session.correct_count,
         "wrong_count": session.wrong_count,
+        "marked_for_review_count": marked_for_review_count,
+        "experience_mode": session.experience_mode or "standard",
         "time_limit_seconds": timing["time_limit_seconds"],
         "remaining_seconds": timing["remaining_seconds"],
         "expires_at": timing["expires_at"],
@@ -1991,8 +2010,8 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
         if session.current_index >= session.total_questions:
             session.completed_at = datetime.utcnow()
 
-    exp = db.get(Explanation, question_id)
     official_references = build_official_reference_summaries(db, question_id, limit=4)
+    feedback_summary = build_feedback_summary(db, question_id, is_correct=is_correct)
     upsert_question_progress(
         db,
         question_id=question_id,
@@ -2021,11 +2040,15 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
     finished = session.completed_at is not None
     return {
         "is_correct": is_correct,
-        "justification": _feedback_explanation(exp.justification if exp else None, is_correct=is_correct),
+        "justification": feedback_summary,
+        "feedback_summary": feedback_summary,
         "progress_index": session.current_index,
+        "current_position": session.current_position,
         "total_questions": session.total_questions,
+        "answered_count": len(session.answers),
         "correct_count": session.correct_count,
         "wrong_count": session.wrong_count,
+        "marked_for_review_count": sum(1 for item in session.questions if item.marked_for_review),
         "finished": finished,
         "official_references": official_references,
         "insight": result_snapshot["insight"]["live"],
@@ -2034,6 +2057,12 @@ def answer_question(db: Session, session: ExamSession, question_id: str, selecte
 def compute_result(db: Session, session: ExamSession) -> dict:
     result = _analyze_session(session, _get_session_rows(db, session.id))
     timing = sync_exam_session_state(db, session)
+    result["insight"]["readiness"] = build_readiness_snapshot(
+        db,
+        owner_user_id=session.user_id,
+        owner_client_key=session.client_key,
+        weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+    )
     result["time_limit_seconds"] = timing["time_limit_seconds"]
     result["time_spent_seconds"] = timing["time_spent_seconds"]
     result["timed_out"] = bool(timing["auto_submitted"] and session.completed_at is not None and timing["remaining_seconds"] <= 0)

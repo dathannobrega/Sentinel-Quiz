@@ -250,6 +250,7 @@ def start_daily_review_session(
 @router.get("/review/queue", response_model=ReviewQueueSnapshotOut)
 def review_queue_snapshot(
     exam_id: str | None = None,
+    domains: list[str] | None = Query(default=None),
     review_states: list[str] | None = Query(default=None),
     bookmarked_only: bool = Query(default=False),
     notes_only: bool = Query(default=False),
@@ -266,6 +267,7 @@ def review_queue_snapshot(
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
             exam_id=normalized_exam_id or None,
+            domains=domains,
             review_states=review_states,
             bookmarked_only=bookmarked_only,
             notes_only=notes_only,

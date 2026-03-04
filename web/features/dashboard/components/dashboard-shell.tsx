@@ -15,6 +15,7 @@ import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   ActiveSessionItem,
   EngagementSnapshot,
+  ReadinessScore,
   SessionHistoryItem,
   StudyOverview,
   WeakAreasResponse
@@ -58,6 +59,7 @@ export function DashboardShell() {
   const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
   const [activeExamSessions, setActiveExamSessions] = useState<ActiveSessionItem[]>([]);
   const [activeStudySessions, setActiveStudySessions] = useState<ActiveSessionItem[]>([]);
+  const [readiness, setReadiness] = useState<ReadinessScore | null>(null);
 
   const load = useEffectEvent(async () => {
     setIsLoading(true);
@@ -72,6 +74,7 @@ export function DashboardShell() {
     const results = await Promise.allSettled([
       apiClient.get<WeakAreasResponse>("/analytics/weak-areas"),
       apiClient.get<EngagementSnapshot>("/analytics/engagement"),
+      apiClient.get<ReadinessScore>("/analytics/readiness"),
       apiClient.get<StudyOverview>("/study/overview"),
       apiClient.get<SessionHistoryItem[]>("/sessions/history?limit=6"),
       apiClient.get<ActiveSessionItem[]>("/sessions/active?limit=3"),
@@ -95,28 +98,35 @@ export function DashboardShell() {
     }
 
     if (results[2].status === "fulfilled") {
-      setStudyOverview(results[2].value);
+      setReadiness(results[2].value);
+    } else {
+      setReadiness(null);
+      failedLabels.push("readiness");
+    }
+
+    if (results[3].status === "fulfilled") {
+      setStudyOverview(results[3].value);
     } else {
       setStudyOverview(DEFAULT_STUDY_OVERVIEW);
       failedLabels.push(t("dashboard.failedAreas.review"));
     }
 
-    if (results[3].status === "fulfilled") {
-      setExamHistory(results[3].value);
+    if (results[4].status === "fulfilled") {
+      setExamHistory(results[4].value);
     } else {
       setExamHistory([]);
       failedLabels.push(t("dashboard.failedAreas.history"));
     }
 
-    if (results[4].status === "fulfilled") {
-      setActiveExamSessions(results[4].value);
+    if (results[5].status === "fulfilled") {
+      setActiveExamSessions(results[5].value);
     } else {
       setActiveExamSessions([]);
       failedLabels.push(t("dashboard.failedAreas.examSessions"));
     }
 
-    if (results[5].status === "fulfilled") {
-      setActiveStudySessions(results[5].value);
+    if (results[6].status === "fulfilled") {
+      setActiveStudySessions(results[6].value);
     } else {
       setActiveStudySessions([]);
       failedLabels.push(t("dashboard.failedAreas.studySessions"));
@@ -212,11 +222,15 @@ export function DashboardShell() {
                   value={`${engagement.daily_goal.completed}/${engagement.daily_goal.target}`}
                 />
                 <MetricCard label={t("dashboard.todayCard.latestScore")} value={latestExam ? formatScore(latestExam.score_percent) : "-"} />
+                <MetricCard label="Readiness" value={readiness ? formatScore(readiness.score_percent) : "-"} />
               </div>
 
               <div className="sq-list-item">
                 <div className="sq-list-title">{t("dashboard.todayCard.nextStep")}</div>
-                <div className="sq-list-meta">{engagement.recommended_next_action}</div>
+                <div className="sq-list-meta">
+                  {engagement.recommended_next_action}
+                  {readiness ? ` · projeção ${formatScore(readiness.projected_score_percent)}` : ""}
+                </div>
               </div>
             </div>
           </Card>

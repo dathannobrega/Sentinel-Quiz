@@ -54,6 +54,8 @@ from app.services.editorial import (
     submit_question_for_review,
 )
 from app.services.ingest import ingest_questions_from_dir
+from app.services.issue_reporting import list_question_issues
+from app.schemas import QuestionIssueOut
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -938,6 +940,28 @@ def admin_audit_logs(
             limit=limit,
         )
     ]
+
+
+@router.get("/question-issues", response_model=List[QuestionIssueOut])
+def admin_question_issues(
+    status: Optional[str] = Query(default=None),
+    category: Optional[str] = Query(default=None),
+    certification: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        items = list_question_issues(
+            db,
+            status=status,
+            category=category,
+            certification=certification,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return [QuestionIssueOut(**item) for item in items]
 
 
 @router.post("/questions/{question_id}/submit-review")

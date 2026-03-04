@@ -1,8 +1,8 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -73,12 +73,14 @@ function buildReviewQueueQuery(
   examId: string,
   reviewState: string,
   bookmarksOnly: boolean,
-  notesOnly: boolean
+  notesOnly: boolean,
+  domains: string[]
 ): string {
   const params = new URLSearchParams();
   if (examId) {
     params.set("exam_id", examId);
   }
+  domains.forEach((domain) => params.append("domains", domain));
   if (reviewState) {
     params.append("review_states", reviewState);
   }
@@ -96,6 +98,12 @@ function buildReviewQueueQuery(
 export function ReviewShell() {
   const { t } = useI18n();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const deepLinkDomains = useMemo(
+    () => searchParams.getAll("domains").map((item) => item.trim()).filter(Boolean),
+    [searchParams]
+  );
+  const deepLinkAutoStart = searchParams.get("auto_start") === "true";
   const [isLoading, setIsLoading] = useState(true);
   const [isStartingReview, setIsStartingReview] = useState(false);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
@@ -107,6 +115,8 @@ export function ReviewShell() {
   const [reviewStateFilter, setReviewStateFilter] = useState("");
   const [reviewBookmarksOnly, setReviewBookmarksOnly] = useState(false);
   const [reviewNotesOnly, setReviewNotesOnly] = useState(false);
+  const [reviewDomainFilters, setReviewDomainFilters] = useState<string[]>(deepLinkDomains);
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
 
   const load = useEffectEvent(async () => {
     setIsLoading(true);
@@ -115,7 +125,13 @@ export function ReviewShell() {
     const results = await Promise.allSettled([
       apiClient.get<Exam[]>("/exams"),
       apiClient.get<ReviewQueueSnapshot>(
-        `/study/review/queue${buildReviewQueueQuery(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly)}`
+        `/study/review/queue${buildReviewQueueQuery(
+          selectedExamId,
+          reviewStateFilter,
+          reviewBookmarksOnly,
+          reviewNotesOnly,
+          reviewDomainFilters
+        )}`
       )
     ]);
 
@@ -139,7 +155,13 @@ export function ReviewShell() {
   const refreshQueue = useEffectEvent(async () => {
     try {
       const snapshot = await apiClient.get<ReviewQueueSnapshot>(
-        `/study/review/queue${buildReviewQueueQuery(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly)}`
+        `/study/review/queue${buildReviewQueueQuery(
+          selectedExamId,
+          reviewStateFilter,
+          reviewBookmarksOnly,
+          reviewNotesOnly,
+          reviewDomainFilters
+        )}`
       );
       setReviewQueue(snapshot);
     } catch (error) {
@@ -147,18 +169,7 @@ export function ReviewShell() {
     }
   });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-    void refreshQueue();
-  }, [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, isLoading, refreshQueue]);
-
-  async function startRecommendedReview() {
+  const startRecommendedReview = useEffectEvent(async () => {
     setIsStartingReview(true);
     setPageNotice(null);
 
@@ -166,7 +177,7 @@ export function ReviewShell() {
       const payload: StudySessionRequest = {
         exam_id: selectedExamId || null,
         total_questions: Math.max(reviewQueue.recommended_batch_size || 10, 1),
-        domains: null,
+        domains: reviewDomainFilters.length ? reviewDomainFilters : null,
         difficulties: null,
         tags: null,
         bookmarked_only: reviewBookmarksOnly,
@@ -189,7 +200,30 @@ export function ReviewShell() {
     } finally {
       setIsStartingReview(false);
     }
-  }
+  });
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    void refreshQueue();
+  }, [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, reviewDomainFilters, isLoading, refreshQueue]);
+
+  useEffect(() => {
+    setReviewDomainFilters(deepLinkDomains);
+  }, [deepLinkDomains]);
+
+  useEffect(() => {
+    if (isLoading || isStartingReview || hasAutoStarted || !deepLinkAutoStart || !reviewQueue.items.length) {
+      return;
+    }
+    setHasAutoStarted(true);
+    void startRecommendedReview();
+  }, [deepLinkAutoStart, hasAutoStarted, isLoading, isStartingReview, reviewQueue.items.length, startRecommendedReview]);
 
   if (isLoading) {
     return (
@@ -223,6 +257,23 @@ export function ReviewShell() {
         </header>
 
         {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
+
+        {reviewDomainFilters.length ? (
+          <Card title="Filtros ativos" subtitle="Este bloco veio de um deep link de revisão focada por domínio.">
+            <div className="sq-chip-row">
+              {reviewDomainFilters.map((domain) => (
+                <button
+                  key={domain}
+                  type="button"
+                  className="sq-chip"
+                  onClick={() => setReviewDomainFilters((current) => current.filter((item) => item !== domain))}
+                >
+                  {domain} ×
+                </button>
+              ))}
+            </div>
+          </Card>
+        ) : null}
 
         <Card
           title={t("review.todayCard.title")}

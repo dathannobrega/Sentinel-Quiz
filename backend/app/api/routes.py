@@ -13,14 +13,23 @@ from app.models import Exam, ExamSession, SessionQuestion, SessionAnswer, Questi
 from app.schemas import (
     ExamOut, CreateSessionIn, SessionOut, SessionStateOut, QuestionOut,
     ActiveSessionOut, AnswerIn, AnswerFeedbackOut, QuestionSearchOut, ResultOut, SessionHistoryOut, SessionReviewOut, ReviewQuestionOut,
-    EngagementSnapshotOut, TutorRequest, TutorResponse
+    EngagementSnapshotOut, TutorRequest, TutorResponse, ExamQuestionStateOut, ExamNavigationIn, ExamReviewScreenOut,
+    ReadinessScoreOut,
+    QuestionIssueIn, QuestionIssueOut
 )
 from app.services.discovery import list_active_exam_sessions, search_questions
 from app.services.engagement import build_engagement_snapshot
+from app.services.exam_runtime import (
+    build_exam_review_screen,
+    get_exam_question_state,
+    navigate_exam_session,
+    save_exam_response,
+    submit_exam_session,
+    toggle_mark_for_review,
+)
+from app.services.issue_reporting import create_question_issue
 from app.services.quiz import (
     create_session,
-    get_question_for_session,
-    answer_question,
     compute_result,
     build_domain_catalog,
     build_weak_area_snapshot_for_owner,
@@ -31,6 +40,8 @@ from app.services.quiz import (
 )
 from app.services.gemini import ask_gemini, GeminiDisabled, GeminiError
 from app.services.materials import build_material_preview
+from app.services.readiness import build_readiness_snapshot
+from app.services.reference_resolver import resolve_full_explanation_text
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -79,6 +90,23 @@ def engagement_snapshot(
     )
     db.commit()
     return EngagementSnapshotOut(**payload)
+
+
+@router.get("/analytics/readiness", response_model=ReadinessScoreOut)
+def readiness_snapshot(
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    if not current_user and not client_key:
+        raise HTTPException(status_code=400, detail="Readiness analytics require authentication or X-Client-Key.")
+    payload = build_readiness_snapshot(
+        db,
+        owner_user_id=current_user.id if current_user else None,
+        owner_client_key=None if current_user else client_key,
+    )
+    db.commit()
+    return ReadinessScoreOut(**payload)
 
 
 @router.get("/questions/search", response_model=QuestionSearchOut)
@@ -160,6 +188,7 @@ def start_session(
             payload.low_confidence_only,
             payload.strategy,
             payload.time_limit_minutes,
+            payload.experience_mode,
             owner_user_id=current_user.id if current_user else None,
             owner_client_key=None if current_user else client_key,
         )
@@ -276,13 +305,19 @@ def get_next_question(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
-    sync_exam_session_state(db, session)
-    if session.completed_at is not None:
-        return {"finished": True}
-    q = get_question_for_session(db, session, session.current_index)
-    if q is None:
-        return {"finished": True}
-    return {"finished": False, "question": q, "progress_index": session.current_index, "total_questions": session.total_questions}
+    return get_exam_question_state(db, session, position=session.current_position)
+
+
+@router.get("/sessions/{session_id}/questions/{position}", response_model=ExamQuestionStateOut)
+def get_question_at_position(
+    session_id: str,
+    position: int,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    return ExamQuestionStateOut(**get_exam_question_state(db, session, position=position))
 
 
 @router.post("/sessions/{session_id}/pause", response_model=SessionStateOut)
@@ -324,13 +359,104 @@ def submit_answer(
 ):
     session = _get_session(db, session_id, current_user, client_key)
     try:
-        fb = answer_question(db, session, payload.question_id, payload.selected_keys)
+        fb = save_exam_response(
+            db,
+            session,
+            question_id=payload.question_id,
+            selected_keys=payload.selected_keys,
+            elapsed_seconds=payload.elapsed_seconds,
+            auto_advance=True,
+            auto_submit_when_complete=True,
+        )
         return AnswerFeedbackOut(**fb)
     except ValueError as e:
         detail = str(e)
         if "auto-submitted" in detail or "paused" in detail.lower():
             raise HTTPException(status_code=409, detail=detail)
         raise HTTPException(status_code=400, detail=detail)
+
+
+@router.put("/sessions/{session_id}/questions/{question_id}/response", response_model=AnswerFeedbackOut)
+def save_answer_without_advancing(
+    session_id: str,
+    question_id: str,
+    payload: AnswerIn,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    if payload.question_id != question_id:
+        raise HTTPException(status_code=400, detail="Payload question_id does not match the URL.")
+    try:
+        result = save_exam_response(
+            db,
+            session,
+            question_id=question_id,
+            selected_keys=payload.selected_keys,
+            elapsed_seconds=payload.elapsed_seconds,
+            auto_advance=False,
+            auto_submit_when_complete=False,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "auto-submitted" in detail or "paused" in detail.lower():
+            raise HTTPException(status_code=409, detail=detail)
+        raise HTTPException(status_code=400, detail=detail)
+    return AnswerFeedbackOut(**result)
+
+
+@router.post("/sessions/{session_id}/questions/{question_id}/mark-review")
+def mark_question_for_review(
+    session_id: str,
+    question_id: str,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    try:
+        return toggle_mark_for_review(db, session, question_id=question_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/sessions/{session_id}/navigation", response_model=ExamQuestionStateOut)
+def navigate_session(
+    session_id: str,
+    payload: ExamNavigationIn,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    try:
+        result = navigate_exam_session(db, session, position=payload.position)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return ExamQuestionStateOut(**result)
+
+
+@router.get("/sessions/{session_id}/review-screen", response_model=ExamReviewScreenOut)
+def exam_review_screen(
+    session_id: str,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    return ExamReviewScreenOut(**build_exam_review_screen(db, session))
+
+
+@router.post("/sessions/{session_id}/submit", response_model=ResultOut)
+def submit_exam(
+    session_id: str,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    session = _get_session(db, session_id, current_user, client_key)
+    return ResultOut(**submit_exam_session(db, session))
 
 @router.get("/sessions/{session_id}/result", response_model=ResultOut)
 def get_result(
@@ -344,6 +470,35 @@ def get_result(
     result = ResultOut(**compute_result(db, session))
     db.commit()
     return result
+
+
+@router.post("/questions/{question_id}/issues", response_model=QuestionIssueOut)
+def report_question_issue(
+    question_id: str,
+    payload: QuestionIssueIn,
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    owner_user_id = current_user.id if current_user else None
+    owner_client_key = None if current_user else client_key
+    try:
+        item = create_question_issue(
+            db,
+            question_id=question_id,
+            session_id=payload.session_id,
+            mode=payload.mode,
+            category=payload.category,
+            message=payload.message,
+            question_version_id=payload.question_version_id,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail)
+    return QuestionIssueOut(**item)
 
 @router.get("/sessions/{session_id}/review", response_model=SessionReviewOut)
 def get_review(
@@ -591,7 +746,7 @@ def tutor_question(
         selected_keys = [k for k in (selected_raw.split(",") if selected_raw else []) if k]
         is_correct = bool(ok)
 
-    exp = db.get(Explanation, question_id)
+    full_explanation = resolve_full_explanation_text(db, question_id)
 
     if mode == "why_wrong":
         if is_correct is None:
@@ -616,7 +771,7 @@ def tutor_question(
             mode=mode,
             selected_keys=selected_keys,
             is_correct=is_correct,
-            justification=exp.justification if exp else None,
+            justification=full_explanation,
         )
     except GeminiDisabled:
         raise HTTPException(status_code=503, detail="Gemini disabled. Configure GEMINI_API_KEY.")

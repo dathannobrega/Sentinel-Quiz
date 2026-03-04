@@ -18,11 +18,16 @@ import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   CitationItem,
   ExamResult,
+  QuestionIssueRequest,
+  ReadinessScore,
   ReviewQuestion,
+  ResultInsight,
   SessionReview,
+  StudyPlanItem,
   StudyResult,
   StudyReviewQuestion,
-  StudySessionReview
+  StudySessionReview,
+  TutorReply
 } from "@/types/api";
 
 type ResultMode = "exam" | "study";
@@ -50,7 +55,7 @@ function renderInsightLines(
   result: ExamResult | StudyResult,
   t: (key: string, values?: Record<string, string | number>) => string
 ): string[] {
-  const summary = (result.insight?.summary as Record<string, unknown> | undefined) || {};
+  const summary = result.insight?.summary || {};
   const lines: string[] = [];
 
   const attempted = summary.attempted;
@@ -85,6 +90,82 @@ function renderInsightLines(
   }
 
   return lines;
+}
+
+function buildReviewDomainHref(domain: string): string {
+  const params = new URLSearchParams();
+  params.append("domains", domain);
+  params.set("auto_start", "true");
+  return `/review?${params.toString()}`;
+}
+
+function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undefined }) {
+  if (!readiness) {
+    return null;
+  }
+
+  return (
+    <Card
+      title="Readiness Score"
+      subtitle={`Atual ${formatScore(readiness.score_percent)} · projetado ${formatScore(readiness.projected_score_percent)}`}
+    >
+      <div className="sq-surface-block">
+        <div className="sq-metric-grid">
+          <MetricCard label="Faixa" value={readiness.band} />
+          <MetricCard label="Sessao sugerida" value={`${readiness.recommended_minutes} min`} />
+          <MetricCard label="Base rastreada" value={readiness.tracked_questions} />
+        </div>
+        {readiness.factors?.length ? (
+          <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
+            {readiness.factors.map((factor) => (
+              <div key={factor} className="sq-list-item">
+                <div className="sq-list-meta">{factor}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
+function StudyPlanCard({ items }: { items: StudyPlanItem[] }) {
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <Card title="Plano recomendado (15-45 min)" subtitle="Priorize os domínios com maior atrito e entre direto em revisão focada.">
+      <div className="sq-page-stack">
+        {items.slice(0, 3).map((item) => (
+          <div key={`${item.domain}-${item.action}`} className="sq-surface-block">
+            <div className="sq-list-title">
+              {item.domain} · {item.wrong}/{item.total} erradas · {formatScore(item.score_percent)}
+            </div>
+            <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-2)" }}>
+              {item.reason}
+            </div>
+            {item.topics?.length ? (
+              <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
+                {item.topics.map((topic) => (
+                  <span key={topic} className="sq-chip">
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>
+              {item.action}
+            </div>
+            <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+              <Link href={buildReviewDomainHref(item.domain)}>Iniciar revisão</Link>
+              <a href="#review-card">Abrir referências</a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
 }
 
 function resolveReadiness(
@@ -143,17 +224,64 @@ function CitationLinks({
 }
 
 function ReviewBlock({
+  sessionId,
+  enableTutor,
   index,
   question,
   t,
   openMaterialLabel
 }: {
+  sessionId: string;
+  enableTutor: boolean;
   index: number;
   question: ReviewQuestion | StudyReviewQuestion;
   t: (key: string, values?: Record<string, string | number>) => string;
   openMaterialLabel: string;
 }) {
   const questionNumber = "question_number" in question ? question.question_number : index + 1;
+  const [isTutorLoading, setIsTutorLoading] = useState(false);
+  const [tutorReply, setTutorReply] = useState<TutorReply | null>(null);
+  const [tutorError, setTutorError] = useState<string | null>(null);
+  const [isIssueSubmitting, setIsIssueSubmitting] = useState(false);
+  const [issueCategory, setIssueCategory] = useState<QuestionIssueRequest["category"]>("clareza");
+  const [issueMessage, setIssueMessage] = useState("");
+  const [issueNotice, setIssueNotice] = useState<string | null>(null);
+
+  async function runTutor(mode: "help" | "why_wrong" | "review") {
+    setIsTutorLoading(true);
+    setTutorError(null);
+    try {
+      const reply = await apiClient.post<TutorReply>(`/sessions/${sessionId}/questions/${question.id}/tutor`, { mode });
+      setTutorReply(reply);
+    } catch (error) {
+      setTutorReply(null);
+      setTutorError(readResultError(error, "Nao foi possivel consultar o tutor agora."));
+    } finally {
+      setIsTutorLoading(false);
+    }
+  }
+
+  async function runIssueReport() {
+    if (issueMessage.trim().length < 8) {
+      return;
+    }
+    setIsIssueSubmitting(true);
+    setIssueNotice(null);
+    try {
+      await apiClient.post(`/questions/${question.id}/issues`, {
+        session_id: sessionId,
+        mode: enableTutor ? "exam" : "review",
+        category: issueCategory,
+        message: issueMessage.trim()
+      } satisfies QuestionIssueRequest);
+      setIssueMessage("");
+      setIssueNotice("Reporte enviado para o backlog editorial.");
+    } catch (error) {
+      setIssueNotice(readResultError(error, "Nao foi possivel reportar esta questao agora."));
+    } finally {
+      setIsIssueSubmitting(false);
+    }
+  }
 
   return (
     <AccordionItem
@@ -197,6 +325,61 @@ function ReviewBlock({
 
       {question.justification ? <EmptyState size="compact" description={question.justification} /> : null}
       <CitationLinks citations={question.citations} openMaterialLabel={openMaterialLabel} />
+
+      {enableTutor ? (
+        <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
+          <div className="sq-list-title">Tutor da questão</div>
+          <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+            <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("help")}>
+              Me explique
+            </button>
+            <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("why_wrong")}>
+              Por que errei?
+            </button>
+            <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("review")}>
+              Revisar assunto
+            </button>
+          </div>
+          {isTutorLoading ? <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>Consultando tutor...</div> : null}
+          {tutorError ? <StatusBanner tone="warning" title="Tutor indisponível" message={tutorError} /> : null}
+          {tutorReply ? (
+            <StatusBanner
+              tone={tutorReply.blocked ? "warning" : "neutral"}
+              title={tutorReply.blocked ? "Tutor bloqueou esta análise" : "Tutor respondeu"}
+              message={tutorReply.message}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
+        <div className="sq-list-title">Reportar questão</div>
+        <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+          <select
+            className="sq-select"
+            value={issueCategory}
+            onChange={(event) => setIssueCategory(event.target.value as QuestionIssueRequest["category"])}
+          >
+            <option value="clareza">Clareza</option>
+            <option value="gabarito">Gabarito</option>
+            <option value="explicacao">Explicação</option>
+            <option value="referencia">Referência</option>
+          </select>
+        </div>
+        <textarea
+          className="sq-textarea"
+          rows={3}
+          value={issueMessage}
+          onChange={(event) => setIssueMessage(event.target.value)}
+          style={{ marginTop: "var(--sq-space-3)" }}
+        />
+        <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+          <button type="button" className="sq-chip" disabled={isIssueSubmitting || issueMessage.trim().length < 8} onClick={() => void runIssueReport()}>
+            Enviar reporte
+          </button>
+        </div>
+        {issueNotice ? <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>{issueNotice}</div> : null}
+      </div>
     </AccordionItem>
   );
 }
@@ -229,6 +412,9 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
   const result = review?.result || null;
   const reviewQuestions = review?.questions || [];
   const insightLines = useMemo(() => (result ? renderInsightLines(result, t) : []), [result, t]);
+  const resultInsight: ResultInsight | null = result?.insight || null;
+  const studyPlan = resultInsight?.study_plan || [];
+  const readinessScore = resultInsight?.readiness || null;
 
   if (isLoading) {
     return (
@@ -259,13 +445,13 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
   const sessionMeta = review.session;
   const examResult = mode === "exam" ? (result as ExamResult) : null;
-  const readiness = resolveReadiness(result.score_percent, t);
+  const readinessLabel = resolveReadiness(result.score_percent, t);
   const headerCopy =
     mode === "study"
       ? t("results.summary.studyTitle", { score: formatScore(result.score_percent) })
       : t("results.summary.examTitle", {
           score: formatScore(result.score_percent),
-          readiness: readiness.label.toLowerCase()
+          readiness: readinessLabel.label.toLowerCase()
         });
 
   return (
@@ -296,7 +482,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
           <div className="sq-surface-block">
             <div className="sq-metric-grid">
               <MetricCard label={t("results.summary.score")} value={formatScore(result.score_percent)} />
-              <MetricCard label={t("results.summary.readiness")} value={readiness.label} />
+              <MetricCard label={t("results.summary.readiness")} value={readinessLabel.label} />
               <MetricCard label={t("results.summary.correct")} value={result.correct_count} />
               <MetricCard label={t("results.summary.wrong")} value={result.wrong_count} />
               <MetricCard
@@ -337,7 +523,11 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
           </div>
         </Card>
 
+        <ReadinessCard readiness={readinessScore} />
+        <StudyPlanCard items={studyPlan} />
+
         <Card
+          id="review-card"
           title={t("results.reviewCard.title")}
           subtitle={t("results.reviewCard.subtitle")}
           actions={<span className="sq-chip">{t("results.reviewCard.questionCount", { count: reviewQuestions.length })}</span>}
@@ -347,6 +537,8 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
               {reviewQuestions.map((question, index) => (
                 <ReviewBlock
                   key={`${question.id}-${index}`}
+                  sessionId={sessionId}
+                  enableTutor={mode === "exam"}
                   index={index}
                   question={question}
                   t={t}
