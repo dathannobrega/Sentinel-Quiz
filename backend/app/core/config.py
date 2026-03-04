@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", alias="APP_ENV")
     enforce_production_safety: bool = Field(default=True, alias="ENFORCE_PRODUCTION_SAFETY")
     bootstrap_schema: bool = Field(default=True, alias="BOOTSTRAP_SCHEMA")
+    ingest_on_startup: bool = Field(default=False, alias="INGEST_ON_STARTUP")
     auth_token_ttl_hours: int = Field(default=168, alias="AUTH_TOKEN_TTL_HOURS")
     auth_token_bytes: int = Field(default=32, alias="AUTH_TOKEN_BYTES")
     auth_cookie_name: str = Field(default="sentinel_session", alias="AUTH_COOKIE_NAME")
@@ -50,6 +51,8 @@ class Settings(BaseSettings):
     abuse_distinct_path_threshold: int = Field(default=30, alias="ABUSE_DISTINCT_PATH_THRESHOLD")
     abuse_rate_limit_breach_threshold: int = Field(default=3, alias="ABUSE_RATE_LIMIT_BREACH_THRESHOLD")
     abuse_signal_cooldown_seconds: int = Field(default=300, alias="ABUSE_SIGNAL_COOLDOWN_SECONDS")
+    rate_limit_backend: str = Field(default="memory", alias="RATE_LIMIT_BACKEND")
+    redis_url: str = Field(default="", alias="REDIS_URL")
 
     cors_origins: str = Field(default="http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:3000,http://localhost:3000", alias="CORS_ORIGINS")
 
@@ -77,5 +80,7 @@ class Settings(BaseSettings):
             raise ValueError("Production runtime requires a PostgreSQL-compatible DATABASE_URL, not SQLite.")
         if str(self.auth_cookie_samesite or "").strip().lower() not in {"lax", "strict", "none"}:
             raise ValueError("AUTH_COOKIE_SAMESITE must be one of: lax, strict, none.")
+        if str(self.rate_limit_backend or "").strip().lower() not in {"memory", "redis"}:
+            raise ValueError("RATE_LIMIT_BACKEND must be one of: memory, redis.")
 
 settings = Settings()

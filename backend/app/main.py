@@ -60,6 +60,16 @@ def on_startup():
         },
     )
 
+    if not settings.ingest_on_startup:
+        logger.info(
+            "Startup ingestion skipped by configuration",
+            extra={
+                "event": "startup_ingest_skipped",
+                "ingest_on_startup": False,
+            },
+        )
+        return
+
     db = SessionLocal()
     try:
         ingest_result = ingest_questions_from_dir(db, settings.question_json_dir)

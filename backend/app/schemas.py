@@ -251,6 +251,12 @@ class QuestionIssueOut(BaseModel):
     message: str
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    internal_note: Optional[str] = None
+    triaged_by_user_id: Optional[str] = None
+    triaged_at: Optional[str] = None
+    resolved_version_id: Optional[int] = None
+    resolved_by_user_id: Optional[str] = None
+    resolved_at: Optional[str] = None
     certification: Optional[str] = None
     domain: Optional[str] = None
     prompt_excerpt: Optional[str] = None
@@ -473,6 +479,7 @@ class StudyResultOut(BaseModel):
     strategy: str = "standard"
     selection_mix: Dict[str, int] = Field(default_factory=dict)
     review_due_count: int = 0
+    placement_completed: bool = False
     insight: ResultInsightOut
 
 
@@ -596,6 +603,26 @@ class EngagementSnapshotOut(BaseModel):
     adaptive_profile: EngagementAdaptiveProfileOut
     review_backlog_due: int = 0
     recommended_next_action: str
+
+
+class StudyPlanTaskOut(BaseModel):
+    kind: str
+    title: str
+    description: str
+    cta_label: str
+    cta_href: str
+    preset_key: str
+    domain: Optional[str] = None
+
+
+class StudyPlanOut(BaseModel):
+    placement_required: bool = False
+    primary_task: Optional[StudyPlanTaskOut] = None
+    secondary_tasks: List[StudyPlanTaskOut] = Field(default_factory=list)
+    suggested_presets: List[str] = Field(default_factory=list)
+    risk_domains: List[str] = Field(default_factory=list)
+    review_backlog_due: int = 0
+    generated_at: str
 
 
 class StudyReviewQuestionOut(BaseModel):

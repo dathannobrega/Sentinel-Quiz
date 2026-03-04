@@ -108,6 +108,7 @@ function formatSecondsMetric(value: number | null | undefined): string {
 }
 
 function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undefined }) {
+  const { t } = useI18n();
   if (!readiness) {
     return null;
   }
@@ -118,14 +119,17 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
 
   return (
     <Card
-      title="Readiness Score"
-      subtitle={`Atual ${formatScore(readiness.score_percent)} · projetado ${formatScore(readiness.projected_score_percent)}`}
+      title={t("results.readinessCard.title")}
+      subtitle={t("results.readinessCard.subtitle", {
+        current: formatScore(readiness.score_percent),
+        projected: formatScore(readiness.projected_score_percent),
+      })}
     >
       <div className="sq-surface-block">
         <div className="sq-metric-grid">
-          <MetricCard label="Faixa" value={readiness.band} />
-          <MetricCard label="Sessao sugerida" value={`${readiness.recommended_minutes} min`} />
-          <MetricCard label="Base rastreada" value={readiness.tracked_questions} />
+          <MetricCard label={t("results.readinessCard.band")} value={readiness.band} />
+          <MetricCard label={t("results.readinessCard.suggestedSession")} value={`${readiness.recommended_minutes} min`} />
+          <MetricCard label={t("results.readinessCard.trackedBase")} value={readiness.tracked_questions} />
         </div>
         {readiness.factors?.length ? (
           <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
@@ -138,7 +142,7 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
         ) : null}
         {rankedDomains.length ? (
           <div className="sq-page-stack" style={{ marginTop: "var(--sq-space-4)" }}>
-            <div className="sq-list-title">Domínio por domínio</div>
+            <div className="sq-list-title">{t("results.readinessCard.byDomain")}</div>
             {rankedDomains.map((domain) => (
               <div key={domain.domain} className="sq-surface-block">
                 <div
@@ -176,10 +180,10 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
                   />
                 </div>
                 <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
-                  <span className="sq-chip">acerto {formatScore(domain.accuracy_percent)}</span>
+                  <span className="sq-chip">{t("results.readinessCard.accuracy", { value: formatScore(domain.accuracy_percent) })}</span>
                   <span className="sq-chip">{domain.attempts} tentativa(s)</span>
-                  <span className="sq-chip">ritmo {formatSecondsMetric(domain.avg_elapsed_seconds)}</span>
-                  <span className="sq-chip">baixa confiança {domain.low_confidence_count}</span>
+                  <span className="sq-chip">{t("results.readinessCard.pace", { value: formatSecondsMetric(domain.avg_elapsed_seconds) })}</span>
+                  <span className="sq-chip">{t("results.readinessCard.lowConfidence", { count: domain.low_confidence_count })}</span>
                 </div>
               </div>
             ))}
@@ -191,18 +195,19 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
 }
 
 function TimingCard({ timing }: { timing: TimingBreakdown | null | undefined }) {
+  const { t } = useI18n();
   if (!timing) {
     return null;
   }
 
   return (
-    <Card title="Ritmo da sessão" subtitle="Velocidade e dispersão agora entram de forma explícita na leitura de prontidão.">
+    <Card title={t("results.timingCard.title")} subtitle={t("results.timingCard.subtitle")}>
       <div className="sq-surface-block">
         <div className="sq-metric-grid">
-          <MetricCard label="Duração" value={formatSecondsMetric(timing.duration_seconds)} />
-          <MetricCard label="Média por questão" value={formatSecondsMetric(timing.avg_seconds_per_question)} />
-          <MetricCard label="Mais rápida" value={formatSecondsMetric(timing.fastest_seconds)} />
-          <MetricCard label="Mais lenta" value={formatSecondsMetric(timing.slowest_seconds)} />
+          <MetricCard label={t("results.timingCard.duration")} value={formatSecondsMetric(timing.duration_seconds)} />
+          <MetricCard label={t("results.timingCard.averagePerQuestion")} value={formatSecondsMetric(timing.avg_seconds_per_question)} />
+          <MetricCard label={t("results.timingCard.fastest")} value={formatSecondsMetric(timing.fastest_seconds)} />
+          <MetricCard label={t("results.timingCard.slowest")} value={formatSecondsMetric(timing.slowest_seconds)} />
         </div>
       </div>
     </Card>
@@ -210,12 +215,13 @@ function TimingCard({ timing }: { timing: TimingBreakdown | null | undefined }) 
 }
 
 function StudyPlanCard({ items }: { items: StudyPlanItem[] }) {
+  const { t } = useI18n();
   if (!items.length) {
     return null;
   }
 
   return (
-    <Card title="Plano recomendado (15-45 min)" subtitle="Priorize os domínios com maior atrito e entre direto em revisão focada.">
+    <Card title={t("results.studyPlanCard.title")} subtitle={t("results.studyPlanCard.subtitle")}>
       <div className="sq-page-stack">
         {items.slice(0, 3).map((item) => (
           <div key={`${item.domain}-${item.action}`} className="sq-surface-block">
@@ -238,8 +244,8 @@ function StudyPlanCard({ items }: { items: StudyPlanItem[] }) {
               {item.action}
             </div>
             <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
-              <Link href={buildReviewDomainHref(item.domain)}>Iniciar revisão</Link>
-              <a href="#review-card">Abrir referências</a>
+              <Link href={buildReviewDomainHref(item.domain)}>{t("results.studyPlanCard.openReview")}</Link>
+              <a href="#review-card">{t("results.studyPlanCard.openReferences")}</a>
             </div>
           </div>
         ))}
@@ -316,6 +322,7 @@ function ReviewBlock({
   t: (key: string, values?: Record<string, string | number>) => string;
   openMaterialLabel: string;
 }) {
+  const { t: localT } = useI18n();
   const questionNumber = "question_number" in question ? question.question_number : index + 1;
   const [isTutorLoading, setIsTutorLoading] = useState(false);
   const [tutorReply, setTutorReply] = useState<TutorReply | null>(null);
@@ -333,7 +340,7 @@ function ReviewBlock({
       setTutorReply(reply);
     } catch (error) {
       setTutorReply(null);
-      setTutorError(readResultError(error, "Nao foi possivel consultar o tutor agora."));
+      setTutorError(readResultError(error, localT("results.tutor.unavailable")));
     } finally {
       setIsTutorLoading(false);
     }
@@ -353,9 +360,9 @@ function ReviewBlock({
         message: issueMessage.trim()
       } satisfies QuestionIssueRequest);
       setIssueMessage("");
-      setIssueNotice("Reporte enviado para o backlog editorial.");
+      setIssueNotice(localT("results.issueReport.success"));
     } catch (error) {
-      setIssueNotice(readResultError(error, "Nao foi possivel reportar esta questao agora."));
+      setIssueNotice(readResultError(error, localT("results.issueReport.failure")));
     } finally {
       setIsIssueSubmitting(false);
     }
@@ -406,24 +413,24 @@ function ReviewBlock({
 
       {enableTutor ? (
         <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
-          <div className="sq-list-title">Tutor da questão</div>
+          <div className="sq-list-title">{t("results.tutor.title")}</div>
           <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
             <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("help")}>
-              Me explique
+              {t("results.tutor.explain")}
             </button>
             <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("why_wrong")}>
-              Por que errei?
+              {t("results.tutor.whyWrong")}
             </button>
             <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("review")}>
-              Revisar assunto
+              {t("results.tutor.reviewTopic")}
             </button>
           </div>
-          {isTutorLoading ? <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>Consultando tutor...</div> : null}
-          {tutorError ? <StatusBanner tone="warning" title="Tutor indisponível" message={tutorError} /> : null}
+          {isTutorLoading ? <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>{t("results.tutor.loading")}</div> : null}
+          {tutorError ? <StatusBanner tone="warning" title={t("results.tutor.unavailable")} message={tutorError} /> : null}
           {tutorReply ? (
             <StatusBanner
               tone={tutorReply.blocked ? "warning" : "neutral"}
-              title={tutorReply.blocked ? "Tutor bloqueou esta análise" : "Tutor respondeu"}
+              title={tutorReply.blocked ? t("results.tutor.blocked") : t("results.tutor.answered")}
               message={tutorReply.message}
             />
           ) : null}
@@ -431,17 +438,17 @@ function ReviewBlock({
       ) : null}
 
       <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
-        <div className="sq-list-title">Reportar questão</div>
+        <div className="sq-list-title">{t("results.issueReport.title")}</div>
         <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
           <select
             className="sq-select"
             value={issueCategory}
             onChange={(event) => setIssueCategory(event.target.value as QuestionIssueRequest["category"])}
           >
-            <option value="clareza">Clareza</option>
-            <option value="gabarito">Gabarito</option>
-            <option value="explicacao">Explicação</option>
-            <option value="referencia">Referência</option>
+            <option value="clareza">{t("results.issueReport.clarity")}</option>
+            <option value="gabarito">{t("results.issueReport.answerKey")}</option>
+            <option value="explicacao">{t("results.issueReport.explanation")}</option>
+            <option value="referencia">{t("results.issueReport.reference")}</option>
           </select>
         </div>
         <textarea
@@ -453,7 +460,7 @@ function ReviewBlock({
         />
         <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
           <button type="button" className="sq-chip" disabled={isIssueSubmitting || issueMessage.trim().length < 8} onClick={() => void runIssueReport()}>
-            Enviar reporte
+            {t("results.issueReport.send")}
           </button>
         </div>
         {issueNotice ? <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>{issueNotice}</div> : null}

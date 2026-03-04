@@ -14,6 +14,7 @@ from app.schemas import (
     StudyAnswerIn,
     StudyHistoryOut,
     StudyOverviewOut,
+    StudyPlanOut,
     StudyResultOut,
     StudySessionReviewOut,
     StudySessionCreateIn,
@@ -29,8 +30,10 @@ from app.services.study import (
     answer_study_question,
     build_study_overview,
     build_review_queue_snapshot,
+    build_study_plan,
     build_weekly_study_analytics,
     compute_study_result,
+    create_placement_session,
     create_study_session,
     get_study_session_review,
     get_question_for_study_session,
@@ -82,6 +85,22 @@ def study_overview(
     owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
     return StudyOverviewOut(
         **build_study_overview(
+            db,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+        )
+    )
+
+
+@router.get("/plan", response_model=StudyPlanOut)
+def study_plan(
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
+    return StudyPlanOut(
+        **build_study_plan(
             db,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
@@ -206,6 +225,26 @@ def start_study_session(
             payload.strategy,
             payload.queue_only,
             payload.review_states,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return StudySessionOut(**serialize_study_session(session))
+
+
+@router.post("/placement/session", response_model=StudySessionOut)
+def start_placement_session(
+    exam_id: str | None = Query(default=None),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
+    try:
+        session = create_placement_session(
+            db,
+            exam_id=exam_id.strip() if exam_id else None,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
         )

@@ -133,13 +133,15 @@ function ExamNavigatorPanel({
   sessionState,
   isLoading,
   onJump,
-  minimal = false
+  minimal = false,
+  t
 }: {
   reviewScreen: ExamReviewScreen | null;
   sessionState: SessionResponse | null;
   isLoading: boolean;
   onJump: (position: number) => void;
   minimal?: boolean;
+  t: (key: string, values?: Record<string, string | number>) => string;
 }) {
   const answeredCount = reviewScreen?.answered_count ?? sessionState?.answered_count ?? 0;
   const totalQuestions = reviewScreen?.total_questions ?? sessionState?.total_questions ?? 0;
@@ -148,9 +150,9 @@ function ExamNavigatorPanel({
     <div className="sq-runner-utility">
       <div className="sq-runner-utility__head">
         <div>
-          <div className="sq-list-title">{minimal ? "Navegação" : "Navegador da prova"}</div>
+          <div className="sq-list-title">{minimal ? t("runner.navigator.title") : t("runner.navigator.examTitle")}</div>
           <div className="sq-list-meta">
-            {minimal ? "Fluxo enxuto, sem recursos pedagógicos." : "Vá e volte livremente antes de enviar."}
+            {minimal ? t("runner.navigator.minimalSubtitle") : t("runner.navigator.examSubtitle")}
           </div>
         </div>
         <span className="sq-chip">{`${answeredCount}/${totalQuestions}`}</span>
@@ -159,8 +161,8 @@ function ExamNavigatorPanel({
       {reviewScreen ? (
         <>
           <div className="sq-chip-row sq-gap-top-sm">
-            <span className="sq-chip">Pendentes: {reviewScreen.unanswered_count}</span>
-            <span className="sq-chip">Marcadas: {reviewScreen.marked_for_review_count}</span>
+            <span className="sq-chip">{t("runner.navigator.pending", { count: reviewScreen.unanswered_count })}</span>
+            <span className="sq-chip">{t("runner.navigator.flagged", { count: reviewScreen.marked_for_review_count })}</span>
           </div>
           <div className="sq-chip-row sq-gap-top-sm">
             {reviewScreen.items.map((item) => (
@@ -189,7 +191,7 @@ function ExamNavigatorPanel({
         </>
       ) : (
         <div className="sq-list-meta sq-gap-top-sm">
-          {isLoading ? "Carregando status da prova..." : "Sem dados do navegador ainda."}
+          {isLoading ? t("runner.navigator.loading") : t("runner.navigator.empty")}
         </div>
       )}
     </div>
@@ -769,6 +771,13 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
     }
   }
 
+  const navigateToResult = useEffectEvent(() => {
+    clearSessionId(mode);
+    startTransition(() => {
+      router.replace(resolveResultHref(mode, sessionId));
+    });
+  });
+
   async function handleAskTutor(modeValue: "help" | "why_wrong" | "review") {
     if (!isExamMode || !currentQuestion || !feedback || isExamDayMode) {
       return;
@@ -800,7 +809,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
         message: issueMessage.trim()
       } satisfies QuestionIssueRequest);
       setIssueMessage("");
-      setIssueNotice("Reporte enviado para o backlog editorial.");
+      setIssueNotice(t("runner.issueReport.success"));
     } catch (error) {
       setIssueNotice(readRunnerError(error, t("runner.errors.loadSession")));
     } finally {
@@ -935,7 +944,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     </span>
                   ) : null}
                   {!isExamDayMode ? <span className="sq-chip">{strategyLabel}</span> : null}
-                  {isExamDayMode ? <span className="sq-chip">Exam day</span> : null}
+                  {isExamDayMode ? <span className="sq-chip">{t("runner.examDay.tag")}</span> : null}
                 </div>
               }
             >
@@ -944,8 +953,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                 {isExamDayMode ? (
                   <StatusBanner
                     tone="neutral"
-                    title="Modo prova ativo"
-                    message="Correção instantânea, tutor, referências e saídas rápidas foram reduzidos para simular o dia da prova."
+                    title={t("runner.examDay.activeTitle")}
+                    message={t("runner.examDay.activeMessage")}
                   />
                 ) : null}
                 {isExamPaused ? (
@@ -963,11 +972,11 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         {currentQuestion.certification ? <span className="sq-chip">{currentQuestion.certification}</span> : null}
                         {currentQuestion.domain ? <span className="sq-chip">{currentQuestion.domain}</span> : null}
                         {currentQuestion.difficulty ? <span className="sq-chip">{currentQuestion.difficulty}</span> : null}
-                        {currentQuestion.marked_for_review ? <span className="sq-chip">Marcada para revisão</span> : null}
+                        {currentQuestion.marked_for_review ? <span className="sq-chip">{t("runner.tags.markedForReview")}</span> : null}
                       </div>
                     ) : currentQuestion.marked_for_review ? (
                       <div className="sq-chip-row">
-                        <span className="sq-chip">Marcada para revisão</span>
+                        <span className="sq-chip">{t("runner.tags.markedForReview")}</span>
                       </div>
                     ) : null}
 
@@ -1027,8 +1036,8 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                       isExamDayMode ? (
                         <StatusBanner
                           tone="neutral"
-                          title="Resposta registrada"
-                          message="No modo prova, o gabarito e a análise detalhada só aparecem depois do envio final."
+                          title={t("runner.examDay.answerRecordedTitle")}
+                          message={t("runner.examDay.answerRecordedMessage")}
                         />
                       ) : (
                         <StatusBanner
@@ -1061,31 +1070,38 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                         isLoading={isReviewScreenLoading}
                         onJump={(position) => void handleJumpToPosition(position)}
                         minimal
+                        t={t}
                       />
                     ) : null}
 
                     <div className="sq-actions">
                       {isExamMode ? (
                         <Button variant="ghost" disabled={isExamPaused || !currentQuestion} onClick={() => void handleToggleMarkForReview()}>
-                          {currentQuestion.marked_for_review ? "Desmarcar revisão" : "Marcar revisão"}
+                          {currentQuestion.marked_for_review ? t("runner.actions.unmarkReview") : t("runner.actions.markReview")}
                         </Button>
                       ) : null}
                       {isExamMode ? (
                         <Button variant="ghost" busy={isAdvancing} disabled={isExamPaused || currentPosition <= 0} onClick={() => void goPrevious()}>
-                          Anterior
+                          {t("runner.actions.previous")}
                         </Button>
                       ) : null}
                       <Button busy={isSubmitting} disabled={!canSubmit} onClick={() => void handleSubmit()}>
                         {t("runner.actions.confirmAnswer")}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        busy={isAdvancing}
-                        disabled={(isStudyMode && !feedback) || isStudyStateSaving || isExamPaused}
-                        onClick={() => void goNext()}
-                      >
-                        {feedback?.finished ? t("common.actions.viewResult") : t("common.actions.nextQuestion")}
-                      </Button>
+                      {feedback?.finished ? (
+                        <Button variant="ghost" busy={isAdvancing} disabled={isExamPaused} onClick={() => void navigateToResult()}>
+                          {t("common.actions.viewResult")}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          busy={isAdvancing}
+                          disabled={(isStudyMode && !feedback) || isStudyStateSaving || isExamPaused}
+                          onClick={() => void goNext()}
+                        >
+                          {t("common.actions.nextQuestion")}
+                        </Button>
+                      )}
                       {isExamMode ? (
                         <Button variant="secondary" size="sm" busy={isFinalizingExam} disabled={isExamPaused} onClick={() => void handleSubmitExamNow()}>
                           Enviar prova
@@ -1249,25 +1265,26 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                       sessionState={sessionState}
                       isLoading={isReviewScreenLoading}
                       onJump={(position) => void handleJumpToPosition(position)}
+                      t={t}
                     />
 
                     {!isExamDayMode && feedback ? (
                       <div className="sq-runner-utility">
                         <div className="sq-runner-utility__head">
                           <div>
-                            <div className="sq-list-title">Tutor da questão</div>
-                            <div className="sq-list-meta">Disponível após responder, sem sair da prova.</div>
+                            <div className="sq-list-title">{t("runner.tutor.title")}</div>
+                            <div className="sq-list-meta">{t("runner.tutor.subtitle")}</div>
                           </div>
                         </div>
                         <div className="sq-actions sq-gap-top-sm">
                           <Button variant="ghost" size="sm" busy={isTutorLoading} onClick={() => void handleAskTutor("help")}>
-                            Me explique
+                            {t("runner.tutor.explain")}
                           </Button>
                           <Button variant="ghost" size="sm" busy={isTutorLoading} onClick={() => void handleAskTutor("why_wrong")}>
-                            Por que errei?
+                            {t("runner.tutor.whyWrong")}
                           </Button>
                           <Button variant="ghost" size="sm" busy={isTutorLoading} onClick={() => void handleAskTutor("review")}>
-                            Revisar assunto
+                            {t("runner.tutor.reviewTopic")}
                           </Button>
                         </div>
                         {tutorError ? <div className="sq-list-meta sq-gap-top-sm">{tutorError}</div> : null}
@@ -1278,12 +1295,12 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                     <div className="sq-runner-utility">
                       <div className="sq-runner-utility__head">
                         <div>
-                          <div className="sq-list-title">Reportar questão</div>
-                          <div className="sq-list-meta">Isso alimenta o backlog editorial.</div>
+                          <div className="sq-list-title">{t("runner.issueReport.title")}</div>
+                          <div className="sq-list-meta">{t("runner.issueReport.subtitle")}</div>
                         </div>
                       </div>
                       <div className="sq-gap-top-sm">
-                        <Field label="Categoria" htmlFor="exam-issue-category">
+                        <Field label={t("runner.issueReport.category")} htmlFor="exam-issue-category">
                           <select
                             id="exam-issue-category"
                             className="sq-select"
@@ -1292,15 +1309,15 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                               setIssueCategory(event.target.value as QuestionIssueRequest["category"])
                             }
                           >
-                            <option value="clareza">Clareza</option>
-                            <option value="gabarito">Gabarito</option>
-                            <option value="explicacao">Explicação</option>
-                            <option value="referencia">Referência</option>
+                            <option value="clareza">{t("runner.issueReport.clarity")}</option>
+                            <option value="gabarito">{t("runner.issueReport.answerKey")}</option>
+                            <option value="explicacao">{t("runner.issueReport.explanation")}</option>
+                            <option value="referencia">{t("runner.issueReport.reference")}</option>
                           </select>
                         </Field>
                       </div>
                       <div className="sq-gap-top-sm">
-                        <Field label="Detalhe" htmlFor="exam-issue-message">
+                        <Field label={t("runner.issueReport.detail")} htmlFor="exam-issue-message">
                           <textarea
                             id="exam-issue-message"
                             className="sq-textarea"
@@ -1312,7 +1329,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
                       </div>
                       <div className="sq-actions sq-gap-top-sm">
                         <Button variant="ghost" size="sm" busy={isIssueSubmitting} disabled={issueMessage.trim().length < 8} onClick={() => void handleReportIssue()}>
-                          Enviar reporte
+                          {t("runner.issueReport.send")}
                         </Button>
                       </div>
                       {issueNotice ? <div className="sq-list-meta sq-gap-top-sm">{issueNotice}</div> : null}

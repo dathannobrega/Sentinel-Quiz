@@ -62,6 +62,26 @@ export interface StudyPlanItem {
   action: string;
 }
 
+export interface StudyPlanTask {
+  kind: string;
+  title: string;
+  description: string;
+  cta_label: string;
+  cta_href: string;
+  preset_key: string;
+  domain?: string | null;
+}
+
+export interface StudyPlanResponse {
+  placement_required: boolean;
+  primary_task?: StudyPlanTask | null;
+  secondary_tasks: StudyPlanTask[];
+  suggested_presets: string[];
+  risk_domains: string[];
+  review_backlog_due: number;
+  generated_at: string;
+}
+
 export interface TimingBreakdown {
   duration_seconds?: number | null;
   avg_seconds_per_question?: number | null;
@@ -172,9 +192,21 @@ export interface QuestionIssue {
   message: string;
   created_at?: string | null;
   updated_at?: string | null;
+  internal_note?: string | null;
+  triaged_by_user_id?: string | null;
+  triaged_at?: string | null;
+  resolved_version_id?: number | null;
+  resolved_by_user_id?: string | null;
+  resolved_at?: string | null;
   certification?: string | null;
   domain?: string | null;
   prompt_excerpt?: string | null;
+}
+
+export interface AdminQuestionIssueUpdateInput {
+  status?: string | null;
+  internal_note?: string | null;
+  resolved_version_id?: number | null;
 }
 
 export interface QuestionHint {
@@ -620,6 +652,7 @@ export interface StudyResult {
   strategy: string;
   selection_mix: Record<string, number>;
   review_due_count: number;
+  placement_completed?: boolean;
   insight: ResultInsight;
 }
 
@@ -656,6 +689,47 @@ export interface StudySessionReview {
   session: StudyHistoryItem;
   result: StudyResult;
   questions: StudyReviewQuestion[];
+}
+
+export interface AdminDomainCatalogItem {
+  id: number;
+  certification: string;
+  domain: string;
+  subdomain?: string | null;
+  subject?: string | null;
+  objective_code?: string | null;
+  blueprint_code?: string | null;
+  title?: string | null;
+  description?: string | null;
+  blueprint_title?: string | null;
+  blueprint_description?: string | null;
+  is_active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AdminDomainCatalogPage {
+  items: AdminDomainCatalogItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  display_name?: string | null;
+  role: string;
+  is_active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+  exam_session_count: number;
+  study_session_count: number;
+}
+
+export interface AdminUserUpdateInput {
+  role?: string | null;
+  is_active?: boolean | null;
 }
 
 export interface AdminOverview {

@@ -43,6 +43,7 @@ export const ptBRMessages = {
     status: {
       marked: "marcada",
       withNote: "com nota",
+      loading: "Carregando...",
       syncingSession: "Sincronizando sessão...",
       updating: "Atualizando",
       upToDate: "Em dia",
@@ -142,6 +143,18 @@ export const ptBRMessages = {
       reviewGoal: "Meta de revisão",
       nextReview: "Próxima revisão",
       update: "Atualização"
+    },
+    planCard: {
+      title: "Meu plano",
+      subtitle: "A próxima melhor ação sempre fica visível.",
+      placementPending: "Diagnóstico pendente"
+    },
+    weekCard: {
+      title: "Esta semana",
+      subtitle: "Progresso e pressão de revisão em um resumo curto.",
+      reviewBacklog: "Backlog",
+      weeklyProgress: "Meta semanal",
+      reviewGoal: "Meta de revisão"
     }
   },
   launcher: {
@@ -163,6 +176,40 @@ export const ptBRMessages = {
     advanced: {
       active: "ativos",
       optional: "opcionais"
+    },
+    presets: {
+      title: "Presets",
+      summaryTitle: "Resumo do preset",
+      items: {
+        placement: {
+          title: "Diagnóstico inicial",
+          summary: "20 questões adaptativas para criar sua baseline por domínio."
+        },
+        daily_review: {
+          title: "Revisão diária recomendada",
+          summary: "10 questões puxadas para reforçar memória e confiança."
+        },
+        quick_15: {
+          title: "Simulado rápido 15 min",
+          summary: "15 questões em 15 minutos para medir retenção."
+        },
+        comptia_exam: {
+          title: "Modo prova CompTIA",
+          summary: "45 questões com foco em blueprint e pressão de prova."
+        },
+        sprint_25: {
+          title: "Sprint 25 min",
+          summary: "20 questões adaptativas para manter ritmo sem sobrecarga."
+        },
+        risk_focus: {
+          title: "Risco de prova",
+          summary: "Bloco curto e focado para atacar o domínio mais sensível agora."
+        },
+        custom: {
+          title: "Custom",
+          summary: "Ajuste manualmente os filtros e monte um bloco sob medida."
+        }
+      }
     },
     filters: {
       bookmarked: "Marcadas",
@@ -649,6 +696,48 @@ export const ptBRMessages = {
       noRelevantDomains: "Sem domínios com histórico relevante ainda.",
       noExamFriction: "Sem prova com atrito consolidado ainda."
     },
+    users: {
+      title: "Usuários e RBAC",
+      subtitle: "Ajuste papel e ativação sem sair do painel.",
+      loadError: "Não foi possível carregar os usuários.",
+      active: "Ativo",
+      empty: "Nenhum usuário disponível.",
+      accessDenied: "Somente admins podem alterar usuários e papéis."
+    },
+    domainCatalog: {
+      title: "Domain catalog",
+      subtitle: "Consulte objetivos e blueprint com busca rápida.",
+      certification: "Certificação",
+      search: "Busca",
+      loadError: "Não foi possível carregar o catalogo de domínios.",
+      empty: "Nenhum item encontrado para os filtros atuais."
+    },
+    issues: {
+      title: "Triage de issues",
+      subtitle: "Atualize status e vincule a versão corrigida sem sair do backlog.",
+      loadError: "Não foi possível carregar o backlog de issues.",
+      detailTitle: "Detalhe do issue",
+      accessDenied: "A triagem completa exige papel reviewer ou admin.",
+      assignVersion: "Vincular versão",
+      openQuestion: "Abrir questão",
+      empty: "Nenhum issue pendente.",
+      selectPrompt: "Selecione um item do backlog para triar e registrar nota interna.",
+      internalNote: "Comentário interno",
+      saveNote: "Salvar nota",
+      saved: "Atualização salva no backlog editorial.",
+      saveError: "Não foi possível atualizar este issue agora.",
+      versionLinked: "Versão atual vinculada ao issue.",
+      unassignedVersion: "Sem versão vinculada",
+      versionTag: "Versão v{id}",
+      triagedTag: "Triado",
+      actions: {
+        triage: "Triar",
+        fixing: "Em correção",
+        verify: "Verificar",
+        release: "Liberar",
+        dismiss: "Dispensar"
+      }
+    },
     browser: {
       title: "Explorar questões",
       subtitle: "Filtre, navegue e carregue uma questão sem sair da mesma tela.",
@@ -689,7 +778,92 @@ export const ptBRMessages = {
       validationTitle: "Validação",
       load: "Carregar",
       duplicate: "Duplicar",
-      delete: "Excluir"
+      delete: "Excluir",
+      workflowTitle: "Workflow editorial",
+      workflowSubtitle: "Fluxo real: draft -> in_review -> approved -> published. A publicação exige aprovação explícita.",
+      statusCurrent: "Status atual",
+      draftCurrent: "Rascunho atual",
+      publishedCurrent: "Publicado",
+      auditedEvents: "Eventos auditados",
+      snapshots: "Snapshots",
+      stepSave: "1. Salvar rascunho",
+      stepReview: "2. Enviar para revisão",
+      stepApprove: "3. Aprovar",
+      stepPublish: "4. Publicar",
+      saveDraft: "Salvar rascunho",
+      submitReview: "Enviar para revisão",
+      approve: "Aprovar",
+      publish: "Publicar",
+      newDraft: "Novo rascunho",
+      submitReviewHintReady: "Enviar o rascunho atual para revisão",
+      submitReviewHintBlocked: "Somente rascunhos podem seguir para revisão",
+      approveHintReady: "Aprovar a versão em revisão",
+      approveHintBlocked: "A aprovação só fica disponível para versões em revisão",
+      publishHintReady: "Publicar a versão aprovada",
+      publishHintBlocked: "A publicação exige uma versão aprovada",
+      versionsTitle: "Histórico de versões",
+      versionsSubtitle: "Cada publicação ou rollback gera uma nova versão rastreável.",
+      versionPublishedAt: "Publicado em {date}",
+      versionUpdatedAt: "Atualizado em {date}",
+      currentPublishedTag: "Publicado atual",
+      currentDraftTag: "Rascunho atual",
+      rollbackVersion: "Reverter para esta versão",
+      noVersions: "Nenhuma versão registrada ainda. Salve o primeiro rascunho para iniciar o fluxo.",
+      auditTitle: "Auditoria",
+      auditSubtitle: "Quem mudou, quando mudou e por qual motivo.",
+      auditSystem: "sistema",
+      noAudit: "Sem eventos auditados para esta questão ainda.",
+      performanceTitle: "Histórico de desempenho",
+      performanceSubtitle: "Snapshots preservam a leitura de dificuldade da versão publicada ao longo do tempo.",
+      versionUnknown: "Sem versão",
+      scoreLabel: "score {value}",
+      errorRate: "erro {value}%",
+      attemptsCount: "{count} tentativa(s)",
+      lowConfidenceRate: "baixa confiança {value}%",
+      pressureCount: "pressão {count}",
+      noPerformance: "Ainda não há snapshot histórico para esta questão. Use “Registrar snapshot” no topo do painel.",
+      quickChecklistTitle: "Checklist rápido",
+      quickChecklistSubtitle: "Leitura instantânea antes de salvar.",
+      payloadPreviewTitle: "Preview do payload",
+      payloadPreviewSubtitle: "Este é o JSON enviado para o backend sem transformações ocultas.",
+      diagnosticsEmpty: "Salve ou carregue uma questão para receber o diagnóstico editorial completo do backend."
+    },
+    misc: {
+      panelLink: "Painel editorial",
+      authRequired: "Entre com uma conta admin autenticada para continuar.",
+      adminOnly: "Somente contas admin podem executar esta operação.",
+      actionFailed: "Não foi possível concluir esta ação.",
+      loadOverview: "overview",
+      loadAnalytics: "analytics editoriais",
+      loadQuestionList: "lista de questões",
+      loadIssues: "backlog de issues",
+      panelLoadFailed: "Não foi possível carregar o painel editorial.",
+      questionLoaded: "Questão {id} carregada para edição.",
+      questionLoadFailed: "Não foi possível carregar esta questão.",
+      freshDraftReady: "Novo rascunho pronto para edição.",
+      newDraftCreated: "Novo rascunho criado. Preencha os campos e salve.",
+      duplicateReady: "Conteúdo duplicado. Defina um novo ID antes de salvar.",
+      panelRefreshed: "Painel editorial atualizado.",
+      exportDone: "Exportação concluída. O arquivo JSON foi gerado pelo backend real.",
+      exportFailed: "Não foi possível exportar o banco agora.",
+      snapshotSchemaMissing: "O schema de snapshots ainda não está disponível. Rode as migrations e tente novamente.",
+      snapshotRecorded: "Snapshot editorial registrado para {count} questão(ões).",
+      snapshotNone: "Nenhuma questão elegível para snapshot neste momento.",
+      snapshotFailed: "Não foi possível registrar o snapshot editorial.",
+      examRequiredFields: "Preencha ID e título antes de salvar.",
+      examSaveFailed: "Não foi possível salvar a prova.",
+      questionSaveFailed: "Não foi possível salvar a questão.",
+      reviewSendFailed: "Não foi possível enviar a questão para revisão.",
+      approveFailed: "Não foi possível aprovar a questão.",
+      publishFailed: "Não foi possível publicar a questão.",
+      loadBeforeRollback: "Carregue uma questão antes de reverter.",
+      rollbackFailed: "Não foi possível reverter a questão.",
+      confirmDelete: "Excluir a questão {id}? Esta ação não pode ser desfeita.",
+      deleteFailed: "Não foi possível excluir a questão.",
+      questionDeleted: "Questão {id} excluída.",
+      editorRequiredAction: "Esta ação exige papel editor, reviewer ou admin.",
+      adminRequiredAction: "Esta ação exige papel admin.",
+      reviewerRequiredAction: "Esta ação exige papel reviewer ou admin."
     }
   },
   results: {
@@ -749,6 +923,51 @@ export const ptBRMessages = {
       subtitle: "Abra cada questão apenas quando precisar revisar o detalhe.",
       questionCount: "{count} questões",
       empty: "Nenhuma questão foi encontrada para esta revisão."
+    },
+    readinessCard: {
+      title: "Readiness Score",
+      subtitle: "Atual {current} · projetado {projected}",
+      band: "Faixa",
+      suggestedSession: "Sessão sugerida",
+      trackedBase: "Base rastreada",
+      byDomain: "Domínio por domínio",
+      accuracy: "acerto {value}",
+      pace: "ritmo {value}",
+      lowConfidence: "baixa confiança {count}"
+    },
+    timingCard: {
+      title: "Ritmo da sessão",
+      subtitle: "Velocidade e dispersão agora entram de forma explícita na leitura de prontidão.",
+      duration: "Duração",
+      averagePerQuestion: "Média por questão",
+      fastest: "Mais rápida",
+      slowest: "Mais lenta"
+    },
+    studyPlanCard: {
+      title: "Plano recomendado (15-45 min)",
+      subtitle: "Priorize os domínios com maior atrito e entre direto em revisão focada.",
+      openReview: "Iniciar revisão",
+      openReferences: "Abrir referências"
+    },
+    tutor: {
+      title: "Tutor da questão",
+      explain: "Me explique",
+      whyWrong: "Por que errei?",
+      reviewTopic: "Revisar assunto",
+      loading: "Consultando tutor...",
+      unavailable: "Tutor indisponível",
+      blocked: "Tutor bloqueou esta análise",
+      answered: "Tutor respondeu"
+    },
+    issueReport: {
+      title: "Reportar questão",
+      clarity: "Clareza",
+      answerKey: "Gabarito",
+      explanation: "Explicação",
+      reference: "Referência",
+      send: "Enviar reporte",
+      success: "Reporte enviado para o backlog editorial.",
+      failure: "Não foi possível reportar esta questão agora."
     }
   },
   runner: {
@@ -757,6 +976,50 @@ export const ptBRMessages = {
       openSessionTitle: "Não foi possível abrir a sessão",
       examPausedTitle: "Simulado pausado",
       examPausedMessage: "As respostas ficam bloqueadas enquanto a pausa estiver ativa."
+    },
+    navigator: {
+      title: "Navegação",
+      examTitle: "Navegador da prova",
+      minimalSubtitle: "Fluxo enxuto, sem recursos pedagógicos.",
+      examSubtitle: "Vá e volte livremente antes de enviar.",
+      pending: "Pendentes: {count}",
+      flagged: "Marcadas: {count}",
+      loading: "Carregando status da prova...",
+      empty: "Sem dados do navegador ainda."
+    },
+    examDay: {
+      tag: "Exam day",
+      activeTitle: "Modo prova ativo",
+      activeMessage: "Correção instantânea, tutor, referências e saídas rápidas foram reduzidos para simular o dia da prova.",
+      answerRecordedTitle: "Resposta registrada",
+      answerRecordedMessage: "No modo prova, o gabarito e a análise detalhada só aparecem depois do envio final."
+    },
+    tags: {
+      markedForReview: "Marcada para revisão"
+    },
+    actions: {
+      unmarkReview: "Desmarcar revisão",
+      markReview: "Marcar revisão",
+      previous: "Anterior"
+    },
+    tutor: {
+      title: "Tutor da questão",
+      subtitle: "Disponível após responder, sem sair da prova.",
+      explain: "Me explique",
+      whyWrong: "Por que errei?",
+      reviewTopic: "Revisar assunto"
+    },
+    issueReport: {
+      title: "Reportar questão",
+      subtitle: "Isso alimenta o backlog editorial.",
+      category: "Categoria",
+      detail: "Detalhe",
+      clarity: "Clareza",
+      answerKey: "Gabarito",
+      explanation: "Explicação",
+      reference: "Referência",
+      send: "Enviar reporte",
+      success: "Reporte enviado para o backlog editorial."
     },
     header: {
       studyTitle: "Modo Estudo",

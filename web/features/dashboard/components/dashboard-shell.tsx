@@ -11,6 +11,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { apiClient } from "@/lib/api/client";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
+import { useStudyPlanQuery } from "@/lib/query/hooks";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
   ActiveSessionItem,
@@ -67,6 +68,7 @@ export function DashboardShell() {
   const [activeExamSessions, setActiveExamSessions] = useState<ActiveSessionItem[]>([]);
   const [activeStudySessions, setActiveStudySessions] = useState<ActiveSessionItem[]>([]);
   const [readiness, setReadiness] = useState<ReadinessScore | null>(null);
+  const studyPlanQuery = useStudyPlanQuery();
 
   const load = useEffectEvent(async () => {
     setIsLoading(true);
@@ -210,6 +212,71 @@ export function DashboardShell() {
         </header>
 
         {loadError ? <StatusBanner tone="warning" title={t("common.errors.partialLoad")} message={loadError} /> : null}
+
+        {studyPlanQuery.data?.primary_task ? (
+          <div className="sq-grid-2">
+            <Card
+              title={t("dashboard.planCard.title")}
+              subtitle={t("dashboard.planCard.subtitle")}
+              actions={
+                <Link href={studyPlanQuery.data.primary_task.cta_href} className="sq-button sq-button--sm sq-button--primary">
+                  {studyPlanQuery.data.primary_task.cta_label}
+                </Link>
+              }
+            >
+              <div className="sq-stack-md">
+                {studyPlanQuery.data.placement_required ? (
+                  <div className="sq-chip-row">
+                    <span className="sq-chip">{t("dashboard.planCard.placementPending")}</span>
+                  </div>
+                ) : null}
+                <div className="sq-list-item">
+                  <div className="sq-list-title">{studyPlanQuery.data.primary_task.title}</div>
+                  <div className="sq-list-meta">{studyPlanQuery.data.primary_task.description}</div>
+                </div>
+                {studyPlanQuery.data.secondary_tasks.length ? (
+                  <div className="sq-list">
+                    {studyPlanQuery.data.secondary_tasks.map((task) => (
+                      <div key={`${task.kind}-${task.cta_href}`} className="sq-list-item">
+                        <div className="sq-list-title">{task.title}</div>
+                        <div className="sq-list-meta">{task.description}</div>
+                        <Link href={task.cta_href} className="sq-text-link">
+                          {task.cta_label}
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+
+            <Card
+              title={t("dashboard.weekCard.title")}
+              subtitle={t("dashboard.weekCard.subtitle")}
+            >
+              <div className="sq-metric-grid">
+                <MetricCard label={t("dashboard.weekCard.reviewBacklog")} value={studyPlanQuery.data.review_backlog_due} />
+                <MetricCard
+                  label={t("dashboard.weekCard.weeklyProgress")}
+                  value={`${engagement.weekly_goal.completed}/${engagement.weekly_goal.target}`}
+                />
+                <MetricCard
+                  label={t("dashboard.weekCard.reviewGoal")}
+                  value={`${engagement.weekly_review_goal.completed}/${engagement.weekly_review_goal.target}`}
+                />
+              </div>
+              {studyPlanQuery.data.risk_domains.length ? (
+                <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-4)" }}>
+                  {studyPlanQuery.data.risk_domains.map((domain) => (
+                    <span key={domain} className="sq-chip">
+                      {domain}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </Card>
+          </div>
+        ) : null}
 
         <div className="sq-grid-3">
           <Card

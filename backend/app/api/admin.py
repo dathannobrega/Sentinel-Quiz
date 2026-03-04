@@ -54,7 +54,11 @@ from app.services.editorial import (
     submit_question_for_review,
 )
 from app.services.ingest import ingest_questions_from_dir
-from app.services.issue_reporting import list_question_issues
+from app.services.issue_reporting import (
+    assign_issue_current_version,
+    list_question_issues,
+    update_question_issue,
+)
 from app.schemas import QuestionIssueOut
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -62,12 +66,35 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = logging.getLogger("app.security.admin")
 
 
+def require_admin_role(*allowed_roles: str):
+    normalized_roles = {str(role or "").strip().lower() for role in allowed_roles if str(role or "").strip()}
+
+    def _resolver(
+        current_user: User = Depends(get_current_user_required),
+    ) -> User:
+        if current_user.is_active and current_user.role in normalized_roles:
+            return current_user
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return _resolver
+
+
+def require_editor(
+    current_user: User = Depends(require_admin_role("editor", "reviewer", "admin")),
+) -> User:
+    return current_user
+
+
+def require_reviewer(
+    current_user: User = Depends(require_admin_role("reviewer", "admin")),
+) -> User:
+    return current_user
+
+
 def require_platform_admin(
-    current_user: User = Depends(get_current_user_required),
-):
-    if current_user.is_active and current_user.role == "admin":
-        return current_user
-    raise HTTPException(status_code=403, detail="Forbidden")
+    current_user: User = Depends(require_admin_role("admin")),
+) -> User:
+    return current_user
 
 
 def _actor_role(current_user: User | None) -> str:
@@ -340,6 +367,12 @@ class AdminUserUpdateIn(BaseModel):
     is_active: Optional[bool] = None
 
 
+class AdminQuestionIssueUpdateIn(BaseModel):
+    status: Optional[str] = None
+    internal_note: Optional[str] = Field(default=None, max_length=4000)
+    resolved_version_id: Optional[int] = None
+
+
 def _clean_citation_value(value: Any):
     if value is None:
         return None
@@ -375,7 +408,7 @@ def admin_ingest(_: User = Depends(require_platform_admin), db: Session = Depend
     return res
 
 @router.get("/overview", response_model=AdminOverviewOut)
-def admin_overview(_: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_overview(_: User = Depends(require_editor), db: Session = Depends(get_db)):
     exams = db.execute(select(Exam)).scalars().all()
     questions = db.execute(select(Question)).scalars().all()
     completed_sessions = db.execute(
@@ -401,7 +434,7 @@ def admin_domain_catalog(
     search: Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    _: User = Depends(require_platform_admin),
+    _: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     stmt = (
@@ -576,7 +609,7 @@ def admin_update_user(
 @router.get("/analytics/questions", response_model=AdminQuestionAnalyticsOut)
 def admin_question_analytics(
     limit: int = Query(default=10, ge=3, le=30),
-    _: User = Depends(require_platform_admin),
+    _: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     return AdminQuestionAnalyticsOut(
@@ -589,7 +622,7 @@ def admin_question_analytics(
 
 @router.post("/analytics/questions/snapshots", response_model=AdminAnalyticsSnapshotCaptureOut)
 def admin_capture_question_analytics_snapshot(
-    current_user: User = Depends(require_platform_admin),
+    current_user: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     payload = capture_admin_question_analytics_snapshot(
@@ -601,7 +634,7 @@ def admin_capture_question_analytics_snapshot(
 
 
 @router.post("/exams")
-def admin_create_exam(payload: AdminCreateExamIn, _: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_create_exam(payload: AdminCreateExamIn, _: User = Depends(require_editor), db: Session = Depends(get_db)):
     exam = db.get(Exam, payload.id)
     if not exam:
         exam = Exam(id=payload.id, title=payload.title, source=payload.source, question_count=payload.question_count)
@@ -616,7 +649,7 @@ def admin_create_exam(payload: AdminCreateExamIn, _: User = Depends(require_plat
 @router.post("/questions")
 def admin_create_question(
     payload: AdminCreateQuestionIn,
-    current_user: User = Depends(require_platform_admin),
+    current_user: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     exam_id = payload.exam_id.strip()
@@ -754,7 +787,7 @@ def admin_list_questions(
     exam_id: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    _: User = Depends(require_platform_admin),
+    _: User = Depends(require_editor),
     db: Session = Depends(get_db)
 ):
     stmt = select(Question).order_by(Question.id.asc())
@@ -896,7 +929,7 @@ def admin_list_questions(
     return items
 
 @router.get("/questions/{question_id}", response_model=AdminQuestionOut)
-def admin_get_question(question_id: str, _: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_get_question(question_id: str, _: User = Depends(require_editor), db: Session = Depends(get_db)):
     document = build_admin_question_document(db, question_id)
     if not document:
         raise HTTPException(status_code=404, detail="Question not found")
@@ -905,7 +938,7 @@ def admin_get_question(question_id: str, _: User = Depends(require_platform_admi
 
 
 @router.get("/questions/{question_id}/versions", response_model=List[AdminQuestionVersionOut])
-def admin_question_versions(question_id: str, _: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
+def admin_question_versions(question_id: str, _: User = Depends(require_editor), db: Session = Depends(get_db)):
     items = [AdminQuestionVersionOut(**item) for item in list_question_versions(db, question_id)]
     db.commit()
     return items
@@ -915,7 +948,7 @@ def admin_question_versions(question_id: str, _: User = Depends(require_platform
 def admin_question_analytics_history(
     question_id: str,
     limit: int = Query(default=12, ge=1, le=60),
-    _: User = Depends(require_platform_admin),
+    _: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     return [
@@ -928,7 +961,7 @@ def admin_question_analytics_history(
 def admin_audit_logs(
     question_id: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
-    _: User = Depends(require_platform_admin),
+    _: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     normalized_question_id = question_id.strip() if question_id else None
@@ -947,8 +980,10 @@ def admin_question_issues(
     status: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
     certification: Optional[str] = Query(default=None),
+    question_id: Optional[str] = Query(default=None),
+    assigned_state: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
-    _: User = Depends(require_platform_admin),
+    _: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     try:
@@ -957,6 +992,8 @@ def admin_question_issues(
             status=status,
             category=category,
             certification=certification,
+            question_id=question_id,
+            assigned_state=assigned_state,
             limit=limit,
         )
     except ValueError as exc:
@@ -964,11 +1001,53 @@ def admin_question_issues(
     return [QuestionIssueOut(**item) for item in items]
 
 
+@router.patch("/question-issues/{issue_id}", response_model=QuestionIssueOut)
+def admin_update_question_issue(
+    issue_id: int,
+    payload: AdminQuestionIssueUpdateIn,
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db),
+):
+    try:
+        item = update_question_issue(
+            db,
+            issue_id=issue_id,
+            status=payload.status,
+            internal_note=payload.internal_note,
+            resolved_version_id=payload.resolved_version_id,
+            actor_user_id=current_user.id if current_user else None,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail)
+    return QuestionIssueOut(**item)
+
+
+@router.post("/question-issues/{issue_id}/assign-current-version", response_model=QuestionIssueOut)
+def admin_assign_current_issue_version(
+    issue_id: int,
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db),
+):
+    try:
+        item = assign_issue_current_version(
+            db,
+            issue_id=issue_id,
+            actor_user_id=current_user.id if current_user else None,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail)
+    return QuestionIssueOut(**item)
+
+
 @router.post("/questions/{question_id}/submit-review")
 def admin_submit_question_review(
     question_id: str,
     payload: AdminReviewActionIn,
-    current_user: User = Depends(require_platform_admin),
+    current_user: User = Depends(require_editor),
     db: Session = Depends(get_db),
 ):
     try:
@@ -989,7 +1068,7 @@ def admin_submit_question_review(
 def admin_approve_question(
     question_id: str,
     payload: AdminReviewActionIn,
-    current_user: User = Depends(require_platform_admin),
+    current_user: User = Depends(require_reviewer),
     db: Session = Depends(get_db),
 ):
     try:

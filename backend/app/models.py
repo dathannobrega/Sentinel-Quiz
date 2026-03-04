@@ -501,6 +501,27 @@ class QuestionIssue(Base):
     category: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", index=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    internal_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    triaged_by_user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    triaged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    resolved_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    resolved_by_user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -509,6 +530,28 @@ class QuestionIssue(Base):
             "(user_id IS NULL) <> (client_key IS NULL)",
             name="ck_question_issues_owner_scope_xor",
         ),
+    )
+
+
+class PlacementState(Base):
+    __tablename__ = "placement_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    placement_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    placement_exam_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    placement_question_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NULL) <> (client_key IS NULL)",
+            name="ck_placement_state_owner_scope_xor",
+        ),
+        UniqueConstraint("user_id", name="uq_placement_state_user"),
+        UniqueConstraint("client_key", name="uq_placement_state_client"),
     )
 
 

@@ -105,7 +105,6 @@ def sync_user_streak(
     owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
     now = observed_at or datetime.utcnow()
     today = _day_start(now)
-    yesterday = today - timedelta(days=1)
 
     rows = db.execute(
         select(UserDomainMetricDaily.metric_date)
@@ -145,7 +144,7 @@ def sync_user_streak(
     current = 0
     if activity_days:
         last_day = activity_days[-1]
-        if last_day >= yesterday:
+        if last_day == today:
             current = 1
             cursor = last_day
             for day in reversed(activity_days[:-1]):

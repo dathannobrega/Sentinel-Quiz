@@ -3664,7 +3664,7 @@
         },
         {
           "key": "D",
-          "text": "Criptografar o disco rígido do sistema (Encrypting the system’s hard drive)."
+          "text": "Criptografar o disco rígido do sistema (Encrypting the system's hard drive)."
         }
       ],
       "correct_options": [
@@ -8249,7 +8249,7 @@
         },
         {
           "key": "C",
-          "text": "Revisar a política de classificação de dados dos documentos (Review the documents’ data classification policy)."
+          "text": "Revisar a política de classificação de dados dos documentos (Review the documents' data classification policy)."
         },
         {
           "key": "D",
@@ -47331,7 +47331,7 @@
       "options": [
         {
           "key": "A",
-          "text": "An employee receives a gift card request in an email that has an executive’s name in the display field of the email."
+          "text": "An employee receives a gift card request in an email that has an executive's name in the display field of the email."
         },
         {
           "key": "B",
@@ -47343,7 +47343,7 @@
         },
         {
           "key": "D",
-          "text": "An employee receives an email with a link to a phishing site that is designed to look like the company’s email portal."
+          "text": "An employee receives an email with a link to a phishing site that is designed to look like the company's email portal."
         }
       ],
       "correct_options": [
@@ -47353,7 +47353,7 @@
     },
     {
       "id": "sim8_q007",
-      "question": "A company prevented direct access from the database administrators’ workstations to the network segment that contains database servers. Which of the following should a database administrator use to access the database servers?",
+      "question": "A company prevented direct access from the database administrators' workstations to the network segment that contains database servers. Which of the following should a database administrator use to access the database servers?",
       "multi_select": false,
       "domain": "Security Architecture",
       "difficulty": "Medium",
@@ -47428,7 +47428,7 @@
     },
     {
       "id": "sim8_q008",
-      "question": "An organization’s internet-facing website was compromised when an attacker exploited a buffer overflow. Which of the following should the organization deploy to best protect against similar attacks in the future?",
+      "question": "An organization's internet-facing website was compromised when an attacker exploited a buffer overflow. Which of the following should the organization deploy to best protect against similar attacks in the future?",
       "multi_select": false,
       "domain": "Security Architecture",
       "difficulty": "Medium",
@@ -47506,7 +47506,7 @@
     },
     {
       "id": "sim8_q009",
-      "question": "An administrator notices that several users are logging in from suspicious IP addresses. After speaking with the users, the administrator determines that the employees were not logging in from those IP addresses and resets the affected users’ passwords. Which of the following should the administrator implement to prevent this type of attack from succeeding in the future?",
+      "question": "An administrator notices that several users are logging in from suspicious IP addresses. After speaking with the users, the administrator determines that the employees were not logging in from those IP addresses and resets the affected users' passwords. Which of the following should the administrator implement to prevent this type of attack from succeeding in the future?",
       "multi_select": false,
       "domain": "General Security Concepts",
       "difficulty": "Hard",
@@ -47966,7 +47966,7 @@
     },
     {
       "id": "sim8_q016",
-      "question": "Which of the following vulnerabilities is associated with installing software outside of a manufacturer’s approved software repository?",
+      "question": "Which of the following vulnerabilities is associated with installing software outside of a manufacturer's approved software repository?",
       "multi_select": false,
       "domain": "General Security Concepts",
       "difficulty": "Easy",
@@ -48261,7 +48261,7 @@
     },
     {
       "id": "sim8_q020",
-      "question": "A company’s web filter is configured to scan the URL for strings and deny access when matches are found. Which of the following search strings should an analyst employ to prohibit access to non-encrypted websites?",
+      "question": "A company's web filter is configured to scan the URL for strings and deny access when matches are found. Which of the following search strings should an analyst employ to prohibit access to non-encrypted websites?",
       "multi_select": false,
       "domain": "General Security Concepts",
       "difficulty": "Medium",
@@ -48335,7 +48335,7 @@
     },
     {
       "id": "sim8_q021",
-      "question": "During a security incident, the security operations team identified sustained network traffic from a malicious IP address: 10.1.4.9. A security analyst is creating an inbound firewall rule to block the IP address from accessing the organization’s network. Which of the following fulfills this request?",
+      "question": "During a security incident, the security operations team identified sustained network traffic from a malicious IP address: 10.1.4.9. A security analyst is creating an inbound firewall rule to block the IP address from accessing the organization's network. Which of the following fulfills this request?",
       "multi_select": false,
       "domain": "Security Architecture",
       "difficulty": "Hard",
@@ -48485,7 +48485,7 @@
     },
     {
       "id": "sim8_q023",
-      "question": "A security analyst is reviewing alerts in the SIEM related to potential malicious network traffic coming from an employee’s corporate laptop. The security analyst has determined that additional data about the executable running on the machine is necessary to continue the investigation. Which of the following logs should the analyst use as a data source?",
+      "question": "A security analyst is reviewing alerts in the SIEM related to potential malicious network traffic coming from an employee's corporate laptop. The security analyst has determined that additional data about the executable running on the machine is necessary to continue the investigation. Which of the following logs should the analyst use as a data source?",
       "multi_select": false,
       "domain": "Security Architecture",
       "difficulty": "Medium",
@@ -48710,7 +48710,7 @@
     },
     {
       "id": "sim8_q026",
-      "question": "A security administrator would like to protect data on employees’ laptops. Which of the following encryption techniques should the security administrator use?",
+      "question": "A security administrator would like to protect data on employees' laptops. Which of the following encryption techniques should the security administrator use?",
       "multi_select": false,
       "domain": "General Security Concepts",
       "difficulty": "Easy",
@@ -49080,7 +49080,7 @@
     },
     {
       "id": "sim8_q031",
-      "question": "A company is expanding its threat surface program and allowing individuals to security test the company’s internet-facing application. The company will compensate researchers based on the vulnerabilities discovered. Which of the following best describes the program the company is setting up?",
+      "question": "A company is expanding its threat surface program and allowing individuals to security test the company's internet-facing application. The company will compensate researchers based on the vulnerabilities discovered. Which of the following best describes the program the company is setting up?",
       "multi_select": false,
       "domain": "Security Program Management and Oversight",
       "difficulty": "Medium",
@@ -49688,7 +49688,7 @@
     },
     {
       "id": "sim8_q039",
-      "question": "Which of the following roles, according to the shared responsibility model, is responsible for securing the company’s database in an IaaS model for a cloud environment?",
+      "question": "Which of the following roles, according to the shared responsibility model, is responsible for securing the company's database in an IaaS model for a cloud environment?",
       "multi_select": false,
       "domain": "Security Program Management and Oversight",
       "difficulty": "Easy",
@@ -50296,7 +50296,7 @@
     },
     {
       "id": "sim8_q047",
-      "question": "A company’s legal department drafted sensitive documents in a SaaS application and wants to ensure the documents cannot be accessed by individuals in high-risk countries. Which of the following is the most effective way to limit this access?",
+      "question": "A company's legal department drafted sensitive documents in a SaaS application and wants to ensure the documents cannot be accessed by individuals in high-risk countries. Which of the following is the most effective way to limit this access?",
       "multi_select": false,
       "domain": "Security Program Management and Oversight",
       "difficulty": "Medium",
@@ -51188,7 +51188,7 @@
     },
     {
       "id": "sim8_q059",
-      "question": "A security practitioner completes a vulnerability assessment on a company’s network and finds several vulnerabilities, which the operations team remediates. Which of the following should be done next?",
+      "question": "A security practitioner completes a vulnerability assessment on a company's network and finds several vulnerabilities, which the operations team remediates. Which of the following should be done next?",
       "multi_select": false,
       "domain": "Security Architecture",
       "difficulty": "Medium",
@@ -51264,7 +51264,7 @@
     },
     {
       "id": "sim8_q060",
-      "question": "An administrator was notified that a user logged in remotely after hours and copied large amounts of data to a personal device.\nWhich of the following best describes the user’s activity?",
+      "question": "An administrator was notified that a user logged in remotely after hours and copied large amounts of data to a personal device.\nWhich of the following best describes the user's activity?",
       "multi_select": false,
       "domain": "Security Program Management and Oversight",
       "difficulty": "Medium",
@@ -51480,7 +51480,7 @@
     },
     {
       "id": "sim8_q063",
-      "question": "Which of the following tools can assist with detecting an employee who has accidentally emailed a file containing a customer’s PII?",
+      "question": "Which of the following tools can assist with detecting an employee who has accidentally emailed a file containing a customer's PII?",
       "multi_select": false,
       "domain": "General Security Concepts",
       "difficulty": "Easy",
@@ -52077,7 +52077,7 @@
     },
     {
       "id": "sim8_q071",
-      "question": "A security analyst reviews domain activity logs and notices the following: [log output omitted for brevidade]\nWhich of the following is the best explanation for what the security analyst has discovered?",
+      "question": "A security analyst reviews domain activity logs and notices the following:\n```\n2026-03-03T08:42:01Z | DC1 | Security | EventID 4625 | Account: jsmith | Source IP: 192.0.2.45 | Status: Logon failure (invalid password)\n2026-03-03T08:43:27Z | DC1 | Security | EventID 4625 | Account: jsmith | Source IP: 192.0.2.45 | Status: Logon failure (invalid password)\n2026-03-03T08:44:56Z | DC1 | Security | EventID 4625 | Account: jsmith | Source IP: 192.0.2.45 | Status: Logon failure (invalid password)\n2026-03-03T08:45:12Z | DC1 | Security | EventID 4740 | Account: jsmith | Source IP: 192.0.2.45 | Status: Account locked out (too many failed logon attempts)\n2026-03-03T08:45:13Z | SIEM | Alert | Description: Attempting to brute force jsmith's account from 192.0.2.45 after multiple failures\n```\nWhich of the following is the best explanation for what the security analyst has discovered?",
       "multi_select": false,
       "domain": "Threats, Vulnerabilities and Mitigations",
       "difficulty": "Medium",
@@ -52128,15 +52128,15 @@
       "options": [
         {
           "key": "A",
-          "text": "The user jsmith’s account has been locked out."
+          "text": "The user jsmith's account has been locked out."
         },
         {
           "key": "B",
-          "text": "A keylogger is installed on jsmith’s workstation."
+          "text": "A keylogger is installed on jsmith's workstation."
         },
         {
           "key": "C",
-          "text": "An attacker is attempting to brute force jsmith’s account."
+          "text": "An attacker is attempting to brute force jsmith's account."
         },
         {
           "key": "D",
@@ -53868,7 +53868,7 @@
     },
     {
       "id": "sim8_q097",
-      "question": "One of a company’s vendors sent an analyst a security bulletin that recommends a BIOS update.\nWhich of the following vulnerability types is being addressed?",
+      "question": "One of a company's vendors sent an analyst a security bulletin that recommends a BIOS update.\nWhich of the following vulnerability types is being addressed?",
       "multi_select": false,
       "domain": "Security Program Management and Oversight",
       "difficulty": "Easy",

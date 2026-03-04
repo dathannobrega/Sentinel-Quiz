@@ -21,6 +21,7 @@ from app.models import (
     SessionAnswer,
     SessionQuestion,
     StudyAttempt,
+    PlacementState,
     StudySession,
     StudySessionQuestion,
     User,
@@ -49,6 +50,7 @@ QUEUE_PREVIEW_LIMIT = 5
 WEEKLY_ANALYTICS_DEFAULT_WEEKS = 8
 REVIEW_FORECAST_DAYS = 7
 SAFE_FEEDBACK_MAX_CHARS = 240
+PLACEMENT_MIN_QUESTION_COUNT = 20
 
 
 def _scope_label(owner_user_id: Optional[str], owner_client_key: Optional[str]) -> str:
@@ -288,6 +290,215 @@ def build_study_overview(
         "recent_notes": recent_notes,
         "due_reviews": due_reviews,
     }
+
+
+def _get_or_create_placement_state(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+) -> PlacementState:
+    stmt = select(PlacementState)
+    stmt = _apply_owner_filters(stmt, PlacementState, owner_user_id, owner_client_key)
+    state = db.execute(stmt).scalar_one_or_none()
+    if state:
+        return state
+
+    state = PlacementState(
+        user_id=owner_user_id,
+        client_key=None if owner_user_id else normalize_client_key(owner_client_key),
+    )
+    db.add(state)
+    db.flush()
+    return state
+
+
+def _count_owner_attempts(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+) -> int:
+    stmt = select(func.sum(UserDomainMetricDaily.attempts_total))
+    stmt = _apply_owner_filters(stmt, UserDomainMetricDaily, owner_user_id, owner_client_key)
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
+def build_study_plan(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+) -> dict[str, Any]:
+    overview = build_study_overview(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+    )
+    readiness = build_readiness_snapshot(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+    )
+    state = _get_or_create_placement_state(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+    )
+    attempts_total = _count_owner_attempts(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+    )
+    placement_required = not bool(state.placement_completed_at) and attempts_total < PLACEMENT_MIN_QUESTION_COUNT
+
+    risk_domains = []
+    for item in readiness.get("weakest_domains") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("domain") or "").strip()
+        if label:
+            risk_domains.append(label)
+    risk_domains = risk_domains[:3]
+
+    primary_task: dict[str, Any]
+    if placement_required:
+        primary_task = {
+            "kind": "placement",
+            "title": "Fazer diagnostico inicial",
+            "description": "Monte uma baseline curta por dominio antes de entrar em simulados mais pesados.",
+            "cta_label": "Iniciar diagnostico",
+            "cta_href": "/start?preset=placement",
+            "preset_key": "placement",
+            "domain": risk_domains[0] if risk_domains else None,
+        }
+    elif int(overview.get("due_review_count") or 0) > 0:
+        primary_task = {
+            "kind": "review_backlog",
+            "title": "Limpar revisoes vencidas",
+            "description": f"{int(overview.get('due_review_count') or 0)} revisao(oes) estao vencidas agora.",
+            "cta_label": "Abrir revisao",
+            "cta_href": "/review?auto_start=true",
+            "preset_key": "daily_review",
+            "domain": None,
+        }
+    elif risk_domains:
+        primary_task = {
+            "kind": "risk_domain",
+            "title": f"Atacar risco de prova em {risk_domains[0]}",
+            "description": "Seu pior dominio atual merece um bloco focado curto antes do proximo simulado misto.",
+            "cta_label": "Abrir bloco focado",
+            "cta_href": f"/start?preset=risk_focus&domain={risk_domains[0]}",
+            "preset_key": "risk_focus",
+            "domain": risk_domains[0],
+        }
+    else:
+        primary_task = {
+            "kind": "momentum",
+            "title": "Manter ritmo com um bloco curto",
+            "description": "Sem backlog critico no momento. Preserve variedade e consistencia.",
+            "cta_label": "Iniciar sprint",
+            "cta_href": "/start?preset=sprint_25",
+            "preset_key": "sprint_25",
+            "domain": None,
+        }
+
+    secondary_tasks: list[dict[str, Any]] = []
+    if int(overview.get("note_count") or 0) > 0:
+        secondary_tasks.append(
+            {
+                "kind": "notes",
+                "title": "Revisar seu caderno",
+                "description": "Use suas notas recentes para reforcar os pontos com mais atrito.",
+                "cta_label": "Abrir configuracoes",
+                "cta_href": "/settings",
+                "preset_key": "notes_review",
+                "domain": None,
+            }
+        )
+    if risk_domains:
+        secondary_tasks.append(
+            {
+                "kind": "targeted_review",
+                "title": f"Revisao focada em {risk_domains[0]}",
+                "description": "Transforme o sinal de prontidao em revisao orientada por dominio.",
+                "cta_label": "Filtrar revisao",
+                "cta_href": f"/review?domains={risk_domains[0]}&auto_start=true",
+                "preset_key": "targeted_review",
+                "domain": risk_domains[0],
+            }
+        )
+    secondary_tasks.append(
+        {
+            "kind": "quick_exam",
+            "title": "Medir retencao com um simulado curto",
+            "description": "Use um bloco rapido para validar se o reforco ja consolidou.",
+            "cta_label": "Abrir simulado",
+            "cta_href": "/start?preset=quick_15",
+            "preset_key": "quick_15",
+            "domain": None,
+        }
+    )
+
+    suggested_presets = ["daily_review", "quick_15", "comptia_exam", "sprint_25"]
+    if placement_required:
+        suggested_presets = ["placement", *suggested_presets]
+
+    return {
+        "placement_required": placement_required,
+        "primary_task": primary_task,
+        "secondary_tasks": secondary_tasks[:3],
+        "suggested_presets": suggested_presets,
+        "risk_domains": risk_domains,
+        "review_backlog_due": int(overview.get("due_review_count") or 0),
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def create_placement_session(
+    db: Session,
+    *,
+    exam_id: Optional[str],
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+) -> StudySession:
+    return create_study_session(
+        db,
+        exam_id=exam_id,
+        total_questions=PLACEMENT_MIN_QUESTION_COUNT,
+        strategy="adaptive",
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+    )
+
+
+def _mark_placement_complete(
+    db: Session,
+    *,
+    session: StudySession,
+    answered_count: int,
+) -> bool:
+    owner_user_id, owner_client_key = _study_scope_for_session(session)
+    attempts_total = _count_owner_attempts(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+    )
+    if max(attempts_total, answered_count) < PLACEMENT_MIN_QUESTION_COUNT:
+        return False
+
+    state = _get_or_create_placement_state(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+    )
+    if state.placement_completed_at:
+        return False
+    state.placement_completed_at = session.completed_at or datetime.utcnow()
+    state.placement_exam_id = session.exam_id
+    state.placement_question_count = answered_count
+    db.flush()
+    return True
 
 
 def _classify_review_queue_item(
@@ -2670,6 +2881,11 @@ def compute_study_result(db: Session, session: StudySession) -> dict[str, Any]:
         owner_client_key=owner_client_key,
         weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
         due_count=due_count,
+    )
+    result["placement_completed"] = _mark_placement_complete(
+        db,
+        session=session,
+        answered_count=attempted,
     )
     record_session_metrics(
         db,

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 
 import { AppNavbar } from "@/components/navigation/app-navbar";
 import { getMessages, I18nProvider, type AppLocale } from "@/lib/i18n";
+import { AppQueryProvider } from "@/lib/query/provider";
 
 import "./globals.css";
 
@@ -31,8 +32,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           }}
         />
         <I18nProvider locale={defaultLocale} messages={messages}>
-          <AppNavbar />
-          {children}
+          <AppQueryProvider>
+            <AppNavbar />
+            {children}
+          </AppQueryProvider>
         </I18nProvider>
       </body>
     </html>

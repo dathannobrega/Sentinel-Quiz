@@ -2,7 +2,7 @@
 
 import { startTransition, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Field } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,7 +21,7 @@ import type {
 } from "@/types/api";
 
 import { ExamLauncher } from "@/features/dashboard/components/exam-launcher";
-import type { DashboardNotice, LaunchFormValues } from "@/features/dashboard/types";
+import type { DashboardNotice, LaunchFormValues, LaunchPresetKey } from "@/features/dashboard/types";
 
 const DEFAULT_LAUNCH_FORM: LaunchFormValues = {
   examId: "",
@@ -59,6 +59,70 @@ const DEFAULT_DISCOVERY_FILTERS: DiscoveryFilters = {
   notesOnly: false
 };
 
+function buildPresetValues(presetKey: LaunchPresetKey, current: LaunchFormValues): LaunchFormValues {
+  switch (presetKey) {
+    case "placement":
+      return {
+        ...current,
+        mode: "study",
+        studyStrategy: "adaptive",
+        totalQuestions: 20,
+        timeLimitMinutes: 25,
+        bookmarkedOnly: false,
+        notesOnly: false,
+        incorrectOnly: false,
+        unseenOnly: false,
+        lowConfidenceOnly: false
+      };
+    case "daily_review":
+      return {
+        ...current,
+        mode: "study",
+        studyStrategy: "adaptive",
+        totalQuestions: 10,
+        lowConfidenceOnly: true,
+        bookmarkedOnly: false,
+        notesOnly: false,
+        incorrectOnly: false,
+        unseenOnly: false
+      };
+    case "quick_15":
+      return {
+        ...current,
+        mode: "exam",
+        examStrategy: "standard",
+        totalQuestions: 15,
+        timeLimitMinutes: 15
+      };
+    case "comptia_exam":
+      return {
+        ...current,
+        mode: "exam",
+        examStrategy: "adaptive",
+        totalQuestions: 45,
+        timeLimitMinutes: 45
+      };
+    case "sprint_25":
+      return {
+        ...current,
+        mode: "study",
+        studyStrategy: "adaptive",
+        totalQuestions: 20,
+        timeLimitMinutes: 25
+      };
+    case "risk_focus":
+      return {
+        ...current,
+        mode: "study",
+        studyStrategy: "adaptive",
+        totalQuestions: 5
+      };
+    case "custom":
+    default:
+      return current;
+  }
+}
+
 function toNotice(
   tone: DashboardNotice["tone"],
   title: string,
@@ -88,6 +152,7 @@ function parseCsvFilter(value: string): string[] | null {
 export function StartSessionShell() {
   const { t } = useI18n();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [isDomainLoading, setIsDomainLoading] = useState(false);
   const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
@@ -98,6 +163,7 @@ export function StartSessionShell() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [domains, setDomains] = useState<DomainCatalogResponse["domains"]>([]);
   const [launchValues, setLaunchValues] = useState<LaunchFormValues>(DEFAULT_LAUNCH_FORM);
+  const [selectedPresetKey, setSelectedPresetKey] = useState<LaunchPresetKey>("custom");
   const [discoveryFilters, setDiscoveryFilters] = useState<DiscoveryFilters>(DEFAULT_DISCOVERY_FILTERS);
   const [questionSearch, setQuestionSearch] = useState<QuestionSearchResponse>({
     items: [],
@@ -109,6 +175,7 @@ export function StartSessionShell() {
 
   function updateLaunchValue(field: keyof LaunchFormValues, value: LaunchFormValues[keyof LaunchFormValues]) {
     setLaunchNotice(null);
+    setSelectedPresetKey("custom");
     setLaunchValues((current) => {
       const nextState = { ...current, [field]: value } as LaunchFormValues;
       if (field === "examId") {
@@ -116,6 +183,12 @@ export function StartSessionShell() {
       }
       return nextState;
     });
+  }
+
+  function applyPreset(presetKey: LaunchPresetKey) {
+    setLaunchNotice(null);
+    setSelectedPresetKey(presetKey);
+    setLaunchValues((current) => buildPresetValues(presetKey, current));
   }
 
   const boot = useEffectEvent(async () => {
@@ -204,6 +277,27 @@ export function StartSessionShell() {
   }, []);
 
   useEffect(() => {
+    const presetParam = (searchParams.get("preset") || "").trim() as LaunchPresetKey;
+    if (!presetParam) {
+      return;
+    }
+    if (!["placement", "daily_review", "quick_15", "comptia_exam", "sprint_25", "risk_focus"].includes(presetParam)) {
+      return;
+    }
+    setSelectedPresetKey(presetParam);
+    setLaunchValues((current) => {
+      const nextValues = buildPresetValues(presetParam, current);
+      const domain = (searchParams.get("domain") || "").trim();
+      if (domain) {
+        nextValues.domain = domain;
+      }
+      return nextValues;
+    });
+  }, [searchParams]);
+
+  const presetSummary = t(`launcher.presets.items.${selectedPresetKey}.summary`);
+
+  useEffect(() => {
     void loadDomains(launchValues.examId);
   }, [launchValues.examId, loadDomains]);
 
@@ -270,7 +364,10 @@ export function StartSessionShell() {
       const tags = parseCsvFilter(launchValues.tagQuery);
       let session: SessionResponse;
 
-      if (launchValues.mode === "study") {
+      if (selectedPresetKey === "placement") {
+        const query = launchValues.examId ? `?exam_id=${encodeURIComponent(launchValues.examId)}` : "";
+        session = await apiClient.post<SessionResponse>(`/study/placement/session${query}`);
+      } else if (launchValues.mode === "study") {
         const payload: StudySessionRequest = {
           exam_id: launchValues.examId || null,
           total_questions: launchValues.totalQuestions,
@@ -283,9 +380,12 @@ export function StartSessionShell() {
           unseen_only: launchValues.unseenOnly,
           low_confidence_only: launchValues.lowConfidenceOnly,
           strategy: launchValues.studyStrategy,
-          queue_only: false
+          queue_only: selectedPresetKey === "daily_review"
         };
-        session = await apiClient.post<SessionResponse>("/study/sessions", payload);
+        session = await apiClient.post<SessionResponse>(
+          selectedPresetKey === "daily_review" ? "/study/review/sessions" : "/study/sessions",
+          payload
+        );
       } else {
         const payload: SessionRequest = {
           exam_id: launchValues.examId || null,
@@ -370,7 +470,10 @@ export function StartSessionShell() {
               : launchNotice
           }
           pending={pendingLaunch}
+          selectedPresetKey={selectedPresetKey}
+          presetSummary={presetSummary}
           onChange={updateLaunchValue}
+          onApplyPreset={applyPreset}
           onSubmit={() => {
             void handleLaunch();
           }}

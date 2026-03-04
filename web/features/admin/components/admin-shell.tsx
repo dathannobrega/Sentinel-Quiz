@@ -12,6 +12,10 @@ import { ApiError, apiClient, buildApiUrl } from "@/lib/api/client";
 import { getOrCreateClientKey, getStoredAuthToken } from "@/lib/auth/storage";
 import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
+import { useCurrentUserQuery } from "@/lib/query/hooks";
+import { AdminDomainCatalogPanel } from "@/features/admin/components/admin-domain-catalog-panel";
+import { AdminIssuesPanel } from "@/features/admin/components/admin-issues-panel";
+import { AdminUsersPanel } from "@/features/admin/components/admin-users-panel";
 import type {
   AdminAuditLog,
   AdminAnalyticsSnapshotCapture,
@@ -200,12 +204,16 @@ function summarizePrompt(value: string): string {
 }
 
 function readAdminError(error: unknown, fallback = "Nao foi possivel concluir esta acao."): string {
+  const messages = {
+    authRequired: "Entre com uma conta admin autenticada para continuar.",
+    adminOnly: "Somente contas admin podem executar esta operacao.",
+  };
   if (error instanceof ApiError) {
     if (error.status === 401) {
-      return "Entre com uma conta admin autenticada para continuar.";
+      return messages.authRequired;
     }
     if (error.status === 403) {
-      return "Somente contas admin podem executar esta operacao.";
+      return messages.adminOnly;
     }
     return error.message;
   }
@@ -452,6 +460,7 @@ interface AdminShellProps {
 
 export function AdminShell({ initialQuestionId = null, editorOnly = false }: AdminShellProps) {
   const { t } = useI18n();
+  const currentUserQuery = useCurrentUserQuery();
   const initialQuestionHydrated = useRef(false);
   const [isBootLoading, setIsBootLoading] = useState(true);
   const [isProtectedLoading, setIsProtectedLoading] = useState(false);
@@ -539,6 +548,10 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
   const currentWorkflowStatus = questionDraft.id.trim()
     ? currentDraftVersion?.status || currentPublishedVersion?.status || "draft"
     : "sem rascunho";
+  const currentRole = String(currentUserQuery.data?.role || "");
+  const canUseEditorActions = ["editor", "reviewer", "admin"].includes(currentRole);
+  const canUseReviewerActions = ["reviewer", "admin"].includes(currentRole);
+  const canUseAdminActions = currentRole === "admin";
   const canSubmitForReview = Boolean(questionDraft.id.trim() && currentDraftVersion && currentDraftVersion.status === "draft");
   const canApprove = Boolean(questionDraft.id.trim() && currentDraftVersion && currentDraftVersion.status === "in_review");
   const canPublish = Boolean(questionDraft.id.trim() && currentDraftVersion && currentDraftVersion.status === "approved");
@@ -626,28 +639,28 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       setOverview(overviewResult.value);
     } else {
       setOverview(DEFAULT_ADMIN_OVERVIEW);
-      failures.push("overview");
+      failures.push(t("admin.misc.loadOverview"));
     }
 
     if (analyticsResult.status === "fulfilled") {
       setAnalytics(analyticsResult.value);
     } else {
       setAnalytics(DEFAULT_ADMIN_ANALYTICS);
-      failures.push("analytics editoriais");
+      failures.push(t("admin.misc.loadAnalytics"));
     }
 
     if (questionsResult.status === "fulfilled") {
       setQuestionItems(questionsResult.value);
     } else {
       setQuestionItems([]);
-      failures.push("lista de questoes");
+      failures.push(t("admin.misc.loadQuestionList"));
     }
 
     if (issuesResult.status === "fulfilled") {
       setQuestionIssues(issuesResult.value);
     } else {
       setQuestionIssues([]);
-      failures.push("backlog de issues");
+      failures.push(t("admin.misc.loadIssues"));
     }
 
     if (failures.length) {
@@ -662,7 +675,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                 ? issuesResult.reason
               : null;
       setPageNotice(
-        `${readAdminError(primaryError, "Nao foi possivel carregar o painel editorial.")} Blocos afetados: ${failures.join(", ")}.`
+        `${readAdminError(primaryError, t("admin.misc.panelLoadFailed"))} Blocos afetados: ${failures.join(", ")}.`
       );
     }
 
@@ -687,14 +700,14 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       setQuestionQualitySignature(JSON.stringify(buildQuestionPayload(nextDraft)));
       setSelectedQuestionId(response.id);
       await loadQuestionWorkflow(response.id);
-      setQuestionNotice(`Questao ${response.id} carregada para edicao.`);
+      setQuestionNotice(t("admin.misc.questionLoaded", { id: response.id }));
     } catch (error) {
       setQuestionVersions([]);
       setQuestionAudit([]);
       setQuestionAnalyticsHistory([]);
       setQuestionQuality(null);
       setQuestionQualitySignature("");
-      setQuestionNotice(readAdminError(error, "Nao foi possivel carregar esta questao."));
+      setQuestionNotice(readAdminError(error, t("admin.misc.questionLoadFailed")));
     } finally {
       setIsQuestionLoading(false);
     }
@@ -731,7 +744,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       setQuestionAnalyticsHistory([]);
       setQuestionQuality(null);
       setQuestionQualitySignature("");
-      setQuestionNotice("Novo rascunho pronto para edicao.");
+      setQuestionNotice(t("admin.misc.freshDraftReady"));
     }
   }, [browserExamId, editorOnly, examDraft.id, initialQuestionId, isBootLoading, questionDraft.examId, questionDraft.id, selectedQuestionId]);
 
@@ -774,7 +787,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
     setQuestionAnalyticsHistory([]);
     setQuestionQuality(null);
     setQuestionQualitySignature("");
-    setQuestionNotice("Novo rascunho criado. Preencha os campos e salve.");
+    setQuestionNotice(t("admin.misc.newDraftCreated"));
   }
 
   function duplicateQuestion() {
@@ -790,7 +803,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       id: "",
       changeSummary: "Duplicado a partir de uma questao existente"
     }));
-    setQuestionNotice("Conteudo duplicado. Defina um novo ID antes de salvar.");
+    setQuestionNotice(t("admin.misc.duplicateReady"));
   }
 
   function clearExamForm() {
@@ -805,7 +818,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
     try {
       await loadExams();
       await refreshProtectedData();
-      setToolbarNotice("Painel editorial atualizado.");
+      setToolbarNotice(t("admin.misc.panelRefreshed"));
     } catch (error) {
       setToolbarNotice(readAdminError(error));
     } finally {
@@ -814,6 +827,10 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
   }
 
   async function handleIngest() {
+    if (!canUseAdminActions) {
+      setToolbarNotice(t("admin.misc.adminRequiredAction"));
+      return;
+    }
     setActiveTask("ingest");
     setToolbarNotice(null);
 
@@ -832,6 +849,10 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
   }
 
   async function handleExport() {
+    if (!canUseAdminActions) {
+      setToolbarNotice(t("admin.misc.adminRequiredAction"));
+      return;
+    }
     setActiveTask("export");
     setToolbarNotice(null);
 
@@ -865,9 +886,9 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       link.click();
       link.remove();
       window.URL.revokeObjectURL(downloadUrl);
-      setToolbarNotice("Exportacao concluida. O arquivo JSON foi gerado pelo backend real.");
+      setToolbarNotice(t("admin.misc.exportDone"));
     } catch (error) {
-      setToolbarNotice(readAdminError(error, "Nao foi possivel exportar o banco agora."));
+      setToolbarNotice(readAdminError(error, t("admin.misc.exportFailed")));
     } finally {
       setActiveTask(null);
     }
@@ -880,7 +901,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
     try {
       const response = await apiClient.post<AdminAnalyticsSnapshotCapture>("/admin/analytics/questions/snapshots", {}, requestOptions);
       if (!response.schema_ready) {
-        setToolbarNotice(response.message || "O schema de snapshots ainda nao esta disponivel. Rode as migrations e tente novamente.");
+        setToolbarNotice(response.message || t("admin.misc.snapshotSchemaMissing"));
         return;
       }
       await refreshProtectedData();
@@ -889,17 +910,21 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       }
       setToolbarNotice(
         response.snapshot_count > 0
-          ? `Snapshot editorial registrado para ${response.snapshot_count} questao(oes).`
-          : "Nenhuma questao elegivel para snapshot neste momento."
+          ? t("admin.misc.snapshotRecorded", { count: response.snapshot_count })
+          : t("admin.misc.snapshotNone")
       );
     } catch (error) {
-      setToolbarNotice(readAdminError(error, "Nao foi possivel registrar o snapshot editorial."));
+      setToolbarNotice(readAdminError(error, t("admin.misc.snapshotFailed")));
     } finally {
       setActiveTask(null);
     }
   }
 
   async function handleSaveExam() {
+    if (!canUseEditorActions) {
+      setExamNotice(t("admin.misc.editorRequiredAction"));
+      return;
+    }
     setActiveTask("saveExam");
     setExamNotice(null);
 
@@ -912,7 +937,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       };
 
       if (!payload.id || !payload.title) {
-        setExamNotice("Preencha ID e titulo antes de salvar.");
+        setExamNotice(t("admin.misc.examRequiredFields"));
         return;
       }
 
@@ -922,13 +947,17 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       setExamNotice(`Prova ${payload.id} salva.`);
       updateQuestionDraft({ examId: payload.id });
     } catch (error) {
-      setExamNotice(readAdminError(error, "Nao foi possivel salvar a prova."));
+      setExamNotice(readAdminError(error, t("admin.misc.examSaveFailed")));
     } finally {
       setActiveTask(null);
     }
   }
 
   async function handleSaveQuestion() {
+    if (!canUseEditorActions) {
+      setQuestionNotice(t("admin.misc.editorRequiredAction"));
+      return;
+    }
     setActiveTask("saveQuestion");
     setQuestionNotice(null);
 
@@ -947,13 +976,17 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
         `Rascunho salvo para ${questionPayload.id}${response.version_number ? ` (v${response.version_number})` : ""}.`
       );
     } catch (error) {
-      setQuestionNotice(readAdminError(error, "Nao foi possivel salvar a questao."));
+      setQuestionNotice(readAdminError(error, t("admin.misc.questionSaveFailed")));
     } finally {
       setActiveTask(null);
     }
   }
 
   async function handleSubmitReview() {
+    if (!canUseEditorActions) {
+      setQuestionNotice(t("admin.misc.editorRequiredAction"));
+      return;
+    }
     const questionId = questionDraft.id.trim();
     if (!questionId) {
       setQuestionNotice("Salve um rascunho antes de enviar para revisao.");
@@ -978,13 +1011,17 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
         `Questao ${questionId} enviada para revisao${response.version_number ? ` (v${response.version_number})` : ""}.`
       );
     } catch (error) {
-      setQuestionNotice(readAdminError(error, "Nao foi possivel enviar a questao para revisao."));
+      setQuestionNotice(readAdminError(error, t("admin.misc.reviewSendFailed")));
     } finally {
       setActiveTask(null);
     }
   }
 
   async function handleApproveQuestion() {
+    if (!canUseReviewerActions) {
+      setQuestionNotice(t("admin.misc.reviewerRequiredAction"));
+      return;
+    }
     const questionId = questionDraft.id.trim();
     if (!questionId) {
       setQuestionNotice("Salve e envie um rascunho para revisao antes de aprovar.");
@@ -1009,13 +1046,17 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
         `Questao ${questionId} aprovada para publicacao${response.version_number ? ` (v${response.version_number})` : ""}.`
       );
     } catch (error) {
-      setQuestionNotice(readAdminError(error, "Nao foi possivel aprovar a questao."));
+      setQuestionNotice(readAdminError(error, t("admin.misc.approveFailed")));
     } finally {
       setActiveTask(null);
     }
   }
 
   async function handlePublishQuestion() {
+    if (!canUseAdminActions) {
+      setQuestionNotice(t("admin.misc.adminRequiredAction"));
+      return;
+    }
     const questionId = questionDraft.id.trim();
     if (!questionId) {
       setQuestionNotice("Salve um rascunho antes de publicar.");
@@ -1040,16 +1081,20 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
         `Questao ${questionId} publicada${response.version_number ? ` (v${response.version_number})` : ""}.`
       );
     } catch (error) {
-      setQuestionNotice(readAdminError(error, "Nao foi possivel publicar a questao."));
+      setQuestionNotice(readAdminError(error, t("admin.misc.publishFailed")));
     } finally {
       setActiveTask(null);
     }
   }
 
   async function handleRollbackQuestion(versionId: number) {
+    if (!canUseAdminActions) {
+      setQuestionNotice(t("admin.misc.adminRequiredAction"));
+      return;
+    }
     const questionId = questionDraft.id.trim();
     if (!questionId) {
-      setQuestionNotice("Carregue uma questao antes de reverter.");
+      setQuestionNotice(t("admin.misc.loadBeforeRollback"));
       return;
     }
 
@@ -1080,20 +1125,24 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
         `Questao ${questionId} revertida e republicada${response.version_number ? ` (v${response.version_number})` : ""}.`
       );
     } catch (error) {
-      setQuestionNotice(readAdminError(error, "Nao foi possivel reverter a questao."));
+      setQuestionNotice(readAdminError(error, t("admin.misc.rollbackFailed")));
     } finally {
       setActiveTask(null);
     }
   }
 
   async function handleDeleteQuestion() {
+    if (!canUseAdminActions) {
+      setQuestionNotice(t("admin.misc.adminRequiredAction"));
+      return;
+    }
     const questionId = questionDraft.id.trim();
     if (!questionId) {
       setQuestionNotice("Nenhuma questao selecionada para exclusao.");
       return;
     }
 
-    if (!window.confirm(`Excluir a questao ${questionId}? Esta acao nao pode ser desfeita.`)) {
+    if (!window.confirm(t("admin.misc.confirmDelete", { id: questionId }))) {
       return;
     }
 
@@ -1113,9 +1162,9 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
       setQuestionQuality(null);
       setQuestionQualitySignature("");
       setQuestionDraft(createEmptyQuestionDraft(browserExamId || examDraft.id));
-      setQuestionNotice(`Questao ${questionId} excluida.`);
+      setQuestionNotice(t("admin.misc.questionDeleted", { id: questionId }));
     } catch (error) {
-      setQuestionNotice(readAdminError(error, "Nao foi possivel excluir a questao."));
+      setQuestionNotice(readAdminError(error, t("admin.misc.deleteFailed")));
     } finally {
       setActiveTask(null);
     }
@@ -1147,7 +1196,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
             </div>
           </div>
           <div className="sq-inline-actions">
-            {editorOnly ? <Link href="/admin">Painel editorial</Link> : null}
+            {editorOnly ? <Link href="/admin">{t("admin.misc.panelLink")}</Link> : null}
             <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
             <Link href="/history">{t("common.labels.history")}</Link>
           </div>
@@ -1172,10 +1221,10 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                   <Button variant="ghost" size="sm" busy={activeTask === "refresh"} onClick={() => void handleRefresh()}>
                     {t("admin.access.refresh")}
                   </Button>
-                  <Button variant="secondary" size="sm" busy={activeTask === "ingest"} onClick={() => void handleIngest()}>
+                  <Button variant="secondary" size="sm" disabled={!canUseAdminActions} busy={activeTask === "ingest"} onClick={() => void handleIngest()}>
                     {t("admin.access.reimportJson")}
                   </Button>
-                  <Button variant="ghost" size="sm" busy={activeTask === "export"} onClick={() => void handleExport()}>
+                  <Button variant="ghost" size="sm" disabled={!canUseAdminActions} busy={activeTask === "export"} onClick={() => void handleExport()}>
                     {t("admin.access.exportDatabase")}
                   </Button>
                 </div>
@@ -1214,6 +1263,12 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                 </div>
               </div>
             </Card>
+
+            <div className="sq-grid-3">
+              <AdminUsersPanel />
+              <AdminDomainCatalogPanel />
+              <AdminIssuesPanel />
+            </div>
 
             <Card
               title={t("admin.insights.title")}
@@ -1320,7 +1375,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
               </div>
             </Card>
 
-            <Card title="Backlog de issues" subtitle="Reportes recentes enviados pelos alunos para triagem editorial.">
+            <Card title={t("admin.issues.title")} subtitle={t("admin.issues.subtitle")}>
               {questionIssues.length ? (
                 <div className="sq-list">
                   {questionIssues.map((item) => (
@@ -1329,7 +1384,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                         #{item.id} · {item.category} · {item.status}
                       </div>
                       <div className="sq-list-meta">
-                        {item.certification || "Sem certificacao"} · {item.domain || "Sem dominio"} · {item.question_id}
+                        {item.certification || t("admin.insights.noDomain")} · {item.domain || t("admin.insights.noDomain")} · {item.question_id}
                       </div>
                       {item.prompt_excerpt ? <div className="sq-list-meta">{item.prompt_excerpt}</div> : null}
                       <div className="sq-list-meta">{item.message}</div>
@@ -1337,7 +1392,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                   ))}
                 </div>
               ) : (
-                <div className="sq-empty">Nenhum issue recente no backlog.</div>
+                <div className="sq-empty">{t("admin.issues.empty")}</div>
               )}
             </Card>
           </>
@@ -1357,7 +1412,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
               title={t("admin.browser.title")}
               subtitle={t("admin.browser.subtitle")}
               actions={
-                <Button variant="secondary" size="sm" onClick={startNewQuestion}>
+                <Button variant="secondary" size="sm" disabled={!canUseEditorActions} onClick={startNewQuestion}>
                   {t("admin.browser.newQuestion")}
                 </Button>
               }
@@ -1612,7 +1667,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                     value={questionDraft.examId}
                     onChange={(event) => updateQuestionDraft({ examId: event.target.value })}
                   >
-                    <option value="">Selecione uma prova</option>
+                    <option value="">{t("common.filters.selectExam")}</option>
                     {exams.map((exam) => (
                       <option key={exam.id} value={exam.id}>
                         {exam.title}
@@ -2196,89 +2251,89 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                       </div>
                     ) : (
                       <div className="sq-empty">
-                        Salve ou carregue uma questao para receber o diagnostico editorial completo do backend.
+                        {t("admin.editor.diagnosticsEmpty")}
                       </div>
                     )}
                   </Card>
 
                   <Card
-                    title="Workflow editorial"
-                    subtitle="Fluxo real: draft -> in_review -> approved -> published. A publicacao exige aprovacao explicita."
+                    title={t("admin.editor.workflowTitle")}
+                    subtitle={t("admin.editor.workflowSubtitle")}
                   >
                     <div className="sq-metric-grid">
                       <div className="sq-metric-card">
-                        <span className="sq-muted">Status atual</span>
+                        <span className="sq-muted">{t("admin.editor.statusCurrent")}</span>
                         <strong>{currentWorkflowStatus}</strong>
                       </div>
                       <div className="sq-metric-card">
-                        <span className="sq-muted">Rascunho atual</span>
+                        <span className="sq-muted">{t("admin.editor.draftCurrent")}</span>
                         <strong>
                           {currentDraftVersion?.version_number ? `v${currentDraftVersion.version_number}` : "-"}
                         </strong>
                       </div>
                       <div className="sq-metric-card">
-                        <span className="sq-muted">Publicado</span>
+                        <span className="sq-muted">{t("admin.editor.publishedCurrent")}</span>
                         <strong>
                           {currentPublishedVersion?.version_number ? `v${currentPublishedVersion.version_number}` : "-"}
                         </strong>
                       </div>
                       <div className="sq-metric-card">
-                        <span className="sq-muted">Eventos auditados</span>
+                        <span className="sq-muted">{t("admin.editor.auditedEvents")}</span>
                         <strong>{questionAudit.length}</strong>
                       </div>
                       <div className="sq-metric-card">
-                        <span className="sq-muted">Snapshots</span>
+                        <span className="sq-muted">{t("admin.editor.snapshots")}</span>
                         <strong>{questionAnalyticsHistory.length}</strong>
                       </div>
                     </div>
 
                     <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-4)" }}>
-                      <span className="sq-chip">1. Salvar rascunho</span>
-                      <span className="sq-chip">2. Enviar para revisao</span>
-                      <span className="sq-chip">3. Aprovar</span>
-                      <span className="sq-chip">4. Publicar</span>
+                      <span className="sq-chip">{t("admin.editor.stepSave")}</span>
+                      <span className="sq-chip">{t("admin.editor.stepReview")}</span>
+                      <span className="sq-chip">{t("admin.editor.stepApprove")}</span>
+                      <span className="sq-chip">{t("admin.editor.stepPublish")}</span>
                     </div>
 
                     <div className="sq-actions" style={{ marginTop: "var(--sq-space-4)" }}>
-                      <Button busy={activeTask === "saveQuestion"} onClick={() => void handleSaveQuestion()}>
-                        Salvar rascunho
+                      <Button disabled={!canUseEditorActions} busy={activeTask === "saveQuestion"} onClick={() => void handleSaveQuestion()}>
+                        {t("admin.editor.saveDraft")}
                       </Button>
                       <Button
                         variant="secondary"
                         busy={activeTask === "submitReview"}
-                        disabled={!canSubmitForReview}
+                        disabled={!canUseEditorActions || !canSubmitForReview}
                         onClick={() => void handleSubmitReview()}
-                        title={canSubmitForReview ? "Enviar o rascunho atual para revisao" : "Somente rascunhos podem seguir para revisao"}
+                        title={canSubmitForReview ? t("admin.editor.submitReviewHintReady") : t("admin.editor.submitReviewHintBlocked")}
                       >
-                        Enviar para revisao
+                        {t("admin.editor.submitReview")}
                       </Button>
                       <Button
                         variant="secondary"
                         busy={activeTask === "approveQuestion"}
-                        disabled={!canApprove}
+                        disabled={!canUseReviewerActions || !canApprove}
                         onClick={() => void handleApproveQuestion()}
-                        title={canApprove ? "Aprovar a versao em revisao" : "Aprovacao so fica disponivel para versoes em revisao"}
+                        title={canApprove ? t("admin.editor.approveHintReady") : t("admin.editor.approveHintBlocked")}
                       >
-                        Aprovar
+                        {t("admin.editor.approve")}
                       </Button>
                       <Button
                         variant="ghost"
                         busy={activeTask === "publishQuestion"}
-                        disabled={!canPublish}
+                        disabled={!canUseAdminActions || !canPublish}
                         onClick={() => void handlePublishQuestion()}
-                        title={canPublish ? "Publicar a versao aprovada" : "A publicacao exige uma versao aprovada"}
+                        title={canPublish ? t("admin.editor.publishHintReady") : t("admin.editor.publishHintBlocked")}
                       >
-                        Publicar
+                        {t("admin.editor.publish")}
                       </Button>
-                      <Button variant="ghost" onClick={startNewQuestion}>
-                        Novo rascunho
+                      <Button variant="ghost" disabled={!canUseEditorActions} onClick={startNewQuestion}>
+                        {t("admin.editor.newDraft")}
                       </Button>
                     </div>
                   </Card>
                 </div>
 
                 <div className="sq-page-stack">
-                  <Card title="Historico de versoes" subtitle="Cada publicacao ou rollback gera uma nova versao rastreavel.">
+                  <Card title={t("admin.editor.versionsTitle")} subtitle={t("admin.editor.versionsSubtitle")}>
                     {questionVersions.length ? (
                       <div className="sq-list">
                         {questionVersions.map((item) => (
@@ -2287,7 +2342,9 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                               v{item.version_number} · {item.status}
                             </div>
                             <div className="sq-list-meta">
-                              {item.published_at ? `Publicado em ${item.published_at}` : `Atualizado em ${item.updated_at || item.created_at}`}
+                              {item.published_at
+                                ? t("admin.editor.versionPublishedAt", { date: item.published_at })
+                                : t("admin.editor.versionUpdatedAt", { date: item.updated_at || item.created_at || "-" })}
                             </div>
                             {item.change_summary ? (
                               <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
@@ -2295,8 +2352,8 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                               </div>
                             ) : null}
                             <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-2)" }}>
-                              {item.is_current_published ? <span className="sq-chip">Publicado atual</span> : null}
-                              {item.is_current_draft ? <span className="sq-chip">Rascunho atual</span> : null}
+                              {item.is_current_published ? <span className="sq-chip">{t("admin.editor.currentPublishedTag")}</span> : null}
+                              {item.is_current_draft ? <span className="sq-chip">{t("admin.editor.currentDraftTag")}</span> : null}
                               <span className="sq-chip">
                                 {item.correct_count}/{item.option_count} corretas
                               </span>
@@ -2306,10 +2363,11 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  disabled={!canUseAdminActions}
                                   busy={activeTask === "rollbackQuestion"}
                                   onClick={() => void handleRollbackQuestion(item.id)}
                                 >
-                                  Reverter para esta versao
+                                  {t("admin.editor.rollbackVersion")}
                                 </Button>
                               </div>
                             ) : null}
@@ -2317,17 +2375,17 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                         ))}
                       </div>
                     ) : (
-                      <div className="sq-empty">Nenhuma versao registrada ainda. Salve o primeiro rascunho para iniciar o fluxo.</div>
+                      <div className="sq-empty">{t("admin.editor.noVersions")}</div>
                     )}
                   </Card>
 
-                  <Card title="Auditoria" subtitle="Quem mudou, quando mudou e por qual motivo.">
+                  <Card title={t("admin.editor.auditTitle")} subtitle={t("admin.editor.auditSubtitle")}>
                     {questionAudit.length ? (
                       <div className="sq-list">
                         {questionAudit.map((item) => (
                           <div key={item.id} className="sq-list-item">
                             <div className="sq-list-title">
-                              {item.action} · {item.actor_role || "sistema"}
+                              {item.action} · {item.actor_role || t("admin.editor.auditSystem")}
                             </div>
                             <div className="sq-list-meta">{item.created_at || "-"}</div>
                             {item.reason ? (
@@ -2339,36 +2397,36 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                         ))}
                       </div>
                     ) : (
-                      <div className="sq-empty">Sem eventos auditados para esta questao ainda.</div>
+                      <div className="sq-empty">{t("admin.editor.noAudit")}</div>
                     )}
                   </Card>
 
-                  <Card title="Historico de desempenho" subtitle="Snapshots preservam a leitura de dificuldade da versao publicada ao longo do tempo.">
+                  <Card title={t("admin.editor.performanceTitle")} subtitle={t("admin.editor.performanceSubtitle")}>
                     {questionAnalyticsHistory.length ? (
                       <div className="sq-list">
                         {questionAnalyticsHistory.map((item) => (
                           <div key={item.id} className="sq-list-item">
                             <div className="sq-list-title">
-                              {item.version_number ? `v${item.version_number}` : "Sem versao"} · score {item.difficulty_score}
+                              {item.version_number ? `v${item.version_number}` : t("admin.editor.versionUnknown")} · {t("admin.editor.scoreLabel", { value: item.difficulty_score })}
                             </div>
                             <div className="sq-list-meta">
-                              {item.captured_at || "-"} · erro {item.wrong_rate_percent}% · {item.attempts_total} tentativa(s)
+                              {item.captured_at || "-"} · {t("admin.editor.errorRate", { value: item.wrong_rate_percent })} · {t("admin.editor.attemptsCount", { count: item.attempts_total })}
                             </div>
                             <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-1)" }}>
-                              baixa confianca {item.low_confidence_rate_percent}% · pressao {item.review_pressure_count}
+                              {t("admin.editor.lowConfidenceRate", { value: item.low_confidence_rate_percent })} · {t("admin.editor.pressureCount", { count: item.review_pressure_count })}
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="sq-empty">Ainda nao ha snapshot historico para esta questao. Use “Registrar snapshot” no topo do painel.</div>
+                      <div className="sq-empty">{t("admin.editor.noPerformance")}</div>
                     )}
                   </Card>
                 </div>
               </div>
 
               <div className="sq-grid-2">
-                <Card title="Checklist rapido" subtitle="Leitura instantanea antes de salvar.">
+                <Card title={t("admin.editor.quickChecklistTitle")} subtitle={t("admin.editor.quickChecklistSubtitle")}>
                   <div className="sq-metric-grid">
                     {questionStats.map((item) => (
                       <div key={item.label} className="sq-metric-card">
@@ -2379,7 +2437,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                   </div>
                 </Card>
 
-                <Card title="Preview do payload" subtitle="Este e o JSON enviado para o backend sem transformacoes ocultas.">
+                <Card title={t("admin.editor.payloadPreviewTitle")} subtitle={t("admin.editor.payloadPreviewSubtitle")}>
                   <pre
                     style={{
                       margin: 0,

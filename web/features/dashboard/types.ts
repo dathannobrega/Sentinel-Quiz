@@ -1,5 +1,7 @@
 import type { ExamStrategy, SessionMode } from "@/types/api";
 
+export type LaunchPresetKey = "placement" | "daily_review" | "quick_15" | "comptia_exam" | "sprint_25" | "risk_focus" | "custom";
+
 export type NoticeTone = "neutral" | "success" | "warning" | "danger";
 
 export interface DashboardNotice {

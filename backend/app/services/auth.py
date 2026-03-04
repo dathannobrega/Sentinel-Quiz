@@ -288,12 +288,24 @@ def _deliver_auth_email(
         _send_email_message(message)
         return
 
+    if settings.is_production():
+        logger.error(
+            "SMTP is not configured in production. Auth email delivery aborted.",
+            extra={
+                "event": "auth_email_delivery_unavailable",
+                "challenge_type": fallback_log_context.get("challenge_type"),
+                "delivery_target": to_email,
+            },
+        )
+        raise RuntimeError("SMTP is required in production for auth email delivery.")
+
     logger.warning(
-        "SMTP not configured. Auth email link emitted to server logs.",
+        "SMTP not configured. Auth email link emitted to server logs for local development only.",
         extra={
             "event": "auth_email_fallback_log",
             **fallback_log_context,
             "delivery_target": to_email,
+            "environment": settings.environment,
         },
     )
 

@@ -8,6 +8,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import type { DomainCatalogEntry, Exam } from "@/types/api";
 
 import type { DashboardNotice, LaunchFormValues } from "@/features/dashboard/types";
+import type { LaunchPresetKey } from "@/features/dashboard/types";
 
 interface ExamLauncherProps {
   exams: Exam[];
@@ -15,7 +16,10 @@ interface ExamLauncherProps {
   values: LaunchFormValues;
   notice: DashboardNotice | null;
   pending: boolean;
+  selectedPresetKey: LaunchPresetKey;
+  presetSummary: string;
   onChange: (field: keyof LaunchFormValues, value: LaunchFormValues[keyof LaunchFormValues]) => void;
+  onApplyPreset: (presetKey: LaunchPresetKey) => void;
   onSubmit: () => void;
 }
 
@@ -25,7 +29,10 @@ export function ExamLauncher({
   values,
   notice,
   pending,
+  selectedPresetKey,
+  presetSummary,
   onChange,
+  onApplyPreset,
   onSubmit
 }: ExamLauncherProps) {
   const { t } = useI18n();
@@ -41,6 +48,45 @@ export function ExamLauncher({
     >
       <div className="sq-surface-block">
         {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
+
+        <div className="sq-page-stack">
+          <div className="sq-list-title">{t("launcher.presets.title")}</div>
+          <div className="sq-grid-2">
+            {([
+              "placement",
+              "daily_review",
+              "quick_15",
+              "comptia_exam",
+              "sprint_25",
+              "custom"
+            ] as LaunchPresetKey[]).map((presetKey) => (
+              <button
+                key={presetKey}
+                type="button"
+                className="sq-surface-block"
+                aria-pressed={selectedPresetKey === presetKey}
+                onClick={() => onApplyPreset(presetKey)}
+                style={{
+                  textAlign: "left",
+                  border:
+                    selectedPresetKey === presetKey
+                      ? "1px solid rgba(14, 116, 144, 0.55)"
+                      : "1px solid rgba(148, 163, 184, 0.18)",
+                  cursor: "pointer"
+                }}
+              >
+                <div className="sq-list-title">{t(`launcher.presets.items.${presetKey}.title`)}</div>
+                <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-2)" }}>
+                  {t(`launcher.presets.items.${presetKey}.summary`)}
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="sq-list-item">
+            <div className="sq-list-title">{t("launcher.presets.summaryTitle")}</div>
+            <div className="sq-list-meta">{presetSummary}</div>
+          </div>
+        </div>
 
         <div className="sq-form-grid">
           <Field label={t("launcher.fields.certification")} htmlFor="exam-id">
