@@ -4,7 +4,16 @@ import { ptBRMessages } from "@/lib/i18n/locales/pt-br";
 export const SUPPORTED_LOCALES = ["pt-BR", "en-US"] as const;
 
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
-export type LocaleMessages = typeof ptBRMessages;
+
+type WidenMessageLiterals<T> = T extends string
+  ? string
+  : T extends readonly unknown[]
+    ? { readonly [K in keyof T]: WidenMessageLiterals<T[K]> }
+    : T extends object
+      ? { readonly [K in keyof T]: WidenMessageLiterals<T[K]> }
+      : T;
+
+export type LocaleMessages = WidenMessageLiterals<typeof ptBRMessages>;
 export type TranslationValues = Record<string, string | number>;
 
 const catalogs: Record<AppLocale, LocaleMessages> = {
