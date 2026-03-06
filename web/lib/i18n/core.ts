@@ -12,6 +12,10 @@ const catalogs: Record<AppLocale, LocaleMessages> = {
   "en-US": enUSMessages
 };
 
+export function isSupportedLocale(value: string): value is AppLocale {
+  return (SUPPORTED_LOCALES as readonly string[]).includes(value);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }

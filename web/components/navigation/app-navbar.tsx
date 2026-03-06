@@ -30,7 +30,7 @@ function shouldHideNavbar(pathname: string): boolean {
 }
 
 export function AppNavbar() {
-  const { t } = useI18n();
+  const { availableLocales, locale, setLocale, t } = useI18n();
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -136,6 +136,27 @@ export function AppNavbar() {
           </div>
 
           <div className="sq-nav-account">
+            <div className="sq-locale-switch" role="group" aria-label={t("navigation.locale.label")}>
+              {availableLocales.map((item) => {
+                const active = item === locale;
+                const label = item === "pt-BR" ? t("navigation.locale.ptBR") : t("navigation.locale.enUS");
+                const title = item === "pt-BR" ? t("navigation.locale.switchToPtBR") : t("navigation.locale.switchToEnUS");
+
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    className={`sq-locale-switch__button${active ? " sq-locale-switch__button--active" : ""}`}
+                    aria-pressed={active}
+                    title={title}
+                    onClick={() => setLocale(item)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
             {sessionState === "loading" ? <span className="sq-chip">{t("common.status.syncingSession")}</span> : null}
 
             {sessionState === "ready" && currentUser ? (

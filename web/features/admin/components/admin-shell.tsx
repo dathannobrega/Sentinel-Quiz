@@ -268,18 +268,18 @@ function splitTextareaLines(text: string): string[] {
     .filter(Boolean);
 }
 
-function formatQualityStatus(value: string | undefined): string {
+function formatQualityStatus(value: string | undefined, locale: string): string {
   if (!value) {
-    return "Sem dado";
+    return locale === "en-US" ? "No data" : "Sem dado";
   }
   if (value === "ok" || value === "provided") {
     return "OK";
   }
   if (value === "unverified") {
-    return "Nao verificado";
+    return locale === "en-US" ? "Unverified" : "Nao verificado";
   }
   if (value === "missing") {
-    return "Pendente";
+    return locale === "en-US" ? "Pending" : "Pendente";
   }
   return value;
 }
@@ -459,7 +459,7 @@ interface AdminShellProps {
 }
 
 export function AdminShell({ initialQuestionId = null, editorOnly = false }: AdminShellProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const currentUserQuery = useCurrentUserQuery();
   const initialQuestionHydrated = useRef(false);
   const [isBootLoading, setIsBootLoading] = useState(true);
@@ -502,6 +502,183 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
   const [examDraft, setExamDraft] = useState<ExamDraft>(createEmptyExamDraft);
   const [questionDraft, setQuestionDraft] = useState<QuestionDraft>(() => createEmptyQuestionDraft());
 
+  const editorCopy =
+    locale === "en-US"
+      ? {
+          standaloneTitle: "Question editor",
+          standaloneSubtitle:
+            "Focused workspace to draft, review, and publish a question without the surrounding admin noise.",
+          backToAdmin: "Back to admin overview",
+          dedicatedEntry: "Dedicated editor",
+          activeRole: "Role",
+          draftIdentifier: "Draft",
+          identityTitle: "Question identity",
+          identitySubtitle: "Anchor the item to exam, taxonomy, and workflow before editing the content.",
+          contentTitle: "Question content",
+          contentSubtitle: "Write the stem and the learning signals in one pass.",
+          rationaleTitle: "Rationales and guidance",
+          rationaleSubtitle: "Document why the answer is correct and where learners usually slip.",
+          telemetryTitle: "Signals and publishing notes",
+          telemetrySubtitle: "Capture analytics context and editorial intent before the next workflow step.",
+          searchById: "Find by ID",
+          questionId: "Question ID",
+          exam: "Exam",
+          certification: "Certification",
+          domain: "Domain",
+          difficulty: "Difficulty",
+          difficultyUnset: "Not set",
+          selection: "Selection",
+          subject: "Subject",
+          subtopic: "Subtopic",
+          subdomain: "Subdomain",
+          pedagogicalFormat: "Pedagogical format",
+          objectiveCode: "Objective code",
+          blueprintCode: "Blueprint code",
+          prompt: "Prompt",
+          tags: "Tags (comma separated)",
+          tagsHint: "Use short, consistent tags for filtering and analytics.",
+          correctRationale: "Correct rationale",
+          correctRationaleHint: "Explain clearly why the correct answer is the best choice.",
+          keywords: "Keywords",
+          keywordsHint: "Comma separated. Used in search, analytics, and suggestions.",
+          traps: "Common traps",
+          trapsHint: "List frequent misconceptions or confusing lookalikes.",
+          incorrectRationales: "Incorrect rationales",
+          incorrectRationalesHint: "One line per distractor, without revealing the answer outright.",
+          legacyJustification: "Legacy justification",
+          legacyJustificationHint: "Kept for compatibility with the payload used by study and exam modes.",
+          avgTime: "Average time (s)",
+          globalAccuracy: "Global accuracy (%)",
+          changeSummary: "Change summary",
+          changeSummaryHint: "Record why this edit exists. It feeds audit history and helps reviewers.",
+          optionsTitle: "Answer options",
+          optionsSubtitle: "Mark the correct answer(s). The API still validates duplicates and final consistency.",
+          addOption: "Add option",
+          optionKeyAria: "Option key {index}",
+          optionTextAria: "Option text {index}",
+          optionCorrect: "Correct",
+          remove: "Remove",
+          referencesTitle: "Study references",
+          referencesSubtitle: "References appear in review. Extra EPUB metadata is preserved on save.",
+          addReference: "Add reference",
+          referenceSourceAria: "Reference source {index}",
+          referenceDescriptionAria: "Reference description {index}",
+          metadataPreserved: "EPUB metadata preserved in payload",
+          qualityTitle: "Editorial quality",
+          qualitySubtitle: "Completeness, blockers, and blueprint alignment before the workflow advances.",
+          completeness: "Completeness",
+          publishReady: "Ready to publish",
+          blockers: "Blockers",
+          warnings: "Warnings",
+          yes: "Yes",
+          no: "No",
+          staleTitle: "Analysis out of date",
+          staleMessage: "You changed the draft after the last backend evaluation. Save to recalculate quality.",
+          validTitle: "Editorial baseline valid",
+          validMessage: "No critical blockers in this evaluation.",
+          improvementsTitle: "Improvement warnings",
+          fieldChecklistTitle: "Field checklist",
+          linkedBlueprintTitle: "Linked blueprint",
+          statsOptions: "Options",
+          statsCorrect: "Correct",
+          statsTags: "Tags",
+          statsReferences: "References",
+          statsFormat: "Format",
+          statsUniqueKeys: "Unique keys",
+          singleSelect: "Single-select",
+          multiSelect: "Multi-select",
+          uniqueYes: "Yes",
+          uniqueNo: "No",
+          noDraft: "no draft"
+        }
+      : {
+          standaloneTitle: "Editor de questões",
+          standaloneSubtitle:
+            "Workspace focado para criar, revisar e publicar uma questão sem o ruído operacional do painel.",
+          backToAdmin: "Voltar ao painel admin",
+          dedicatedEntry: "Editor dedicado",
+          activeRole: "Papel",
+          draftIdentifier: "Rascunho",
+          identityTitle: "Identidade da questão",
+          identitySubtitle: "Amarre a questão à prova, taxonomia e workflow antes de editar o conteúdo.",
+          contentTitle: "Conteúdo da questão",
+          contentSubtitle: "Escreva o enunciado e os sinais pedagógicos no mesmo fluxo.",
+          rationaleTitle: "Racionais e orientação",
+          rationaleSubtitle: "Documente por que a resposta está certa e onde o aluno normalmente escorrega.",
+          telemetryTitle: "Sinais e contexto editorial",
+          telemetrySubtitle: "Registre o contexto analítico e a intenção editorial antes do próximo passo do workflow.",
+          searchById: "Buscar por ID",
+          questionId: "ID da questão",
+          exam: "Prova",
+          certification: "Certificação",
+          domain: "Domínio",
+          difficulty: "Dificuldade",
+          difficultyUnset: "Não definido",
+          selection: "Seleção",
+          subject: "Assunto",
+          subtopic: "Subtópico",
+          subdomain: "Subdomínio",
+          pedagogicalFormat: "Formato pedagógico",
+          objectiveCode: "Objective code",
+          blueprintCode: "Blueprint code",
+          prompt: "Pergunta",
+          tags: "Tags (separadas por vírgula)",
+          tagsHint: "Use tags curtas e consistentes para filtros e analytics.",
+          correctRationale: "Racional correto",
+          correctRationaleHint: "Explique com clareza por que a resposta correta é a melhor escolha.",
+          keywords: "Keywords",
+          keywordsHint: "Separadas por vírgula. Alimentam busca, analytics e sugestões.",
+          traps: "Pegadinhas comuns",
+          trapsHint: "Liste erros conceituais ou confusões frequentes.",
+          incorrectRationales: "Racionais das incorretas",
+          incorrectRationalesHint: "Uma linha por distrator, sem revelar o gabarito diretamente.",
+          legacyJustification: "Justificativa legada",
+          legacyJustificationHint: "Mantida por compatibilidade com a projeção usada pelos modos de estudo/prova.",
+          avgTime: "Tempo médio (s)",
+          globalAccuracy: "Acerto global (%)",
+          changeSummary: "Resumo da mudança",
+          changeSummaryHint: "Registre o motivo da edição. Esse texto entra no histórico e ajuda na auditoria.",
+          optionsTitle: "Alternativas",
+          optionsSubtitle: "Marque a(s) correta(s). A API valida duplicidades e consistência final.",
+          addOption: "Adicionar",
+          optionKeyAria: "Chave da alternativa {index}",
+          optionTextAria: "Texto da alternativa {index}",
+          optionCorrect: "Correta",
+          remove: "Remover",
+          referencesTitle: "Referências de estudo",
+          referencesSubtitle: "As referências aparecem na revisão. Metadados extras de EPUB são preservados no save.",
+          addReference: "Adicionar",
+          referenceSourceAria: "Fonte da referência {index}",
+          referenceDescriptionAria: "Descrição da referência {index}",
+          metadataPreserved: "Metadados EPUB preservados no payload",
+          qualityTitle: "Qualidade editorial",
+          qualitySubtitle: "Completude, bloqueios e aderência ao blueprint antes de seguir no workflow.",
+          completeness: "Completude",
+          publishReady: "Pronta para publicar",
+          blockers: "Bloqueios",
+          warnings: "Alertas",
+          yes: "Sim",
+          no: "Não",
+          staleTitle: "Análise desatualizada",
+          staleMessage: "Você alterou o rascunho depois da última avaliação do backend. Salve para recalcular a qualidade.",
+          validTitle: "Base editorial válida",
+          validMessage: "Não há bloqueios críticos nesta avaliação.",
+          improvementsTitle: "Alertas de melhoria",
+          fieldChecklistTitle: "Checklist por campo",
+          linkedBlueprintTitle: "Blueprint vinculado",
+          statsOptions: "Alternativas",
+          statsCorrect: "Corretas",
+          statsTags: "Tags",
+          statsReferences: "Referências",
+          statsFormat: "Formato",
+          statsUniqueKeys: "Chaves únicas",
+          singleSelect: "Single-select",
+          multiSelect: "Multi-select",
+          uniqueYes: "Sim",
+          uniqueNo: "Não",
+          noDraft: "sem rascunho"
+        };
+
   const deferredQuestionSearch = useDeferredValue(questionSearch);
   const requestOptions = useMemo(() => buildAdminRequestOptions(), []);
 
@@ -512,14 +689,14 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
   const questionStats = useMemo(() => {
     const uniqueKeys = new Set(questionPayload.options.map((item) => item.key));
     return [
-      { label: "Alternativas", value: String(questionPayload.options.length) },
-      { label: "Corretas", value: String(questionPayload.correct_keys.length) },
-      { label: "Tags", value: String(questionPayload.tags?.length || 0) },
-      { label: "Referencias", value: String(questionPayload.citations?.length || 0) },
-      { label: "Formato", value: questionPayload.multi_select ? "Multi-select" : "Single-select" },
-      { label: "Chaves unicas", value: uniqueKeys.size === questionPayload.options.length ? "Sim" : "Nao" }
+      { label: editorCopy.statsOptions, value: String(questionPayload.options.length) },
+      { label: editorCopy.statsCorrect, value: String(questionPayload.correct_keys.length) },
+      { label: editorCopy.statsTags, value: String(questionPayload.tags?.length || 0) },
+      { label: editorCopy.statsReferences, value: String(questionPayload.citations?.length || 0) },
+      { label: editorCopy.statsFormat, value: questionPayload.multi_select ? editorCopy.multiSelect : editorCopy.singleSelect },
+      { label: editorCopy.statsUniqueKeys, value: uniqueKeys.size === questionPayload.options.length ? editorCopy.uniqueYes : editorCopy.uniqueNo }
     ];
-  }, [questionPayload]);
+  }, [editorCopy, questionPayload]);
 
   const questionPreview = useMemo(() => JSON.stringify(questionPayload, null, 2), [questionPayload]);
   const hasQuestionDraftContent = useMemo(() => {
@@ -547,7 +724,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
   );
   const currentWorkflowStatus = questionDraft.id.trim()
     ? currentDraftVersion?.status || currentPublishedVersion?.status || "draft"
-    : "sem rascunho";
+    : editorCopy.noDraft;
   const currentRole = String(currentUserQuery.data?.role || "");
   const canUseEditorActions = ["editor", "reviewer", "admin"].includes(currentRole);
   const canUseReviewerActions = ["reviewer", "admin"].includes(currentRole);
@@ -1185,20 +1362,34 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
   return (
     <main className="sq-app-shell">
       <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <div className="sq-page-title">{t("admin.header.title")}</div>
-              <p className="sq-page-subtitle">{t("admin.header.subtitle")}</p>
+        <header className={`sq-page-head${editorOnly ? " sq-page-head--focused" : ""}`}>
+          <div className="sq-page-head__copy">
+            <span className="sq-eyebrow">{editorOnly ? editorCopy.standaloneTitle : t("admin.header.title")}</span>
+            <div className="sq-brand">
+              <div className="sq-logo" aria-hidden="true">
+                SQ
+              </div>
+              <div className="sq-brand-copy">
+                <div className="sq-page-title">{editorOnly ? editorCopy.standaloneTitle : t("admin.header.title")}</div>
+                <p className="sq-page-subtitle">{editorOnly ? editorCopy.standaloneSubtitle : t("admin.header.subtitle")}</p>
+              </div>
             </div>
           </div>
-          <div className="sq-inline-actions">
-            {editorOnly ? <Link href="/admin">{t("admin.misc.panelLink")}</Link> : null}
-            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
-            <Link href="/history">{t("common.labels.history")}</Link>
+          <div className="sq-page-head__meta">
+            {editorOnly ? (
+              <Link className="sq-text-link" href="/admin">
+                {editorCopy.backToAdmin}
+              </Link>
+            ) : null}
+            <span className="sq-chip">
+              {editorCopy.activeRole}: {currentRole || (locale === "en-US" ? "guest" : "convidado")}
+            </span>
+            {questionDraft.id.trim() ? (
+              <span className="sq-chip">
+                {editorCopy.draftIdentifier}: {questionDraft.id.trim()}
+              </span>
+            ) : null}
+            {editorOnly || questionDraft.id.trim() ? <span className="sq-chip">{currentWorkflowStatus}</span> : null}
           </div>
         </header>
 
@@ -1398,14 +1589,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
           </>
         ) : null}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: "var(--sq-space-6)",
-            alignItems: "start"
-          }}
-        >
+        <div className={`sq-admin-layout${editorOnly ? " sq-admin-layout--editor-focus" : ""}`}>
           {!editorOnly ? (
             <div className="sq-page-stack">
             <Card
@@ -1595,10 +1779,11 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
           ) : null}
 
           <Card
-            title={editorOnly ? "Editor de questões" : t("admin.editor.title")}
+            className={`sq-editor-card${editorOnly ? " sq-editor-card--focused" : ""}`}
+            title={editorOnly ? editorCopy.standaloneTitle : t("admin.editor.title")}
             subtitle={
               editorOnly
-                ? "Workspace focado para criar, revisar e publicar uma questão sem o ruído do painel operacional."
+                ? editorCopy.standaloneSubtitle
                 : t("admin.editor.subtitle")
             }
             actions={
@@ -1615,10 +1800,10 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                   {t("admin.editor.duplicate")}
                 </Button>
                 {editorOnly ? (
-                  <Link href="/admin">Voltar ao painel</Link>
+                  <Link href="/admin">{editorCopy.backToAdmin}</Link>
                 ) : (
                   <Link href={questionDraft.id.trim() ? `/admin/questions/${encodeURIComponent(questionDraft.id.trim())}` : "/admin/questions/new"}>
-                    Editor dedicado
+                    {editorCopy.dedicatedEntry}
                   </Link>
                 )}
                 <Button variant="danger" size="sm" busy={activeTask === "deleteQuestion"} onClick={() => void handleDeleteQuestion()}>
@@ -1633,530 +1818,547 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                 <StatusBanner tone="warning" title={t("admin.editor.validationTitle")} message={questionValidationError} />
               ) : null}
 
-              <div className="sq-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-                <Field label="Buscar por ID" htmlFor="admin-q-lookup">
-                  <input
-                    id="admin-q-lookup"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.lookupId}
-                    onChange={(event) => updateQuestionDraft({ lookupId: event.target.value })}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void loadQuestion(questionDraft.lookupId || questionDraft.id);
-                      }
-                    }}
-                  />
-                </Field>
-
-                <Field label="ID da questao" htmlFor="admin-q-id">
-                  <input
-                    id="admin-q-id"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.id}
-                    onChange={(event) => updateQuestionDraft({ id: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Prova" htmlFor="admin-q-exam">
-                  <select
-                    id="admin-q-exam"
-                    className="sq-select"
-                    value={questionDraft.examId}
-                    onChange={(event) => updateQuestionDraft({ examId: event.target.value })}
-                  >
-                    <option value="">{t("common.filters.selectExam")}</option>
-                    {exams.map((exam) => (
-                      <option key={exam.id} value={exam.id}>
-                        {exam.title}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-
-              <div className="sq-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-                <Field label="Certificacao" htmlFor="admin-q-certification">
-                  <input
-                    id="admin-q-certification"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.certification}
-                    onChange={(event) => updateQuestionDraft({ certification: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Dominio" htmlFor="admin-q-domain">
-                  <input
-                    id="admin-q-domain"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.domain}
-                    onChange={(event) => updateQuestionDraft({ domain: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Dificuldade" htmlFor="admin-q-difficulty">
-                  <select
-                    id="admin-q-difficulty"
-                    className="sq-select"
-                    value={questionDraft.difficulty}
-                    onChange={(event) => updateQuestionDraft({ difficulty: event.target.value })}
-                  >
-                    <option value="">Nao definido</option>
-                    <option value="Easy">Easy</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Hard">Hard</option>
-                  </select>
-                </Field>
-
-                <Field label="Selecao" htmlFor="admin-q-selection-mode">
-                  <select
-                    id="admin-q-selection-mode"
-                    className="sq-select"
-                    value={questionDraft.multiSelect ? "true" : "false"}
-                    onChange={(event) => updateQuestionDraft({ multiSelect: event.target.value === "true" })}
-                  >
-                    <option value="false">Single-select</option>
-                    <option value="true">Multi-select</option>
-                  </select>
-                </Field>
-              </div>
-
-              <div className="sq-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-                <Field label="Assunto" htmlFor="admin-q-subject">
-                  <input
-                    id="admin-q-subject"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.subject}
-                    onChange={(event) => updateQuestionDraft({ subject: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Subtopico" htmlFor="admin-q-subtopic">
-                  <input
-                    id="admin-q-subtopic"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.subtopic}
-                    onChange={(event) => updateQuestionDraft({ subtopic: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Subdominio" htmlFor="admin-q-subdomain">
-                  <input
-                    id="admin-q-subdomain"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.subdomain}
-                    onChange={(event) => updateQuestionDraft({ subdomain: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Formato pedagogico" htmlFor="admin-q-format">
-                  <select
-                    id="admin-q-format"
-                    className="sq-select"
-                    value={questionDraft.questionFormat}
-                    onChange={(event) => updateQuestionDraft({ questionFormat: event.target.value })}
-                  >
-                    {QUESTION_FORMAT_OPTIONS.map((option) => (
-                      <option key={option.value || "auto"} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Objective code" htmlFor="admin-q-objective-code">
-                  <input
-                    id="admin-q-objective-code"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.objectiveCode}
-                    onChange={(event) => updateQuestionDraft({ objectiveCode: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Blueprint code" htmlFor="admin-q-blueprint-code">
-                  <input
-                    id="admin-q-blueprint-code"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.blueprintCode}
-                    onChange={(event) => updateQuestionDraft({ blueprintCode: event.target.value })}
-                  />
-                </Field>
-              </div>
-
-              <Field label="Pergunta" htmlFor="admin-q-prompt">
-                <textarea
-                  id="admin-q-prompt"
-                  className="sq-textarea"
-                  rows={7}
-                  value={questionDraft.prompt}
-                  onChange={(event) => updateQuestionDraft({ prompt: event.target.value })}
-                />
-              </Field>
-
-              <div className="sq-form-grid">
-                <Field
-                  label="Tags (separadas por virgula)"
-                  htmlFor="admin-q-tags"
-                  hint="Use tags curtas e consistentes para filtros e analytics."
-                >
-                  <input
-                    id="admin-q-tags"
-                    className="sq-input"
-                    type="text"
-                    value={questionDraft.tagsText}
-                    onChange={(event) => updateQuestionDraft({ tagsText: event.target.value })}
-                  />
-                </Field>
-
-                <Field
-                  label="Racional correto"
-                  htmlFor="admin-q-justification"
-                  hint="Explique com clareza por que a resposta correta e a melhor escolha."
-                >
-                  <textarea
-                    id="admin-q-justification"
-                    className="sq-textarea"
-                    rows={6}
-                    value={questionDraft.correctRationale}
-                    onChange={(event) => updateQuestionDraft({ correctRationale: event.target.value, justification: event.target.value })}
-                  />
-                </Field>
-              </div>
-
-              <div className="sq-form-grid">
-                <Field
-                  label="Keywords"
-                  htmlFor="admin-q-keywords"
-                  hint="Separadas por virgula. Alimentam busca, analytics e sugestoes."
-                >
-                  <input
-                    id="admin-q-keywords"
-                    className="sq-input"
-                    type="text"
-                    value={joinTextList(questionDraft.keywords)}
-                    onChange={(event) => updateQuestionDraft({ keywords: normalizeTags(event.target.value) })}
-                  />
-                </Field>
-
-                <Field
-                  label="Pegadinhas comuns"
-                  htmlFor="admin-q-traps"
-                  hint="Liste erros conceituais ou confusoes frequentes."
-                >
-                  <input
-                    id="admin-q-traps"
-                    className="sq-input"
-                    type="text"
-                    value={joinTextList(questionDraft.trapPatterns)}
-                    onChange={(event) => updateQuestionDraft({ trapPatterns: normalizeTags(event.target.value) })}
-                  />
-                </Field>
-              </div>
-
-              <div className="sq-form-grid">
-                <Field
-                  label="Racionais das incorretas"
-                  htmlFor="admin-q-incorrect-rationales"
-                  hint="Uma linha por distrator, sem revelar o gabarito diretamente."
-                >
-                  <textarea
-                    id="admin-q-incorrect-rationales"
-                    className="sq-textarea"
-                    rows={5}
-                    value={questionDraft.incorrectRationales.join("\n")}
-                    onChange={(event) =>
-                      updateQuestionDraft({ incorrectRationales: splitTextareaLines(event.target.value) })
-                    }
-                  />
-                </Field>
-
-                <Field
-                  label="Justificativa legada"
-                  htmlFor="admin-q-legacy-justification"
-                  hint="Mantida por compatibilidade com a projeção usada pelos modos de estudo/prova."
-                >
-                  <textarea
-                    id="admin-q-legacy-justification"
-                    className="sq-textarea"
-                    rows={5}
-                    value={questionDraft.justification}
-                    onChange={(event) => updateQuestionDraft({ justification: event.target.value })}
-                  />
-                </Field>
-              </div>
-
-              <div className="sq-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-                <Field label="Tempo medio (s)" htmlFor="admin-q-avg-time">
-                  <input
-                    id="admin-q-avg-time"
-                    className="sq-input"
-                    type="number"
-                    min={0}
-                    step="1"
-                    value={questionDraft.avgTimeSeconds}
-                    onChange={(event) => updateQuestionDraft({ avgTimeSeconds: event.target.value })}
-                  />
-                </Field>
-
-                <Field label="Acerto global (%)" htmlFor="admin-q-global-accuracy">
-                  <input
-                    id="admin-q-global-accuracy"
-                    className="sq-input"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={questionDraft.globalAccuracyPercent}
-                    onChange={(event) => updateQuestionDraft({ globalAccuracyPercent: event.target.value })}
-                  />
-                </Field>
-              </div>
-
-              <Field
-                label="Resumo da mudanca"
-                htmlFor="admin-q-change-summary"
-                hint="Registre o motivo da edicao. Esse texto entra no historico e ajuda na auditoria."
-              >
-                <textarea
-                  id="admin-q-change-summary"
-                  className="sq-textarea"
-                  rows={3}
-                  value={questionDraft.changeSummary}
-                  onChange={(event) => updateQuestionDraft({ changeSummary: event.target.value })}
-                />
-              </Field>
-
-              <div className="sq-grid-2">
-                <Card
-                  title="Alternativas"
-                  subtitle="Marque a(s) correta(s). A API valida duplicidades e consistencia final."
-                  actions={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setQuestionDraft((current) => ({
-                          ...current,
-                          options: [...current.options, createOptionDraft(nextOptionKey(current.options))]
-                        }))
-                      }
-                    >
-                      Adicionar
-                    </Button>
-                  }
-                >
-                  <div className="sq-list">
-                    {questionDraft.options.map((option, index) => (
-                      <div key={option.rowId} className="sq-list-item" style={{ display: "grid", gap: "var(--sq-space-3)" }}>
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "88px minmax(0, 1fr) auto auto",
-                            gap: "var(--sq-space-3)",
-                            alignItems: "center"
-                          }}
-                        >
-                          <input
-                            className="sq-input"
-                            aria-label={`Chave da alternativa ${index + 1}`}
-                            type="text"
-                            maxLength={2}
-                            value={option.key}
-                            onChange={(event) =>
-                              setQuestionDraft((current) => ({
-                                ...current,
-                                options: current.options.map((item) =>
-                                  item.rowId === option.rowId ? { ...item, key: event.target.value.toUpperCase() } : item
-                                )
-                              }))
-                            }
-                          />
-
-                          <input
-                            className="sq-input"
-                            aria-label={`Texto da alternativa ${index + 1}`}
-                            type="text"
-                            value={option.text}
-                            onChange={(event) =>
-                              setQuestionDraft((current) => ({
-                                ...current,
-                                options: current.options.map((item) =>
-                                  item.rowId === option.rowId ? { ...item, text: event.target.value } : item
-                                )
-                              }))
-                            }
-                          />
-
-                          <label
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "var(--sq-space-2)",
-                              fontSize: "0.9rem"
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={option.isCorrect}
-                              onChange={(event) =>
-                                setQuestionDraft((current) => ({
-                                  ...current,
-                                  options: current.options.map((item) =>
-                                    item.rowId === option.rowId ? { ...item, isCorrect: event.target.checked } : item
-                                  )
-                                }))
-                              }
-                            />
-                            Correta
-                          </label>
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={questionDraft.options.length <= 2}
-                            onClick={() =>
-                              setQuestionDraft((current) => ({
-                                ...current,
-                                options:
-                                  current.options.length <= 2
-                                    ? current.options
-                                    : current.options.filter((item) => item.rowId !== option.rowId)
-                              }))
-                            }
-                          >
-                            Remover
-                          </Button>
-                        </div>
+              <div className={`sq-editor-workspace${editorOnly ? "" : " sq-editor-workspace--embedded"}`}>
+                <div className="sq-editor-main">
+                  <section className="sq-editor-section">
+                    <div className="sq-editor-section__header">
+                      <div>
+                        <h3 className="sq-section-title">{editorCopy.identityTitle}</h3>
+                        <p className="sq-section-subtitle">{editorCopy.identitySubtitle}</p>
                       </div>
-                    ))}
-                  </div>
-                </Card>
+                    </div>
 
-                <Card
-                  title="Referencias de estudo"
-                  subtitle="As referencias aparecem na revisao. Metadados extras de EPUB sao preservados no save."
-                  actions={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setQuestionDraft((current) => ({
-                          ...current,
-                          citations: [...current.citations, createCitationDraft()]
-                        }))
+                    <div className="sq-editor-grid sq-editor-grid--identity">
+                      <Field label={editorCopy.searchById} htmlFor="admin-q-lookup">
+                        <input
+                          id="admin-q-lookup"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.lookupId}
+                          onChange={(event) => updateQuestionDraft({ lookupId: event.target.value })}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void loadQuestion(questionDraft.lookupId || questionDraft.id);
+                            }
+                          }}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.questionId} htmlFor="admin-q-id">
+                        <input
+                          id="admin-q-id"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.id}
+                          onChange={(event) => updateQuestionDraft({ id: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.exam} htmlFor="admin-q-exam">
+                        <select
+                          id="admin-q-exam"
+                          className="sq-select"
+                          value={questionDraft.examId}
+                          onChange={(event) => updateQuestionDraft({ examId: event.target.value })}
+                        >
+                          <option value="">{t("common.filters.selectExam")}</option>
+                          {exams.map((exam) => (
+                            <option key={exam.id} value={exam.id}>
+                              {exam.title}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+
+                    <div className="sq-editor-grid sq-editor-grid--identity">
+                      <Field label={editorCopy.certification} htmlFor="admin-q-certification">
+                        <input
+                          id="admin-q-certification"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.certification}
+                          onChange={(event) => updateQuestionDraft({ certification: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.domain} htmlFor="admin-q-domain">
+                        <input
+                          id="admin-q-domain"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.domain}
+                          onChange={(event) => updateQuestionDraft({ domain: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.difficulty} htmlFor="admin-q-difficulty">
+                        <select
+                          id="admin-q-difficulty"
+                          className="sq-select"
+                          value={questionDraft.difficulty}
+                          onChange={(event) => updateQuestionDraft({ difficulty: event.target.value })}
+                        >
+                          <option value="">{editorCopy.difficultyUnset}</option>
+                          <option value="Easy">Easy</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Hard">Hard</option>
+                        </select>
+                      </Field>
+
+                      <Field label={editorCopy.selection} htmlFor="admin-q-selection-mode">
+                        <select
+                          id="admin-q-selection-mode"
+                          className="sq-select"
+                          value={questionDraft.multiSelect ? "true" : "false"}
+                          onChange={(event) => updateQuestionDraft({ multiSelect: event.target.value === "true" })}
+                        >
+                          <option value="false">{editorCopy.singleSelect}</option>
+                          <option value="true">{editorCopy.multiSelect}</option>
+                        </select>
+                      </Field>
+                    </div>
+
+                    <div className="sq-editor-grid sq-editor-grid--identity">
+                      <Field label={editorCopy.subject} htmlFor="admin-q-subject">
+                        <input
+                          id="admin-q-subject"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.subject}
+                          onChange={(event) => updateQuestionDraft({ subject: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.subtopic} htmlFor="admin-q-subtopic">
+                        <input
+                          id="admin-q-subtopic"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.subtopic}
+                          onChange={(event) => updateQuestionDraft({ subtopic: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.subdomain} htmlFor="admin-q-subdomain">
+                        <input
+                          id="admin-q-subdomain"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.subdomain}
+                          onChange={(event) => updateQuestionDraft({ subdomain: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.pedagogicalFormat} htmlFor="admin-q-format">
+                        <select
+                          id="admin-q-format"
+                          className="sq-select"
+                          value={questionDraft.questionFormat}
+                          onChange={(event) => updateQuestionDraft({ questionFormat: event.target.value })}
+                        >
+                          {QUESTION_FORMAT_OPTIONS.map((option) => (
+                            <option key={option.value || "auto"} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+
+                      <Field label={editorCopy.objectiveCode} htmlFor="admin-q-objective-code">
+                        <input
+                          id="admin-q-objective-code"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.objectiveCode}
+                          onChange={(event) => updateQuestionDraft({ objectiveCode: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.blueprintCode} htmlFor="admin-q-blueprint-code">
+                        <input
+                          id="admin-q-blueprint-code"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.blueprintCode}
+                          onChange={(event) => updateQuestionDraft({ blueprintCode: event.target.value })}
+                        />
+                      </Field>
+                    </div>
+                  </section>
+
+                  <section className="sq-editor-section">
+                    <div className="sq-editor-section__header">
+                      <div>
+                        <h3 className="sq-section-title">{editorCopy.contentTitle}</h3>
+                        <p className="sq-section-subtitle">{editorCopy.contentSubtitle}</p>
+                      </div>
+                    </div>
+
+                    <Field label={editorCopy.prompt} htmlFor="admin-q-prompt">
+                      <textarea
+                        id="admin-q-prompt"
+                        className="sq-textarea"
+                        rows={7}
+                        value={questionDraft.prompt}
+                        onChange={(event) => updateQuestionDraft({ prompt: event.target.value })}
+                      />
+                    </Field>
+
+                    <div className="sq-editor-grid sq-editor-grid--split">
+                      <Field
+                        label={editorCopy.tags}
+                        htmlFor="admin-q-tags"
+                        hint={editorCopy.tagsHint}
+                      >
+                        <input
+                          id="admin-q-tags"
+                          className="sq-input"
+                          type="text"
+                          value={questionDraft.tagsText}
+                          onChange={(event) => updateQuestionDraft({ tagsText: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field
+                        label={editorCopy.correctRationale}
+                        htmlFor="admin-q-justification"
+                        hint={editorCopy.correctRationaleHint}
+                      >
+                        <textarea
+                          id="admin-q-justification"
+                          className="sq-textarea"
+                          rows={6}
+                          value={questionDraft.correctRationale}
+                          onChange={(event) => updateQuestionDraft({ correctRationale: event.target.value, justification: event.target.value })}
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="sq-editor-grid sq-editor-grid--split">
+                      <Field
+                        label={editorCopy.keywords}
+                        htmlFor="admin-q-keywords"
+                        hint={editorCopy.keywordsHint}
+                      >
+                        <input
+                          id="admin-q-keywords"
+                          className="sq-input"
+                          type="text"
+                          value={joinTextList(questionDraft.keywords)}
+                          onChange={(event) => updateQuestionDraft({ keywords: normalizeTags(event.target.value) })}
+                        />
+                      </Field>
+
+                      <Field
+                        label={editorCopy.traps}
+                        htmlFor="admin-q-traps"
+                        hint={editorCopy.trapsHint}
+                      >
+                        <input
+                          id="admin-q-traps"
+                          className="sq-input"
+                          type="text"
+                          value={joinTextList(questionDraft.trapPatterns)}
+                          onChange={(event) => updateQuestionDraft({ trapPatterns: normalizeTags(event.target.value) })}
+                        />
+                      </Field>
+                    </div>
+                  </section>
+
+                  <section className="sq-editor-section">
+                    <div className="sq-editor-section__header">
+                      <div>
+                        <h3 className="sq-section-title">{editorCopy.rationaleTitle}</h3>
+                        <p className="sq-section-subtitle">{editorCopy.rationaleSubtitle}</p>
+                      </div>
+                    </div>
+
+                    <div className="sq-editor-grid sq-editor-grid--split">
+                      <Field
+                        label={editorCopy.incorrectRationales}
+                        htmlFor="admin-q-incorrect-rationales"
+                        hint={editorCopy.incorrectRationalesHint}
+                      >
+                        <textarea
+                          id="admin-q-incorrect-rationales"
+                          className="sq-textarea"
+                          rows={5}
+                          value={questionDraft.incorrectRationales.join("\n")}
+                          onChange={(event) =>
+                            updateQuestionDraft({ incorrectRationales: splitTextareaLines(event.target.value) })
+                          }
+                        />
+                      </Field>
+
+                      <Field
+                        label={editorCopy.legacyJustification}
+                        htmlFor="admin-q-legacy-justification"
+                        hint={editorCopy.legacyJustificationHint}
+                      >
+                        <textarea
+                          id="admin-q-legacy-justification"
+                          className="sq-textarea"
+                          rows={5}
+                          value={questionDraft.justification}
+                          onChange={(event) => updateQuestionDraft({ justification: event.target.value })}
+                        />
+                      </Field>
+                    </div>
+                  </section>
+
+                  <section className="sq-editor-section">
+                    <div className="sq-editor-section__header">
+                      <div>
+                        <h3 className="sq-section-title">{editorCopy.telemetryTitle}</h3>
+                        <p className="sq-section-subtitle">{editorCopy.telemetrySubtitle}</p>
+                      </div>
+                    </div>
+
+                    <div className="sq-editor-grid sq-editor-grid--identity">
+                      <Field label={editorCopy.avgTime} htmlFor="admin-q-avg-time">
+                        <input
+                          id="admin-q-avg-time"
+                          className="sq-input"
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={questionDraft.avgTimeSeconds}
+                          onChange={(event) => updateQuestionDraft({ avgTimeSeconds: event.target.value })}
+                        />
+                      </Field>
+
+                      <Field label={editorCopy.globalAccuracy} htmlFor="admin-q-global-accuracy">
+                        <input
+                          id="admin-q-global-accuracy"
+                          className="sq-input"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          value={questionDraft.globalAccuracyPercent}
+                          onChange={(event) => updateQuestionDraft({ globalAccuracyPercent: event.target.value })}
+                        />
+                      </Field>
+                    </div>
+
+                    <Field
+                      label={editorCopy.changeSummary}
+                      htmlFor="admin-q-change-summary"
+                      hint={editorCopy.changeSummaryHint}
+                    >
+                      <textarea
+                        id="admin-q-change-summary"
+                        className="sq-textarea"
+                        rows={3}
+                        value={questionDraft.changeSummary}
+                        onChange={(event) => updateQuestionDraft({ changeSummary: event.target.value })}
+                      />
+                    </Field>
+                  </section>
+
+                  <div className="sq-editor-dual-cards">
+                    <Card
+                      title={editorCopy.optionsTitle}
+                      subtitle={editorCopy.optionsSubtitle}
+                      actions={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setQuestionDraft((current) => ({
+                              ...current,
+                              options: [...current.options, createOptionDraft(nextOptionKey(current.options))]
+                            }))
+                          }
+                        >
+                          {editorCopy.addOption}
+                        </Button>
                       }
                     >
-                      Adicionar
-                    </Button>
-                  }
-                >
-                  <div className="sq-list">
-                    {questionDraft.citations.map((citation, index) => {
-                      const hasExtraMetadata = Object.keys(citation.original).some(
-                        (key) => !["source", "reference"].includes(key) && hasCitationValue(citation.original[key])
-                      );
-
-                      return (
-                        <div key={citation.rowId} className="sq-list-item" style={{ display: "grid", gap: "var(--sq-space-3)" }}>
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) auto",
-                              gap: "var(--sq-space-3)",
-                              alignItems: "center"
-                            }}
-                          >
-                            <input
-                              className="sq-input"
-                              aria-label={`Fonte da referencia ${index + 1}`}
-                              type="text"
-                              value={citation.source}
-                              onChange={(event) =>
-                                setQuestionDraft((current) => ({
-                                  ...current,
-                                  citations: current.citations.map((item) =>
-                                    item.rowId === citation.rowId ? { ...item, source: event.target.value } : item
-                                  )
-                                }))
-                              }
-                            />
-
-                            <input
-                              className="sq-input"
-                              aria-label={`Descricao da referencia ${index + 1}`}
-                              type="text"
-                              value={citation.reference}
-                              onChange={(event) =>
-                                setQuestionDraft((current) => ({
-                                  ...current,
-                                  citations: current.citations.map((item) =>
-                                    item.rowId === citation.rowId ? { ...item, reference: event.target.value } : item
-                                  )
-                                }))
-                              }
-                            />
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                setQuestionDraft((current) => {
-                                  const remaining = current.citations.filter((item) => item.rowId !== citation.rowId);
-                                  return {
+                      <div className="sq-list">
+                        {questionDraft.options.map((option, index) => (
+                          <div key={option.rowId} className="sq-list-item sq-editor-option-row">
+                            <div className="sq-editor-option-grid">
+                              <input
+                                className="sq-input"
+                                aria-label={editorCopy.optionKeyAria.replace("{index}", String(index + 1))}
+                                type="text"
+                                maxLength={2}
+                                value={option.key}
+                                onChange={(event) =>
+                                  setQuestionDraft((current) => ({
                                     ...current,
-                                    citations: remaining.length ? remaining : [createCitationDraft()]
-                                  };
-                                })
-                              }
-                            >
-                              Remover
-                            </Button>
-                          </div>
+                                    options: current.options.map((item) =>
+                                      item.rowId === option.rowId ? { ...item, key: event.target.value.toUpperCase() } : item
+                                    )
+                                  }))
+                                }
+                              />
 
-                          {hasExtraMetadata ? (
-                            <div className="sq-chip-row">
-                              <span className="sq-chip">Metadados EPUB preservados no payload</span>
+                              <input
+                                className="sq-input"
+                                aria-label={editorCopy.optionTextAria.replace("{index}", String(index + 1))}
+                                type="text"
+                                value={option.text}
+                                onChange={(event) =>
+                                  setQuestionDraft((current) => ({
+                                    ...current,
+                                    options: current.options.map((item) =>
+                                      item.rowId === option.rowId ? { ...item, text: event.target.value } : item
+                                    )
+                                  }))
+                                }
+                              />
+
+                              <label className="sq-editor-checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={option.isCorrect}
+                                  onChange={(event) =>
+                                    setQuestionDraft((current) => ({
+                                      ...current,
+                                      options: current.options.map((item) =>
+                                        item.rowId === option.rowId ? { ...item, isCorrect: event.target.checked } : item
+                                      )
+                                    }))
+                                  }
+                                />
+                                {editorCopy.optionCorrect}
+                              </label>
+
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={questionDraft.options.length <= 2}
+                                onClick={() =>
+                                  setQuestionDraft((current) => ({
+                                    ...current,
+                                    options:
+                                      current.options.length <= 2
+                                        ? current.options
+                                        : current.options.filter((item) => item.rowId !== option.rowId)
+                                  }))
+                                }
+                              >
+                                {editorCopy.remove}
+                              </Button>
                             </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              </div>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
 
-              <div className="sq-grid-2">
-                <div className="sq-page-stack">
+                    <Card
+                      title={editorCopy.referencesTitle}
+                      subtitle={editorCopy.referencesSubtitle}
+                      actions={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setQuestionDraft((current) => ({
+                              ...current,
+                              citations: [...current.citations, createCitationDraft()]
+                            }))
+                          }
+                        >
+                          {editorCopy.addReference}
+                        </Button>
+                      }
+                    >
+                      <div className="sq-list">
+                        {questionDraft.citations.map((citation, index) => {
+                          const hasExtraMetadata = Object.keys(citation.original).some(
+                            (key) => !["source", "reference"].includes(key) && hasCitationValue(citation.original[key])
+                          );
+
+                          return (
+                            <div key={citation.rowId} className="sq-list-item sq-editor-reference-row">
+                              <div className="sq-editor-reference-grid">
+                                <input
+                                  className="sq-input"
+                                  aria-label={editorCopy.referenceSourceAria.replace("{index}", String(index + 1))}
+                                  type="text"
+                                  value={citation.source}
+                                  onChange={(event) =>
+                                    setQuestionDraft((current) => ({
+                                      ...current,
+                                      citations: current.citations.map((item) =>
+                                        item.rowId === citation.rowId ? { ...item, source: event.target.value } : item
+                                      )
+                                    }))
+                                  }
+                                />
+
+                                <input
+                                  className="sq-input"
+                                  aria-label={editorCopy.referenceDescriptionAria.replace("{index}", String(index + 1))}
+                                  type="text"
+                                  value={citation.reference}
+                                  onChange={(event) =>
+                                    setQuestionDraft((current) => ({
+                                      ...current,
+                                      citations: current.citations.map((item) =>
+                                        item.rowId === citation.rowId ? { ...item, reference: event.target.value } : item
+                                      )
+                                    }))
+                                  }
+                                />
+
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    setQuestionDraft((current) => {
+                                      const remaining = current.citations.filter((item) => item.rowId !== citation.rowId);
+                                      return {
+                                        ...current,
+                                        citations: remaining.length ? remaining : [createCitationDraft()]
+                                      };
+                                    })
+                                  }
+                                >
+                                  {editorCopy.remove}
+                                </Button>
+                              </div>
+
+                              {hasExtraMetadata ? (
+                                <div className="sq-chip-row">
+                                  <span className="sq-chip">{editorCopy.metadataPreserved}</span>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </Card>
+                  </div>
+                </div>
+
+                <aside className="sq-editor-sidebar">
                   <Card
-                    title="Qualidade editorial"
-                    subtitle="Completude, bloqueios e aderencia ao blueprint antes de seguir no workflow."
+                    title={editorCopy.qualityTitle}
+                    subtitle={editorCopy.qualitySubtitle}
                   >
                     {questionQuality ? (
                       <div className="sq-page-stack">
                         <div className="sq-metric-grid">
                           <div className="sq-metric-card">
-                            <span className="sq-muted">Completude</span>
+                            <span className="sq-muted">{editorCopy.completeness}</span>
                             <strong>{questionQuality.completeness_score}%</strong>
                           </div>
                           <div className="sq-metric-card">
-                            <span className="sq-muted">Pronta para publicar</span>
-                            <strong>{questionQuality.is_publish_ready ? "Sim" : "Nao"}</strong>
+                            <span className="sq-muted">{editorCopy.publishReady}</span>
+                            <strong>{questionQuality.is_publish_ready ? editorCopy.yes : editorCopy.no}</strong>
                           </div>
                           <div className="sq-metric-card">
-                            <span className="sq-muted">Bloqueios</span>
+                            <span className="sq-muted">{editorCopy.blockers}</span>
                             <strong>{questionQuality.blocking_issues.length}</strong>
                           </div>
                           <div className="sq-metric-card">
-                            <span className="sq-muted">Alertas</span>
+                            <span className="sq-muted">{editorCopy.warnings}</span>
                             <strong>{questionQuality.warnings.length}</strong>
                           </div>
                         </div>
@@ -2164,28 +2366,28 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                         {isQualityStale ? (
                           <StatusBanner
                             tone="warning"
-                            title="Analise desatualizada"
-                            message="Voce alterou o rascunho depois da ultima avaliacao do backend. Salve para recalcular a qualidade."
+                            title={editorCopy.staleTitle}
+                            message={editorCopy.staleMessage}
                           />
                         ) : null}
 
                         {questionQuality.blocking_issues.length ? (
                           <StatusBanner
                             tone="warning"
-                            title="Bloqueios editoriais"
+                            title={editorCopy.blockers}
                             message={questionQuality.blocking_issues.join(" | ")}
                           />
                         ) : (
                           <StatusBanner
                             tone="success"
-                            title="Base editorial valida"
-                            message="Nao ha bloqueios criticos nesta avaliacao."
+                            title={editorCopy.validTitle}
+                            message={editorCopy.validMessage}
                           />
                         )}
 
                         {questionQuality.warnings.length ? (
                           <div className="sq-surface-block">
-                            <div className="sq-list-title">Alertas de melhoria</div>
+                            <div className="sq-list-title">{editorCopy.improvementsTitle}</div>
                             <div className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
                               {questionQuality.warnings.map((item) => (
                                 <div key={item} className="sq-list-item">
@@ -2197,7 +2399,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                         ) : null}
 
                         <div className="sq-surface-block">
-                          <div className="sq-list-title">Checklist por campo</div>
+                          <div className="sq-list-title">{editorCopy.fieldChecklistTitle}</div>
                           <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
                             {Object.entries(questionQuality.field_status).map(([field, status]) => (
                               <span
@@ -2218,7 +2420,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                                         : undefined
                                 }}
                               >
-                                {field}: {formatQualityStatus(status)}
+                                {field}: {formatQualityStatus(status, locale)}
                               </span>
                             ))}
                           </div>
@@ -2228,7 +2430,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                           questionQuality.blueprint?.blueprint_code ||
                           questionQuality.blueprint?.objective_code) ? (
                           <div className="sq-surface-block">
-                            <div className="sq-list-title">Blueprint vinculado</div>
+                            <div className="sq-list-title">{editorCopy.linkedBlueprintTitle}</div>
                             <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
                               {questionQuality.blueprint?.certification ? (
                                 <span className="sq-chip">{questionQuality.blueprint.certification}</span>
@@ -2330,9 +2532,6 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                       </Button>
                     </div>
                   </Card>
-                </div>
-
-                <div className="sq-page-stack">
                   <Card title={t("admin.editor.versionsTitle")} subtitle={t("admin.editor.versionsSubtitle")}>
                     {questionVersions.length ? (
                       <div className="sq-list">
@@ -2355,7 +2554,7 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                               {item.is_current_published ? <span className="sq-chip">{t("admin.editor.currentPublishedTag")}</span> : null}
                               {item.is_current_draft ? <span className="sq-chip">{t("admin.editor.currentDraftTag")}</span> : null}
                               <span className="sq-chip">
-                                {item.correct_count}/{item.option_count} corretas
+                                {item.correct_count}/{item.option_count} {locale === "en-US" ? "correct" : "corretas"}
                               </span>
                             </div>
                             {!item.is_current_published ? (
@@ -2422,38 +2621,24 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
                       <div className="sq-empty">{t("admin.editor.noPerformance")}</div>
                     )}
                   </Card>
-                </div>
-              </div>
 
-              <div className="sq-grid-2">
-                <Card title={t("admin.editor.quickChecklistTitle")} subtitle={t("admin.editor.quickChecklistSubtitle")}>
-                  <div className="sq-metric-grid">
-                    {questionStats.map((item) => (
-                      <div key={item.label} className="sq-metric-card">
-                        <span className="sq-muted">{item.label}</span>
-                        <strong>{item.value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
+                  <Card title={t("admin.editor.quickChecklistTitle")} subtitle={t("admin.editor.quickChecklistSubtitle")}>
+                    <div className="sq-metric-grid">
+                      {questionStats.map((item) => (
+                        <div key={item.label} className="sq-metric-card">
+                          <span className="sq-muted">{item.label}</span>
+                          <strong>{item.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
 
-                <Card title={t("admin.editor.payloadPreviewTitle")} subtitle={t("admin.editor.payloadPreviewSubtitle")}>
-                  <pre
-                    style={{
-                      margin: 0,
-                      maxHeight: 320,
-                      overflow: "auto",
-                      padding: "var(--sq-space-4)",
-                      borderRadius: "var(--sq-radius-md)",
-                      border: "1px solid var(--sq-border)",
-                      background: "rgba(255,255,255,0.78)",
-                      fontSize: "0.84rem",
-                      lineHeight: 1.55
-                    }}
-                  >
-                    {questionPreview}
-                  </pre>
-                </Card>
+                  <Card title={t("admin.editor.payloadPreviewTitle")} subtitle={t("admin.editor.payloadPreviewSubtitle")}>
+                    <pre className="sq-editor-preview">
+                      {questionPreview}
+                    </pre>
+                  </Card>
+                </aside>
               </div>
             </div>
           </Card>

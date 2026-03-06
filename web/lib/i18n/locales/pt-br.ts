@@ -87,6 +87,13 @@ export const ptBRMessages = {
     ariaLabel: "Navegação principal",
     brandTitle: "Sentinel Quiz",
     brandSubtitle: "Simulados, estudo guiado e revisão inteligente para Security+ e CISSP.",
+    locale: {
+      label: "Idioma",
+      ptBR: "PT-BR",
+      enUS: "EN",
+      switchToPtBR: "Mudar para português",
+      switchToEnUS: "Switch to English"
+    },
     publicLinks: {
       howItWorks: "Como funciona",
       faq: "FAQ"
@@ -1000,7 +1007,8 @@ export const ptBRMessages = {
     actions: {
       unmarkReview: "Desmarcar revisão",
       markReview: "Marcar revisão",
-      previous: "Anterior"
+      previous: "Anterior",
+      confirmAnswer: "Confirmar resposta"
     },
     tutor: {
       title: "Tutor da questão",
@@ -1077,9 +1085,6 @@ export const ptBRMessages = {
     },
     hints: {
       hintButton: "Dica {level}"
-    },
-    actions: {
-      confirmAnswer: "Confirmar resposta"
     },
     liveFeedback: {
       remaining: "Restantes: {count}",
