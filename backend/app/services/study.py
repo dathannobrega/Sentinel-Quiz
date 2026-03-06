@@ -26,6 +26,7 @@ from app.models import (
     StudySessionQuestion,
     User,
     UserBookmark,
+    UserDomainMetricDaily,
     UserNote,
 )
 from app.services.learning import upsert_question_progress
