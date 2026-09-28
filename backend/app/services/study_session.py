@@ -595,6 +595,7 @@ def answer_study_question(
     else:
         session.wrong_count += 1
 
+    was_completed = session.completed_at is not None
     if session.current_index < session.total_questions:
         session.current_index += 1
     if session.current_index >= session.total_questions:
@@ -636,7 +637,7 @@ def answer_study_question(
         attempted_at=now,
         selection_strategy=session.selection_strategy,
     )
-    if session.completed_at is not None:
+    if session.completed_at is not None and not was_completed:
         _finalize_study_session(db, session)
 
     db.commit()
