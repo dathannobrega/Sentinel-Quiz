@@ -1,18 +1,43 @@
-/.DS_Store
+# OS / editor noise
+**/.DS_Store
+*.swp
+
+# Secrets / local env files (keep the *.example templates tracked)
 /.env
+.env.local
+backend/.env
+
+# Python
 /Extract_test.py
-/__pycache__
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+
+# Local databases / dumps / logs
 *.db
 *.log
 *.sqlite3
 *.sqlite
 *.bak
 *.backup
-*.swp
-__pycache__/
+/backups/
+
+# Web
 web/node_modules/
 web/.next/
-web/.DS_Store
+
+# Licensed study material: EPUB/PDF files are mounted at runtime
+# (./material:/app/material:ro) and must never be committed.
+material/*.epub
+material/**/*.epub
+material/*.pdf
+material/**/*.pdf
+
+# graphify knowledge-graph output
+graphify-out/

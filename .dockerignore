@@ -1,21 +1,22 @@
-.git
-.gitignore
-.github
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache
-.mypy_cache
-.DS_Store
-.env
-.venv
-backend/.venv
-backend/__pycache__
-backend/securityplus.db
-*.db
-*.sqlite
-*.sqlite3
-*.log
-web/node_modules
-web/.next
+# Build context for the root Dockerfile (API image).
+# Allowlist: everything is excluded unless re-included below, so licensed
+# material, secrets, backups and the web app never reach the build context.
+*
+
+!backend/app
+!backend/alembic
+!backend/alembic.ini
+!backend/requirements.txt
+!questions
+!docker/entrypoint.sh
+
+# Never ship these, even inside re-included directories.
+material/
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.DS_Store
+**/.pytest_cache
+**/.env
+**/*.epub
+**/*.pdf
