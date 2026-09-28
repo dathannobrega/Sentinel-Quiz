@@ -2,240 +2,342 @@
 
 [![Security+](https://img.shields.io/badge/Exam-CompTIA_Security%2B-orange)]()
 [![CISSP](https://img.shields.io/badge/Exam-ISC2_CISSP-red)]()
-[![Powered by Gemini](https://img.shields.io/badge/AI-Gemini_Pro-blue)]()
+[![Powered by Gemini](https://img.shields.io/badge/AI-Gemini-blue)]()
 
-Uma aplicação full-stack moderna para simulados de certificações de cibersegurança. O sistema transforma dados JSON em um ambiente de prova dinâmico com o suporte de um tutor de IA que foca no aprendizado conceitual sem entregar a resposta.
+Aplicação full-stack para simulados de certificações de cibersegurança. O banco de questões em JSON (`questions/`) é importado para PostgreSQL e servido por uma API FastAPI; o frontend Next.js oferece simulado, modo estudo, revisão espaçada e um tutor de IA (Gemini) que explica conceitos sem entregar a resposta.
 
 ## ✨ Funcionalidades Principais
 
-* **Ingestão Dinâmica:** Importação automática de arquivos JSON (`./questions/`) para banco SQL no startup.
-* **Simulado Realista:** Interface SPA configurada para 90 questões com feedback imediato e insights finais.
-* **Study Mode Dedicado:** Blocos de aprendizado separados do simulado, com feedback imediato, nível de confiança, sessão adaptativa e agendamento de revisão.
-* **Exam Mode Adaptativo:** O simulado também pode priorizar revisões pendentes e domínios fracos, mantendo distribuição suficiente para não virar apenas “revisão disfarçada”.
-* **Painel Admin Modernizado:** Gerenciamento de provas e questões via sessão autenticada com papel `admin`, agora também disponível no frontend Next em `/admin`.
-* **Auth Separada no Frontend:** Login e cadastro agora possuem páginas dedicadas (`/login`, `/register`) e o dashboard principal vive em `/dashboard`.
-* **Tutor IA (Gemini):** Integração com Google Gemini para explicar conceitos e dar pistas, garantindo que o usuário aprenda o "porquê" em vez de apenas decorar.
-* **Sessões Isoladas:** Histórico, analytics e revisão ficam escopados por usuário autenticado ou por dispositivo (`X-Client-Key`) para evitar vazamento de progresso entre alunos.
-* **Conta e Estado de Estudo:** Login/cadastro web com sincronização de bookmarks e notas por questão, inclusive com migração automática do progresso local ao entrar na conta.
-* **Revisão Diária e Histórico de Estudo:** A fila de revisão pode gerar blocos dedicados e a aplicação mantém histórico próprio de estudo, separado do histórico de simulados.
-* **Métricas Semanais e Revisão Profunda:** O painel inicial mostra ritmo semanal de estudo/revisão e cada bloco de estudo concluído pode ser reaberto com revisão detalhada por questão.
-* **SRS Incremental:** A fila de revisão agora guarda repetições, lapsos, estabilidade e fator de facilidade para espaçar o retorno de cada questão de forma mais próxima de um SRS real.
-* **Snapshots Editoriais Históricos:** O admin pode registrar snapshots por `question_version` para acompanhar como dificuldade, erro e pressão de revisão evoluem ao longo do tempo.
+* **Ingestão de questões:** importação dos arquivos JSON de `./questions/` para o banco — no start do container quando `INGEST_ON_STARTUP=true` (padrão só no compose local) ou sob demanda via `POST /api/admin/ingest` (admin). Veja [Ingestão](#-ingestão-de-questões).
+* **Simulado Realista:** sessões configuráveis com feedback e insights finais.
+* **Study Mode Dedicado:** blocos de aprendizado separados do simulado, com feedback imediato, nível de confiança, sessão adaptativa e agendamento de revisão.
+* **Exam Mode Adaptativo:** o simulado pode priorizar revisões pendentes e domínios fracos, mantendo variedade.
+* **Painel Admin:** gerenciamento de provas e questões por usuários com papel `admin`, em `/admin`.
+* **Tutor IA (Gemini):** explica conceitos e dá pistas; exige login, tem cota diária e fica indisponível durante simulados em andamento.
+* **Sessões Isoladas:** histórico, analytics e revisão escopados por usuário autenticado ou por dispositivo (`X-Client-Key`).
+* **SRS Incremental:** a fila de revisão guarda repetições, lapsos, estabilidade e fator de facilidade.
+* **Snapshots Editoriais Históricos:** snapshots por `question_version` para acompanhar dificuldade, erro e pressão de revisão ao longo do tempo.
 
 ## 🚀 Tecnologias
 
-- **Backend:** Python, FastAPI, SQLAlchemy, PostgreSQL/SQLite, Alembic.
-- **Frontend:** Next.js (App Router), React e TypeScript como interface principal.
-- **IA:** Google Generative AI SDK.
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy, Alembic, PostgreSQL 16, Redis 7 (rate limit).
+- **Frontend:** Next.js (App Router), React, TypeScript — Node 22 LTS.
+- **Infra:** Docker Compose (local) / Portainer (produção), nginx (TLS + headers), GitHub Actions → GHCR.
+- **IA:** Google Gemini API (REST), modelo padrão `gemini-2.5-flash`.
 
 ---
 
-## 🛠️ Instalação e Execução
-
-### 1. Backend (FastAPI)
-O backend é responsável por processar os JSONs e servir a API.
-
-```bash
-docker run --rm --name sentinel-pg \
-  -e POSTGRES_DB=sentinel_quiz \
-  -e POSTGRES_USER=sentinel \
-  -e POSTGRES_PASSWORD=sentinel \
-  -p 5432:5432 postgres:16-alpine
-
-cd backend
-python -m venv .venv
-
-# Ativação do ambiente virtual
-# Windows: .venv\Scripts\activate | Linux/Mac: source .venv/bin/activate
-
-pip install -r requirements.txt
-cp ../.env.example .env
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+## 🧭 Arquitetura
 
 ```
-
-O runtime principal agora assume `PostgreSQL`. `SQLite` ficou restrito a cenários legados e migração assistida. Como a aplicação ainda não entrou em produção, a trilha de migrations foi consolidada em um único baseline Alembic alinhado ao schema atual. Em produção, prefira rodar migrations com Alembic e manter `BOOTSTRAP_SCHEMA=false`.
-
-### 2. Frontend (Next)
-
-O frontend principal agora vive em `web/`.
-
-```bash
-cd web
-npm install
-npm run dev
+             :80 (redirect) / :443 (TLS)
+navegador ───────────────► proxy (nginx) ──► web  (Next.js :3000)
+                              │   /api/*
+                              └────────────► api  (FastAPI/uvicorn :8000) ──► postgres :5432
+                                                                          └─► redis    :6379
+rede "edge": proxy, web, api          rede "data" (internal, sem egress): api, postgres, redis
 ```
 
-Acesse em: `http://127.0.0.1:3000`
+Somente o proxy publica portas no host. `web`, `api`, `postgres` e `redis` não são acessíveis de fora; o frontend chama a API na mesma origem (`https://<host>/api`).
 
-### 3. Docker / Docker Compose
+---
 
-Para subir a aplicação completa em container:
+## 🐳 Início rápido (Docker Compose local)
 
 ```bash
-cp .env.docker.example .env
+cp .env.docker.example .env      # opcional: todos os valores têm default de desenvolvimento
 docker compose up --build -d
 ```
 
-A stack ficará disponível em:
+Acesse **https://localhost** (o `http://localhost` redireciona). O certificado é autoassinado: aceite-o no navegador na primeira vez — ele é persistido no volume `proxy_certs` e **não** muda entre reinícios.
 
-- frontend Next: `http://127.0.0.1:3000`
-- API: `http://127.0.0.1:8000`
+O compose local (`docker-compose.yml`):
 
-O compose local:
-- usa defaults seguros mesmo sem `.env`
-- aceita sobrescrita por `.env`
-- sobe `PostgreSQL`, API e frontend Next por padrão
-- monta `./questions` em `/questions` para refletir mudanças sem rebuild
-- monta `./material` externamente em `/app/material` (os EPUBs nao vao mais baked na imagem)
-- persiste o Postgres no volume `postgres_data`
-- permite `APP_RUN_DB_MIGRATIONS=true` para executar `alembic upgrade head` antes do `uvicorn`
-- já expõe logs estruturados JSON, `X-Request-ID` e sinais básicos de abuso no backend
+- sobe `postgres`, `redis`, `api`, `web` e `proxy`; publica apenas as portas `APP_HTTP_PORT` (80) e `APP_HTTPS_PORT` (443);
+- roda `alembic upgrade head` antes de iniciar a API (`APP_RUN_DB_MIGRATIONS=true`) e importa `./questions` uma vez no start (`APP_INGEST_ON_STARTUP=true`);
+- monta `./questions` em `/questions` (read-only) para refletir mudanças sem rebuild;
+- monta `./material` em `/app/material` (read-only) — os EPUBs licenciados ficam só no seu disco (ver [Materiais](#-materiais-de-referência-epub));
+- usa credenciais **somente de desenvolvimento** (`sentinel`/`sentinel`) quando `.env` não define outras — o backend recusa essa senha com `APP_ENV=production`;
+- limita CPU/memória de cada serviço (`APP_*_CPUS` / `APP_*_MEMORY`) e rotaciona logs (`json-file`, 10 MB × 5).
 
-### 4. Docker Run Direto
-
-Também é possível rodar a imagem manualmente:
+Comandos úteis:
 
 ```bash
-docker build -t sentinel-quiz:local .
-docker run -d \
-  --name sentinel-quiz \
-  -p 8000:8000 \
-  -e DATABASE_URL=postgresql+psycopg://sentinel:sentinel@SEU_POSTGRES:5432/sentinel_quiz \
-  -e BOOTSTRAP_SCHEMA=false \
-  -e RUN_DB_MIGRATIONS=true \
-  sentinel-quiz:local
+docker compose logs -f api
+docker compose run --rm api migrate      # só `alembic upgrade head`
+docker compose run --rm api ingest       # só a importação de questions/*.json
+docker compose exec postgres psql -U sentinel -d sentinel_quiz
 ```
 
-Se quiser montar um arquivo `.env` dentro do container, ele deve usar as variáveis reais da aplicação (`DATABASE_URL`, `AUTH_COOKIE_*`, etc.). Depois monte esse arquivo e defina `APP_ENV_FILE` apontando para o caminho interno montado.
-Para `docker run` com SQLite em vez de Postgres, mantenha o default de `DATABASE_URL` e monte `-v sentinel_quiz_data:/data`.
-O entrypoint também entende variáveis prefixadas com `APP_`, então você pode reaproveitar `.env.docker.example` em `docker run` se preferir esse formato.
-
-Para o frontend Next:
+Primeiro administrador: crie a conta pela UI e promova-a no banco:
 
 ```bash
-docker build -f web/Dockerfile -t sentinel-quiz-web:local .
-docker run -d \
-  --name sentinel-quiz-web \
-  -p 3000:3000 \
-  -e NEXT_PUBLIC_API_ORIGIN=http://localhost:8000 \
-  sentinel-quiz-web:local
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "update users set role = '\''admin'\'' where email = '\''voce@exemplo.com'\''"'
 ```
-
-### 5. Portainer
-
-Para Portainer, use `docker-compose.portainer.yml` como stack base:
-
-- troque `APP_IMAGE_NAME`, `APP_WEB_IMAGE_NAME` e `APP_NGINX_IMAGE_NAME` para as imagens publicadas no registry
-- configure as variáveis `APP_*` no painel do stack
-- publique o app pelo proxy em `APP_NGINX_HOST`; a API passa a sair em `http(s)://<host>/api`
-- o proxy gera um certificado autoassinado no startup usando `APP_NGINX_HOST` como `CN/SAN`
-- mantenha o volume `postgres_data` para persistência do banco
-- mantenha também `proxy_certs` se quiser persistir a chave/certificado entre reinícios
-- monte também o diretório/volume de `material` externamente se quiser preview de referência no app
-- para schema controlado por migration, use `APP_BOOTSTRAP_SCHEMA=false` e `APP_RUN_DB_MIGRATIONS=true`
-- o default dessa stack já assume `APP_ENV=production`; se o banco for `sqlite`, a API vai recusar o boot por segurança
-
-Esse arquivo usa imagens prontas (sem `build`) e é mais adequado para ambientes gerenciados.
-
-### 6. Backup Lógico
-
-Para gerar um backup manual do banco:
-
-```bash
-DATABASE_URL="postgresql+psycopg://sentinel:sentinel@localhost:5432/sentinel_quiz" \
-./scripts/create_logical_backup.sh
-```
-
-O script suporta `PostgreSQL` (via `pg_dump`) e `SQLite` (cópia consistente do arquivo). O objetivo é fornecer um caminho operacional imediato; em produção, ainda é recomendável agendar essa rotina e testar restore periodicamente.
-
-### 7. Migrando um Banco SQLite Legado
-
-Se voce ainda tiver um banco antigo em `SQLite`, migre os dados para `PostgreSQL` antes de seguir usando a aplicacao:
-
-```bash
-python scripts/migrate_sqlite_to_postgres.py \
-  --source sqlite:///./backend/securityplus.db \
-  --target postgresql+psycopg://sentinel:sentinel@127.0.0.1:5432/sentinel_quiz
-```
-
-Como o baseline Alembic foi consolidado, um banco local ja existente pode ser:
-
-1. recriado do zero, ou
-2. receber `alembic stamp head` depois de voce confirmar que o schema atual ja corresponde aos `models`.
 
 ---
 
-## ⚙️ Configurações (.env)
+## 🛠️ Desenvolvimento sem Docker
 
-O projeto depende de variáveis de ambiente para funcionar corretamente:
+### Backend (FastAPI)
 
-| Variável | Descrição |
-| --- | --- |
-| `DATABASE_URL` | String de conexão do banco (`sqlite:///...` ou `postgresql+psycopg://...`). |
-| `APP_ENV` | Ambiente lógico (`development` ou `production`). Em `production`, o backend valida configurações inseguras antes de iniciar. |
-| `BOOTSTRAP_SCHEMA` | Quando `true`, cria/atualiza o schema base automaticamente no startup. Em produção, prefira `false` com Alembic. |
-| `AUTH_TOKEN_TTL_HOURS` | Validade dos tokens bearer opacos. |
-| `AUTH_TOKEN_BYTES` | Entropia usada na geração dos tokens bearer. |
-| `AUTH_COOKIE_*` | Define o cookie HttpOnly de sessão (`sentinel_session`), usado pelo frontend novo em vez de `localStorage`. |
-| `LOG_LEVEL` | Nível de log do backend (`INFO`, `WARNING`, etc.). |
-| `LOG_JSON` | Quando `true`, emite logs estruturados em JSON, próprios para agregadores e observabilidade. |
-| `SLOW_REQUEST_THRESHOLD_MS` | Limite a partir do qual requests lentos viram warning no log. |
-| `RATE_LIMIT_*` | Limites por bucket (`public`, `auth`, `admin`). |
-| `ABUSE_*` | Sensibilidade dos sinais de scraping/abuso emitidos pelo backend. |
-| `GEMINI_API_KEY` | Sua chave de API do Google AI Studio. |
-| `GEMINI_MODEL` | Modelo utilizado (ex: `gemini-1.5-flash`). |
-| `GEMINI_TEMPERATURE` | Criatividade da IA (recomendado: 0.4 para exatidão). |
+```bash
+docker run -d --rm --name sentinel-pg \
+  -e POSTGRES_DB=sentinel_quiz -e POSTGRES_USER=sentinel -e POSTGRES_PASSWORD=sentinel \
+  -p 5432:5432 postgres:16-alpine
 
-> **Nota sobre o Tutor:** O prompt do sistema está configurado para nunca revelar a alternativa correta diretamente, agindo estritamente como um mentor acadêmico.
-
-Para containers, prefira usar as variáveis `APP_*` descritas em `.env.docker.example`; o `docker-compose.yml` converte essas variáveis para o runtime interno da aplicação.
-
-### Autenticação e Escopo
-
-Os endpoints de autenticação disponíveis são:
-
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
-
-Os endpoints de estado de estudo disponíveis são:
-
-- `GET /api/study/overview`
-- `GET /api/study/questions/{question_id}/state`
-- `PUT /api/study/questions/{question_id}/state`
-- `POST /api/study/sessions`
-- `POST /api/study/review/sessions`
-- `GET /api/study/review/queue`
-- `GET /api/study/history`
-- `GET /api/study/analytics/weekly`
-- `GET /api/study/sessions/{session_id}`
-- `GET /api/study/sessions/{session_id}/next`
-- `POST /api/study/sessions/{session_id}/answer`
-- `GET /api/study/sessions/{session_id}/result`
-- `GET /api/study/sessions/{session_id}/review`
-
-O frontend web agora gera e envia automaticamente `X-Client-Key` em todas as chamadas, isolando histórico e métricas por dispositivo quando o aluno ainda não criou conta. A autenticacao principal do app web passou a usar cookie HttpOnly (`AUTH_COOKIE_NAME`) com `credentials: include`; o token bearer ficou apenas como compatibilidade transitória e nao e mais persistido em `localStorage`.
-
-No `study mode`, o payload de criação de sessão também aceita `strategy=standard|adaptive`. No `exam mode`, `POST /api/sessions` também aceita `strategy=standard|adaptive` para priorizar domínios fracos e revisões sem perder variedade do simulado. A rota dedicada `POST /api/study/review/sessions` usa a fila de revisão como fonte principal e pode complementar com itens futuros quando necessário. A política de revisão agora também considera repetições, lapsos, fator de facilidade e estabilidade para espaçar melhor os próximos retornos.
-
-Além da tela de login dedicada, você ainda pode integrar autenticação via navegador com o helper global:
-
-```js
-window.SentinelAuth.setToken("SEU_TOKEN");
-window.SentinelAuth.getClientKey();
+cd backend
+python3.12 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt -r requirements-dev.txt
+cp ../.env.example .env              # APP_ENV=development, rate limit em memória
+alembic upgrade head                 # schema via migrations (BOOTSTRAP_SCHEMA=false)
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m pytest                     # testes (TEST_DATABASE_URL habilita os de Postgres)
 ```
 
-Ao fazer `login` ou `register` com o mesmo `X-Client-Key`, as sessões anônimas daquele dispositivo são automaticamente associadas ao usuário.
-O mesmo fluxo também consolida bookmarks e notas salvas localmente para a conta autenticada.
-Agora esse merge também preserva sessões de estudo e itens da fila de revisão daquele dispositivo.
+Sem `APP_ENV` definido o backend assume `production` (fail-closed): exige Redis, cookie `Secure`, senha de banco forte etc. O `.env.example` já define `APP_ENV=development`.
+
+### Frontend (Next.js)
+
+```bash
+cd web
+npm ci
+echo "NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000" > .env.local   # API em outra origem no dev
+npm run dev        # http://127.0.0.1:3000
+npm run lint && npm run typecheck && npm run build
+```
+
+---
+
+## 🏗️ Imagens Docker
+
+Cada imagem tem seu próprio contexto de build:
+
+```bash
+docker build -t sentinel-quiz:local .                        # API (contexto = raiz, allowlist em .dockerignore)
+docker build -t sentinel-quiz-web:local web                  # frontend (contexto = web/)
+docker build -t sentinel-quiz-proxy:local docker/nginx       # proxy nginx
+```
+
+- **API:** multi-stage (`builder` com venv → runtime `python:3.12-slim`), usuário não-root `app`, código read-only, healthcheck em `/api/health`. As questões (`questions/`) vão na imagem; os EPUBs **não**.
+- **Web:** `node:22-alpine`, `npm ci` a partir do `package-lock.json` (o build falha sem lockfile), saída `standalone`, usuário não-root.
+- **Proxy:** `nginx:1.30-alpine` com TLS, `server_tokens off`, gzip, `limit_req` em `/api/auth/`.
+- Imagens base fixadas por digest (`@sha256:…`); o Dependabot abre PRs para atualizá-las.
+
+`docker run` direto da API (precisa de Postgres e Redis acessíveis):
+
+```bash
+docker run -d --name sentinel-quiz \
+  --env-file .env.docker.example \
+  -e APP_DATABASE_URL='postgresql+psycopg://USER:SENHA@SEU_POSTGRES:5432/sentinel_quiz' \
+  -e APP_REDIS_URL='redis://SEU_REDIS:6379/0' \
+  -v "$PWD/material:/app/material:ro" \
+  sentinel-quiz:local
+```
+
+O entrypoint exporta cada `APP_<NOME>` como `<NOME>` (valor vazio = default do backend), constrói `DATABASE_URL` a partir de `APP_POSTGRES_*` quando `APP_DATABASE_URL` está vazio e aceita `APP_ENV_FILE` apontando para um arquivo `.env` montado no container. Comandos: `api` (padrão), `migrate`, `ingest`, ou qualquer comando arbitrário.
+
+---
+
+## ☁️ Deploy com Portainer (produção)
+
+Use `docker-compose.portainer.yml` como stack. Ele usa as imagens publicadas no GHCR (sem `build`) e **falha no deploy** se faltarem variáveis obrigatórias:
+
+| Variável | Obrigatória | Descrição |
+| --- | --- | --- |
+| `APP_IMAGE_TAG` | sim | Tag imutável publicada pelo CI: `sha-<7 chars>` (commits na `main`) ou `1.2.3` (release `v1.2.3`). Não existe `:latest` no stack. |
+| `APP_POSTGRES_PASSWORD` | sim | Senha do Postgres; a API monta a `DATABASE_URL` com ela (não há como dessincronizar). Gere com `openssl rand -base64 32`. |
+| `APP_NGINX_HOST` | sim | Domínio público sem protocolo (`quiz.seudominio.com`). Define `server_name`, CN/SAN do certificado, `PUBLIC_WEB_ORIGIN` e CORS. |
+| `APP_IMAGE_REPOSITORY` | não | Default `ghcr.io/dathannobrega/sentinel-quiz` (web/proxy usam os sufixos `-web`/`-proxy`). |
+| `APP_MATERIAL_HOST_DIR` | não | Caminho **absoluto** no host com os EPUBs (montado read-only). Vazio = volume nomeado `material_data`. |
+| `APP_TLS_*` | não | Certificado próprio (ver [TLS](#-tls--certificados)). |
+
+Demais variáveis: veja `.env.docker.example` e a [tabela abaixo](#️-variáveis-de-ambiente). Defaults do stack: `APP_ENV=production`, migrations no start, `APP_INGEST_ON_STARTUP=false`, rate limit em Redis, `pull_policy: missing` (tags são imutáveis).
+
+Fluxo de atualização: aguarde o CI verde → copie a tag `sha-xxxxxxx` (ou a versão) do pacote no GHCR → altere `APP_IMAGE_TAG` no stack → *Update the stack*. Rollback = voltar a tag anterior (migrations destrutivas exigem restore de backup).
+
+Primeiro deploy: suba o stack, depois importe as questões com `APP_INGEST_ON_STARTUP=true` em um redeploy (e volte para `false`) ou chame `POST /api/admin/ingest` com um admin. Se os pacotes do GHCR forem privados, cadastre o registry `ghcr.io` no Portainer com um token `read:packages`.
+
+Materiais no volume nomeado (quando `APP_MATERIAL_HOST_DIR` está vazio):
+
+```bash
+docker run --rm -v <stack>_material_data:/dst -v /caminho/dos/epubs:/src:ro alpine cp -a /src/. /dst/
+```
+
+---
+
+## 🗃️ Migrations
+
+- A API roda `alembic upgrade head` **no start do container** (`RUN_DB_MIGRATIONS=true`, default nos dois composes e na imagem), antes de iniciar os workers do uvicorn. O `alembic/env.py` obtém um *advisory lock* do PostgreSQL, então réplicas iniciando juntas se serializam em vez de competir.
+- `BOOTSTRAP_SCHEMA` (antigo `create_all`) fica `false` e é recusado em produção. Se você o ligar em dev, o entrypoint força 1 worker.
+- Rodar manualmente / como job único: `docker compose run --rm api migrate` (ou `cd backend && alembic upgrade head`).
+- A cadeia foi consolidada em um baseline: o arquivo `0008_consolidated_baseline.py` tem **revision id `0008_question_stats_snapshot`** (mantido para compatibilidade com bancos antigos). Banco novo: `alembic upgrade head`. Banco antigo com schema equivalente: `alembic stamp head` (só depois de conferir o schema).
+
+## 📥 Ingestão de questões
+
+- `INGEST_ON_STARTUP=true`: o entrypoint importa `questions/*.json` **uma vez** antes de subir os workers (os workers recebem `INGEST_ON_STARTUP=false`, evitando importações concorrentes). Default: `true` no compose local, `false` no Portainer e no backend.
+- Sob demanda: `POST /api/admin/ingest` (usuário `admin`) ou `docker compose run --rm api ingest`.
+- No Portainer as questões vêm da imagem (`/questions`); para atualizar o banco de questões publique uma nova imagem.
+
+## 📚 Materiais de referência (EPUB)
+
+Os EPUBs são material comercial licenciado: **não** são versionados (`material/*.epub` e `*.pdf` estão no `.gitignore`), **não** entram na imagem (`material/` fora do contexto via `.dockerignore`) e são montados em runtime, read-only, em `/app/material`:
+
+- local: `./material:/app/material:ro`;
+- Portainer: `APP_MATERIAL_HOST_DIR` (bind) ou volume `material_data`.
+
+O preview de referências (`/api/materials/preview`) exige usuário autenticado e não há rota de download do arquivo original. Sem os arquivos o app funciona normalmente, apenas sem o preview.
+
+> ⚠️ O histórico do git **ainda contém** os três EPUBs (commits anteriores a esta mudança) e imagens antigas no GHCR os incluem em `/app/material`. Veja [Limpeza do histórico](#limpeza-do-histórico-e-do-ghcr-epubs).
+
+---
+
+## 🔐 TLS / certificados
+
+- **Padrão (`APP_TLS_MODE=self-signed`)**: o proxy gera um certificado autoassinado (CN/SAN = `APP_NGINX_HOST` + `APP_NGINX_ALT_NAMES`) **somente** se não existir, se expirar em menos de 30 dias ou se os nomes mudarem. Fica no volume `proxy_certs`.
+- **Certificado próprio (`APP_TLS_MODE=custom`)**: nada é gerado; o proxy valida os arquivos e falha no start se estiverem ausentes.
+  - Coloque `server.crt` (cadeia completa) e `server.key` em um diretório do host e aponte `APP_TLS_CERTS_DIR=/srv/sentinel/certs`; ou
+  - **Let's Encrypt** (certbot no host): `APP_TLS_CERTS_DIR=/etc/letsencrypt`, `APP_TLS_CERTIFICATE=/etc/nginx/certs/live/<host>/fullchain.pem`, `APP_TLS_CERTIFICATE_KEY=/etc/nginx/certs/live/<host>/privkey.pem`. Após cada renovação: `docker exec <proxy> nginx -s reload` (ex.: `--deploy-hook` do certbot).
+  - Alternativa: terminar TLS num proxy externo (Traefik/Caddy/Cloudflare) — nesse caso ajuste o nginx para confiar no IP desse proxy (`set_real_ip_from`), senão todos os clientes aparecerão com o IP do balanceador.
+- HSTS (`max-age=31536000; includeSubDomains`) está ligado: use-o só em domínios que servirão HTTPS permanentemente.
+
+## 🌐 IP do cliente e rate limit
+
+- O nginx **sobrescreve** `X-Forwarded-For` e `X-Real-IP` com `$remote_addr` (nunca anexa o valor enviado pelo cliente) e gera `X-Request-ID` próprio.
+- Uvicorn roda com `--proxy-headers --forwarded-allow-ips "$FORWARDED_ALLOW_IPS"`. Os composes usam `*` porque a API **não é publicada** e só o proxy a alcança na rede interna; a imagem, isolada, confia apenas em `127.0.0.1`. Nunca publique a porta 8000 com `*`.
+- `TRUST_FORWARDED_FOR_HEADER=true` apenas atrás do proxy (composes); em dev local sem proxy fica `false`.
+- Rate limit da aplicação em **Redis** (`RATE_LIMIT_BACKEND=redis`, obrigatório em produção), compartilhado entre os `UVICORN_WORKERS` (default 2). O nginx adiciona `limit_req` em `/api/auth/` (`APP_NGINX_AUTH_RATE=10r/s`, burst 20) como defesa em profundidade.
+
+## 💾 Backup e restore
+
+`scripts/create_logical_backup.sh` executa `pg_dump -Fc` **dentro do container do Postgres** (sem senha em argumentos, sem precisar de `pg_dump` no host), grava com `umask 077`, verifica o arquivo com `pg_restore --list`, gera `.sha256` e mantém os `BACKUP_RETENTION` (14) dumps mais recentes em `BACKUP_DIR` (`./backups`, ignorado pelo git).
+
+```bash
+./scripts/create_logical_backup.sh                                   # compose local
+BACKUP_COMPOSE_ARGS="-f docker-compose.portainer.yml -p sentinel" ./scripts/create_logical_backup.sh
+BACKUP_MODE=container BACKUP_PG_CONTAINER=<stack>-postgres-1 ./scripts/create_logical_backup.sh   # Portainer
+BACKUP_MODE=url DATABASE_URL='postgresql://user:***@db:5432/sentinel_quiz' ./scripts/create_logical_backup.sh  # Postgres externo (senha vai para PGPASSFILE temporário)
+```
+
+Agende (cron/systemd timer) e copie os dumps para fora do host. **Restore** (teste periodicamente):
+
+```bash
+docker compose stop api web proxy
+docker compose exec -T postgres sh -c \
+  'pg_restore --clean --if-exists --no-owner --no-privileges --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < backups/sentinel-quiz-AAAAMMDDTHHMMSSZ.dump
+docker compose start api web proxy
+```
+
+(`sha256sum -c backups/<arquivo>.dump.sha256` antes de restaurar.) Para restaurar em outro host, suba só o `postgres` do stack, rode o comando acima e depois inicie o restante — as migrations do start levam o schema até o `head` se o dump for de uma versão anterior.
+
+---
+
+## ⚙️ Variáveis de ambiente
+
+- **Containers** usam nomes com prefixo `APP_` (`.env.docker.example`); o entrypoint os exporta sem o prefixo. Valor vazio = default do backend.
+- **Backend rodando direto** (`backend/.env`) usa os nomes sem prefixo (`.env.example` na raiz).
+
+| Variável (sem prefixo) | Default backend | Compose local / Portainer | Descrição |
+| --- | --- | --- | --- |
+| `APP_ENV` | `production` | `development` / `production` | Em `production` o backend valida a configuração e recusa defaults inseguros. Testes usam `test`. |
+| `ENFORCE_PRODUCTION_SAFETY` | `true` | `true` | Liga as validações de produção. |
+| `RUN_DB_MIGRATIONS` | — (entrypoint `true`) | `true` | `alembic upgrade head` no start do container. |
+| `BOOTSTRAP_SCHEMA` | `false` | `false` | `create_all` legado; proibido em produção. |
+| `INGEST_ON_STARTUP` | `false` | `true` / `false` | Importa `questions/*.json` uma vez no start. |
+| `DATABASE_URL` | — | montada de `APP_POSTGRES_*` | Via `APP_DATABASE_URL` só para banco externo. |
+| `APP_POSTGRES_DB` / `_USER` / `_PASSWORD` | — | `sentinel_quiz` / `sentinel` / dev: `sentinel`, prod: **obrigatória** | Credenciais do serviço postgres (e da URL da API). |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` | `10` / `10` / `10` | — | Pool do SQLAlchemy (por worker). |
+| `UVICORN_WORKERS` | — (entrypoint `2`) | `2` | Processos uvicorn. |
+| `FORWARDED_ALLOW_IPS` | — (entrypoint `127.0.0.1`) | `*` | IPs dos quais o uvicorn aceita `X-Forwarded-*`. |
+| `TRUST_FORWARDED_FOR_HEADER` | `false` | `true` | Usa o IP que o nosso nginx colocou em `X-Forwarded-For`. |
+| `TRUST_REQUEST_ID_HEADER` | `true` | `true` | Reaproveita o `X-Request-ID` (gerado pelo nginx). |
+| `EXPOSE_API_DOCS` | `false` em produção | vazio | `/docs` e `/openapi.json`. |
+| `QUESTION_JSON_DIR` / `MATERIAL_DIR` | `../questions` / `../material` | `/questions` / `/app/material` | Caminhos de conteúdo. |
+| `PUBLIC_WEB_ORIGIN` | `http://127.0.0.1:3000` | `https://<APP_NGINX_HOST>` | Base dos links de e-mail. |
+| `CORS_ORIGINS` | localhost | `https://<APP_NGINX_HOST>` | `*` é recusado em produção. |
+| `AUTH_COOKIE_SECURE` / `_SAMESITE` / `_DOMAIN` / `_NAME` | — | `true` / `lax` / vazio / `sentinel_session` | Cookie HttpOnly de sessão. |
+| `AUTH_TOKEN_TTL_HOURS` / `AUTH_TOKEN_BYTES` | `168` / `32` | — | Validade/entropia do token de sessão. |
+| `AUTH_RETURN_TOKEN_IN_BODY` | `false` | — | Devolve o token no JSON de login (só clientes legados). |
+| `AUTH_LAST_USED_THROTTLE_SECONDS` | `300` | — | Frequência máxima de atualização de `last_used_at`. |
+| `AUTH_EMAIL_VERIFICATION_TTL_MINUTES` / `AUTH_PASSWORD_RESET_TTL_MINUTES` | `1440` / `60` | — | Validade dos links de e-mail. |
+| `SMTP_HOST` / `_PORT` / `_USERNAME` / `_PASSWORD` / `_FROM_EMAIL` / `_FROM_NAME` / `_USE_TLS` | vazio / `587` / … / `true` | — | Envio de e-mail (reset/verificação). |
+| `LOG_LEVEL` / `LOG_JSON` / `SLOW_REQUEST_THRESHOLD_MS` | `INFO` / `true` / `1200` | — | Logs estruturados. |
+| `RATE_LIMIT_BACKEND` / `REDIS_URL` | `memory` / vazio | `redis` / `redis://redis:6379/0` | `redis` é obrigatório em produção. |
+| `RATE_LIMIT_ALLOW_MEMORY_IN_PRODUCTION` | `false` | — | Escape explícito (instância única). |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_{PUBLIC,AUTH,ADMIN}_{REQUESTS,WINDOW_SECONDS}`, `RATE_LIMIT_CACHE_SIZE` | `true`, 180/60, 40/60, 60/60, 50000 | — | Limites por bucket. |
+| `ABUSE_*` | ver `.env.docker.example` | — | Sinais de scraping/abuso. |
+| `GEMINI_ENABLE` / `GEMINI_API_KEY` / `GEMINI_MODEL` | `true` / vazio / `gemini-2.5-flash` | — | Tutor IA (sem chave = tutor desligado). |
+| `GEMINI_TIMEOUT_SECONDS`, `_TEMPERATURE`, `_MAX_OUTPUT_TOKENS`, `_SYSTEM_PROMPT`, `_MIN_RESPONSE_CHARS`, `_RETRY_ON_SHORT`, `_CANDIDATE_COUNT` | `20`, `0.2`, `400`, vazio, `220`, `true`, `1` | — | Ajustes do tutor. |
+| `TUTOR_DAILY_QUOTA` | `40` | — | Pedidos ao tutor por usuário/dia. |
+
+Somente da stack (não viram configuração da API): `APP_IMAGE_TAG`, `APP_IMAGE_REPOSITORY`, `APP_*_CONTAINER_NAME`, `APP_HTTP_PORT`, `APP_HTTPS_PORT`, `APP_NGINX_HOST`, `APP_NGINX_ALT_NAMES`, `APP_NGINX_CERT_DAYS`, `APP_NGINX_AUTH_RATE`, `APP_NGINX_AUTH_BURST`, `APP_NGINX_CLIENT_MAX_BODY_SIZE`, `APP_TLS_MODE`, `APP_TLS_CERTS_DIR`, `APP_TLS_CERTIFICATE`, `APP_TLS_CERTIFICATE_KEY`, `APP_MATERIAL_HOST_DIR`, `APP_*_CPUS`, `APP_*_MEMORY`.
+
+**Frontend:** `APP_PUBLIC_API_ORIGIN` → `NEXT_PUBLIC_API_ORIGIN` e `API_ORIGIN` no container `web`. Deixe **vazio** para usar a mesma origem do proxy (`https://<host>/api`); preencha só para apontar para outra API. O valor é lido em runtime pelo layout do servidor; em `npm run dev` use `web/.env.local`.
+
+---
+
+## 🔁 CI/CD
+
+`.github/workflows/ci.yml` roda em todo PR e push:
+
+| Job | O que faz |
+| --- | --- |
+| `backend-tests` | Python 3.12, `pip install -r backend/requirements.txt -r backend/requirements-dev.txt`, `pytest` em `backend/` com serviço `postgres:16` (`TEST_DATABASE_URL`), e `pip-audit -r backend/requirements.txt`. |
+| `content-validate` | `python scripts/validate_content.py` (validação do banco de questões). |
+| `web-checks` | Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build` em `web/`. |
+| `image-scan` | Build das 3 imagens (sem push) + Trivy; falha com vulnerabilidade **CRITICAL** corrigível. |
+| `publish` | Só em push para `main`, tags `v*` ou dispatch manual, e só se todos os jobs acima passarem (`needs`). Publica `ghcr.io/<owner>/<repo>`, `-web` e `-proxy`. |
+
+Tags publicadas: `sha-<7 chars>` sempre; `X.Y.Z` e `X.Y` em tags `vX.Y.Z`; `latest` **somente** em tags de release. Build apenas `linux/amd64` (sem QEMU). Todas as actions estão fixadas por SHA de commit (comentário com a versão) e o `.github/dependabot.yml` atualiza pip, npm, imagens Docker (Dockerfiles e composes) e actions.
+
+---
+
+## 🔒 Notas de segurança
+
+- **Credenciais:** `sentinel/sentinel` existe apenas como default de desenvolvimento no compose local; o stack do Portainer exige `APP_POSTGRES_PASSWORD` e o backend recusa essa senha em produção. Segredos (`APP_POSTGRES_PASSWORD`, `APP_SMTP_PASSWORD`, `APP_GEMINI_API_KEY`) devem ficar nas variáveis do stack, nunca no repositório.
+- **Superfície exposta:** só o proxy publica portas; Postgres/Redis ficam numa rede interna sem egress; imagens rodam como não-root; o nginx não expõe versão (`server_tokens off`).
+- **Headers:** o nginx envia HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` e `Permissions-Policy`. A **Content-Security-Policy** com nonce é emitida pelo Next.js (`web/middleware.ts`), não pelo nginx.
+- **Sessões anônimas (`X-Client-Key`):** ao fazer login/cadastro enviando o mesmo `X-Client-Key`, as sessões anônimas daquele dispositivo são associadas à conta. Quem conhecer o `X-Client-Key` de outro dispositivo pode reivindicar o progresso anônimo dele — risco aceito porque sessões anônimas não contêm dados pessoais; o valor é aleatório, gerado e guardado apenas no navegador.
+- **Autenticação:** cookie HttpOnly `sentinel_session` (`Secure` atrás do proxy); o token não é devolvido no corpo por padrão (`AUTH_RETURN_TOKEN_IN_BODY=false`).
+
+### Limpeza do histórico e do GHCR (EPUBs)
+
+Esta mudança parou de versionar os EPUBs, mas **commits antigos ainda os contêm** e **imagens já publicadas** (todas as tags anteriores) os carregam em `/app/material`. Reescrever o histórico é destrutivo e deve ser feito por quem administra o repositório:
+
+```bash
+# 0. requisitos: git-filter-repo >= 2.47 (pip install git-filter-repo); avise colaboradores
+# 1. clone novo e dedicado
+git clone https://github.com/<owner>/Sentinel-Quiz.git sentinel-quiz-purge
+cd sentinel-quiz-purge
+# 2. remover os EPUBs de todo o histórico (todos os branches e tags)
+git filter-repo --sensitive-data-removal --invert-paths --path-glob '*.epub'
+# 3. conferir (as duas saídas devem ser vazias)
+git log --all --oneline -- '*.epub'
+git rev-list --objects --all | grep -i '\.epub$'
+# 4. publicar o histórico reescrito (readicione o remote se o filter-repo o removeu)
+git remote get-url origin || git remote add origin https://github.com/<owner>/Sentinel-Quiz.git
+git push --force --mirror origin
+```
+
+Depois: (a) peça ao GitHub Support a remoção de objetos em cache/PRs antigos (refs `refs/pull/*` não são reescritos por push); (b) todos os colaboradores devem **reclonar** (não fazer merge de clones antigos); (c) forks existentes continuam com os arquivos.
+
+GHCR — confirme que os pacotes não são públicos e apague versões antigas que contêm os EPUBs:
+
+```bash
+gh api /users/<owner>/packages/container/sentinel-quiz --jq .visibility        # deve ser "private"
+gh api --paginate /user/packages/container/sentinel-quiz/versions \
+  --jq '.[] | [.id, (.metadata.container.tags | join(",")), .created_at] | @tsv'
+gh api -X DELETE /user/packages/container/sentinel-quiz/versions/<id>          # versões anteriores a esta mudança
+```
+
+(Ou em *GitHub → Packages → sentinel-quiz → Package settings → Change visibility / Manage versions*. Para organizações, troque `/user/` por `/orgs/<org>/`.)
 
 ---
 
 ## 📂 Estrutura de Dados
 
-O formato canônico da plataforma agora é um JSON por certificação:
+O formato canônico é um JSON por certificação:
 
 1. `questions/securityplus.json`
 2. `questions/cissp.json`
@@ -278,126 +380,24 @@ Ambos usam o mesmo schema rico:
 }
 ```
 
-Os campos `domain`, `difficulty`, `certification`, `tags` e `citations` alimentam os insights por área, dificuldade, certificação e o plano de estudo com recomendações de “o que revisar” e “onde revisar”.
+Os campos `domain`, `difficulty`, `certification`, `tags` e `citations` alimentam os insights por área, dificuldade, certificação e o plano de estudo.
 
-`questions/cissp.dump` mantém apenas os itens não-CISSP que ficaram fora do arquivo canônico do CISSP.
+## 🧳 Migrando um banco SQLite legado
 
----
-
-## 🚢 Build e Publish
-
-O workflow `/.github/workflows/docker-publish.yml` faz build e publish da imagem Docker no GHCR:
-
-- em `push` para `main`
-- em tags `v*`
-- manualmente via `workflow_dispatch`
-
-As tags geradas incluem branch, tag, SHA e `latest` na branch padrão.
-
-## 🗃️ Migrations
-
-O projeto agora inclui Alembic em `backend/alembic/` com uma migration baseline para autenticação e escopo de sessões.
+O runtime usa apenas PostgreSQL (SQLite é recusado em produção). Para migrar dados antigos:
 
 ```bash
-cd backend
-alembic upgrade head
+python scripts/migrate_sqlite_to_postgres.py \
+  --source sqlite:///./backend/securityplus.db \
+  --target postgresql+psycopg://sentinel:sentinel@127.0.0.1:5432/sentinel_quiz
 ```
 
-Fluxo recomendado em produção:
+O destino deve estar no schema atual (`alembic upgrade head`). Um backup de SQLite é apenas a cópia do arquivo `.db` com a aplicação parada.
 
-1. Definir `DATABASE_URL` para PostgreSQL.
-2. Rodar `alembic upgrade head`.
-3. Subir a aplicação com `BOOTSTRAP_SCHEMA=false`.
+## 🔌 API — endpoints de autenticação e estudo
 
----
+- Auth: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`.
+- Estudo: `GET /api/study/overview`, `GET|PUT /api/study/questions/{question_id}/state`, `POST /api/study/sessions`, `POST /api/study/review/sessions`, `GET /api/study/review/queue`, `GET /api/study/history`, `GET /api/study/analytics/weekly`, `GET /api/study/sessions/{session_id}`, `GET /api/study/sessions/{session_id}/next`, `POST /api/study/sessions/{session_id}/answer`, `GET /api/study/sessions/{session_id}/review`.
+- Admin: `POST /api/admin/ingest` e demais rotas em `/api/admin/*` (papel `admin`).
 
-## 🌐 Frontend Next.js
-
-O frontend do produto agora vive integralmente em `web/`, com:
-
-- `Next.js (App Router)`
-- `React`
-- `TypeScript`
-- `apiClient` tipado para os endpoints reais do backend
-- tokens visuais e componentes base reutilizáveis
-
-Primeira fatia já entregue:
-
-- dashboard inicial
-- login/cadastro/logout
-- visão de áreas fracas
-- overview de estudo
-- criação de sessão (`exam` e `study`)
-- runner de prova (`/exam/[sessionId]`)
-- runner de study (`/study/[sessionId]`)
-- tela de resultado e revisão básica de ambos
-- histórico e analytics principais (`/history`)
-- bookmark e nota inline por questão no `study mode`
-- painel editorial completo (`/admin`)
-
-Para subir essa nova UI:
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Se o backend não estiver na mesma origem, defina:
-
-```bash
-NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
-```
-
-## 🐳 Docker com Proxy + API + Web
-
-O `docker-compose.yml` agora sobe:
-
-1. `proxy` em `http://localhost`, redirecionando para `https://localhost` com certificado autoassinado
-2. `web` internamente na porta `3000`
-3. `api` internamente na porta `8000`, publicada externamente em `/api`
-
-Fluxo local:
-
-```bash
-docker compose up --build
-```
-
-Acesse a interface por `https://localhost` (ou `http://localhost`, que redireciona). O frontend usa a mesma origem para chamar `/api`, então não é mais necessário expor `web` e `api` diretamente no host.
-
-Variáveis principais para o proxy/runtime:
-
-```bash
-APP_NGINX_HOST=localhost
-APP_NGINX_ALT_NAMES=
-APP_NGINX_CERT_DAYS=3650
-APP_PUBLIC_WEB_ORIGIN=
-APP_PUBLIC_API_ORIGIN=
-```
-
-`APP_NGINX_HOST` deve receber apenas o host/domínio, sem `http://` ou `https://`.
-Se `APP_PUBLIC_WEB_ORIGIN` ficar vazio, a API deriva automaticamente `https://<APP_NGINX_HOST>`.
-
-Quando estiver em produção com domínio público, use:
-
-```bash
-APP_NGINX_HOST=quiz.seudominio.com
-APP_NGINX_ALT_NAMES=www.quiz.seudominio.com
-APP_PUBLIC_WEB_ORIGIN=https://quiz.seudominio.com
-APP_AUTH_COOKIE_SECURE=true
-```
-
-O certificado continua sendo autoassinado; o navegador vai exigir confiança manual ou importação da CA/chave em ambientes controlados.
-Deixe `APP_PUBLIC_API_ORIGIN` vazio para o frontend usar a mesma origem do proxy. Só preencha esse valor se quiser forçar chamadas para outro backend.
-
-No Portainer, a stack agora espera tres imagens:
-
-1. `APP_IMAGE_NAME` para a API
-2. `APP_WEB_IMAGE_NAME` para o frontend Next
-3. `APP_NGINX_IMAGE_NAME` para o proxy Nginx
-
-O workflow `docker-publish.yml` deve publicar as tres imagens no GHCR:
-
-1. `ghcr.io/<owner>/<repo>` (API)
-2. `ghcr.io/<owner>/<repo>-web` (frontend)
-3. `ghcr.io/<owner>/<repo>-proxy` (Nginx)
+Com `EXPOSE_API_DOCS=true` (default fora de produção) a referência completa fica em `/docs`.
