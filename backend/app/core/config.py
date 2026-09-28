@@ -1,8 +1,18 @@
 from __future__ import annotations
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List, Optional
+
 from pydantic import Field
-from typing import List
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Environments explicitly treated as non-production. Anything else (including an
+# unset/unknown APP_ENV such as "staging") is treated as production so that the
+# runtime safety checks fail closed.
+NON_PRODUCTION_ENVIRONMENTS = frozenset({"development", "dev", "local", "test", "testing"})
+
+# Database passwords that must never be used in production (compose defaults).
+FORBIDDEN_PRODUCTION_DB_PASSWORDS = frozenset({"sentinel"})
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -13,14 +23,31 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://sentinel:sentinel@127.0.0.1:5432/sentinel_quiz",
         alias="DATABASE_URL",
     )
-    environment: str = Field(default="development", alias="APP_ENV")
+    # Fail-closed: when APP_ENV is not provided the application behaves as production.
+    environment: str = Field(default="production", alias="APP_ENV")
     enforce_production_safety: bool = Field(default=True, alias="ENFORCE_PRODUCTION_SAFETY")
-    bootstrap_schema: bool = Field(default=True, alias="BOOTSTRAP_SCHEMA")
+    bootstrap_schema: bool = Field(default=False, alias="BOOTSTRAP_SCHEMA")
     ingest_on_startup: bool = Field(default=False, alias="INGEST_ON_STARTUP")
+    # None => derived from the environment (enabled outside production only).
+    expose_api_docs: Optional[bool] = Field(default=None, alias="EXPOSE_API_DOCS")
+
+    # Database pool (ignored for SQLite).
+    db_pool_size: int = Field(default=10, alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=10, alias="DB_MAX_OVERFLOW")
+    db_pool_timeout: int = Field(default=10, alias="DB_POOL_TIMEOUT")
+    db_pool_pre_ping: bool = Field(default=True, alias="DB_POOL_PRE_PING")
+
+    # Auth. Tokens have a fixed (non-sliding) lifetime of AUTH_TOKEN_TTL_HOURS; a new
+    # token is issued on every login and all tokens are revoked on password reset.
     auth_token_ttl_hours: int = Field(default=168, alias="AUTH_TOKEN_TTL_HOURS")
     auth_token_bytes: int = Field(default=32, alias="AUTH_TOKEN_BYTES")
+    auth_return_token_in_body: bool = Field(default=False, alias="AUTH_RETURN_TOKEN_IN_BODY")
+    auth_last_used_throttle_seconds: int = Field(default=300, alias="AUTH_LAST_USED_THROTTLE_SECONDS")
+    auth_verification_resend_cooldown_seconds: int = Field(
+        default=60, alias="AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS"
+    )
     auth_cookie_name: str = Field(default="sentinel_session", alias="AUTH_COOKIE_NAME")
-    auth_cookie_secure: bool = Field(default=False, alias="AUTH_COOKIE_SECURE")
+    auth_cookie_secure: bool = Field(default=True, alias="AUTH_COOKIE_SECURE")
     auth_cookie_samesite: str = Field(default="lax", alias="AUTH_COOKIE_SAMESITE")
     auth_cookie_domain: str = Field(default="", alias="AUTH_COOKIE_DOMAIN")
     auth_email_verification_ttl_minutes: int = Field(default=1440, alias="AUTH_EMAIL_VERIFICATION_TTL_MINUTES")
@@ -33,6 +60,7 @@ class Settings(BaseSettings):
     smtp_from_email: str = Field(default="", alias="SMTP_FROM_EMAIL")
     smtp_from_name: str = Field(default="Sentinel Quiz", alias="SMTP_FROM_NAME")
     smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    smtp_timeout_seconds: float = Field(default=20.0, alias="SMTP_TIMEOUT_SECONDS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
     slow_request_threshold_ms: int = Field(default=1200, alias="SLOW_REQUEST_THRESHOLD_MS")
@@ -43,6 +71,12 @@ class Settings(BaseSettings):
     rate_limit_public_window_seconds: int = Field(default=60, alias="RATE_LIMIT_PUBLIC_WINDOW_SECONDS")
     rate_limit_auth_requests: int = Field(default=40, alias="RATE_LIMIT_AUTH_REQUESTS")
     rate_limit_auth_window_seconds: int = Field(default=60, alias="RATE_LIMIT_AUTH_WINDOW_SECONDS")
+    # Stricter bucket for credential / account-discovery endpoints (login, register,
+    # password reset and verification requests).
+    rate_limit_auth_sensitive_requests: int = Field(default=10, alias="RATE_LIMIT_AUTH_SENSITIVE_REQUESTS")
+    rate_limit_auth_sensitive_window_seconds: int = Field(
+        default=60, alias="RATE_LIMIT_AUTH_SENSITIVE_WINDOW_SECONDS"
+    )
     rate_limit_admin_requests: int = Field(default=60, alias="RATE_LIMIT_ADMIN_REQUESTS")
     rate_limit_admin_window_seconds: int = Field(default=60, alias="RATE_LIMIT_ADMIN_WINDOW_SECONDS")
     rate_limit_cache_size: int = Field(default=50000, alias="RATE_LIMIT_CACHE_SIZE")
@@ -52,35 +86,106 @@ class Settings(BaseSettings):
     abuse_rate_limit_breach_threshold: int = Field(default=3, alias="ABUSE_RATE_LIMIT_BREACH_THRESHOLD")
     abuse_signal_cooldown_seconds: int = Field(default=300, alias="ABUSE_SIGNAL_COOLDOWN_SECONDS")
     rate_limit_backend: str = Field(default="memory", alias="RATE_LIMIT_BACKEND")
+    rate_limit_allow_memory_in_production: bool = Field(
+        default=False, alias="RATE_LIMIT_ALLOW_MEMORY_IN_PRODUCTION"
+    )
     redis_url: str = Field(default="", alias="REDIS_URL")
 
-    cors_origins: str = Field(default="http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:3000,http://localhost:3000", alias="CORS_ORIGINS")
+    cors_origins: str = Field(
+        default="http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:3000,http://localhost:3000",
+        alias="CORS_ORIGINS",
+    )
 
     gemini_enable: bool = Field(default=True, alias="GEMINI_ENABLE")
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
     gemini_timeout_seconds: float = Field(default=20.0, alias="GEMINI_TIMEOUT_SECONDS")
     gemini_temperature: float = Field(default=0.2, alias="GEMINI_TEMPERATURE")
     gemini_max_output_tokens: int = Field(default=400, alias="GEMINI_MAX_OUTPUT_TOKENS")
+    # Extra operator instructions appended to the built-in tutor system instruction.
     gemini_system_prompt: str = Field(default="", alias="GEMINI_SYSTEM_PROMPT")
     gemini_min_response_chars: int = Field(default=220, alias="GEMINI_MIN_RESPONSE_CHARS")
     gemini_retry_on_short: bool = Field(default=True, alias="GEMINI_RETRY_ON_SHORT")
     gemini_candidate_count: int = Field(default=1, alias="GEMINI_CANDIDATE_COUNT")
+    # Thinking budget for Gemini 2.5 "flash" models (0 disables thinking so the
+    # output-token budget is not consumed by reasoning). Negative => not sent.
+    gemini_thinking_budget: int = Field(default=0, alias="GEMINI_THINKING_BUDGET")
+    tutor_daily_quota: int = Field(default=40, alias="TUTOR_DAILY_QUOTA")
 
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    def normalized_environment(self) -> str:
+        return str(self.environment or "").strip().lower()
+
     def is_production(self) -> bool:
-        return str(self.environment or "").strip().lower() in {"prod", "production"}
+        return self.normalized_environment() not in NON_PRODUCTION_ENVIRONMENTS
+
+    def api_docs_enabled(self) -> bool:
+        if self.expose_api_docs is not None:
+            return bool(self.expose_api_docs)
+        return not self.is_production()
+
+    def effective_cookie_secure(self) -> bool:
+        # Insecure cookies are only honoured outside production.
+        return bool(self.auth_cookie_secure or self.is_production())
+
+    def normalized_rate_limit_backend(self) -> str:
+        return str(self.rate_limit_backend or "memory").strip().lower()
+
+    def runtime_problems(self) -> list[str]:
+        """Return the list of production-safety violations for the current settings."""
+        problems: list[str] = []
+        samesite = str(self.auth_cookie_samesite or "").strip().lower()
+        if samesite not in {"lax", "strict", "none"}:
+            problems.append("AUTH_COOKIE_SAMESITE must be one of: lax, strict, none.")
+        backend = self.normalized_rate_limit_backend()
+        if backend not in {"memory", "redis"}:
+            problems.append("RATE_LIMIT_BACKEND must be one of: memory, redis.")
+        if backend == "redis" and not str(self.redis_url or "").strip():
+            problems.append("RATE_LIMIT_BACKEND=redis requires REDIS_URL.")
+
+        if not self.is_production():
+            return problems
+
+        if self.database_url.startswith("sqlite"):
+            problems.append("Production runtime requires a PostgreSQL-compatible DATABASE_URL, not SQLite.")
+        else:
+            password = _database_password(self.database_url)
+            if password is not None and password in FORBIDDEN_PRODUCTION_DB_PASSWORDS:
+                problems.append("DATABASE_URL uses a default/insecure password; set a strong database password.")
+        if self.bootstrap_schema:
+            problems.append("BOOTSTRAP_SCHEMA must be false in production; run Alembic migrations instead.")
+        if "*" in self.cors_origin_list():
+            problems.append("CORS_ORIGINS must list explicit origins in production (wildcard with credentials is forbidden).")
+        if not self.auth_cookie_secure:
+            problems.append("AUTH_COOKIE_SECURE must be true in production.")
+        if backend != "redis" and not self.rate_limit_allow_memory_in_production:
+            problems.append(
+                "RATE_LIMIT_BACKEND=redis is required in production "
+                "(set RATE_LIMIT_ALLOW_MEMORY_IN_PRODUCTION=true to override)."
+            )
+        return problems
 
     def validate_runtime(self) -> None:
-        if not self.enforce_production_safety or not self.is_production():
+        problems = self.runtime_problems()
+        if not problems:
             return
-        if self.database_url.startswith("sqlite"):
-            raise ValueError("Production runtime requires a PostgreSQL-compatible DATABASE_URL, not SQLite.")
-        if str(self.auth_cookie_samesite or "").strip().lower() not in {"lax", "strict", "none"}:
-            raise ValueError("AUTH_COOKIE_SAMESITE must be one of: lax, strict, none.")
-        if str(self.rate_limit_backend or "").strip().lower() not in {"memory", "redis"}:
-            raise ValueError("RATE_LIMIT_BACKEND must be one of: memory, redis.")
+        if not self.is_production():
+            # Outside production only structural errors are fatal.
+            raise ValueError(" ".join(problems))
+        if not self.enforce_production_safety:
+            return
+        raise ValueError("Unsafe production configuration: " + " ".join(problems))
+
+
+def _database_password(database_url: str) -> str | None:
+    try:
+        from sqlalchemy.engine import make_url
+
+        return make_url(database_url).password
+    except Exception:
+        return None
+
 
 settings = Settings()
