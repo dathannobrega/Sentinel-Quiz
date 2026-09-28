@@ -16,3 +16,6 @@ __pycache__/
 web/node_modules/
 web/.next/
 web/.DS_Store
+
+# graphify knowledge graph output
+graphify-out/
