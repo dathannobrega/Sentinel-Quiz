@@ -12,7 +12,9 @@ from app.schemas import (
     ReviewQueueSnapshotOut,
     StudyAnswerFeedbackOut,
     StudyAnswerIn,
+    MAX_FILTER_ITEMS,
     StudyHistoryOut,
+    StudyNextQuestionOut,
     StudyOverviewOut,
     StudyPlanOut,
     StudyResultOut,
@@ -73,7 +75,18 @@ def _get_study_session(
     elif session.client_key:
         if not client_key or session.client_key != client_key:
             raise HTTPException(status_code=404, detail="Study session not found.")
+    else:
+        # Sessions without any owner are never readable (deny by default).
+        raise HTTPException(status_code=404, detail="Study session not found.")
     return session
+
+
+def _check_filter_list(values: list[str] | None, name: str) -> None:
+    if values and len(values) > MAX_FILTER_ITEMS:
+        raise HTTPException(status_code=400, detail=f"Too many values for '{name}' (max {MAX_FILTER_ITEMS}).")
+    for value in values or []:
+        if len(str(value)) > 200:
+            raise HTTPException(status_code=400, detail=f"Value too long for '{name}'.")
 
 
 @router.get("/overview", response_model=StudyOverviewOut)
@@ -299,6 +312,8 @@ def review_queue_snapshot(
     db: Session = Depends(get_db),
 ):
     owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
+    _check_filter_list(domains, "domains")
+    _check_filter_list(review_states, "review_states")
     normalized_exam_id = exam_id.strip() if exam_id else None
     return ReviewQueueSnapshotOut(
         **build_review_queue_snapshot(
@@ -365,7 +380,11 @@ def study_session_state(
     return StudySessionStateOut(**serialize_study_session(session))
 
 
-@router.get("/sessions/{session_id}/next")
+@router.get(
+    "/sessions/{session_id}/next",
+    response_model=StudyNextQuestionOut,
+    response_model_exclude_unset=True,
+)
 def next_study_question(
     session_id: str,
     current_user: User | None = Depends(get_current_user_optional),
@@ -408,7 +427,7 @@ def submit_study_answer(
     return StudyAnswerFeedbackOut(**feedback)
 
 
-@router.get("/sessions/{session_id}/result", response_model=StudyResultOut)
+@router.get("/sessions/{session_id}/result", response_model=StudyResultOut, deprecated=True)
 def study_result(
     session_id: str,
     current_user: User | None = Depends(get_current_user_optional),
