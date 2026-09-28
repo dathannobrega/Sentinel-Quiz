@@ -6,8 +6,13 @@ Create Date: 2026-03-02 18:20:00
 """
 from __future__ import annotations
 
-from alembic import op
+import os
+import sys
+
 import sqlalchemy as sa
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sq_migration_helpers as h  # noqa: E402
 
 
 revision = "0010_pedagogy_and_engagement"
@@ -15,9 +20,13 @@ down_revision = "0009_editorial_metadata_and_metrics"
 branch_labels = None
 depends_on = None
 
+# Idempotent: revision 0008 runs create_all with the current models, so on an empty
+# database everything below may already exist. Every operation checks the live
+# schema first (see alembic/sq_migration_helpers.py).
+
 
 def upgrade() -> None:
-    op.create_table(
+    h.create_table(
         "question_hints",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("question_version_id", sa.Integer(), nullable=False),
@@ -32,9 +41,9 @@ def upgrade() -> None:
         sa.CheckConstraint("level >= 1 AND level <= 3", name="ck_question_hints_level_range"),
         sa.UniqueConstraint("question_version_id", "level", name="uq_question_hints_version_level"),
     )
-    op.create_index("ix_question_hints_question_version_id", "question_hints", ["question_version_id"], unique=False)
+    h.create_index("ix_question_hints_question_version_id", "question_hints", ["question_version_id"], unique=False)
 
-    op.create_table(
+    h.create_table(
         "reference_catalog",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("question_version_id", sa.Integer(), nullable=True),
@@ -56,16 +65,16 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["question_version_id"], ["question_versions.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_reference_catalog_question_version_id", "reference_catalog", ["question_version_id"], unique=False)
-    op.create_index("ix_reference_catalog_certification", "reference_catalog", ["certification"], unique=False)
-    op.create_index("ix_reference_catalog_domain", "reference_catalog", ["domain"], unique=False)
-    op.create_index("ix_reference_catalog_subdomain", "reference_catalog", ["subdomain"], unique=False)
-    op.create_index("ix_reference_catalog_objective_code", "reference_catalog", ["objective_code"], unique=False)
-    op.create_index("ix_reference_catalog_blueprint_code", "reference_catalog", ["blueprint_code"], unique=False)
-    op.create_index("ix_reference_catalog_source_kind", "reference_catalog", ["source_kind"], unique=False)
-    op.create_index("ix_reference_catalog_is_official", "reference_catalog", ["is_official"], unique=False)
+    h.create_index("ix_reference_catalog_question_version_id", "reference_catalog", ["question_version_id"], unique=False)
+    h.create_index("ix_reference_catalog_certification", "reference_catalog", ["certification"], unique=False)
+    h.create_index("ix_reference_catalog_domain", "reference_catalog", ["domain"], unique=False)
+    h.create_index("ix_reference_catalog_subdomain", "reference_catalog", ["subdomain"], unique=False)
+    h.create_index("ix_reference_catalog_objective_code", "reference_catalog", ["objective_code"], unique=False)
+    h.create_index("ix_reference_catalog_blueprint_code", "reference_catalog", ["blueprint_code"], unique=False)
+    h.create_index("ix_reference_catalog_source_kind", "reference_catalog", ["source_kind"], unique=False)
+    h.create_index("ix_reference_catalog_is_official", "reference_catalog", ["is_official"], unique=False)
 
-    op.create_table(
+    h.create_table(
         "user_goals",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", sa.String(length=36), nullable=True),
@@ -83,10 +92,10 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", name="uq_user_goals_user"),
         sa.UniqueConstraint("client_key", name="uq_user_goals_client"),
     )
-    op.create_index("ix_user_goals_user_id", "user_goals", ["user_id"], unique=False)
-    op.create_index("ix_user_goals_client_key", "user_goals", ["client_key"], unique=False)
+    h.create_index("ix_user_goals_user_id", "user_goals", ["user_id"], unique=False)
+    h.create_index("ix_user_goals_client_key", "user_goals", ["client_key"], unique=False)
 
-    op.create_table(
+    h.create_table(
         "user_streaks",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", sa.String(length=36), nullable=True),
@@ -104,12 +113,12 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", name="uq_user_streaks_user"),
         sa.UniqueConstraint("client_key", name="uq_user_streaks_client"),
     )
-    op.create_index("ix_user_streaks_user_id", "user_streaks", ["user_id"], unique=False)
-    op.create_index("ix_user_streaks_client_key", "user_streaks", ["client_key"], unique=False)
-    op.create_index("ix_user_streaks_last_activity_date", "user_streaks", ["last_activity_date"], unique=False)
-    op.create_index("ix_user_streaks_last_goal_completed_date", "user_streaks", ["last_goal_completed_date"], unique=False)
+    h.create_index("ix_user_streaks_user_id", "user_streaks", ["user_id"], unique=False)
+    h.create_index("ix_user_streaks_client_key", "user_streaks", ["client_key"], unique=False)
+    h.create_index("ix_user_streaks_last_activity_date", "user_streaks", ["last_activity_date"], unique=False)
+    h.create_index("ix_user_streaks_last_goal_completed_date", "user_streaks", ["last_goal_completed_date"], unique=False)
 
-    op.create_table(
+    h.create_table(
         "adaptive_profile",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", sa.String(length=36), nullable=True),
@@ -127,50 +136,50 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", name="uq_adaptive_profile_user"),
         sa.UniqueConstraint("client_key", name="uq_adaptive_profile_client"),
     )
-    op.create_index("ix_adaptive_profile_user_id", "adaptive_profile", ["user_id"], unique=False)
-    op.create_index("ix_adaptive_profile_client_key", "adaptive_profile", ["client_key"], unique=False)
-    op.create_index("ix_adaptive_profile_last_recomputed_at", "adaptive_profile", ["last_recomputed_at"], unique=False)
+    h.create_index("ix_adaptive_profile_user_id", "adaptive_profile", ["user_id"], unique=False)
+    h.create_index("ix_adaptive_profile_client_key", "adaptive_profile", ["client_key"], unique=False)
+    h.create_index("ix_adaptive_profile_last_recomputed_at", "adaptive_profile", ["last_recomputed_at"], unique=False)
 
-    op.alter_column("question_hints", "hint_kind", server_default=None)
-    op.alter_column("reference_catalog", "is_official", server_default=None)
-    op.alter_column("user_goals", "daily_question_target", server_default=None)
-    op.alter_column("user_goals", "daily_review_target", server_default=None)
-    op.alter_column("user_goals", "weekly_question_target", server_default=None)
-    op.alter_column("user_goals", "weekly_review_target", server_default=None)
-    op.alter_column("user_goals", "stretch_question_target", server_default=None)
-    op.alter_column("user_streaks", "current_streak_days", server_default=None)
-    op.alter_column("user_streaks", "best_streak_days", server_default=None)
-    op.alter_column("user_streaks", "total_active_days", server_default=None)
-    op.alter_column("adaptive_profile", "low_confidence_bias", server_default=None)
-    op.alter_column("adaptive_profile", "variety_floor_percent", server_default=None)
-    op.alter_column("adaptive_profile", "recovery_mode", server_default=None)
+    h.clear_server_default("question_hints", "hint_kind")
+    h.clear_server_default("reference_catalog", "is_official")
+    h.clear_server_default("user_goals", "daily_question_target")
+    h.clear_server_default("user_goals", "daily_review_target")
+    h.clear_server_default("user_goals", "weekly_question_target")
+    h.clear_server_default("user_goals", "weekly_review_target")
+    h.clear_server_default("user_goals", "stretch_question_target")
+    h.clear_server_default("user_streaks", "current_streak_days")
+    h.clear_server_default("user_streaks", "best_streak_days")
+    h.clear_server_default("user_streaks", "total_active_days")
+    h.clear_server_default("adaptive_profile", "low_confidence_bias")
+    h.clear_server_default("adaptive_profile", "variety_floor_percent")
+    h.clear_server_default("adaptive_profile", "recovery_mode")
 
 
 def downgrade() -> None:
-    op.drop_index("ix_adaptive_profile_last_recomputed_at", table_name="adaptive_profile")
-    op.drop_index("ix_adaptive_profile_client_key", table_name="adaptive_profile")
-    op.drop_index("ix_adaptive_profile_user_id", table_name="adaptive_profile")
-    op.drop_table("adaptive_profile")
+    h.drop_index("ix_adaptive_profile_last_recomputed_at", "adaptive_profile")
+    h.drop_index("ix_adaptive_profile_client_key", "adaptive_profile")
+    h.drop_index("ix_adaptive_profile_user_id", "adaptive_profile")
+    h.drop_table("adaptive_profile")
 
-    op.drop_index("ix_user_streaks_last_goal_completed_date", table_name="user_streaks")
-    op.drop_index("ix_user_streaks_last_activity_date", table_name="user_streaks")
-    op.drop_index("ix_user_streaks_client_key", table_name="user_streaks")
-    op.drop_index("ix_user_streaks_user_id", table_name="user_streaks")
-    op.drop_table("user_streaks")
+    h.drop_index("ix_user_streaks_last_goal_completed_date", "user_streaks")
+    h.drop_index("ix_user_streaks_last_activity_date", "user_streaks")
+    h.drop_index("ix_user_streaks_client_key", "user_streaks")
+    h.drop_index("ix_user_streaks_user_id", "user_streaks")
+    h.drop_table("user_streaks")
 
-    op.drop_index("ix_user_goals_client_key", table_name="user_goals")
-    op.drop_index("ix_user_goals_user_id", table_name="user_goals")
-    op.drop_table("user_goals")
+    h.drop_index("ix_user_goals_client_key", "user_goals")
+    h.drop_index("ix_user_goals_user_id", "user_goals")
+    h.drop_table("user_goals")
 
-    op.drop_index("ix_reference_catalog_is_official", table_name="reference_catalog")
-    op.drop_index("ix_reference_catalog_source_kind", table_name="reference_catalog")
-    op.drop_index("ix_reference_catalog_blueprint_code", table_name="reference_catalog")
-    op.drop_index("ix_reference_catalog_objective_code", table_name="reference_catalog")
-    op.drop_index("ix_reference_catalog_subdomain", table_name="reference_catalog")
-    op.drop_index("ix_reference_catalog_domain", table_name="reference_catalog")
-    op.drop_index("ix_reference_catalog_certification", table_name="reference_catalog")
-    op.drop_index("ix_reference_catalog_question_version_id", table_name="reference_catalog")
-    op.drop_table("reference_catalog")
+    h.drop_index("ix_reference_catalog_is_official", "reference_catalog")
+    h.drop_index("ix_reference_catalog_source_kind", "reference_catalog")
+    h.drop_index("ix_reference_catalog_blueprint_code", "reference_catalog")
+    h.drop_index("ix_reference_catalog_objective_code", "reference_catalog")
+    h.drop_index("ix_reference_catalog_subdomain", "reference_catalog")
+    h.drop_index("ix_reference_catalog_domain", "reference_catalog")
+    h.drop_index("ix_reference_catalog_certification", "reference_catalog")
+    h.drop_index("ix_reference_catalog_question_version_id", "reference_catalog")
+    h.drop_table("reference_catalog")
 
-    op.drop_index("ix_question_hints_question_version_id", table_name="question_hints")
-    op.drop_table("question_hints")
+    h.drop_index("ix_question_hints_question_version_id", "question_hints")
+    h.drop_table("question_hints")
