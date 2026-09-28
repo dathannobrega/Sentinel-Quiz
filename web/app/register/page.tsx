@@ -1,5 +1,15 @@
-import { AuthShell } from "@/features/auth/components/auth-shell";
+import { Suspense } from "react";
 
-export default function RegisterPage() {
-  return <AuthShell mode="register" />;
+import { PageSkeleton } from "@/components/ui/page-skeleton";
+import { AuthShell } from "@/features/auth/components/auth-shell";
+import { pageMetadata } from "@/lib/i18n/metadata";
+
+export const generateMetadata = pageMetadata("register");
+
+export default function Page() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <AuthShell mode="register" />
+    </Suspense>
+  );
 }

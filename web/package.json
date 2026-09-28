@@ -3,29 +3,36 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "i18n:check": "node scripts/check-i18n-parity.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
-    "next": "^15.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "@tanstack/react-query": "^5.66.11"
+    "@tanstack/react-query": "^5.104.0",
+    "next": "^15.5.26",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "eslint": "^9.17.0",
-    "eslint-config-next": "^15.0.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.26",
     "prettier": "^3.4.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "postcss": "^8.5.28"
   }
 }

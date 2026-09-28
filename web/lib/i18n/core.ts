@@ -5,6 +5,10 @@ export const SUPPORTED_LOCALES = ["pt-BR", "en-US"] as const;
 
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
 
+export const DEFAULT_LOCALE: AppLocale = "pt-BR";
+export const LOCALE_COOKIE_NAME = "sentinel_locale";
+export const LOCALE_STORAGE_KEY = "sentinel_locale";
+
 type WidenMessageLiterals<T> = T extends string
   ? string
   : T extends readonly unknown[]
@@ -25,12 +29,36 @@ export function isSupportedLocale(value: string): value is AppLocale {
   return (SUPPORTED_LOCALES as readonly string[]).includes(value);
 }
 
+/** Maps an Accept-Language header (or any free-form locale string) to a supported locale. */
+export function matchLocale(value: string | null | undefined): AppLocale | null {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  if (isSupportedLocale(raw)) {
+    return raw;
+  }
+  const candidates = raw
+    .split(",")
+    .map((part) => part.split(";")[0]?.trim().toLowerCase())
+    .filter(Boolean);
+  for (const candidate of candidates) {
+    if (candidate.startsWith("pt")) {
+      return "pt-BR";
+    }
+    if (candidate.startsWith("en")) {
+      return "en-US";
+    }
+  }
+  return null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
 export function getMessages(locale: AppLocale): LocaleMessages {
-  return catalogs[locale] || catalogs["pt-BR"];
+  return catalogs[locale] || catalogs[DEFAULT_LOCALE];
 }
 
 export function getMessageValue(messages: LocaleMessages, key: string): unknown {

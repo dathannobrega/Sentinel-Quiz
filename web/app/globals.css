@@ -1,5 +1,6 @@
 @import "../styles/tokens.css";
 @import "../styles/legacy-theme.css";
+@import "../styles/a11y.css";
 
 body {
   padding-top: 0;

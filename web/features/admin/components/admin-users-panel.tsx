@@ -3,7 +3,8 @@
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/lib/i18n";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { useAdminUpdateUserMutation, useAdminUsersQuery, useCurrentUserQuery } from "@/lib/query/hooks";
+import { useAdminUpdateUserMutation, useAdminUsersQuery } from "@/lib/query/admin-hooks";
+import { useCurrentUserQuery } from "@/lib/query/hooks";
 
 export function AdminUsersPanel() {
   const { t } = useI18n();

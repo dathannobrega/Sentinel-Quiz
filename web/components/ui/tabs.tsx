@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils/cn";
 
@@ -19,34 +18,71 @@ interface TabsProps {
   className?: string;
 }
 
+/** WAI-ARIA tabs: roving tabindex, Arrow/Home/End navigation, automatic activation. */
 export function Tabs({ items, defaultValue, ariaLabel, className }: TabsProps) {
-  const [activeTab, setActiveTab] = useState(defaultValue || items[0]?.id || "");
+  const baseId = useId();
+  const [selectedTab, setSelectedTab] = useState(defaultValue || items[0]?.id || "");
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  useEffect(() => {
-    if (!items.length) {
-      setActiveTab("");
+  const activeTab = items.some((item) => item.id === selectedTab) ? selectedTab : defaultValue || items[0]?.id || "";
+
+  function focusTab(index: number) {
+    const item = items[(index + items.length) % items.length];
+    if (!item) {
       return;
     }
-    if (!items.some((item) => item.id === activeTab)) {
-      setActiveTab(defaultValue || items[0].id);
+    setSelectedTab(item.id);
+    tabRefs.current[item.id]?.focus();
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        event.preventDefault();
+        focusTab(index + 1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        event.preventDefault();
+        focusTab(index - 1);
+        break;
+      case "Home":
+        event.preventDefault();
+        focusTab(0);
+        break;
+      case "End":
+        event.preventDefault();
+        focusTab(items.length - 1);
+        break;
+      default:
+        break;
     }
-  }, [activeTab, defaultValue, items]);
+  }
+
+  const tabId = (id: string) => `${baseId}-tab-${id}`;
+  const panelId = (id: string) => `${baseId}-panel-${id}`;
 
   return (
     <div className={cn("sq-tabs", className)}>
       <div className="sq-tabs__list" role="tablist" aria-label={ariaLabel}>
-        {items.map((item) => {
+        {items.map((item, index) => {
           const isActive = item.id === activeTab;
           return (
             <button
               key={item.id}
-              id={`tab-${item.id}`}
+              ref={(node) => {
+                tabRefs.current[item.id] = node;
+              }}
+              id={tabId(item.id)}
               type="button"
               role="tab"
               aria-selected={isActive}
-              aria-controls={`panel-${item.id}`}
+              aria-controls={panelId(item.id)}
+              tabIndex={isActive ? 0 : -1}
               className={cn("sq-tabs__trigger", isActive && "sq-tabs__trigger--active")}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => setSelectedTab(item.id)}
+              onKeyDown={(event) => handleKeyDown(event, index)}
             >
               <span>{item.label}</span>
               {item.badge ? <span className="sq-chip">{item.badge}</span> : null}
@@ -60,10 +96,11 @@ export function Tabs({ items, defaultValue, ariaLabel, className }: TabsProps) {
         return (
           <div
             key={item.id}
-            id={`panel-${item.id}`}
+            id={panelId(item.id)}
             role="tabpanel"
-            aria-labelledby={`tab-${item.id}`}
+            aria-labelledby={tabId(item.id)}
             hidden={!isActive}
+            tabIndex={0}
             className="sq-tabs__panel"
           >
             {isActive ? item.content : null}

@@ -8,7 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { useI18n } from "@/lib/i18n";
-import { useAdminAssignIssueVersionMutation, useAdminIssuesQuery, useAdminUpdateIssueMutation, useCurrentUserQuery } from "@/lib/query/hooks";
+import { useAdminAssignIssueVersionMutation, useAdminIssuesQuery, useAdminUpdateIssueMutation } from "@/lib/query/admin-hooks";
+import { useCurrentUserQuery } from "@/lib/query/hooks";
 
 export function AdminIssuesPanel() {
   const { t } = useI18n();

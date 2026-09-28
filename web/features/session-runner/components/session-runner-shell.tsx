@@ -646,7 +646,7 @@ export function SessionRunnerShell({ sessionId, mode }: SessionRunnerShellProps)
           ? {
               ...current,
               current_index: response.progress_index,
-              current_position: response.current_position ?? response.progress_index,
+              current_position: ("current_position" in response ? response.current_position : null) ?? response.progress_index,
               correct_count: response.correct_count,
               wrong_count: response.wrong_count,
               finished: response.finished,

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { useI18n } from "@/lib/i18n";
-import { useAdminDomainCatalogQuery } from "@/lib/query/hooks";
+import { useAdminDomainCatalogQuery } from "@/lib/query/admin-hooks";
 
 export function AdminDomainCatalogPanel() {
   const { t } = useI18n();

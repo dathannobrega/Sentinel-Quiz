@@ -355,7 +355,7 @@ function ReviewBlock({
     try {
       await apiClient.post(`/questions/${question.id}/issues`, {
         session_id: sessionId,
-        mode: enableTutor ? "exam" : "review",
+        mode: enableTutor ? "exam" : "study",
         category: issueCategory,
         message: issueMessage.trim()
       } satisfies QuestionIssueRequest);

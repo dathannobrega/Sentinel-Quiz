@@ -1,18 +1,22 @@
 "use client";
 
 import { createContext, startTransition, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 
+import { setApiErrorLocale } from "@/lib/api/errors";
 import {
   createTranslator,
   getMessages,
   isSupportedLocale,
+  LOCALE_COOKIE_NAME,
+  LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
   type AppLocale,
   type LocaleMessages,
   type TranslationValues
 } from "@/lib/i18n/core";
 
-const LOCALE_STORAGE_KEY = "sentinel_locale";
+const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
 function readStoredLocale(): AppLocale | null {
   if (typeof window === "undefined") {
@@ -37,6 +41,9 @@ function persistLocale(locale: AppLocale): void {
   } catch {
     // Best effort only.
   }
+
+  const secure = window.location.protocol === "https:" ? "; secure" : "";
+  document.cookie = `${LOCALE_COOKIE_NAME}=${encodeURIComponent(locale)}; path=/; max-age=${ONE_YEAR_SECONDS}; samesite=lax${secure}`;
 }
 
 interface I18nContextValue {
@@ -53,25 +60,48 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 export function I18nProvider({
   children,
   locale,
-  messages: initialMessages
-}: Readonly<{ children: ReactNode; locale: AppLocale; messages?: LocaleMessages }>) {
+  localeFromCookie = false
+}: Readonly<{
+  children: ReactNode;
+  locale: AppLocale;
+  /** True when the server resolved the locale from the `sentinel_locale` cookie. */
+  localeFromCookie?: boolean;
+}>) {
+  const router = useRouter();
   const [activeLocale, setActiveLocale] = useState<AppLocale>(locale);
-  const [messages, setMessages] = useState<LocaleMessages>(initialMessages ?? getMessages(locale));
+  const messages = useMemo(() => getMessages(activeLocale), [activeLocale]);
+
+  // Keep module-level consumers (apiClient error messages) in sync during render.
+  setApiErrorLocale(activeLocale);
 
   useEffect(() => {
-    const storedLocale = readStoredLocale();
-    if (!storedLocale || storedLocale === activeLocale) {
+    setActiveLocale(locale);
+  }, [locale]);
+
+  useEffect(() => {
+    // Legacy fallback: locale used to live only in localStorage. Migrate it into the cookie
+    // so the server renders the right language on the next request.
+    if (localeFromCookie) {
       return;
     }
-    setActiveLocale(storedLocale);
-    setMessages(getMessages(storedLocale));
-  }, [activeLocale]);
+    const storedLocale = readStoredLocale();
+    if (!storedLocale) {
+      return;
+    }
+    persistLocale(storedLocale);
+    if (storedLocale !== locale) {
+      startTransition(() => {
+        setActiveLocale(storedLocale);
+        router.refresh();
+      });
+    }
+  }, [locale, localeFromCookie, router]);
 
   useEffect(() => {
     document.documentElement.lang = activeLocale;
   }, [activeLocale]);
 
-  const value = useMemo(() => {
+  const value = useMemo<I18nContextValue>(() => {
     const translator = createTranslator(messages);
     return {
       locale: activeLocale,
@@ -86,13 +116,18 @@ export function I18nProvider({
         persistLocale(nextLocale);
         startTransition(() => {
           setActiveLocale(nextLocale);
-          setMessages(getMessages(nextLocale));
+          router.refresh();
         });
       }
     };
-  }, [activeLocale, messages]);
+  }, [activeLocale, messages, router]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+/** Like useI18n but returns null outside the provider (e.g. inside app/global-error.tsx). */
+export function useOptionalI18n() {
+  return useContext(I18nContext);
 }
 
 export function useI18n() {
