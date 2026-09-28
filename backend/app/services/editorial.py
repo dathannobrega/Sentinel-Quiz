@@ -21,6 +21,10 @@ from app.models import (
     QuestionVersion,
     QuestionVersionOption,
 )
+from app.services.admin_serialization import json_or_none as _json_or_none
+from app.services.admin_serialization import parse_json
+from app.services.admin_serialization import parse_dict_list as _parse_dict_list
+from app.services.admin_serialization import parse_text_list as _parse_text_list
 from app.services.question_quality import (
     assess_question_quality,
     is_fallback_rationale,
@@ -31,36 +35,6 @@ from app.services.question_quality import (
 
 # import_hash markers for versions that predate provenance tracking (migration 0014).
 LEGACY_IMPORT_MARKERS = {"legacy-import", "seeded-projection"}
-
-
-def _parse_text_list(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    try:
-        payload = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [str(item).strip() for item in payload if str(item).strip()]
-
-
-def _parse_dict_list(raw: str | None) -> list[dict[str, Any]]:
-    if not raw:
-        return []
-    try:
-        payload = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [item for item in payload if isinstance(item, dict)]
-
-
-def _json_or_none(value: Any) -> str | None:
-    if not value:
-        return None
-    return json.dumps(value, ensure_ascii=False)
 
 
 def _payload_signature(payload: dict[str, Any]) -> str:
@@ -716,8 +690,35 @@ def _serialize_version_summary(bank: QuestionBank, version: QuestionVersion) -> 
     }
 
 
+def _projection_state(db: Session, question_id: str) -> dict[str, Any]:
+    """Lifecycle/editorial flags of the student-facing projection (defaults for drafts)."""
+    projection = db.get(Question, question_id)
+    if projection is None:
+        return {
+            "is_active": True,
+            "deactivated_reason": None,
+            "deactivated_at": None,
+            "needs_review": False,
+            "explanation_missing": False,
+        }
+    return {
+        "is_active": bool(projection.is_active),
+        "deactivated_reason": projection.deactivated_reason,
+        "deactivated_at": projection.deactivated_at.isoformat() if projection.deactivated_at else None,
+        "needs_review": bool(projection.needs_review),
+        "explanation_missing": bool(projection.explanation_missing),
+    }
+
+
 def build_admin_question_document(db: Session, question_id: str) -> dict[str, Any] | None:
-    bank = _ensure_bank_seeded_from_projection(db, question_id)
+    """Read-only: never seeds the editorial bank (M-B7).
+
+    Banks are created by the JSON ingest (sync_imported_question_publication) and by
+    the editorial write paths (_ensure_editable_bank). A legacy projection without a
+    bank is rendered straight from the projection, in memory, without persisting.
+    """
+    bank = _get_question_bank(db, question_id)
+    state = _projection_state(db, question_id)
     if bank:
         target_version = _get_version(db, bank.draft_version_id) or _get_version(db, bank.published_version_id)
         if target_version:
@@ -758,6 +759,7 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
                 "quality": {
                     **_quality_summary(quality),
                 },
+                **state,
             }
 
     payload = _question_payload_from_projection(db, question_id)
@@ -799,11 +801,13 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
         "quality": {
             **_quality_summary(quality),
         },
+        **state,
     }
 
 
 def list_question_versions(db: Session, question_id: str) -> list[dict[str, Any]]:
-    bank = _ensure_bank_seeded_from_projection(db, question_id)
+    """Read-only: a projection without an editorial bank simply has no versions yet."""
+    bank = _get_question_bank(db, question_id)
     if not bank:
         return []
 
@@ -840,7 +844,7 @@ def list_editorial_audit_logs(
             "actor_role": row.actor_role,
             "action": row.action,
             "reason": row.reason,
-            "metadata": json.loads(row.metadata_json) if row.metadata_json else None,
+            "metadata": parse_json(row.metadata_json, None),
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
         for row in rows
@@ -848,7 +852,7 @@ def list_editorial_audit_logs(
 
 
 def get_question_bank_status(db: Session, question_id: str) -> dict[str, Any] | None:
-    bank = _ensure_bank_seeded_from_projection(db, question_id)
+    bank = _get_question_bank(db, question_id)
     if not bank:
         return None
 

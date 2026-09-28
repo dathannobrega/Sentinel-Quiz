@@ -1,105 +1,24 @@
-"""Admin question authoring helpers (moved out of api/admin.py)."""
+"""Admin question authoring/listing helpers (moved out of api/admin.py)."""
 from __future__ import annotations
 
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Exam, ExamSession, Option, Question, QuestionBank, QuestionVersion, QuestionVersionOption
 from app.schemas import AdminCreateQuestionIn
+from app.services.admin_serialization import normalize_citations, normalize_tags, strip_or_none
 
 
 NO_CERTIFICATION_LABEL = "Sem certificacao"
 
+QuestionStatusFilter = Literal["active", "inactive", "all"]
+QUESTION_STATUS_FILTERS = ("active", "inactive", "all")
+
 
 class AdminQuestionPayloadError(ValueError):
     pass
-
-
-def _clean_citation_value(value: Any):
-    if value is None:
-        return None
-    if isinstance(value, str):
-        cleaned = value.strip()
-        return cleaned or None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value
-    if isinstance(value, list):
-        cleaned_items = []
-        for item in value:
-            cleaned = _clean_citation_value(item)
-            if cleaned is not None:
-                cleaned_items.append(cleaned)
-        return cleaned_items or None
-    if isinstance(value, dict):
-        cleaned_dict: Dict[str, Any] = {}
-        for key, item in value.items():
-            clean_key = str(key or "").strip()
-            if not clean_key:
-                continue
-            cleaned = _clean_citation_value(item)
-            if cleaned is not None:
-                cleaned_dict[clean_key] = cleaned
-        return cleaned_dict or None
-    return None
-
-
-def _strip_or_none(value: Optional[str]) -> Optional[str]:
-    return (value.strip() or None) if value else None
-
-
-def _normalize_tags(tags: Optional[List[str]]) -> List[str]:
-    normalized: List[str] = []
-    seen = set()
-    for tag in tags or []:
-        clean = str(tag or "").strip()
-        if not clean:
-            continue
-        key = clean.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append(clean)
-    return normalized
-
-
-def _normalize_citations(citations: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    normalized: List[Dict[str, Any]] = []
-    seen = set()
-    for item in citations or []:
-        if not isinstance(item, dict):
-            continue
-        normalized_item: Dict[str, Any] = {}
-        for key, value in item.items():
-            clean_key = str(key or "").strip()
-            if not clean_key:
-                continue
-            if clean_key in {"source", "reference"}:
-                cleaned = str(value or "").strip()
-            else:
-                cleaned = _clean_citation_value(value)
-            if cleaned is None:
-                continue
-            normalized_item[clean_key] = cleaned
-
-        source = str(normalized_item.get("source") or "").strip()
-        reference = str(normalized_item.get("reference") or "").strip()
-        locator = str(normalized_item.get("locator") or "").strip()
-        material_path = str(normalized_item.get("material_path") or "").strip()
-        if not source and not reference and not locator and not material_path:
-            continue
-        normalized_item["source"] = source
-        normalized_item["reference"] = reference
-        key = json.dumps(normalized_item, ensure_ascii=False, sort_keys=True)
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append(normalized_item)
-    return normalized
 
 
 def normalize_admin_question_payload(db: Session, payload: AdminCreateQuestionIn) -> Dict[str, Any]:
@@ -146,25 +65,25 @@ def normalize_admin_question_payload(db: Session, payload: AdminCreateQuestionIn
         "exam_id": exam_id,
         "prompt": prompt,
         "multi_select": bool(payload.multi_select or len(correct_set) > 1),
-        "domain": _strip_or_none(payload.domain),
-        "difficulty": _strip_or_none(payload.difficulty),
-        "certification": _strip_or_none(payload.certification),
-        "subject": _strip_or_none(payload.subject),
-        "subtopic": _strip_or_none(payload.subtopic),
-        "subdomain": _strip_or_none(payload.subdomain),
-        "objective_code": _strip_or_none(payload.objective_code),
-        "blueprint_code": _strip_or_none(payload.blueprint_code),
+        "domain": strip_or_none(payload.domain),
+        "difficulty": strip_or_none(payload.difficulty),
+        "certification": strip_or_none(payload.certification),
+        "subject": strip_or_none(payload.subject),
+        "subtopic": strip_or_none(payload.subtopic),
+        "subdomain": strip_or_none(payload.subdomain),
+        "objective_code": strip_or_none(payload.objective_code),
+        "blueprint_code": strip_or_none(payload.blueprint_code),
         "keywords": [str(item).strip() for item in (payload.keywords or []) if str(item).strip()],
         "trap_patterns": [str(item).strip() for item in (payload.trap_patterns or []) if str(item).strip()],
-        "question_format": _strip_or_none(payload.question_format),
-        "tags": _normalize_tags(payload.tags),
-        "citations": _normalize_citations(payload.citations),
+        "question_format": strip_or_none(payload.question_format),
+        "tags": normalize_tags(payload.tags),
+        "citations": normalize_citations(payload.citations),
         "options": [
             {"key": opt["key"], "text": opt["text"], "is_correct": opt["key"] in correct_set}
             for opt in normalized_options
         ],
-        "justification": _strip_or_none(payload.justification),
-        "correct_rationale": _strip_or_none(payload.correct_rationale),
+        "justification": strip_or_none(payload.justification),
+        "correct_rationale": strip_or_none(payload.correct_rationale),
         "incorrect_rationales": [
             str(item).strip()
             for item in (payload.incorrect_rationales or [])
@@ -172,11 +91,26 @@ def normalize_admin_question_payload(db: Session, payload: AdminCreateQuestionIn
         ],
         "avg_time_seconds": payload.avg_time_seconds,
         "global_accuracy_percent": payload.global_accuracy_percent,
-        "change_summary": _strip_or_none(payload.change_summary),
+        "change_summary": strip_or_none(payload.change_summary),
     }
 
 
+def _count(db: Session, *conditions) -> int:
+    stmt = select(func.count()).select_from(Question)
+    for condition in conditions:
+        stmt = stmt.where(condition)
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
 def build_admin_overview(db: Session) -> Dict[str, Any]:
+    """Counters for the admin dashboard.
+
+    ``question_count`` / ``question_breakdown`` only count *active* questions (what
+    students can get in new sessions); soft-deleted or removed-from-source questions
+    are reported separately in ``inactive_question_count``. The editorial flags
+    (``needs_review`` / ``explanation_missing``, set by the JSON ingest) are counted
+    among active questions.
+    """
     exam_count = int(db.execute(select(func.count()).select_from(Exam)).scalar_one() or 0)
     completed_session_count = int(
         db.execute(
@@ -187,7 +121,9 @@ def build_admin_overview(db: Session) -> Dict[str, Any]:
     breakdown: Dict[str, int] = {}
     question_count = 0
     for certification, count in db.execute(
-        select(Question.certification, func.count()).group_by(Question.certification)
+        select(Question.certification, func.count())
+        .where(Question.is_active.is_(True))
+        .group_by(Question.certification)
     ).all():
         label = certification or NO_CERTIFICATION_LABEL
         breakdown[label] = breakdown.get(label, 0) + int(count or 0)
@@ -197,6 +133,11 @@ def build_admin_overview(db: Session) -> Dict[str, Any]:
         "question_count": question_count,
         "completed_session_count": completed_session_count,
         "question_breakdown": breakdown,
+        "inactive_question_count": _count(db, Question.is_active.is_(False)),
+        "needs_review_count": _count(db, Question.is_active.is_(True), Question.needs_review.is_(True)),
+        "explanation_missing_count": _count(
+            db, Question.is_active.is_(True), Question.explanation_missing.is_(True)
+        ),
     }
 
 
@@ -213,12 +154,32 @@ def list_admin_questions(
     exam_id: Optional[str],
     search: Optional[str],
     limit: int,
+    status: QuestionStatusFilter = "active",
+    needs_review: Optional[bool] = None,
+    explanation_missing: Optional[bool] = None,
 ) -> List[Dict[str, Any]]:
-    """Published questions first, then draft-only questions, up to ``limit`` items."""
+    """Published questions first, then draft-only questions, up to ``limit`` items.
+
+    ``status`` filters the projection by ``Question.is_active`` (default: active only).
+    ``needs_review`` / ``explanation_missing`` filter on the editorial flags stored on
+    the projection by the JSON ingest. Draft-only questions (no projection yet) are
+    never deactivated and carry no ingest flags, so they are only listed for
+    ``status`` active/all and when no flag filter is requested.
+    """
+    if status not in QUESTION_STATUS_FILTERS:
+        raise ValueError(f"status must be one of: {', '.join(QUESTION_STATUS_FILTERS)}")
     term = _search_term(search)
     normalized_exam_id = exam_id.strip() if exam_id else None
 
     stmt = select(Question).order_by(Question.id.asc())
+    if status == "active":
+        stmt = stmt.where(Question.is_active.is_(True))
+    elif status == "inactive":
+        stmt = stmt.where(Question.is_active.is_(False))
+    if needs_review is not None:
+        stmt = stmt.where(Question.needs_review.is_(needs_review))
+    if explanation_missing is not None:
+        stmt = stmt.where(Question.explanation_missing.is_(explanation_missing))
     if normalized_exam_id:
         stmt = stmt.where(Question.exam_id == normalized_exam_id)
     if term:
@@ -278,10 +239,15 @@ def list_admin_questions(
             "draft_version_number": _version_number(bank.draft_version_id) if bank else None,
             "published_version_number": _version_number(bank.published_version_id) if bank else None,
             "loaded_from": "published",
+            "is_active": bool(q.is_active),
+            "deactivated_reason": q.deactivated_reason,
+            "needs_review": bool(q.needs_review),
+            "explanation_missing": bool(q.explanation_missing),
         })
 
     remaining = max(limit - len(items), 0)
-    if remaining <= 0:
+    include_drafts = status != "inactive" and needs_review is None and explanation_missing is None
+    if remaining <= 0 or not include_drafts:
         return items
 
     draft_stmt = (
@@ -333,5 +299,9 @@ def list_admin_questions(
             # Only versions of the published list were preloaded (historical behaviour).
             "published_version_number": _version_number(bank.published_version_id),
             "loaded_from": "draft",
+            "is_active": True,
+            "deactivated_reason": None,
+            "needs_review": False,
+            "explanation_missing": False,
         })
     return items

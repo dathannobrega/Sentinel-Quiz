@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import ExamSession, StudySession, User
+from app.services.admin_serialization import iso_or_none as _iso
 from app.services.auth import PRIVILEGED_ROLES
 
 
@@ -23,9 +24,6 @@ class AdminUserRuleError(ValueError):
         self.code = code
         self.message = message
 
-
-def _iso(value) -> Optional[str]:
-    return value.isoformat() if value else None
 
 
 def serialize_admin_user(user: User, *, exam_session_count: int = 0, study_session_count: int = 0) -> Dict[str, Any]:

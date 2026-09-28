@@ -37,6 +37,7 @@ from app.models import (
     UserExamMetricsSnapshot,
     WeeklyProgressSnapshot,
 )
+from app.services.admin_serialization import iso_or_none, parse_dict_list, parse_json, parse_text_list
 
 
 logger = logging.getLogger("app.admin.export")
@@ -45,41 +46,10 @@ EXPORT_BATCH_SIZE = 500
 EXPORT_FORMAT_VERSION = "1.0.0"
 
 
-def _iso(dt: Optional[datetime]) -> Optional[str]:
-    return dt.isoformat() if dt else None
-
-
-def _parse_str_list(raw: Optional[str]) -> List[str]:
-    if not raw:
-        return []
-    try:
-        payload = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [str(item).strip() for item in payload if str(item).strip()]
-
-
-def _parse_dict_list(raw: Optional[str]) -> List[Dict[str, Any]]:
-    if not raw:
-        return []
-    try:
-        payload = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [item for item in payload if isinstance(item, dict)]
-
-
-def _parse_json(raw: Optional[str], default: Any) -> Any:
-    if not raw:
-        return default
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return default
+_iso = iso_or_none
+_parse_str_list = parse_text_list
+_parse_dict_list = parse_dict_list
+_parse_json = parse_json
 
 
 def _dumps(value: Any) -> str:
