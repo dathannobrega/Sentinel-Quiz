@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import hmac
 import logging
 import secrets
 import smtplib
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.message import EmailMessage
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,12 +25,66 @@ SCRYPT_R = 8
 SCRYPT_P = 1
 SCRYPT_DKLEN = 64
 PASSWORD_MIN_LENGTH = 8
+EMAIL_MAX_LENGTH = 255
 EMAIL_VERIFICATION_CHALLENGE = "email_verification"
 PASSWORD_RESET_CHALLENGE = "password_reset"
+PRIVILEGED_ROLES = frozenset({"editor", "reviewer", "admin"})
+
+
+class RegistrationUnavailable(ValueError):
+    """Raised when an account cannot be created (e.g. e-mail already registered).
+
+    The API maps it to a generic message so the response does not state whether the
+    address is registered.
+    """
+
+
+@dataclass(frozen=True)
+class OutgoingEmail:
+    """A fully rendered e-mail, ready to be delivered outside the request/DB session."""
+
+    to_email: str
+    subject: str
+    body_lines: tuple[str, ...]
+    challenge_type: str
+    challenge_id: int | None = None
 
 
 def normalize_email(value: str) -> str:
     return str(value or "").strip().lower()
+
+
+def validate_email_address(value: str) -> str:
+    """Validate and normalise an e-mail address for account creation.
+
+    Rejects control characters (CR/LF header injection), missing domain dots and
+    reserved/special-use domains. Deliverability (DNS) is not checked.
+    """
+    raw = str(value or "")
+    if any(ch in raw for ch in ("\r", "\n", "\x00")):
+        raise ValueError("Email is invalid.")
+    normalized = normalize_email(raw)
+    if not normalized:
+        raise ValueError("Email is required.")
+    if len(normalized) > EMAIL_MAX_LENGTH:
+        raise ValueError("Email is invalid.")
+    try:
+        from email_validator import EmailNotValidError, validate_email
+
+        try:
+            result = validate_email(normalized, check_deliverability=False)
+        except EmailNotValidError as exc:
+            raise ValueError("Email is invalid.") from exc
+        return normalize_email(result.normalized)
+    except ImportError:  # pragma: no cover - email-validator is a pinned dependency
+        local, sep, domain = normalized.partition("@")
+        if not sep or not local or "." not in domain or " " in normalized:
+            raise ValueError("Email is invalid.")
+        return normalized
+
+
+def _looks_like_email(value: str) -> bool:
+    return "@" in value and not any(ch in value for ch in ("\r", "\n", "\x00"))
 
 
 def normalize_client_key(value: str | None) -> str | None:
@@ -58,6 +113,11 @@ def _b64encode(value: bytes) -> str:
 def _b64decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode((value + padding).encode("utf-8"))
+
+
+def token_fingerprint(raw_token: str) -> str:
+    """Short, non-reversible identifier of a token that is safe to log."""
+    return _token_hash(raw_token)[:12]
 
 
 def _token_hash(raw_token: str) -> str:
@@ -109,23 +169,26 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hmac.compare_digest(derived, expected)
 
 
+@functools.lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    # Same scrypt parameters as real hashes so a failed lookup costs the same time.
+    return hash_password(secrets.token_urlsafe(24))
+
+
 def create_user(db: Session, *, email: str, password: str, display_name: str | None = None) -> User:
-    normalized_email = normalize_email(email)
-    if not normalized_email:
-        raise ValueError("Email is required.")
-    if "@" not in normalized_email or normalized_email.startswith("@") or normalized_email.endswith("@"):
-        raise ValueError("Email is invalid.")
+    normalized_email = validate_email_address(email)
+    password_hash = hash_password(password)
 
     exists = db.execute(
         select(User.id).where(User.email == normalized_email)
     ).scalar_one_or_none()
     if exists:
-        raise ValueError("Email already registered.")
+        raise RegistrationUnavailable("Email already registered.")
 
     user = User(
         email=normalized_email,
         display_name=(str(display_name or "").strip() or None),
-        password_hash=hash_password(password),
+        password_hash=password_hash,
         role="student",
         is_active=True,
         email_verified=False,
@@ -138,13 +201,21 @@ def create_user(db: Session, *, email: str, password: str, display_name: str | N
 
 
 def authenticate_user(db: Session, *, email: str, password: str) -> User | None:
+    """Verify credentials in (roughly) constant time.
+
+    When the user does not exist or is inactive, the password is still checked
+    against a dummy scrypt hash so the response time does not reveal whether the
+    account exists.
+    """
     normalized_email = normalize_email(email)
-    if not normalized_email or "@" not in normalized_email:
-        return None
-    user = db.execute(
-        select(User).where(User.email == normalized_email)
-    ).scalar_one_or_none()
+    user = None
+    if normalized_email and _looks_like_email(normalized_email):
+        user = db.execute(
+            select(User).where(User.email == normalized_email)
+        ).scalar_one_or_none()
+
     if not user or not user.is_active:
+        verify_password(password, _dummy_password_hash())
         return None
     if not verify_password(password, user.password_hash):
         return None
@@ -167,6 +238,17 @@ def issue_auth_token(db: Session, user: User) -> tuple[str, datetime]:
 
 
 def claim_client_sessions(db: Session, *, user: User, client_key: str | None) -> int:
+    """Attach anonymous exam sessions created with ``X-Client-Key`` to ``user``.
+
+    Security note (L-B8): the client key is a random identifier generated by the
+    browser and stored locally; it is a bearer secret for anonymous progress. Anyone
+    who knows it can read that anonymous progress and, by logging in/registering while
+    sending it, claim those anonymous sessions into their own account. This is an
+    accepted trade-off for the "try without an account" flow: anonymous sessions hold
+    no personal data, keys are never exposed by the API, and once claimed the sessions
+    are owned by the user (``client_key`` is cleared) so the key no longer grants
+    access. Do not reuse client keys across devices/users.
+    """
     normalized_client_key = normalize_client_key(client_key)
     if not normalized_client_key:
         return 0
@@ -202,8 +284,11 @@ def get_user_for_token(db: Session, raw_token: str) -> User | None:
     if not row:
         return None
     auth_token, user = row
-    auth_token.last_used_at = now
-    db.commit()
+    throttle = timedelta(seconds=max(int(settings.auth_last_used_throttle_seconds or 0), 0))
+    if auth_token.last_used_at is None or (now - auth_token.last_used_at) >= throttle:
+        # At most one write per token every AUTH_LAST_USED_THROTTLE_SECONDS.
+        auth_token.last_used_at = now
+        db.commit()
     return user
 
 
@@ -258,8 +343,9 @@ def _send_email_message(message: EmailMessage) -> None:
     port = max(int(settings.smtp_port or 0), 1)
     username = str(settings.smtp_username or "").strip()
     password = str(settings.smtp_password or "").strip()
+    timeout = max(float(settings.smtp_timeout_seconds or 0), 1.0)
 
-    with smtplib.SMTP(host, port, timeout=20) as smtp:
+    with smtplib.SMTP(host, port, timeout=timeout) as smtp:
         smtp.ehlo()
         if settings.smtp_use_tls:
             smtp.starttls()
@@ -273,9 +359,15 @@ def _deliver_auth_email(
     *,
     to_email: str,
     subject: str,
-    body_lines: list[str],
-    fallback_log_context: dict[str, str],
+    body_lines: list[str] | tuple[str, ...],
+    fallback_log_context: dict[str, object],
 ) -> None:
+    """Deliver an auth e-mail via SMTP.
+
+    Never logs the link/token. Without SMTP outside production only a notice with the
+    challenge id is logged (developers can read the token from the database); in
+    production missing SMTP is an error.
+    """
     sender_email = str(settings.smtp_from_email or "").strip()
     sender_name = str(settings.smtp_from_name or "").strip() or "Sentinel Quiz"
 
@@ -288,26 +380,52 @@ def _deliver_auth_email(
         _send_email_message(message)
         return
 
+    safe_context = {
+        key: value
+        for key, value in fallback_log_context.items()
+        if key in {"challenge_type", "challenge_id"}
+    }
     if settings.is_production():
         logger.error(
             "SMTP is not configured in production. Auth email delivery aborted.",
-            extra={
-                "event": "auth_email_delivery_unavailable",
-                "challenge_type": fallback_log_context.get("challenge_type"),
-                "delivery_target": to_email,
-            },
+            extra={"event": "auth_email_delivery_unavailable", **safe_context},
         )
         raise RuntimeError("SMTP is required in production for auth email delivery.")
 
     logger.warning(
-        "SMTP not configured. Auth email link emitted to server logs for local development only.",
+        "SMTP not configured; auth email was not sent (development only). "
+        "Look up the challenge in the auth_challenges table if needed.",
         extra={
-            "event": "auth_email_fallback_log",
-            **fallback_log_context,
-            "delivery_target": to_email,
+            "event": "auth_email_not_sent",
+            **safe_context,
             "environment": settings.environment,
         },
     )
+
+
+def deliver_email_safely(email: OutgoingEmail | None) -> bool:
+    """Send an e-mail, swallowing and logging any failure. Safe for background tasks."""
+    if email is None:
+        return False
+    try:
+        _deliver_auth_email(
+            to_email=email.to_email,
+            subject=email.subject,
+            body_lines=email.body_lines,
+            fallback_log_context={"challenge_type": email.challenge_type, "challenge_id": email.challenge_id},
+        )
+        return True
+    except Exception as exc:
+        logger.error(
+            "Auth email delivery failed",
+            extra={
+                "event": "auth_email_delivery_failed",
+                "challenge_type": email.challenge_type,
+                "challenge_id": email.challenge_id,
+                "error_type": type(exc).__name__,
+            },
+        )
+        return False
 
 
 def _issue_challenge(
@@ -342,7 +460,38 @@ def _issue_challenge(
     return challenge, raw_token
 
 
-def send_email_verification(db: Session, *, user: User) -> AuthChallenge:
+def _verification_on_cooldown(db: Session, *, user: User) -> bool:
+    cooldown = max(int(settings.auth_verification_resend_cooldown_seconds or 0), 0)
+    if cooldown <= 0:
+        return False
+    latest = db.execute(
+        select(AuthChallenge.created_at)
+        .where(
+            AuthChallenge.user_id == user.id,
+            AuthChallenge.challenge_type == EMAIL_VERIFICATION_CHALLENGE,
+        )
+        .order_by(AuthChallenge.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if latest is None:
+        return False
+    return (datetime.utcnow() - latest) < timedelta(seconds=cooldown)
+
+
+def prepare_email_verification(db: Session, *, user: User, enforce_cooldown: bool = True) -> OutgoingEmail | None:
+    """Create a verification challenge and render the e-mail (does NOT send it).
+
+    Returns ``None`` when nothing should be sent (already verified, inactive user or
+    resend cooldown still active).
+    """
+    if not user or not user.is_active or user.email_verified:
+        return None
+    if enforce_cooldown and _verification_on_cooldown(db, user=user):
+        logger.info(
+            "Email verification resend skipped (cooldown)",
+            extra={"event": "auth_email_verification_cooldown", "user_id": user.id},
+        )
+        return None
     challenge, raw_token = _issue_challenge(
         db,
         user=user,
@@ -350,30 +499,34 @@ def send_email_verification(db: Session, *, user: User) -> AuthChallenge:
         ttl_minutes=settings.auth_email_verification_ttl_minutes,
     )
     verify_url = f"{_build_public_web_origin()}/verify-email?token={raw_token}"
-    _deliver_auth_email(
+    return OutgoingEmail(
         to_email=user.email,
         subject="Verifique seu email no Sentinel Quiz",
-        body_lines=[
+        body_lines=(
             f"Ola {user.display_name or user.email},",
             "Clique no link abaixo para verificar seu email e reforcar a seguranca da conta:",
             verify_url,
             "Se voce nao solicitou isso, ignore este email.",
-        ],
-        fallback_log_context={
-            "challenge_type": EMAIL_VERIFICATION_CHALLENGE,
-            "verification_url": verify_url,
-        },
+        ),
+        challenge_type=EMAIL_VERIFICATION_CHALLENGE,
+        challenge_id=challenge.id,
     )
-    return challenge
 
 
-def request_password_reset(db: Session, *, email: str) -> None:
+def send_email_verification(db: Session, *, user: User) -> OutgoingEmail | None:
+    """Backwards compatible helper: prepare and synchronously deliver (errors swallowed)."""
+    email = prepare_email_verification(db, user=user)
+    deliver_email_safely(email)
+    return email
+
+
+def prepare_password_reset(db: Session, *, email: str) -> OutgoingEmail | None:
     normalized_email = normalize_email(email)
-    if not normalized_email:
-        return
+    if not normalized_email or not _looks_like_email(normalized_email):
+        return None
     user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
     if not user or not user.is_active:
-        return
+        return None
 
     challenge, raw_token = _issue_challenge(
         db,
@@ -382,20 +535,62 @@ def request_password_reset(db: Session, *, email: str) -> None:
         ttl_minutes=settings.auth_password_reset_ttl_minutes,
     )
     reset_url = f"{_build_public_web_origin()}/reset-password?token={raw_token}"
-    _deliver_auth_email(
+    return OutgoingEmail(
         to_email=user.email,
         subject="Redefinicao de senha do Sentinel Quiz",
-        body_lines=[
+        body_lines=(
             f"Ola {user.display_name or user.email},",
             "Use o link abaixo para redefinir sua senha:",
             reset_url,
             "Se voce nao solicitou a redefinicao, ignore este email.",
-        ],
-        fallback_log_context={
-            "challenge_type": PASSWORD_RESET_CHALLENGE,
-            "reset_url": reset_url,
-        },
+        ),
+        challenge_type=PASSWORD_RESET_CHALLENGE,
+        challenge_id=challenge.id,
     )
+
+
+def request_password_reset(db: Session, *, email: str) -> None:
+    """Issue a reset challenge (if the account exists) and deliver it; never raises for delivery."""
+    deliver_email_safely(prepare_password_reset(db, email=email))
+
+
+def run_password_reset_request(email: str) -> None:
+    """Background entry point: uses its own short-lived DB session."""
+    from app.db.session import session_scope
+
+    try:
+        with session_scope() as db:
+            outgoing = prepare_password_reset(db, email=email)
+    except Exception as exc:
+        logger.error(
+            "Password reset request failed",
+            extra={"event": "auth_password_reset_request_failed", "error_type": type(exc).__name__},
+        )
+        return
+    deliver_email_safely(outgoing)
+
+
+def run_email_verification_request(*, user_id: str | None = None, email: str | None = None) -> None:
+    """Background entry point for verification e-mails (own DB session, errors logged)."""
+    from app.db.session import session_scope
+
+    try:
+        with session_scope() as db:
+            user = None
+            if user_id:
+                user = db.get(User, user_id)
+            elif email:
+                normalized = normalize_email(email)
+                if normalized and _looks_like_email(normalized):
+                    user = db.execute(select(User).where(User.email == normalized)).scalar_one_or_none()
+            outgoing = prepare_email_verification(db, user=user) if user else None
+    except Exception as exc:
+        logger.error(
+            "Email verification request failed",
+            extra={"event": "auth_email_verification_request_failed", "error_type": type(exc).__name__},
+        )
+        return
+    deliver_email_safely(outgoing)
 
 
 def _consume_challenge(

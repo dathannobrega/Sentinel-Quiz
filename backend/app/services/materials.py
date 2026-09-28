@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 import zipfile
 from html import escape, unescape
 from pathlib import Path
@@ -9,6 +11,34 @@ from app.core.config import settings
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# File index cache (L-B7): the material tree is scanned at most once per
+# MATERIAL_INDEX_TTL_SECONDS per root, and immediately when the root mtime changes,
+# instead of an rglob() on every preview request.
+MATERIAL_INDEX_TTL_SECONDS = 300.0
+_material_index_lock = threading.Lock()
+_material_index_cache: dict[Path, tuple[int, float, tuple[Path, ...]]] = {}
+
+
+def _material_files(root: Path) -> tuple[Path, ...]:
+    try:
+        root_mtime = root.stat().st_mtime_ns
+    except OSError:
+        return ()
+    now = time.monotonic()
+    with _material_index_lock:
+        cached = _material_index_cache.get(root)
+        if cached and cached[0] == root_mtime and (now - cached[1]) < MATERIAL_INDEX_TTL_SECONDS:
+            return cached[2]
+    files = tuple(sorted(path for path in root.rglob("*") if path.is_file()))
+    with _material_index_lock:
+        _material_index_cache[root] = (root_mtime, now, files)
+    return files
+
+
+def clear_material_index_cache() -> None:
+    with _material_index_lock:
+        _material_index_cache.clear()
 
 
 def resolve_material_dir() -> Path | None:
@@ -68,14 +98,6 @@ def resolve_material_file(material_path: str) -> Path:
     raise FileNotFoundError(f"Material not found: {raw_path}")
 
 
-def build_material_download_url(material_file: Path) -> str | None:
-    base_dir = resolve_material_dir()
-    if not base_dir or not _is_relative_to(material_file, base_dir):
-        return None
-    relative = material_file.relative_to(base_dir).as_posix()
-    return f"/materials/{relative}"
-
-
 def build_material_preview(material_path: str, locator: str | None = None) -> dict:
     material_file = resolve_material_file(material_path)
     suffix = material_file.suffix.lower()
@@ -91,7 +113,6 @@ def _build_text_preview(material_file: Path) -> dict:
         "title": material_file.name,
         "chapter": material_file.stem,
         "body_html": body_html,
-        "download_url": build_material_download_url(material_file),
         "material_name": material_file.name,
     }
 
@@ -133,7 +154,6 @@ def _build_epub_preview(material_file: Path, locator: str | None = None) -> dict
             "title": material_file.name,
             "chapter": material_file.stem,
             "body_html": _text_to_html(plain_text),
-            "download_url": build_material_download_url(material_file),
             "material_name": material_file.name,
         }
 
@@ -180,7 +200,6 @@ def _build_epub_preview(material_file: Path, locator: str | None = None) -> dict
         "title": current_heading["title"] or chapter_title,
         "chapter": chapter_title,
         "body_html": _text_to_html(section_text),
-        "download_url": build_material_download_url(material_file),
         "material_name": material_file.name,
         "locator": f"{target_entry}#{anchor}" if anchor else target_entry,
     }
@@ -281,7 +300,7 @@ def _find_material_by_name(filename: str, roots: list[Path]) -> Path | None:
         direct = (root / filename).resolve()
         if direct.is_file() and _is_relative_to(direct, root):
             return direct
-        for candidate in sorted(path for path in root.rglob("*") if path.is_file()):
+        for candidate in _material_files(root):
             if candidate.name.lower() == requested and _is_relative_to(candidate.resolve(), root):
                 return candidate.resolve()
     return None
@@ -297,7 +316,7 @@ def _find_material_by_normalized_name(filename: str, roots: list[Path]) -> Path 
     if not requested:
         return None
     for root in roots:
-        for candidate in sorted(path for path in root.rglob("*") if path.is_file()):
+        for candidate in _material_files(root):
             if not _is_relative_to(candidate.resolve(), root):
                 continue
             if _normalize_material_name(candidate.name) == requested:

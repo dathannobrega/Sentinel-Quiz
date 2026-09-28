@@ -1,21 +1,45 @@
 from __future__ import annotations
 
-import json
+import logging
 from html import escape
-from fastapi import APIRouter, Depends, HTTPException, Query
+
+import anyio
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session
 from sqlalchemy import select
-from app.api.deps import get_current_user_optional, get_client_key
-from app.db.session import get_db
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_client_key, get_current_user_optional, get_current_user_required
 from app.core.config import settings
-from app.models import Exam, ExamSession, SessionQuestion, SessionAnswer, Question, Option, Explanation, User
+from app.core.errors import api_error
+from app.db.session import get_db
+from app.models import Exam, ExamSession, User
 from app.schemas import (
-    ExamOut, CreateSessionIn, SessionOut, SessionStateOut, QuestionOut,
-    ActiveSessionOut, AnswerIn, AnswerFeedbackOut, QuestionSearchOut, ResultOut, SessionHistoryOut, SessionReviewOut, ReviewQuestionOut,
-    EngagementSnapshotOut, TutorRequest, TutorResponse, ExamQuestionStateOut, ExamNavigationIn, ExamReviewScreenOut,
+    ActiveSessionOut,
+    AnswerFeedbackOut,
+    AnswerIn,
+    CreateSessionIn,
+    DomainCatalogOut,
+    EngagementSnapshotOut,
+    ExamNavigationIn,
+    ExamOut,
+    ExamQuestionStateOut,
+    ExamReviewScreenOut,
+    HealthOut,
+    MarkReviewOut,
+    QuestionIssueIn,
+    QuestionIssueOut,
+    QuestionSearchOut,
     ReadinessScoreOut,
-    QuestionIssueIn, QuestionIssueOut
+    ResultOut,
+    ReviewQuestionOut,
+    SessionHistoryOut,
+    SessionOut,
+    SessionReviewOut,
+    SessionStateOut,
+    TutorRequest,
+    TutorResponse,
+    WeakAreaSnapshotOut,
 )
 from app.services.discovery import list_active_exam_sessions, search_questions
 from app.services.engagement import build_engagement_snapshot
@@ -41,14 +65,29 @@ from app.services.quiz import (
 from app.services.gemini import ask_gemini, GeminiDisabled, GeminiError
 from app.services.materials import build_material_preview
 from app.services.readiness import build_readiness_snapshot
-from app.services.reference_resolver import resolve_full_explanation_text
+from app.services.review_api import (
+    build_exam_review_questions,
+    build_exam_session_meta,
+    list_completed_session_history,
+)
+from app.services.tutor import (
+    TutorRequestError,
+    build_tutor_context,
+    ensure_tutor_allowed,
+    seconds_until_utc_midnight,
+    tutor_daily_quota,
+    tutor_quota_key,
+)
 
 router = APIRouter(prefix="/api", tags=["api"])
 
-@router.get("/health")
+logger = logging.getLogger("app.tutor")
+
+
+@router.get("/health", response_model=HealthOut)
 def health():
     ai_enabled = bool(settings.gemini_enable and settings.gemini_api_key and settings.gemini_api_key.strip())
-    return {"ok": True, "ai_enabled": ai_enabled, "ai_model": settings.gemini_model}
+    return HealthOut(ok=True, ai_enabled=ai_enabled, ai_model=settings.gemini_model)
 
 @router.get("/exams", response_model=list[ExamOut])
 def list_exams(db: Session = Depends(get_db)):
@@ -56,13 +95,13 @@ def list_exams(db: Session = Depends(get_db)):
     return [ExamOut(id=e.id, title=e.title, source=e.source, question_count=e.question_count) for e in exams]
 
 
-@router.get("/domains")
+@router.get("/domains", response_model=DomainCatalogOut)
 def list_domains(exam_id: str | None = Query(default=None), db: Session = Depends(get_db)):
     normalized_exam_id = exam_id.strip() if exam_id else None
     return build_domain_catalog(db, normalized_exam_id or None)
 
 
-@router.get("/analytics/weak-areas")
+@router.get("/analytics/weak-areas", response_model=WeakAreaSnapshotOut)
 def weak_area_snapshot(
     current_user: User | None = Depends(get_current_user_optional),
     client_key: str | None = Depends(get_client_key),
@@ -105,7 +144,7 @@ def readiness_snapshot(
         owner_user_id=current_user.id if current_user else None,
         owner_client_key=None if current_user else client_key,
     )
-    db.commit()
+    # Read-only: no commit (M-B7).
     return ReadinessScoreOut(**payload)
 
 
@@ -196,41 +235,6 @@ def start_session(
         raise HTTPException(status_code=400, detail=str(e))
     return SessionOut(**serialize_exam_session(session))
 
-def _iso(dt):
-    return dt.isoformat() if dt else None
-
-
-def _selection_mix(selection_mix_json: str | None) -> dict:
-    if not selection_mix_json:
-        return {}
-    try:
-        payload = json.loads(selection_mix_json)
-    except (TypeError, ValueError):
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    raw_mix = payload.get("_selection_mix") if isinstance(payload.get("_selection_mix"), dict) else payload
-    if not isinstance(raw_mix, dict):
-        return {}
-    cleaned = {}
-    for key, value in raw_mix.items():
-        label = str(key or "").strip()
-        if not label or label.startswith("_"):
-            continue
-        try:
-            cleaned[label] = max(int(value), 0)
-        except (TypeError, ValueError):
-            continue
-    return cleaned
-
-
-def _scope_session_history(stmt, current_user: User | None, client_key: str | None):
-    if current_user:
-        return stmt.where(ExamSession.user_id == current_user.id)
-    if client_key:
-        return stmt.where(ExamSession.user_id.is_(None), ExamSession.client_key == client_key)
-    return stmt.where(False)
-
 @router.get("/sessions/history", response_model=list[SessionHistoryOut])
 def get_history(
     limit: int = Query(50, ge=1, le=200),
@@ -239,34 +243,16 @@ def get_history(
     client_key: str | None = Depends(get_client_key),
     db: Session = Depends(get_db)
 ):
-    stmt = (
-        select(ExamSession, Exam.title)
-        .outerjoin(Exam, Exam.id == ExamSession.exam_id)
-        .where(ExamSession.completed_at.is_not(None))
-        .order_by(ExamSession.completed_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-    stmt = _scope_session_history(stmt, current_user, client_key)
-    rows = db.execute(stmt).all()
-    history = []
-    for session, exam_title in rows:
-        total = session.total_questions
-        score = (session.correct_count / total * 100.0) if total else 0.0
-        history.append(SessionHistoryOut(
-            id=session.id,
-            exam_id=session.exam_id,
-            exam_title=exam_title,
-            created_at=_iso(session.created_at),
-            completed_at=_iso(session.completed_at),
-            selection_strategy=session.selection_strategy or "standard",
-            selection_mix=_selection_mix(session.selection_mix_json),
-            total_questions=total,
-            correct_count=session.correct_count,
-            wrong_count=session.wrong_count,
-            score_percent=round(score, 2)
-        ))
-    return history
+    return [
+        SessionHistoryOut(**item)
+        for item in list_completed_session_history(
+            db,
+            owner_user_id=current_user.id if current_user else None,
+            owner_client_key=None if current_user else client_key,
+            limit=limit,
+            offset=offset,
+        )
+    ]
 
 
 def _get_session(
@@ -284,6 +270,9 @@ def _get_session(
     elif session.client_key:
         if not client_key or session.client_key != client_key:
             raise HTTPException(status_code=404, detail="Session not found")
+    else:
+        # Sessions without any owner are never readable (deny by default).
+        raise HTTPException(status_code=404, detail="Session not found")
     return session
 
 @router.get("/sessions/{session_id}", response_model=SessionStateOut)
@@ -297,7 +286,12 @@ def get_session_state(
     sync_exam_session_state(db, session)
     return SessionStateOut(**serialize_exam_session(session))
 
-@router.get("/sessions/{session_id}/next")
+@router.get(
+    "/sessions/{session_id}/next",
+    response_model=ExamQuestionStateOut,
+    response_model_exclude_unset=True,
+    deprecated=True,
+)
 def get_next_question(
     session_id: str,
     current_user: User | None = Depends(get_current_user_optional),
@@ -349,7 +343,7 @@ def resume_session(
         raise HTTPException(status_code=409, detail=str(exc))
     return SessionStateOut(**serialize_exam_session(updated))
 
-@router.post("/sessions/{session_id}/answer", response_model=AnswerFeedbackOut)
+@router.post("/sessions/{session_id}/answer", response_model=AnswerFeedbackOut, deprecated=True)
 def submit_answer(
     session_id: str,
     payload: AnswerIn,
@@ -406,7 +400,7 @@ def save_answer_without_advancing(
     return AnswerFeedbackOut(**result)
 
 
-@router.post("/sessions/{session_id}/questions/{question_id}/mark-review")
+@router.post("/sessions/{session_id}/questions/{question_id}/mark-review", response_model=MarkReviewOut)
 def mark_question_for_review(
     session_id: str,
     question_id: str,
@@ -458,7 +452,7 @@ def submit_exam(
     session = _get_session(db, session_id, current_user, client_key)
     return ResultOut(**submit_exam_session(db, session))
 
-@router.get("/sessions/{session_id}/result", response_model=ResultOut)
+@router.get("/sessions/{session_id}/result", response_model=ResultOut, deprecated=True)
 def get_result(
     session_id: str,
     current_user: User | None = Depends(get_current_user_optional),
@@ -511,102 +505,8 @@ def get_review(
     sync_exam_session_state(db, session)
     if session.completed_at is None:
         raise HTTPException(status_code=400, detail="Session not completed.")
-    exam = db.get(Exam, session.exam_id) if session.exam_id else None
-    total = session.total_questions
-    score = (session.correct_count / total * 100.0) if total else 0.0
-    session_meta = SessionHistoryOut(
-        id=session.id,
-        exam_id=session.exam_id,
-        exam_title=exam.title if exam else None,
-        created_at=_iso(session.created_at),
-        completed_at=_iso(session.completed_at),
-        selection_strategy=session.selection_strategy or "standard",
-        selection_mix=_selection_mix(session.selection_mix_json),
-        total_questions=total,
-        correct_count=session.correct_count,
-        wrong_count=session.wrong_count,
-        score_percent=round(score, 2)
-    )
-
-    q_rows = db.execute(
-        select(
-            SessionQuestion.position,
-            Question.id,
-            Question.prompt,
-            Question.multi_select,
-            Question.domain,
-            Question.difficulty,
-            Question.certification,
-            Question.tags_json,
-            Question.citations_json,
-        )
-        .join(Question, Question.id == SessionQuestion.question_id)
-        .where(SessionQuestion.session_id == session.id)
-        .order_by(SessionQuestion.position.asc())
-    ).all()
-    qids = [row[1] for row in q_rows]
-
-    opt_rows = []
-    exp_rows = []
-    ans_rows = []
-    if qids:
-        opt_rows = db.execute(
-            select(Option.question_id, Option.key, Option.text, Option.is_correct)
-            .where(Option.question_id.in_(qids))
-            .order_by(Option.question_id.asc(), Option.key.asc())
-        ).all()
-        exp_rows = db.execute(
-            select(Explanation.question_id, Explanation.justification)
-            .where(Explanation.question_id.in_(qids))
-        ).all()
-        ans_rows = db.execute(
-            select(SessionAnswer.question_id, SessionAnswer.selected_keys, SessionAnswer.is_correct)
-            .where(SessionAnswer.session_id == session.id)
-        ).all()
-
-    opt_map = {}
-    for qid, key, text, is_correct in opt_rows:
-        opt_map.setdefault(qid, []).append({"key": key, "text": text, "is_correct": is_correct})
-
-    exp_map = {qid: just for (qid, just) in exp_rows}
-    ans_map = {qid: {"selected_keys": (sel.split(",") if sel else []), "is_correct": ok} for (qid, sel, ok) in ans_rows}
-
-    questions = []
-    for _pos, qid, prompt, multi, domain, difficulty, certification, tags_json, citations_json in q_rows:
-        opts = opt_map.get(qid, [])
-        correct_keys = [o["key"] for o in opts if o["is_correct"]]
-        ans = ans_map.get(qid, {})
-        tags = None
-        citations = None
-        if tags_json:
-            try:
-                parsed_tags = json.loads(tags_json)
-                if isinstance(parsed_tags, list):
-                    tags = [str(tag).strip() for tag in parsed_tags if str(tag).strip()]
-            except (TypeError, ValueError):
-                tags = None
-        if citations_json:
-            try:
-                parsed_citations = json.loads(citations_json)
-                if isinstance(parsed_citations, list):
-                    citations = [item for item in parsed_citations if isinstance(item, dict)]
-            except (TypeError, ValueError):
-                citations = None
-        questions.append(ReviewQuestionOut(
-            id=qid,
-            prompt=prompt,
-            multi_select=multi,
-            domain=domain,
-            difficulty=difficulty,
-            certification=certification,
-            options=[{"key": o["key"], "text": o["text"]} for o in opts],
-            correct_keys=correct_keys,
-            selected_keys=ans.get("selected_keys", []),
-            is_correct=ans.get("is_correct"),
-            justification=exp_map.get(qid),
-            tags=tags,
-            citations=citations,
-        ))
+    session_meta = SessionHistoryOut(**build_exam_session_meta(db, session))
+    questions = [ReviewQuestionOut(**item) for item in build_exam_review_questions(db, session)]
 
     response = SessionReviewOut(
         session=session_meta,
@@ -619,10 +519,11 @@ def get_review(
 
 @router.get("/materials/preview", response_class=HTMLResponse)
 def material_preview(
-    material_path: str = Query(...),
-    locator: str | None = Query(default=None),
-    page_start: str | None = Query(default=None),
-    page_end: str | None = Query(default=None),
+    material_path: str = Query(..., max_length=512),
+    locator: str | None = Query(default=None, max_length=512),
+    page_start: str | None = Query(default=None, max_length=16),
+    page_end: str | None = Query(default=None, max_length=16),
+    _: User = Depends(get_current_user_required),
 ):
     try:
         preview = build_material_preview(material_path, locator)
@@ -645,13 +546,6 @@ def material_preview(
 
     subtitle_parts = [preview.get("chapter"), page_label, preview.get("locator")]
     subtitle = " | ".join([str(part).strip() for part in subtitle_parts if str(part or "").strip()])
-
-    download_html = ""
-    download_url = preview.get("download_url")
-    if download_url:
-        download_html = (
-            f'<a href="{escape(download_url)}" target="_blank" rel="noopener noreferrer">Baixar/abrir arquivo original</a>'
-        )
 
     title = escape(str(preview.get("title") or "Preview de material"))
     subtitle_html = escape(str(subtitle or preview.get("material_name") or ""))
@@ -681,101 +575,99 @@ def material_preview(
     <div class="eyebrow">Trecho do material</div>
     <h1>{title}</h1>
     <div class="meta">{subtitle_html}</div>
-    <div class="meta" style="margin-top:6px;">{download_html}</div>
     <div class="card body">{body_html}</div>
   </main>
 </body>
 </html>"""
-    return HTMLResponse(html)
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            # The web app embeds this page in an iframe: allow our own origin and the
+            # configured web origins as frame ancestors.
+            "Content-Security-Policy": (
+                "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors "
+                + " ".join(["'self'", *[o for o in settings.cors_origin_list() if o != "*"]])
+            ),
+        },
+    )
 
 @router.post("/sessions/{session_id}/questions/{question_id}/tutor", response_model=TutorResponse)
 def tutor_question(
     session_id: str,
     question_id: str,
     payload: TutorRequest,
-    current_user: User | None = Depends(get_current_user_optional),
+    request: Request,
+    current_user: User = Depends(get_current_user_required),
     client_key: str | None = Depends(get_client_key),
     db: Session = Depends(get_db),
 ):
-    _ = _get_session(db, session_id, current_user, client_key)
-
-    belongs = db.execute(
-        select(SessionQuestion.id).where(
-            SessionQuestion.session_id == session_id,
-            SessionQuestion.question_id == question_id
+    session = _get_session(db, session_id, current_user, client_key)
+    sync_exam_session_state(db, session)
+    user_id = current_user.id
+    try:
+        ensure_tutor_allowed(session)
+        context = build_tutor_context(
+            db,
+            session_id=session_id,
+            question_id=question_id,
+            mode=payload.mode,
+            user_message=payload.user_message,
         )
-    ).scalar_one_or_none()
-    if not belongs:
-        raise HTTPException(status_code=400, detail="Question does not belong to this session.")
+    except TutorRequestError as exc:
+        if exc.code:
+            raise api_error(exc.status_code, exc.code, exc.message)
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
-    q = db.get(Question, question_id)
-    if not q:
-        raise HTTPException(status_code=404, detail="Question not found.")
+    if context.short_circuit_message is not None:
+        return TutorResponse(
+            message=context.short_circuit_message,
+            blocked=context.short_circuit_blocked,
+            model=settings.gemini_model,
+        )
 
-    mode = (payload.mode or "help").strip().lower()
-    allowed_modes = {"help", "why_wrong", "review"}
-    if mode not in allowed_modes:
-        raise HTTPException(status_code=400, detail="Invalid mode.")
+    # Release the pooled connection before the slow external call (M-B5).
+    db.commit()
 
-    user_message = (payload.user_message or "").strip()
-    if len(user_message) > 800:
-        raise HTTPException(status_code=400, detail="Message too long.")
-    if not user_message:
-        if mode == "help":
-            user_message = "Me ajude a entender esta questao e os conceitos envolvidos."
-        elif mode == "why_wrong":
-            user_message = "Explique por que minha resposta esta errada e como evitar esse erro."
-        else:
-            user_message = "Revisar a materia relacionada a esta questao."
-
-    opt_rows = db.execute(
-        select(Option.key, Option.text, Option.is_correct)
-        .where(Option.question_id == question_id)
-        .order_by(Option.key.asc())
-    ).all()
-    options = [{"key": k, "text": t, "is_correct": ok} for (k, t, ok) in opt_rows]
-
-    ans = db.execute(
-        select(SessionAnswer.selected_keys, SessionAnswer.is_correct)
-        .where(SessionAnswer.session_id == session_id, SessionAnswer.question_id == question_id)
-    ).first()
-    selected_keys = []
-    is_correct = None
-    if ans:
-        selected_raw, ok = ans
-        selected_keys = [k for k in (selected_raw.split(",") if selected_raw else []) if k]
-        is_correct = bool(ok)
-
-    full_explanation = resolve_full_explanation_text(db, question_id)
-
-    if mode == "why_wrong":
-        if is_correct is None:
-            return TutorResponse(
-                message="Voce ainda nao respondeu essa questao. Responda e depois use 'Pq Errei!' para analisar o erro.",
-                blocked=True,
-                model=settings.gemini_model,
+    quota = tutor_daily_quota()
+    if quota > 0:
+        store = getattr(request.app.state, "rate_limit_store", None)
+        used = None
+        if store is not None:
+            used = anyio.from_thread.run(
+                _increment_tutor_counter, store, tutor_quota_key(user_id), seconds_until_utc_midnight()
             )
-        if is_correct is True:
-            return TutorResponse(
-                message="Sua resposta esta correta. Posso revisar o conceito ou tirar outras duvidas sobre a questao.",
-                blocked=False,
-                model=settings.gemini_model,
+        if used is not None and used > quota:
+            raise api_error(
+                429,
+                "tutor_quota_exceeded",
+                "Daily AI tutor quota reached. Try again tomorrow.",
+                headers={"Retry-After": str(seconds_until_utc_midnight())},
             )
 
     try:
         result = ask_gemini(
-            question_prompt=q.prompt,
-            options=options,
-            multi_select=q.multi_select,
-            user_message=user_message,
-            mode=mode,
-            selected_keys=selected_keys,
-            is_correct=is_correct,
-            justification=full_explanation,
+            question_prompt=context.question_prompt,
+            options=context.options,
+            multi_select=context.multi_select,
+            user_message=context.user_message,
+            mode=context.mode,
+            selected_keys=context.selected_keys,
+            is_correct=context.is_correct,
+            justification=context.justification,
         )
     except GeminiDisabled:
-        raise HTTPException(status_code=503, detail="Gemini disabled. Configure GEMINI_API_KEY.")
-    except GeminiError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise api_error(503, "tutor_disabled", "AI tutor is not configured.")
+    except GeminiError:
+        logger.warning(
+            "AI tutor upstream failure",
+            extra={"event": "tutor_upstream_error", "session_id": session_id, "question_id": question_id},
+        )
+        raise api_error(502, "tutor_upstream_error", "AI tutor is temporarily unavailable.")
 
     return TutorResponse(message=result.message, blocked=result.blocked, model=result.model)
+
+
+async def _increment_tutor_counter(store, key: str, ttl_seconds: int) -> int | None:
+    return await store.increment_counter(key=key, ttl_seconds=ttl_seconds)

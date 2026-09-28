@@ -3,25 +3,38 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response
-from pydantic import BaseModel, Field
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_optional, get_current_user_required
 from app.core.config import settings
+from app.core.errors import api_error
 from app.db.session import get_db
 from app.models import User
+from app.schemas import (
+    AuthLoginIn,
+    AuthRegisterIn,
+    AuthTokenOut,
+    AuthUserOut,
+    EmailChallengeConsumeIn,
+    EmailChallengeRequestIn,
+    OkMessageOut,
+    OkOut,
+    PasswordResetIn,
+)
 from app.services.auth import (
+    RegistrationUnavailable,
     authenticate_user,
     claim_client_sessions,
     create_user,
+    deliver_email_safely,
     issue_auth_token,
     parse_bearer_token,
-    request_password_reset,
+    prepare_email_verification,
     revoke_token,
     reset_password_with_token,
-    send_email_verification,
+    run_email_verification_request,
+    run_password_reset_request,
     verify_email_address,
 )
 from app.services.study import claim_client_study_state
@@ -29,49 +42,16 @@ from app.services.study import claim_client_study_state
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-
-class AuthRegisterIn(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=8, max_length=200)
-    display_name: Optional[str] = Field(default=None, max_length=255)
-
-
-class AuthLoginIn(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=1, max_length=200)
-
-
-class AuthUserOut(BaseModel):
-    id: str
-    email: str
-    display_name: Optional[str] = None
-    role: str
-    is_active: bool
-    email_verified: bool
-    created_at: str
-
-
-class AuthTokenOut(BaseModel):
-    token: str
-    token_type: str = "session"
-    expires_at: str
-    user: AuthUserOut
-
-
-class EmailChallengeRequestIn(BaseModel):
-    email: Optional[str] = Field(default=None, max_length=255)
-
-
-class EmailChallengeConsumeIn(BaseModel):
-    token: str = Field(min_length=8, max_length=512)
-
-
-class PasswordResetIn(BaseModel):
-    token: str = Field(min_length=8, max_length=512)
-    new_password: str = Field(min_length=8, max_length=200)
+GENERIC_VERIFICATION_MESSAGE = "If the account exists, a verification email was sent."
+GENERIC_RESET_MESSAGE = "If the account exists, a password reset email was sent."
+REGISTRATION_UNAVAILABLE_MESSAGE = (
+    "We could not create an account with these details. "
+    "If you already have an account, sign in or reset your password."
+)
 
 
 def _serialize_user(user: User) -> AuthUserOut:
+    created_at = user.created_at if isinstance(user.created_at, datetime) else datetime.utcnow()
     return AuthUserOut(
         id=user.id,
         email=user.email,
@@ -79,7 +59,15 @@ def _serialize_user(user: User) -> AuthUserOut:
         role=user.role,
         is_active=user.is_active,
         email_verified=bool(user.email_verified),
-        created_at=user.created_at.isoformat() if isinstance(user.created_at, datetime) else "",
+        created_at=created_at.isoformat(),
+    )
+
+
+def _token_response(user: User, token: str, expires_at: datetime) -> AuthTokenOut:
+    return AuthTokenOut(
+        token=token if settings.auth_return_token_in_body else None,
+        expires_at=expires_at.isoformat(),
+        user=_serialize_user(user),
     )
 
 
@@ -94,7 +82,7 @@ def _set_auth_cookie(response: Response, token: str, expires_at: datetime) -> No
         key=settings.auth_cookie_name,
         value=token,
         httponly=True,
-        secure=bool(settings.auth_cookie_secure or settings.is_production()),
+        secure=settings.effective_cookie_secure(),
         samesite=str(settings.auth_cookie_samesite or "lax").strip().lower(),
         expires=expires_at_utc,
         path="/",
@@ -109,7 +97,7 @@ def _clear_auth_cookie(response: Response) -> None:
         path="/",
         domain=domain,
         httponly=True,
-        secure=bool(settings.auth_cookie_secure or settings.is_production()),
+        secure=settings.effective_cookie_secure(),
         samesite=str(settings.auth_cookie_samesite or "lax").strip().lower(),
     )
 
@@ -118,6 +106,7 @@ def _clear_auth_cookie(response: Response) -> None:
 def register(
     payload: AuthRegisterIn,
     response: Response,
+    background_tasks: BackgroundTasks,
     x_client_key: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
@@ -128,21 +117,22 @@ def register(
             password=payload.password,
             display_name=payload.display_name,
         )
+    except RegistrationUnavailable:
+        # Generic answer: the message does not confirm that the e-mail is registered.
+        # (Full anti-enumeration requires an e-mail-first sign-up flow.)
+        raise api_error(409, "registration_unavailable", REGISTRATION_UNAVAILABLE_MESSAGE)
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 409 if "already registered" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail)
+        raise HTTPException(status_code=400, detail=str(exc))
 
     claim_client_sessions(db, user=user, client_key=x_client_key)
     claim_client_study_state(db, user=user, client_key=x_client_key)
-    send_email_verification(db, user=user)
+    outgoing_email = prepare_email_verification(db, user=user, enforce_cooldown=False)
     token, expires_at = issue_auth_token(db, user)
     _set_auth_cookie(response, token, expires_at)
-    return AuthTokenOut(
-        token=token,
-        expires_at=expires_at.isoformat(),
-        user=_serialize_user(user),
-    )
+    result = _token_response(user, token, expires_at)
+    # SMTP happens after the response, outside the request DB session.
+    background_tasks.add_task(deliver_email_safely, outgoing_email)
+    return result
 
 
 @router.post("/login", response_model=AuthTokenOut)
@@ -154,20 +144,16 @@ def login(
 ):
     user = authenticate_user(db, email=payload.email, password=payload.password)
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials.")
+        raise api_error(401, "invalid_credentials", "Invalid credentials.")
 
     claim_client_sessions(db, user=user, client_key=x_client_key)
     claim_client_study_state(db, user=user, client_key=x_client_key)
     token, expires_at = issue_auth_token(db, user)
     _set_auth_cookie(response, token, expires_at)
-    return AuthTokenOut(
-        token=token,
-        expires_at=expires_at.isoformat(),
-        user=_serialize_user(user),
-    )
+    return _token_response(user, token, expires_at)
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=OkOut)
 def logout(
     response: Response,
     authorization: Optional[str] = Header(default=None),
@@ -178,7 +164,7 @@ def logout(
     if token:
         revoke_token(db, token)
     _clear_auth_cookie(response)
-    return {"ok": True}
+    return OkOut(ok=True)
 
 
 @router.get("/me", response_model=AuthUserOut)
@@ -186,19 +172,19 @@ def me(current_user: User = Depends(get_current_user_required)):
     return _serialize_user(current_user)
 
 
-@router.post("/request-email-verification")
+@router.post("/request-email-verification", response_model=OkMessageOut)
 def request_email_verification(
     payload: EmailChallengeRequestIn,
+    background_tasks: BackgroundTasks,
     current_user: User | None = Depends(get_current_user_optional),
-    db: Session = Depends(get_db),
 ):
-    target_user = current_user
-    if not target_user and payload.email:
-        normalized = str(payload.email or "").strip().lower()
-        target_user = db.execute(select(User).where(User.email == normalized)).scalar_one_or_none()
-    if target_user and target_user.is_active:
-        send_email_verification(db, user=target_user)
-    return {"ok": True, "message": "If the account exists, a verification email was sent."}
+    # Always the same answer; lookup, cooldown check and SMTP run after the response
+    # in a background task with its own DB session.
+    if current_user:
+        background_tasks.add_task(run_email_verification_request, user_id=current_user.id)
+    elif payload.email:
+        background_tasks.add_task(run_email_verification_request, email=payload.email)
+    return OkMessageOut(ok=True, message=GENERIC_VERIFICATION_MESSAGE)
 
 
 @router.post("/verify-email", response_model=AuthUserOut)
@@ -213,16 +199,17 @@ def verify_email(
     return _serialize_user(user)
 
 
-@router.post("/request-password-reset")
+@router.post("/request-password-reset", response_model=OkMessageOut)
 def request_password_reset_endpoint(
     payload: EmailChallengeRequestIn,
-    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks,
 ):
-    request_password_reset(db, email=payload.email or "")
-    return {"ok": True, "message": "If the account exists, a password reset email was sent."}
+    if payload.email:
+        background_tasks.add_task(run_password_reset_request, payload.email)
+    return OkMessageOut(ok=True, message=GENERIC_RESET_MESSAGE)
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", response_model=OkOut)
 def reset_password(
     payload: PasswordResetIn,
     db: Session = Depends(get_db),
@@ -235,4 +222,4 @@ def reset_password(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"ok": True}
+    return OkOut(ok=True)

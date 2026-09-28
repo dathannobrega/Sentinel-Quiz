@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 import time
 import uuid
@@ -10,16 +11,49 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import Settings, settings
+from app.core.errors import internal_error_response
 
 
 logger = logging.getLogger("app.http")
 
 
+def _valid_ip(value: str | None) -> str | None:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    # Strip an optional port from IPv4 "a.b.c.d:port" and brackets from "[v6]:port".
+    if candidate.startswith("[") and "]" in candidate:
+        candidate = candidate[1:candidate.index("]")]
+    elif candidate.count(":") == 1 and "." in candidate:
+        candidate = candidate.split(":", 1)[0]
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return None
+
+
 def resolve_client_ip(request: Request, *, trust_forwarded: bool | None = None) -> str:
+    """Return the client IP used for rate limiting and logs.
+
+    Forwarded headers are only honoured when TRUST_FORWARDED_FOR_HEADER is enabled
+    (i.e. the API is only reachable through our reverse proxy). In that case the
+    RIGHT-MOST X-Forwarded-For entry (the one appended/set by our proxy) or
+    X-Real-IP is used - never the left-most entry, which the client controls.
+    """
     should_trust_forwarded = settings.trust_forwarded_for_header if trust_forwarded is None else bool(trust_forwarded)
-    forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    if should_trust_forwarded and forwarded:
-        return forwarded
+    if should_trust_forwarded:
+        forwarded_entries = [
+            item.strip()
+            for item in str(request.headers.get("x-forwarded-for") or "").split(",")
+            if item.strip()
+        ]
+        if forwarded_entries:
+            rightmost = _valid_ip(forwarded_entries[-1])
+            if rightmost:
+                return rightmost
+        real_ip = _valid_ip(request.headers.get("x-real-ip"))
+        if real_ip:
+            return real_ip
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -95,7 +129,12 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 "Unhandled request failure",
                 extra=self._build_log_payload(request, 500, duration_ms, is_unhandled_error=True),
             )
-            raise
+            # Answer with the generic envelope here (inside CORS) instead of letting the
+            # exception reach Starlette's outermost ServerErrorMiddleware, so that 5xx
+            # responses still carry CORS headers and X-Request-ID - and no stack trace.
+            response = internal_error_response(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
 
         response.headers["X-Request-ID"] = request_id
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)

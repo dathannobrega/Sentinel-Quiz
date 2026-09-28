@@ -1,12 +1,24 @@
+"""Request rate limiting and abuse signals.
+
+* Identity = client IP resolved by ``resolve_client_ip`` (forwarded headers are only
+  trusted when TRUST_FORWARDED_FOR_HEADER=true, and then the right-most entry).
+* Backends: ``memory`` (per process, for development/tests) and ``redis`` (shared
+  between replicas, required in production unless
+  RATE_LIMIT_ALLOW_MEMORY_IN_PRODUCTION=true). The Redis backend uses
+  ``redis.asyncio`` (never blocks the event loop), wall-clock ``time.time()`` scores
+  and atomic operations (Lua script / MULTI pipelines).
+* Redis failures are fail-open: the request is allowed and an error is logged.
+* CORS preflight (OPTIONS) requests are never counted.
+"""
 from __future__ import annotations
 
 import logging
 import math
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
-from importlib import import_module
 from typing import Any
 
 from fastapi.responses import JSONResponse
@@ -20,6 +32,51 @@ from app.middleware.observability import resolve_rate_limit_identity, resolve_re
 
 logger = logging.getLogger("app.security.rate_limit")
 
+RATE_LIMIT_MESSAGE = "Too many requests. Please slow down and retry shortly."
+
+AUTH_SENSITIVE_PATHS = frozenset(
+    {
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/request-password-reset",
+        "/api/auth/request-email-verification",
+        "/api/auth/reset-password",
+        "/api/auth/verify-email",
+    }
+)
+
+# Atomic sliding-window hit registration. Returns nil when the hit is accepted,
+# otherwise the number of seconds (as a string) until a slot frees up.
+_SLIDING_WINDOW_LUA = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local member = ARGV[4]
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+local count = redis.call('ZCARD', key)
+if count >= limit then
+  local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+  local retry = window
+  if oldest[2] then
+    retry = window - (now - tonumber(oldest[2]))
+  end
+  return tostring(retry)
+end
+redis.call('ZADD', key, now, member)
+redis.call('EXPIRE', key, math.ceil(window))
+return nil
+"""
+
+# Atomic counter with TTL set on first increment.
+_COUNTER_LUA = """
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return current
+"""
+
 
 @dataclass(frozen=True)
 class RateLimitPolicy:
@@ -27,135 +84,32 @@ class RateLimitPolicy:
     window_seconds: int
 
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, settings: Settings):
-        super().__init__(app)
-        self._enabled = bool(settings.rate_limit_enabled)
-        self._public_policy = RateLimitPolicy(
-            limit=max(int(settings.rate_limit_public_requests or 0), 1),
-            window_seconds=max(int(settings.rate_limit_public_window_seconds or 0), 1),
-        )
-        self._auth_policy = RateLimitPolicy(
-            limit=max(int(settings.rate_limit_auth_requests or 0), 1),
-            window_seconds=max(int(settings.rate_limit_auth_window_seconds or 0), 1),
-        )
-        self._admin_policy = RateLimitPolicy(
-            limit=max(int(settings.rate_limit_admin_requests or 0), 1),
-            window_seconds=max(int(settings.rate_limit_admin_window_seconds or 0), 1),
-        )
-        self._max_keys = max(int(settings.rate_limit_cache_size or 0), 1000)
-        self._abuse_enabled = bool(settings.abuse_signal_enabled)
-        self._abuse_window_seconds = max(int(settings.abuse_signal_window_seconds or 0), 1)
-        self._abuse_distinct_path_threshold = max(int(settings.abuse_distinct_path_threshold or 0), 2)
-        self._abuse_rate_limit_breach_threshold = max(int(settings.abuse_rate_limit_breach_threshold or 0), 1)
-        self._abuse_signal_cooldown_seconds = max(int(settings.abuse_signal_cooldown_seconds or 0), 1)
-        self._store = self._build_store(settings)
+def _retry_after_seconds(value: float) -> int:
+    return max(int(math.ceil(value)), 1)
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        if not self._enabled:
-            return await call_next(request)
 
-        path = request.url.path
-        if not path.startswith("/api/"):
-            return await call_next(request)
-        if path in {"/api/health"}:
-            return await call_next(request)
-
-        bucket_name, policy = self._resolve_policy(path)
-        identity = resolve_rate_limit_identity(request)
-        request.state.rate_limit_bucket = bucket_name
-        request.state.identity_hint = getattr(request.state, "identity_hint", None) or resolve_request_identity(request)
-        key = f"{bucket_name}:{identity}"
-        now = time.monotonic()
-
-        retry_after = self._store.register_hit(
-            key=key,
-            policy=policy,
-            now=now,
-            max_keys=self._max_keys,
-            max_window_seconds=max(
-                self._public_policy.window_seconds,
-                self._auth_policy.window_seconds,
-                self._admin_policy.window_seconds,
-            ),
-        )
-        abuse_signal = self._store.register_activity(
-            identity=identity,
-            path=path,
-            now=now,
-            rate_limited=retry_after is not None,
-            bucket_name=bucket_name,
-            max_keys=self._max_keys,
-            abuse_window_seconds=self._abuse_window_seconds,
-            abuse_signal_cooldown_seconds=self._abuse_signal_cooldown_seconds,
-            abuse_distinct_path_threshold=self._abuse_distinct_path_threshold,
-            abuse_rate_limit_breach_threshold=self._abuse_rate_limit_breach_threshold,
-        )
-
-        if abuse_signal:
-            request.state.abuse_signal = abuse_signal["reason"]
-            abuse_signal["request_id"] = getattr(request.state, "request_id", None)
-            logger.warning("Suspicious request pattern detected", extra=abuse_signal)
-
-        if retry_after is not None:
-            logger.warning(
-                "Rate limit exceeded",
-                extra={
-                    "event": "rate_limit_exceeded",
-                    "request_id": getattr(request.state, "request_id", None),
-                    "bucket": bucket_name,
-                    "path": path,
-                    "identity": identity,
-                    "identity_hint": getattr(request.state, "identity_hint", None),
-                    "retry_after_seconds": retry_after,
-                },
-            )
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "code": "rate_limit_exceeded",
-                    "message": "Too many requests. Please slow down and retry shortly.",
-                    "details": f"Retry after {retry_after} second(s).",
-                    "request_id": getattr(request.state, "request_id", None),
-                },
-                headers={"Retry-After": str(retry_after)},
-            )
-
-        return await call_next(request)
-
-    def _resolve_policy(self, path: str) -> tuple[str, RateLimitPolicy]:
-        if path.startswith("/api/admin"):
-            return "admin", self._admin_policy
-        if path.startswith("/api/auth"):
-            return "auth", self._auth_policy
-        return "public", self._public_policy
-
-    def _build_store(self, settings: Settings) -> "RateLimitStore":
-        backend = str(settings.rate_limit_backend or "memory").strip().lower()
-        if backend == "redis":
-            store = RedisRateLimitStore(settings=settings)
-            if store.is_available:
-                return store
-            logger.warning(
-                "Redis rate limit backend unavailable; falling back to in-memory store.",
-                extra={"event": "rate_limit_backend_fallback", "requested_backend": "redis"},
-            )
-        return InMemoryRateLimitStore()
+def _classify_abuse(
+    *,
+    bucket_name: str,
+    distinct_paths: int,
+    rate_limited_hits: int,
+    abuse_distinct_path_threshold: int,
+    abuse_rate_limit_breach_threshold: int,
+) -> str:
+    if bucket_name == "public" and distinct_paths >= abuse_distinct_path_threshold:
+        return "high_path_fanout"
+    if rate_limited_hits >= abuse_rate_limit_breach_threshold:
+        return "repeated_rate_limit_breach"
+    return ""
 
 
 class RateLimitStore:
-    def register_hit(
-        self,
-        *,
-        key: str,
-        policy: RateLimitPolicy,
-        now: float,
-        max_keys: int,
-        max_window_seconds: int,
-    ) -> int | None:
+    backend_name = "abstract"
+
+    async def register_hit(self, *, key: str, policy: RateLimitPolicy, now: float, max_keys: int, max_window_seconds: int) -> int | None:
         raise NotImplementedError
 
-    def register_activity(
+    async def register_activity(
         self,
         *,
         identity: str,
@@ -171,23 +125,31 @@ class RateLimitStore:
     ) -> dict[str, object] | None:
         raise NotImplementedError
 
+    async def increment_counter(self, *, key: str, ttl_seconds: int) -> int | None:
+        """Atomically increment a counter that expires after ``ttl_seconds``.
+
+        Returns the new value, or ``None`` when the backend is unavailable (fail-open).
+        """
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        return None
+
 
 class InMemoryRateLimitStore(RateLimitStore):
+    backend_name = "memory"
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._hits: dict[str, deque[float]] = {}
         self._activity: dict[str, deque[tuple[float, str, bool]]] = {}
         self._signal_cooldowns: dict[str, float] = {}
+        self._counters: dict[str, tuple[int, float]] = {}
 
-    def register_hit(
-        self,
-        *,
-        key: str,
-        policy: RateLimitPolicy,
-        now: float,
-        max_keys: int,
-        max_window_seconds: int,
-    ) -> int | None:
+    async def register_hit(self, *, key: str, policy: RateLimitPolicy, now: float, max_keys: int, max_window_seconds: int) -> int | None:
+        return self.register_hit_sync(key=key, policy=policy, now=now, max_keys=max_keys, max_window_seconds=max_window_seconds)
+
+    def register_hit_sync(self, *, key: str, policy: RateLimitPolicy, now: float, max_keys: int, max_window_seconds: int) -> int | None:
         with self._lock:
             window_start = now - policy.window_seconds
             hits = self._hits.get(key)
@@ -199,14 +161,13 @@ class InMemoryRateLimitStore(RateLimitStore):
                 hits.popleft()
 
             if len(hits) >= policy.limit:
-                retry_after = max(policy.window_seconds - (now - hits[0]), 1)
-                return int(math.ceil(retry_after))
+                return _retry_after_seconds(policy.window_seconds - (now - hits[0]))
 
             hits.append(now)
             self._prune_hits_if_needed(now=now, max_keys=max_keys, max_window_seconds=max_window_seconds)
             return None
 
-    def register_activity(
+    async def register_activity(
         self,
         *,
         identity: str,
@@ -234,12 +195,13 @@ class InMemoryRateLimitStore(RateLimitStore):
 
             distinct_paths = len({item_path for _, item_path, _ in activity})
             rate_limited_hits = sum(1 for _, _, limited in activity if limited)
-
-            reason = ""
-            if bucket_name == "public" and distinct_paths >= abuse_distinct_path_threshold:
-                reason = "high_path_fanout"
-            elif rate_limited_hits >= abuse_rate_limit_breach_threshold:
-                reason = "repeated_rate_limit_breach"
+            reason = _classify_abuse(
+                bucket_name=bucket_name,
+                distinct_paths=distinct_paths,
+                rate_limited_hits=rate_limited_hits,
+                abuse_distinct_path_threshold=abuse_distinct_path_threshold,
+                abuse_rate_limit_breach_threshold=abuse_rate_limit_breach_threshold,
+            )
 
             signal = None
             if reason:
@@ -260,6 +222,19 @@ class InMemoryRateLimitStore(RateLimitStore):
 
             self._prune_activity_if_needed(now=now, max_keys=max_keys, abuse_window_seconds=abuse_window_seconds)
             return signal
+
+    async def increment_counter(self, *, key: str, ttl_seconds: int) -> int | None:
+        now = time.time()
+        with self._lock:
+            value, expires_at = self._counters.get(key, (0, 0.0))
+            if expires_at <= now:
+                value, expires_at = 0, now + max(int(ttl_seconds), 1)
+            value += 1
+            self._counters[key] = (value, expires_at)
+            if len(self._counters) > 10000:
+                for stale_key in [k for k, (_, exp) in self._counters.items() if exp <= now]:
+                    self._counters.pop(stale_key, None)
+            return value
 
     def _prune_hits_if_needed(self, *, now: float, max_keys: int, max_window_seconds: int) -> None:
         if len(self._hits) <= max_keys:
@@ -294,54 +269,70 @@ class InMemoryRateLimitStore(RateLimitStore):
 
 
 class RedisRateLimitStore(RateLimitStore):
-    def __init__(self, settings: Settings) -> None:
-        self._client: Any = None
-        self.is_available = False
-        redis_url = str(settings.redis_url or "").strip()
-        if not redis_url:
+    """Async Redis store. Every operation is fail-open (errors are logged, request allowed)."""
+
+    backend_name = "redis"
+    _ERROR_LOG_INTERVAL_SECONDS = 30.0
+
+    def __init__(self, settings: Settings, client: Any | None = None) -> None:
+        self._redis_url = str(settings.redis_url or "").strip()
+        self._client: Any = client
+        self._client_lock = threading.Lock()
+        self._last_error_logged_at = 0.0
+
+    def _get_client(self) -> Any:
+        if self._client is not None:
+            return self._client
+        with self._client_lock:
+            if self._client is None:
+                import redis.asyncio as redis_asyncio
+
+                self._client = redis_asyncio.from_url(
+                    self._redis_url,
+                    decode_responses=True,
+                    socket_connect_timeout=1.0,
+                    socket_timeout=1.0,
+                    health_check_interval=30,
+                )
+        return self._client
+
+    def _log_failure(self, operation: str, exc: Exception) -> None:
+        now = time.time()
+        if now - self._last_error_logged_at < self._ERROR_LOG_INTERVAL_SECONDS:
             return
+        self._last_error_logged_at = now
+        logger.error(
+            "Redis rate limit backend failed; allowing request (fail-open).",
+            extra={
+                "event": "rate_limit_backend_error",
+                "operation": operation,
+                "error_type": type(exc).__name__,
+            },
+        )
+
+    async def register_hit(self, *, key: str, policy: RateLimitPolicy, now: float, max_keys: int, max_window_seconds: int) -> int | None:
         try:
-            redis_module = import_module("redis")
-            self._client = redis_module.Redis.from_url(redis_url, decode_responses=True)
-            self._client.ping()
-            self.is_available = True
-        except Exception:
-            self._client = None
-            self.is_available = False
-
-    def register_hit(
-        self,
-        *,
-        key: str,
-        policy: RateLimitPolicy,
-        now: float,
-        max_keys: int,
-        max_window_seconds: int,
-    ) -> int | None:
-        if not self.is_available:
+            client = self._get_client()
+            result = await client.eval(
+                _SLIDING_WINDOW_LUA,
+                1,
+                f"rate-limit:hits:{key}",
+                repr(float(now)),
+                str(int(policy.window_seconds)),
+                str(int(policy.limit)),
+                f"{now:.6f}:{uuid.uuid4().hex}",
+            )
+        except Exception as exc:  # fail-open
+            self._log_failure("register_hit", exc)
             return None
-
-        hits_key = f"rate-limit:hits:{key}"
-        pipe = self._client.pipeline()
-        window_start = now - policy.window_seconds
-        pipe.zremrangebyscore(hits_key, 0, window_start)
-        pipe.zcard(hits_key)
-        _, current_hits = pipe.execute()
-        if int(current_hits or 0) >= policy.limit:
-            oldest = self._client.zrange(hits_key, 0, 0, withscores=True)
-            if oldest:
-                retry_after = max(policy.window_seconds - (now - float(oldest[0][1])), 1)
-                return int(math.ceil(retry_after))
+        if result is None:
+            return None
+        try:
+            return _retry_after_seconds(float(result))
+        except (TypeError, ValueError):
             return policy.window_seconds
 
-        member = f"{now}:{time.time_ns()}"
-        pipe = self._client.pipeline()
-        pipe.zadd(hits_key, {member: now})
-        pipe.expire(hits_key, max(policy.window_seconds, 1))
-        pipe.execute()
-        return None
-
-    def register_activity(
+    async def register_activity(
         self,
         *,
         identity: str,
@@ -355,33 +346,40 @@ class RedisRateLimitStore(RateLimitStore):
         abuse_distinct_path_threshold: int,
         abuse_rate_limit_breach_threshold: int,
     ) -> dict[str, object] | None:
-        if not self.is_available:
-            return None
-
         activity_key = f"rate-limit:activity:{identity}"
-        payload = f"{path}|{1 if rate_limited else 0}|{time.time_ns()}"
-        pipe = self._client.pipeline()
-        pipe.zremrangebyscore(activity_key, 0, now - abuse_window_seconds)
-        pipe.zadd(activity_key, {payload: now})
-        pipe.expire(activity_key, max(abuse_window_seconds, 1))
-        pipe.zrange(activity_key, 0, -1)
-        _, _, _, raw_items = pipe.execute()
+        payload = f"{path}|{1 if rate_limited else 0}|{uuid.uuid4().hex}"
+        try:
+            client = self._get_client()
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.zremrangebyscore(activity_key, "-inf", now - abuse_window_seconds)
+                pipe.zadd(activity_key, {payload: now})
+                pipe.expire(activity_key, max(int(abuse_window_seconds), 1))
+                pipe.zrange(activity_key, 0, -1)
+                _, _, _, raw_items = await pipe.execute()
+        except Exception as exc:  # fail-open
+            self._log_failure("register_activity", exc)
+            return None
 
         items = [str(item).split("|", 2) for item in raw_items or []]
         distinct_paths = len({item[0] for item in items if item})
         rate_limited_hits = sum(1 for item in items if len(item) > 1 and item[1] == "1")
-
-        reason = ""
-        if bucket_name == "public" and distinct_paths >= abuse_distinct_path_threshold:
-            reason = "high_path_fanout"
-        elif rate_limited_hits >= abuse_rate_limit_breach_threshold:
-            reason = "repeated_rate_limit_breach"
-
+        reason = _classify_abuse(
+            bucket_name=bucket_name,
+            distinct_paths=distinct_paths,
+            rate_limited_hits=rate_limited_hits,
+            abuse_distinct_path_threshold=abuse_distinct_path_threshold,
+            abuse_rate_limit_breach_threshold=abuse_rate_limit_breach_threshold,
+        )
         if not reason:
             return None
 
         cooldown_key = f"rate-limit:cooldown:{identity}:{reason}"
-        if not self._client.set(cooldown_key, "1", nx=True, ex=max(abuse_signal_cooldown_seconds, 1)):
+        try:
+            acquired = await client.set(cooldown_key, "1", nx=True, ex=max(int(abuse_signal_cooldown_seconds), 1))
+        except Exception as exc:  # fail-open
+            self._log_failure("register_activity_cooldown", exc)
+            return None
+        if not acquired:
             return None
 
         return {
@@ -395,3 +393,166 @@ class RedisRateLimitStore(RateLimitStore):
             "rate_limited_hits": rate_limited_hits,
             "window_seconds": abuse_window_seconds,
         }
+
+    async def increment_counter(self, *, key: str, ttl_seconds: int) -> int | None:
+        try:
+            client = self._get_client()
+            value = await client.eval(_COUNTER_LUA, 1, f"rate-limit:counter:{key}", str(max(int(ttl_seconds), 1)))
+            return int(value)
+        except Exception as exc:  # fail-open
+            self._log_failure("increment_counter", exc)
+            return None
+
+    async def close(self) -> None:
+        client = self._client
+        self._client = None
+        if client is None:
+            return
+        try:
+            closer = getattr(client, "aclose", None) or getattr(client, "close", None)
+            if closer is not None:
+                await closer()
+        except Exception:
+            pass
+
+
+def build_rate_limit_store(settings: Settings) -> RateLimitStore:
+    backend = settings.normalized_rate_limit_backend()
+    if backend == "redis":
+        if str(settings.redis_url or "").strip():
+            return RedisRateLimitStore(settings=settings)
+        logger.error(
+            "RATE_LIMIT_BACKEND=redis but REDIS_URL is empty; using the per-process memory store.",
+            extra={"event": "rate_limit_backend_misconfigured", "requested_backend": "redis"},
+        )
+    if settings.is_production():
+        logger.warning(
+            "In-memory rate limiting is per process and is not shared between replicas.",
+            extra={"event": "rate_limit_memory_backend_in_production"},
+        )
+    return InMemoryRateLimitStore()
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, settings: Settings, store: RateLimitStore | None = None):
+        super().__init__(app)
+        self._enabled = bool(settings.rate_limit_enabled)
+        self._public_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_public_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_public_window_seconds or 0), 1),
+        )
+        self._auth_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_auth_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_auth_window_seconds or 0), 1),
+        )
+        self._auth_sensitive_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_auth_sensitive_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_auth_sensitive_window_seconds or 0), 1),
+        )
+        self._admin_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_admin_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_admin_window_seconds or 0), 1),
+        )
+        self._max_window_seconds = max(
+            self._public_policy.window_seconds,
+            self._auth_policy.window_seconds,
+            self._auth_sensitive_policy.window_seconds,
+            self._admin_policy.window_seconds,
+        )
+        self._max_keys = max(int(settings.rate_limit_cache_size or 0), 1000)
+        self._abuse_enabled = bool(settings.abuse_signal_enabled)
+        self._abuse_window_seconds = max(int(settings.abuse_signal_window_seconds or 0), 1)
+        self._abuse_distinct_path_threshold = max(int(settings.abuse_distinct_path_threshold or 0), 2)
+        self._abuse_rate_limit_breach_threshold = max(int(settings.abuse_rate_limit_breach_threshold or 0), 1)
+        self._abuse_signal_cooldown_seconds = max(int(settings.abuse_signal_cooldown_seconds or 0), 1)
+        self._store = store if store is not None else build_rate_limit_store(settings)
+
+    @property
+    def store(self) -> RateLimitStore:
+        return self._store
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if not self._enabled:
+            return await call_next(request)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return await call_next(request)
+        if path in {"/api/health"}:
+            return await call_next(request)
+
+        bucket_name, policy = self._resolve_policy(path)
+        identity = resolve_rate_limit_identity(request)
+        request.state.rate_limit_bucket = bucket_name
+        request.state.identity_hint = getattr(request.state, "identity_hint", None) or resolve_request_identity(request)
+        key = f"{bucket_name}:{identity}"
+        now = time.time()
+
+        retry_after = await self._store.register_hit(
+            key=key,
+            policy=policy,
+            now=now,
+            max_keys=self._max_keys,
+            max_window_seconds=self._max_window_seconds,
+        )
+        if self._abuse_enabled:
+            abuse_signal = await self._store.register_activity(
+                identity=identity,
+                path=path,
+                now=now,
+                rate_limited=retry_after is not None,
+                bucket_name=bucket_name,
+                max_keys=self._max_keys,
+                abuse_window_seconds=self._abuse_window_seconds,
+                abuse_signal_cooldown_seconds=self._abuse_signal_cooldown_seconds,
+                abuse_distinct_path_threshold=self._abuse_distinct_path_threshold,
+                abuse_rate_limit_breach_threshold=self._abuse_rate_limit_breach_threshold,
+            )
+            if abuse_signal:
+                request.state.abuse_signal = abuse_signal["reason"]
+                abuse_signal["request_id"] = getattr(request.state, "request_id", None)
+                logger.warning("Suspicious request pattern detected", extra=abuse_signal)
+
+        if retry_after is not None:
+            request_id = getattr(request.state, "request_id", None)
+            logger.warning(
+                "Rate limit exceeded",
+                extra={
+                    "event": "rate_limit_exceeded",
+                    "request_id": request_id,
+                    "bucket": bucket_name,
+                    "path": path,
+                    "identity": identity,
+                    "identity_hint": getattr(request.state, "identity_hint", None),
+                    "retry_after_seconds": retry_after,
+                },
+            )
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": RATE_LIMIT_MESSAGE,
+                    "message": RATE_LIMIT_MESSAGE,
+                    "code": "rate_limited",
+                    "details": {
+                        "bucket": bucket_name,
+                        "retry_after_seconds": retry_after,
+                        "limit": policy.limit,
+                        "window_seconds": policy.window_seconds,
+                    },
+                    "request_id": request_id,
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        return await call_next(request)
+
+    def _resolve_policy(self, path: str) -> tuple[str, RateLimitPolicy]:
+        if path.startswith("/api/admin"):
+            return "admin", self._admin_policy
+        if path in AUTH_SENSITIVE_PATHS:
+            return "auth_sensitive", self._auth_sensitive_policy
+        if path.startswith("/api/auth"):
+            return "auth", self._auth_policy
+        return "public", self._public_policy
