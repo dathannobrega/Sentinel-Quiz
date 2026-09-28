@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -406,12 +406,112 @@ def _ensure_question_hints(
     return rows
 
 
+def _summary_from_catalog_row(row: ReferenceCatalog) -> dict[str, Any]:
+    return {
+        "source_kind": row.source_kind,
+        "label": row.label,
+        "reference": row.reference_text,
+        "material_path": row.material_path,
+        "locator": row.locator,
+        "page_start": row.page_start,
+        "page_end": row.page_end,
+        "is_official": bool(row.is_official),
+    }
+
+
+def _reference_summaries_readonly(
+    db: Session,
+    question: Question,
+    version: QuestionVersion | None,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Reference summaries without touching the reference catalog cache (GET-safe).
+
+    Uses the cached ``reference_catalog`` rows when they are fresh; otherwise builds the
+    same kind of summary in memory from the version metadata and citations.
+    """
+    if version is not None:
+        cached = db.execute(
+            select(ReferenceCatalog)
+            .where(ReferenceCatalog.question_version_id == version.id)
+            .order_by(ReferenceCatalog.id.asc())
+        ).scalars().all()
+        latest = max((row.updated_at for row in cached if row.updated_at), default=None)
+        fresh = bool(cached) and not (version.updated_at and latest and latest < version.updated_at)
+        if fresh:
+            ordered = sorted(cached, key=lambda item: (0 if item.is_official else 1, item.source_kind, item.id))
+            return [_summary_from_catalog_row(row) for row in ordered[:limit]]
+
+    items: list[dict[str, Any]] = []
+    if version is not None and version.blueprint_code:
+        items.append({
+            "source_kind": "blueprint",
+            "label": f"Blueprint {version.blueprint_code}",
+            "reference": " | ".join(
+                part for part in [_clean_text(version.certification), _clean_text(version.domain), _clean_text(version.subdomain)] if part
+            ) or None,
+            "material_path": None,
+            "locator": None,
+            "page_start": None,
+            "page_end": None,
+            "is_official": True,
+        })
+    if version is not None and version.objective_code:
+        items.append({
+            "source_kind": "objective",
+            "label": f"Objective {version.objective_code}",
+            "reference": "Use este código para localizar o objetivo oficial no blueprint desta certificação.",
+            "material_path": None,
+            "locator": None,
+            "page_start": None,
+            "page_end": None,
+            "is_official": True,
+        })
+    citations = _load_citation_dicts(version.citations_json if version is not None else None) or _load_citation_dicts(question.citations_json)
+    for citation in citations:
+        label = _clean_text(citation.get("reference")) or _clean_text(citation.get("source")) or _clean_text(citation.get("chapter")) or "Material interno"
+        reference_text = _clean_text(citation.get("reference"))
+        if reference_text == label:
+            reference_text = _clean_text(citation.get("locator"))
+        source_kind = "material" if _clean_text(citation.get("material_path")) else "citation"
+        items.append({
+            "source_kind": source_kind,
+            "label": label,
+            "reference": reference_text,
+            "material_path": _clean_text(citation.get("material_path")),
+            "locator": _clean_text(citation.get("locator")),
+            "page_start": citation.get("page_start") if isinstance(citation.get("page_start"), int) else None,
+            "page_end": citation.get("page_end") if isinstance(citation.get("page_end"), int) else None,
+            "is_official": _is_official_reference(source_kind, label, " ".join(
+                part for part in [str(citation.get("source") or ""), str(citation.get("reference") or "")] if part
+            )),
+        })
+    items.sort(key=lambda item: (0 if item["is_official"] else 1, item["source_kind"]))
+    return items[:limit]
+
+
+def _persisted_hints(db: Session, version: QuestionVersion | None) -> list[QuestionHint]:
+    """Cached hints of the version when complete and fresh (read-only)."""
+    if version is None:
+        return []
+    rows = db.execute(
+        select(QuestionHint)
+        .where(QuestionHint.question_version_id == version.id)
+        .order_by(QuestionHint.level.asc())
+    ).scalars().all()
+    latest_update = max((row.updated_at for row in rows if row.updated_at), default=None)
+    stale = len(rows) != 3 or (version.updated_at and latest_update and latest_update < version.updated_at)
+    return [] if stale else list(rows)
+
+
 def build_question_hint(
     db: Session,
     question_id: str,
     *,
     level: int,
 ) -> dict[str, Any]:
+    """Hint for a question (read-only: GET /study/.../hint never writes, M-B7)."""
     if level not in {1, 2, 3}:
         raise ValueError("Hint level must be between 1 and 3.")
 
@@ -419,8 +519,8 @@ def build_question_hint(
     if not question:
         raise ValueError("Question not found.")
 
-    references = build_official_reference_summaries(db, question_id, limit=3)
-    persisted_hints = _ensure_question_hints(db, question, version, references)
+    references = _reference_summaries_readonly(db, question, version, limit=3)
+    persisted_hints = _persisted_hints(db, version)
     if persisted_hints:
         hint_map = {row.level: row for row in persisted_hints}
         row = hint_map[level]

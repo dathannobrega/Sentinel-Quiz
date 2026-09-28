@@ -1,3 +1,13 @@
+"""Exam (simulado) sessions: selection, runtime state, grading and results.
+
+Shared building blocks live in :mod:`app.services.question_pool` (candidate selection,
+blueprint quotas), :mod:`app.services.owner_scope`, :mod:`app.services.serialization`
+and :mod:`app.services.option_order` (per-session option shuffle, M-C1).
+
+Progress/metrics/SRS for an exam are recorded exactly once, when the session is
+completed (submit, last answer with auto-submit, or timer expiry) - see
+:func:`finalize_exam_session` (M-C2).
+"""
 from __future__ import annotations
 
 import json
@@ -5,33 +15,60 @@ import math
 import random
 import uuid
 from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
+
+from sqlalchemy import and_, false, select
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, false, func, select
+
 from app.models import (
     Exam,
-    Question,
-    Option,
     ExamSession,
-    SessionQuestion,
+    Option,
+    Question,
+    QuestionBank,
     SessionAnswer,
-    ReviewQueueItem,
-    StudySession,
-    StudyAttempt,
-    UserBookmark,
-    UserNote,
+    SessionQuestion,
 )
+from app.services.engagement import refresh_engagement_state
+from app.services.exam_policy import DEFAULT_PASS_THRESHOLD, resolve_pass_threshold
 from app.services.learning import upsert_question_progress
 from app.services.metrics import (
     aggregate_domain_metrics_for_owner,
     record_question_attempt_metrics,
     record_session_metrics,
 )
+from app.services.option_order import OptionMapping, build_option_orders, option_keys_by_question
+from app.services.question_pool import (
+    active_question_clause,
+    build_domain_quota_map,
+    build_question_domain_map,
+    dedupe_question_ids,
+    domain_key,
+    filtered_question_rows_detailed,
+    normalize_difficulty_filters,
+    normalize_domain_filters,
+    normalize_tag_filters,
+    owner_seen_question_ids,
+    resolve_quota_buckets,
+    review_queue_candidates,
+    select_candidates_with_domain_targets,
+    validate_requested_question_ids,
+    weak_domain_keys,
+    weighted_domain_sample,
+)
 from app.services.readiness import build_readiness_snapshot
-from app.services.reference_resolver import build_feedback_summary, build_official_reference_summaries
-from typing import Optional, Dict, Any
+from app.services.review_queue import schedule_exam_answer_for_review
+from app.services.serialization import (
+    format_citation,
+    parse_citations,
+    parse_tags,
+    score_percent,
+)
 
-PASS_THRESHOLD = 90.0
-SAFE_FEEDBACK_MAX_CHARS = 240
+# Kept for backwards compatibility; the real threshold depends on the certification
+# (see app.services.exam_policy, M-C3).
+PASS_THRESHOLD = DEFAULT_PASS_THRESHOLD
+
 DEFAULT_EXAM_SECONDS_PER_QUESTION = 75
 MIN_EXAM_TIME_LIMIT_SECONDS = 300
 DEFAULT_EXAM_PAUSE_LIMIT = 2
@@ -39,145 +76,6 @@ DEFAULT_EXAM_MAX_PAUSE_SECONDS = 300
 SELECTION_MIX_KEY = "_selection_mix"
 SESSION_CONFIG_KEY = "_session_config"
 ACTIVE_FILTERS_KEY = "_active_filters"
-BLUEPRINT_WEIGHT_PRESETS = {
-    "security+": {
-        "General Security Concepts": 12.0,
-        "Threats, Vulnerabilities and Mitigations": 22.0,
-        "Security Architecture": 18.0,
-        "Security Operations": 28.0,
-        "Security Program Management and Oversight": 20.0,
-    },
-    "cissp": {
-        "Security and Risk Management": 16.0,
-        "Asset Security": 10.0,
-        "Security Architecture and Engineering": 13.0,
-        "Communication and Network Security": 13.0,
-        "Identity and Access Management (IAM)": 13.0,
-        "Security Assessment and Testing": 12.0,
-        "Security Operations": 13.0,
-        "Software Development Security": 10.0,
-    },
-}
-
-
-def _score_percent(correct: int, total: int) -> float:
-    return round((correct / total) * 100.0, 2) if total else 0.0
-
-
-def _clean_citation_value(value):
-    if value is None:
-        return None
-    if isinstance(value, str):
-        cleaned = value.strip()
-        return cleaned or None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value
-    if isinstance(value, list):
-        cleaned_items = []
-        for item in value:
-            cleaned = _clean_citation_value(item)
-            if cleaned is not None:
-                cleaned_items.append(cleaned)
-        return cleaned_items or None
-    if isinstance(value, dict):
-        cleaned_dict = {}
-        for key, item in value.items():
-            clean_key = str(key or "").strip()
-            if not clean_key:
-                continue
-            cleaned = _clean_citation_value(item)
-            if cleaned is not None:
-                cleaned_dict[clean_key] = cleaned
-        return cleaned_dict or None
-    return None
-
-
-def _parse_tags(tags_json: str | None) -> list[str]:
-    if not tags_json:
-        return []
-    try:
-        payload = json.loads(tags_json)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(payload, list):
-        return []
-    tags: list[str] = []
-    for item in payload:
-        text = str(item or "").strip()
-        if text:
-            tags.append(text)
-    return tags
-
-
-def _parse_citations(citations_json: str | None) -> list[dict]:
-    if not citations_json:
-        return []
-    try:
-        payload = json.loads(citations_json)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(payload, list):
-        return []
-
-    citations: list[dict] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        cleaned_item = {}
-        for key, value in item.items():
-            clean_key = str(key or "").strip()
-            if not clean_key:
-                continue
-            if clean_key in {"source", "reference"}:
-                cleaned = str(value or "").strip()
-            else:
-                cleaned = _clean_citation_value(value)
-            if cleaned is None:
-                continue
-            cleaned_item[clean_key] = cleaned
-        source = str(cleaned_item.get("source") or "").strip()
-        reference = str(cleaned_item.get("reference") or "").strip()
-        locator = str(cleaned_item.get("locator") or "").strip()
-        material_path = str(cleaned_item.get("material_path") or "").strip()
-        if source or reference or locator or material_path:
-            cleaned_item["source"] = source
-            cleaned_item["reference"] = reference
-            citations.append(cleaned_item)
-    return citations
-
-
-def _format_citation(citation: dict) -> str:
-    source = str(citation.get("source") or "").strip()
-    reference = str(citation.get("reference") or "").strip()
-    chapter = str(citation.get("chapter") or "").strip()
-    section = str(citation.get("section") or "").strip()
-    locator = str(citation.get("locator") or "").strip()
-
-    if not reference:
-        if chapter and section and section.lower() != chapter.lower():
-            reference = f"{chapter} -> {section}"
-        else:
-            reference = chapter or section
-
-    page_start = citation.get("page_start")
-    page_end = citation.get("page_end")
-    page_text = ""
-    if page_start is not None and page_end is not None:
-        if str(page_start) == str(page_end):
-            page_text = f"p. {page_start}"
-        else:
-            page_text = f"pp. {page_start}-{page_end}"
-    elif page_start is not None:
-        page_text = f"p. {page_start}"
-
-    detail_parts = [part for part in [reference, page_text, locator] if part]
-    if source and detail_parts:
-        return f"{source}: {' | '.join(detail_parts)}"
-    if detail_parts:
-        return " | ".join(detail_parts)
-    return source
 
 
 def _bucket_template() -> dict:
@@ -190,7 +88,7 @@ def _update_bucket(bucket: dict, is_correct: bool) -> None:
         bucket["correct"] += 1
     else:
         bucket["wrong"] += 1
-    bucket["score_percent"] = _score_percent(bucket["correct"], bucket["total"])
+    bucket["score_percent"] = score_percent(bucket["correct"], bucket["total"])
 
 
 def _sorted_buckets(buckets: dict[str, dict]) -> dict[str, dict]:
@@ -233,256 +131,11 @@ def _bucket_rows(buckets: dict[str, dict]) -> list[dict]:
     ]
 
 
-def _normalize_text_filters(values: Optional[list[str]]) -> list[str]:
-    if not values:
-        return []
-    normalized: list[str] = []
-    seen = set()
-    for item in values:
-        label = str(item or "").strip()
-        if not label:
-            continue
-        key = label.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append(label)
-    return normalized
-
-
-def _normalize_domain_filters(domains: Optional[list[str]]) -> list[str]:
-    return _normalize_text_filters(domains)
-
-
-def _normalize_difficulty_filters(difficulties: Optional[list[str]]) -> list[str]:
-    return _normalize_text_filters(difficulties)
-
-
-def _normalize_tag_filters(tags: Optional[list[str]]) -> list[str]:
-    return _normalize_text_filters(tags)
-
-
 def _normalize_strategy(value: str | None) -> str:
     normalized = str(value or "standard").strip().lower()
     if normalized not in {"standard", "adaptive"}:
         raise ValueError("Exam strategy must be one of: standard, adaptive.")
     return normalized
-
-
-def _resolve_blueprint_weight_preset(
-    db: Session,
-    *,
-    exam_id: Optional[str],
-    question_ids: list[str],
-) -> dict[str, float]:
-    if not question_ids:
-        return {}
-
-    rows = db.execute(
-        select(Question.certification, func.count(Question.id))
-        .where(Question.id.in_(question_ids))
-        .group_by(Question.certification)
-        .order_by(func.count(Question.id).desc())
-    ).all()
-    if not rows:
-        return {}
-
-    certification = str(rows[0][0] or "").strip().lower()
-    if certification in BLUEPRINT_WEIGHT_PRESETS:
-        return dict(BLUEPRINT_WEIGHT_PRESETS[certification])
-
-    normalized_exam_id = str(exam_id or "").strip().lower()
-    return dict(BLUEPRINT_WEIGHT_PRESETS.get(normalized_exam_id, {}))
-
-
-def _build_domain_quota_map(
-    question_rows: list[tuple[str, str | None]],
-    total_questions: int,
-    *,
-    blueprint_weights: dict[str, float] | None = None,
-) -> tuple[dict[str, int], bool]:
-    domain_buckets: dict[str, list[str]] = {}
-    for question_id, domain in question_rows:
-        domain_label = str(domain or "Sem dominio").strip() or "Sem dominio"
-        domain_buckets.setdefault(domain_label, []).append(question_id)
-
-    if not domain_buckets:
-        return {}, False
-
-    domain_labels = sorted(domain_buckets)
-    provided_weights = blueprint_weights or {}
-    matched_weight_labels = [label for label in domain_labels if label in provided_weights]
-    use_blueprint = bool(matched_weight_labels)
-    weighted_domains: list[tuple[str, float]] = []
-
-    if use_blueprint:
-        smallest_known = min((provided_weights[label] for label in matched_weight_labels), default=5.0)
-        fallback_weight = max(smallest_known * 0.35, 3.0)
-        for label in domain_labels:
-            weighted_domains.append((label, float(provided_weights.get(label, fallback_weight))))
-    else:
-        for label in domain_labels:
-            weighted_domains.append((label, 1.0))
-
-    total_weight = sum(weight for _label, weight in weighted_domains) or float(len(weighted_domains))
-    quotas = {label: 0 for label in domain_labels}
-    remainders: list[tuple[float, str]] = []
-
-    for label, weight in weighted_domains:
-        available = len(domain_buckets[label])
-        raw_quota = (total_questions * weight) / total_weight
-        base_quota = min(int(math.floor(raw_quota)), available)
-        quotas[label] = base_quota
-        remainders.append((raw_quota - math.floor(raw_quota), label))
-
-    if total_questions >= len(domain_labels):
-        missing = [label for label in domain_labels if quotas[label] == 0 and len(domain_buckets[label]) > 0]
-        for label in missing:
-            donor = max(
-                (candidate for candidate in domain_labels if quotas[candidate] > 1),
-                key=lambda item: quotas[item],
-                default=None,
-            )
-            if donor:
-                quotas[donor] -= 1
-                quotas[label] += 1
-
-    remaining = max(total_questions - sum(quotas.values()), 0)
-    remainders.sort(key=lambda item: (-item[0], item[1].lower()))
-    while remaining > 0:
-        allocated = False
-        for _remainder, label in remainders:
-            available = len(domain_buckets[label])
-            if quotas[label] >= available:
-                continue
-            quotas[label] += 1
-            remaining -= 1
-            allocated = True
-            if remaining <= 0:
-                break
-        if not allocated:
-            break
-
-    return quotas, use_blueprint
-
-
-def _weighted_domain_sample(
-    question_rows: list[tuple[str, str | None]],
-    *,
-    total_questions: int,
-    blueprint_weights: dict[str, float] | None = None,
-) -> tuple[list[str], bool]:
-    if not question_rows or total_questions <= 0:
-        return [], False
-
-    domain_buckets: dict[str, list[str]] = {}
-    for question_id, domain in question_rows:
-        domain_label = str(domain or "Sem dominio").strip() or "Sem dominio"
-        domain_buckets.setdefault(domain_label, []).append(question_id)
-
-    for bucket in domain_buckets.values():
-        random.shuffle(bucket)
-
-    quotas, use_blueprint = _build_domain_quota_map(
-        question_rows,
-        total_questions,
-        blueprint_weights=blueprint_weights,
-    )
-    if not quotas:
-        pool = [question_id for question_id, _domain in question_rows]
-        random.shuffle(pool)
-        return pool[:total_questions], False
-
-    staged: dict[str, list[str]] = {}
-    for domain_label, quota in quotas.items():
-        if quota > 0:
-            staged[domain_label] = domain_buckets[domain_label][:quota]
-
-    selected: list[str] = []
-    ordered_domains = sorted(
-        staged,
-        key=lambda label: (-len(staged[label]), label.lower()),
-    )
-    while True:
-        progressed = False
-        for domain_label in ordered_domains:
-            bucket = staged.get(domain_label) or []
-            if not bucket:
-                continue
-            selected.append(bucket.pop())
-            progressed = True
-            if len(selected) >= total_questions:
-                return selected[:total_questions], use_blueprint
-        if not progressed:
-            break
-
-    if len(selected) < total_questions:
-        selected_set = set(selected)
-        fallback = [question_id for question_id, _domain in question_rows if question_id not in selected_set]
-        random.shuffle(fallback)
-        selected.extend(fallback[: max(total_questions - len(selected), 0)])
-
-    return selected[:total_questions], use_blueprint
-
-
-def _build_question_domain_map(question_rows: list[tuple[str, str | None]]) -> dict[str, str]:
-    domain_map: dict[str, str] = {}
-    for question_id, domain in question_rows:
-        domain_map[question_id] = str(domain or "Sem dominio").strip() or "Sem dominio"
-    return domain_map
-
-
-def _select_candidates_with_domain_targets(
-    candidates: list[str],
-    *,
-    limit: int,
-    question_domains: dict[str, str],
-    domain_targets: dict[str, int] | None = None,
-    already_selected: list[str] | None = None,
-) -> list[str]:
-    if limit <= 0:
-        return []
-
-    blocked = set(already_selected or [])
-    ordered_candidates = _dedupe_question_ids(candidates, blocked=blocked)
-    if not ordered_candidates:
-        return []
-    if not domain_targets:
-        return ordered_candidates[:limit]
-
-    selected_counts: dict[str, int] = {}
-    for question_id in already_selected or []:
-        domain_label = question_domains.get(question_id, "Sem dominio")
-        selected_counts[domain_label] = selected_counts.get(domain_label, 0) + 1
-
-    remaining = list(ordered_candidates)
-    picked: list[str] = []
-
-    while remaining and len(picked) < limit:
-        best_index = 0
-        best_score: tuple[int, int, int, int] | None = None
-
-        for index, question_id in enumerate(remaining):
-            domain_label = question_domains.get(question_id, "Sem dominio")
-            target = max(int(domain_targets.get(domain_label, 0) or 0), 0)
-            current = selected_counts.get(domain_label, 0)
-            deficit = max(target - current, 0)
-            score = (
-                1 if deficit > 0 else 0,
-                deficit,
-                -current,
-                -index,
-            )
-            if best_score is None or score > best_score:
-                best_index = index
-                best_score = score
-
-        question_id = remaining.pop(best_index)
-        picked.append(question_id)
-        domain_label = question_domains.get(question_id, "Sem dominio")
-        selected_counts[domain_label] = selected_counts.get(domain_label, 0) + 1
-
-    return picked
 
 
 def _sanitize_selection_mix(selection_mix: dict[str, int] | None) -> dict[str, int]:
@@ -510,9 +163,9 @@ def _normalize_active_filters(
     low_confidence_only: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    normalized_domains = _normalize_domain_filters(domains)
-    normalized_difficulties = _normalize_difficulty_filters(difficulties)
-    normalized_tags = _normalize_tag_filters(tags)
+    normalized_domains = normalize_domain_filters(domains)
+    normalized_difficulties = normalize_difficulty_filters(difficulties)
+    normalized_tags = normalize_tag_filters(tags)
     if normalized_domains:
         payload["domains"] = normalized_domains
     if normalized_difficulties:
@@ -677,365 +330,6 @@ def _build_exam_timing_metadata(
         "auto_submitted": bool(effective_config.get("auto_submitted")),
         "time_spent_seconds": elapsed_seconds,
     }
-def _apply_owner_filters(stmt, model, owner_user_id: Optional[str], owner_client_key: Optional[str]):
-    if owner_user_id:
-        return stmt.where(model.user_id == owner_user_id)
-    if owner_client_key:
-        return stmt.where(model.user_id.is_(None), model.client_key == owner_client_key)
-    return stmt.where(false())
-
-
-def _owner_bookmark_question_ids(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-) -> set[str]:
-    normalized_domains = _normalize_domain_filters(domains)
-    stmt = select(UserBookmark.question_id, Question.exam_id, Question.domain).join(Question, Question.id == UserBookmark.question_id)
-    stmt = _apply_owner_filters(stmt, UserBookmark, owner_user_id, owner_client_key)
-    rows = set()
-    for question_id, question_exam_id, question_domain in db.execute(stmt).all():
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        rows.add(question_id)
-    return rows
-
-
-def _owner_note_question_ids(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-) -> set[str]:
-    normalized_domains = _normalize_domain_filters(domains)
-    stmt = select(UserNote.question_id, Question.exam_id, Question.domain).join(Question, Question.id == UserNote.question_id)
-    stmt = _apply_owner_filters(stmt, UserNote, owner_user_id, owner_client_key)
-    rows = set()
-    for question_id, question_exam_id, question_domain in db.execute(stmt).all():
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        rows.add(question_id)
-    return rows
-
-
-def _owner_incorrect_question_ids(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-) -> set[str]:
-    normalized_domains = _normalize_domain_filters(domains)
-    incorrect: set[str] = set()
-
-    exam_stmt = (
-        select(SessionAnswer.question_id, SessionAnswer.is_correct, Question.exam_id, Question.domain)
-        .join(ExamSession, ExamSession.id == SessionAnswer.session_id)
-        .join(Question, Question.id == SessionAnswer.question_id)
-    )
-    exam_stmt = _apply_owner_filters(exam_stmt, ExamSession, owner_user_id, owner_client_key)
-    for question_id, is_correct, question_exam_id, question_domain in db.execute(exam_stmt).all():
-        if bool(is_correct):
-            continue
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        incorrect.add(question_id)
-
-    study_stmt = (
-        select(StudyAttempt.question_id, StudyAttempt.is_correct, Question.exam_id, Question.domain)
-        .join(StudySession, StudySession.id == StudyAttempt.session_id)
-        .join(Question, Question.id == StudyAttempt.question_id)
-    )
-    study_stmt = _apply_owner_filters(study_stmt, StudySession, owner_user_id, owner_client_key)
-    for question_id, is_correct, question_exam_id, question_domain in db.execute(study_stmt).all():
-        if bool(is_correct):
-            continue
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        incorrect.add(question_id)
-
-    return incorrect
-
-
-def _owner_low_confidence_question_ids(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-) -> set[str]:
-    normalized_domains = _normalize_domain_filters(domains)
-    stmt = (
-        select(StudyAttempt.question_id, StudyAttempt.confidence_level, Question.exam_id, Question.domain)
-        .join(StudySession, StudySession.id == StudyAttempt.session_id)
-        .join(Question, Question.id == StudyAttempt.question_id)
-    )
-    stmt = _apply_owner_filters(stmt, StudySession, owner_user_id, owner_client_key)
-    rows = set()
-    for question_id, confidence_level, question_exam_id, question_domain in db.execute(stmt).all():
-        if str(confidence_level or "").strip().lower() == "high":
-            continue
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        rows.add(question_id)
-    return rows
-
-
-def _filtered_question_rows(
-    db: Session,
-    *,
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-    difficulties: Optional[list[str]] = None,
-    tags: Optional[list[str]] = None,
-    owner_user_id: Optional[str] = None,
-    owner_client_key: Optional[str] = None,
-    bookmarked_only: bool = False,
-    notes_only: bool = False,
-    incorrect_only: bool = False,
-    unseen_only: bool = False,
-    low_confidence_only: bool = False,
-) -> list[tuple[str, str | None]]:
-    normalized_domains = _normalize_domain_filters(domains)
-    normalized_difficulties = _normalize_difficulty_filters(difficulties)
-    normalized_tags = {item.lower() for item in _normalize_tag_filters(tags)}
-
-    stmt = select(Question.id, Question.domain, Question.tags_json).where(True)
-    if exam_id:
-        stmt = stmt.where(Question.exam_id == exam_id)
-    if normalized_domains:
-        stmt = stmt.where(Question.domain.in_(normalized_domains))
-    if normalized_difficulties:
-        stmt = stmt.where(Question.difficulty.in_(normalized_difficulties))
-
-    bookmark_ids = _owner_bookmark_question_ids(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        exam_id=exam_id,
-        domains=normalized_domains,
-    ) if bookmarked_only else set()
-    note_ids = _owner_note_question_ids(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        exam_id=exam_id,
-        domains=normalized_domains,
-    ) if notes_only else set()
-    incorrect_ids = _owner_incorrect_question_ids(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        exam_id=exam_id,
-        domains=normalized_domains,
-    ) if incorrect_only else set()
-    seen_ids = _owner_seen_question_ids(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        exam_id=exam_id,
-        domains=normalized_domains,
-    ) if unseen_only else set()
-    low_confidence_ids = _owner_low_confidence_question_ids(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        exam_id=exam_id,
-        domains=normalized_domains,
-    ) if low_confidence_only else set()
-
-    rows: list[tuple[str, str | None]] = []
-    for question_id, domain, tags_json in db.execute(stmt).all():
-        if normalized_tags:
-            question_tags = {item.lower() for item in _parse_tags(tags_json)}
-            if not question_tags.intersection(normalized_tags):
-                continue
-        if bookmarked_only and question_id not in bookmark_ids:
-            continue
-        if notes_only and question_id not in note_ids:
-            continue
-        if incorrect_only and question_id not in incorrect_ids:
-            continue
-        if unseen_only and question_id in seen_ids:
-            continue
-        if low_confidence_only and question_id not in low_confidence_ids:
-            continue
-        rows.append((question_id, domain))
-
-    return rows
-
-
-def _owner_seen_question_ids(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-) -> set[str]:
-    normalized_domains = _normalize_domain_filters(domains)
-    seen: set[str] = set()
-
-    exam_stmt = (
-        select(SessionAnswer.question_id, Question.exam_id, Question.domain)
-        .join(ExamSession, ExamSession.id == SessionAnswer.session_id)
-        .join(Question, Question.id == SessionAnswer.question_id)
-    )
-    exam_stmt = _apply_owner_filters(exam_stmt, ExamSession, owner_user_id, owner_client_key)
-    for question_id, question_exam_id, question_domain in db.execute(exam_stmt).all():
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        seen.add(question_id)
-
-    study_stmt = (
-        select(StudyAttempt.question_id, Question.exam_id, Question.domain)
-        .join(StudySession, StudySession.id == StudyAttempt.session_id)
-        .join(Question, Question.id == StudyAttempt.question_id)
-    )
-    study_stmt = _apply_owner_filters(study_stmt, StudySession, owner_user_id, owner_client_key)
-    for question_id, question_exam_id, question_domain in db.execute(study_stmt).all():
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        seen.add(question_id)
-
-    return seen
-
-
-def _review_queue_candidates_for_owner(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-) -> list[dict[str, Any]]:
-    normalized_domains = _normalize_domain_filters(domains)
-    stmt = (
-        select(
-            ReviewQueueItem.question_id,
-            ReviewQueueItem.due_at,
-            Question.exam_id,
-            Question.domain,
-        )
-        .join(Question, Question.id == ReviewQueueItem.question_id)
-        .order_by(ReviewQueueItem.due_at.asc(), ReviewQueueItem.id.asc())
-    )
-    stmt = _apply_owner_filters(stmt, ReviewQueueItem, owner_user_id, owner_client_key)
-    rows: list[dict[str, Any]] = []
-    for question_id, due_at, question_exam_id, question_domain in db.execute(stmt).all():
-        if exam_id and question_exam_id != exam_id:
-            continue
-        if normalized_domains and question_domain not in normalized_domains:
-            continue
-        rows.append({
-            "question_id": question_id,
-            "due_at": due_at,
-            "domain": question_domain,
-        })
-    return rows
-
-
-def _weak_domain_labels_for_owner(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    exam_id: Optional[str],
-    domains: Optional[list[str]],
-    limit: int = 3,
-) -> list[str]:
-    normalized_domains = _normalize_domain_filters(domains)
-    weights: dict[str, int] = {}
-
-    exam_stmt = (
-        select(SessionAnswer.is_correct, Question.exam_id, Question.domain)
-        .join(ExamSession, ExamSession.id == SessionAnswer.session_id)
-        .join(Question, Question.id == SessionAnswer.question_id)
-    )
-    exam_stmt = _apply_owner_filters(exam_stmt, ExamSession, owner_user_id, owner_client_key)
-    for is_correct, question_exam_id, question_domain in db.execute(exam_stmt).all():
-        if exam_id and question_exam_id != exam_id:
-            continue
-        domain_label = str(question_domain or "Sem dominio").strip() or "Sem dominio"
-        if normalized_domains and domain_label not in normalized_domains:
-            continue
-        if not bool(is_correct):
-            weights[domain_label] = weights.get(domain_label, 0) + 3
-
-    study_stmt = (
-        select(StudyAttempt.is_correct, StudyAttempt.confidence_level, Question.exam_id, Question.domain)
-        .join(StudySession, StudySession.id == StudyAttempt.session_id)
-        .join(Question, Question.id == StudyAttempt.question_id)
-    )
-    study_stmt = _apply_owner_filters(study_stmt, StudySession, owner_user_id, owner_client_key)
-    for is_correct, confidence_level, question_exam_id, question_domain in db.execute(study_stmt).all():
-        if exam_id and question_exam_id != exam_id:
-            continue
-        domain_label = str(question_domain or "Sem dominio").strip() or "Sem dominio"
-        if normalized_domains and domain_label not in normalized_domains:
-            continue
-        weight = 0
-        if not bool(is_correct):
-            weight += 3
-        normalized_confidence = str(confidence_level or "medium").strip().lower()
-        if normalized_confidence == "low":
-            weight += 2
-        elif normalized_confidence == "medium":
-            weight += 1
-        if weight:
-            weights[domain_label] = weights.get(domain_label, 0) + weight
-
-    now = datetime.utcnow()
-    for item in _review_queue_candidates_for_owner(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        exam_id=exam_id,
-        domains=domains,
-    ):
-        domain_label = str(item.get("domain") or "Sem dominio").strip() or "Sem dominio"
-        if normalized_domains and domain_label not in normalized_domains:
-            continue
-        due_at = item.get("due_at")
-        bonus = 2 if due_at and due_at <= now else 1
-        weights[domain_label] = weights.get(domain_label, 0) + bonus
-
-    ordered = sorted(weights.items(), key=lambda item: (-item[1], item[0].lower()))
-    return [label for label, _weight in ordered[:limit]]
-
-
-def _dedupe_question_ids(candidates: list[str], *, blocked: set[str] | None = None) -> list[str]:
-    blocked_ids = blocked or set()
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for question_id in candidates:
-        qid = str(question_id or "").strip()
-        if not qid or qid in blocked_ids or qid in seen:
-            continue
-        seen.add(qid)
-        ordered.append(qid)
-    return ordered
 
 
 def _build_exam_question_pool(
@@ -1056,31 +350,15 @@ def _build_exam_question_pool(
     owner_user_id: Optional[str],
     owner_client_key: Optional[str],
 ) -> tuple[list[str], str, dict[str, int]]:
-    normalized_domains = _normalize_domain_filters(domains)
+    normalized_domains = normalize_domain_filters(domains)
     resolved_strategy = _normalize_strategy(strategy)
 
     if question_ids:
-        requested = []
-        seen = set()
-        for qid in question_ids:
-            if not qid:
-                continue
-            qid = qid.strip()
-            if not qid or qid in seen:
-                continue
-            seen.add(qid)
-            requested.append(qid)
-        if not requested:
-            raise ValueError("No questions found for the selected exam.")
-        existing = [row[0] for row in db.execute(select(Question.id).where(Question.id.in_(requested))).all()]
-        existing_set = set(existing)
-        missing = [qid for qid in requested if qid not in existing_set]
-        if missing:
-            raise ValueError("One or more requested questions are unavailable.")
-        selected = [qid for qid in requested if qid in existing_set][:total_questions]
+        requested = validate_requested_question_ids(db, question_ids, empty_message="No questions found for the selected exam.")
+        selected = requested[:total_questions]
         return selected, "manual", {"manual": len(selected)}
 
-    question_rows = _filtered_question_rows(
+    detailed_rows = filtered_question_rows_detailed(
         db,
         exam_id=exam_id,
         domains=normalized_domains,
@@ -1094,7 +372,7 @@ def _build_exam_question_pool(
         unseen_only=unseen_only,
         low_confidence_only=low_confidence_only,
     )
-    qids = [qid for qid, _domain in question_rows]
+    qids = [qid for qid, _domain, _cert in detailed_rows]
     if not qids:
         if normalized_domains:
             raise ValueError("No questions found for the selected exam/domain.")
@@ -1103,20 +381,22 @@ def _build_exam_question_pool(
     if total_questions > len(qids):
         total_questions = len(qids)
 
-    blueprint_weights = (
-        _resolve_blueprint_weight_preset(db, exam_id=exam_id, question_ids=qids)
-        if exam_id and not normalized_domains
-        else {}
+    # Quotas follow the official blueprint weights (domain_blueprint, M-A6). Buckets are
+    # (certification, domain) when the pool mixes certifications (M-C5).
+    question_rows, blueprint_weights = resolve_quota_buckets(
+        db,
+        detailed_rows,
+        apply_weights=not normalized_domains,
     )
-    domain_targets, used_blueprint = _build_domain_quota_map(
+    domain_targets, used_blueprint = build_domain_quota_map(
         question_rows,
         total_questions,
         blueprint_weights=blueprint_weights,
     )
-    question_domains = _build_question_domain_map(question_rows)
+    question_domains = build_question_domain_map(question_rows)
 
     if resolved_strategy != "adaptive":
-        selected, used_blueprint = _weighted_domain_sample(
+        selected, used_blueprint = weighted_domain_sample(
             question_rows,
             total_questions=total_questions,
             blueprint_weights=blueprint_weights,
@@ -1124,34 +404,37 @@ def _build_exam_question_pool(
         mix = {"blueprint_weighted": len(selected)} if used_blueprint else {"balanced_random": len(selected)}
         return selected, resolved_strategy, mix
 
-    seen_ids = _owner_seen_question_ids(
+    seen_ids = owner_seen_question_ids(
         db,
         owner_user_id=owner_user_id,
         owner_client_key=owner_client_key,
         exam_id=exam_id,
         domains=normalized_domains,
     )
-    weak_domains = _weak_domain_labels_for_owner(
+    weak_domains = set(weak_domain_keys(
         db,
         owner_user_id=owner_user_id,
         owner_client_key=owner_client_key,
         exam_id=exam_id,
         domains=normalized_domains,
-    )
+        include_exam_answers=True,
+    ))
     now = datetime.utcnow()
-    queue_rows = _review_queue_candidates_for_owner(
+    queue_rows = review_queue_candidates(
         db,
         owner_user_id=owner_user_id,
         owner_client_key=owner_client_key,
         exam_id=exam_id,
         domains=normalized_domains,
     )
-    due_now = _dedupe_question_ids([
+    due_now = dedupe_question_ids([
         item["question_id"] for item in queue_rows if item.get("due_at") and item["due_at"] <= now
     ])
-    weak_new = [qid for qid, domain in question_rows if domain in weak_domains and qid not in seen_ids]
-    weak_seen = [qid for qid, domain in question_rows if domain in weak_domains and qid in seen_ids]
-    fresh_questions = [qid for qid, _domain in question_rows if qid not in seen_ids]
+    candidate_ids = set(qids)
+    due_now = [qid for qid in due_now if qid in candidate_ids]
+    weak_new = [qid for qid, domain, cert in detailed_rows if domain_key(cert, domain) in weak_domains and qid not in seen_ids]
+    weak_seen = [qid for qid, domain, cert in detailed_rows if domain_key(cert, domain) in weak_domains and qid in seen_ids]
+    fresh_questions = [qid for qid in qids if qid not in seen_ids]
     random.shuffle(weak_new)
     random.shuffle(weak_seen)
     random.shuffle(fresh_questions)
@@ -1161,7 +444,7 @@ def _build_exam_question_pool(
     selected: list[str] = []
     due_target = min(len(due_now), max(1, math.ceil(total_questions * 0.2))) if due_now else 0
     selected.extend(
-        _select_candidates_with_domain_targets(
+        select_candidates_with_domain_targets(
             due_now,
             limit=due_target,
             question_domains=question_domains,
@@ -1169,13 +452,12 @@ def _build_exam_question_pool(
             already_selected=selected,
         )
     )
-    blocked = set(selected)
 
     remaining = total_questions - len(selected)
     if remaining > 0:
         weak_target = min(remaining, max(1, math.ceil(total_questions * 0.45))) if weak_domains else 0
         selected.extend(
-            _select_candidates_with_domain_targets(
+            select_candidates_with_domain_targets(
                 weak_new + weak_seen,
                 limit=weak_target,
                 question_domains=question_domains,
@@ -1183,13 +465,12 @@ def _build_exam_question_pool(
                 already_selected=selected,
             )
         )
-        blocked = set(selected)
 
     remaining = total_questions - len(selected)
     if remaining > 0:
         fresh_target = min(remaining, max(1, math.ceil(total_questions * 0.2))) if fresh_questions else 0
         selected.extend(
-            _select_candidates_with_domain_targets(
+            select_candidates_with_domain_targets(
                 fresh_questions,
                 limit=fresh_target,
                 question_domains=question_domains,
@@ -1197,12 +478,11 @@ def _build_exam_question_pool(
                 already_selected=selected,
             )
         )
-        blocked = set(selected)
 
     remaining = total_questions - len(selected)
     if remaining > 0:
         selected.extend(
-            _select_candidates_with_domain_targets(
+            select_candidates_with_domain_targets(
                 fallback,
                 limit=remaining,
                 question_domains=question_domains,
@@ -1261,15 +541,21 @@ def _get_session_rows(db: Session, session_id: str):
     ).all()
 
 
-def _analyze_session(session: ExamSession, rows) -> dict:
+def _analyze_session(
+    session: ExamSession,
+    rows,
+    *,
+    pass_threshold: float = DEFAULT_PASS_THRESHOLD,
+    pass_threshold_certification: Optional[str] = None,
+) -> dict:
     answered_rows = [row for row in rows if row[11] is not None]
     attempted = len(answered_rows)
     unanswered = max(session.total_questions - attempted, 0)
     correct = session.correct_count
     wrong = session.wrong_count
-    score = _score_percent(correct, session.total_questions)
-    attempt_accuracy = _score_percent(correct, attempted) if attempted else 0.0
-    passed = score >= PASS_THRESHOLD
+    score = score_percent(correct, session.total_questions)
+    attempt_accuracy = score_percent(correct, attempted) if attempted else 0.0
+    passed = score >= pass_threshold
 
     ms = _bucket_template()
     ss = _bucket_template()
@@ -1338,13 +624,13 @@ def _analyze_session(session: ExamSession, rows) -> dict:
         if not is_correct:
             if domain_label not in study_resources:
                 study_resources[domain_label] = []
-            for citation in _parse_citations(citations_json):
-                formatted = _format_citation(citation)
+            for citation in parse_citations(citations_json):
+                formatted = format_citation(citation)
                 if formatted and formatted not in study_resources[domain_label]:
                     study_resources[domain_label].append(formatted)
 
             tags_bucket = study_topics.setdefault(domain_label, {})
-            parsed_tags = _parse_tags(tags_json)
+            parsed_tags = parse_tags(tags_json)
             for tag in parsed_tags:
                 tags_bucket[tag] = tags_bucket.get(tag, 0) + 1
             if not parsed_tags and domain_label != "Sem dominio":
@@ -1407,10 +693,10 @@ def _analyze_session(session: ExamSession, rows) -> dict:
     recent_five_accuracy = None
     if recent_five:
         recent_five_correct = sum(1 for row in recent_five if row[11])
-        recent_five_accuracy = _score_percent(recent_five_correct, len(recent_five))
+        recent_five_accuracy = score_percent(recent_five_correct, len(recent_five))
 
-    first_half_accuracy = _score_percent(first_half_correct, first_half_total) if first_half_total else None
-    second_half_accuracy = _score_percent(second_half_correct, second_half_total) if second_half_total else None
+    first_half_accuracy = score_percent(first_half_correct, first_half_total) if first_half_total else None
+    second_half_accuracy = score_percent(second_half_correct, second_half_total) if second_half_total else None
 
     focus: list[str] = []
     if weakest_domains:
@@ -1509,9 +795,9 @@ def _analyze_session(session: ExamSession, rows) -> dict:
             "slowest_seconds": slowest_seconds,
         },
         "recommendation": (
-            "Abaixo de 90%. Refaça as erradas e concentre a revisao nas areas com maior volume de falhas."
+            f"Abaixo de {pass_threshold:g}% (nota de aprovação). Refaça as erradas e concentre a revisão nas áreas com maior volume de falhas."
             if not passed else
-            "Acima de 90%. Mantenha simulados mistos e revise apenas as areas com erro residual."
+            f"Acima de {pass_threshold:g}% (nota de aprovação). Mantenha simulados mistos e revise apenas as áreas com erro residual."
         ),
         "missed_sample": missed_sample,
         "live": {
@@ -1530,7 +816,8 @@ def _analyze_session(session: ExamSession, rows) -> dict:
         "wrong_count": wrong,
         "score_percent": score,
         "passed": passed,
-        "pass_threshold_percent": PASS_THRESHOLD,
+        "pass_threshold_percent": pass_threshold,
+        "pass_threshold_certification": pass_threshold_certification,
         "strategy": session.selection_strategy or "standard",
         "selection_mix": _parse_selection_mix(session.selection_mix_json),
         "insight": insight,
@@ -1614,8 +901,9 @@ def create_session(
     db.add(session)
     db.flush()
 
+    option_orders = build_option_orders(db, selected)
     for i, qid in enumerate(selected):
-        db.add(SessionQuestion(session_id=sid, question_id=qid, position=i))
+        db.add(SessionQuestion(session_id=sid, question_id=qid, position=i, option_order_json=option_orders.get(qid)))
 
     db.commit()
     db.refresh(session)
@@ -1626,6 +914,11 @@ def sync_exam_session_state(
     db: Session,
     session: ExamSession,
 ) -> dict[str, Any]:
+    """Bring the session state up to date *in memory* (pause rollover, timer expiry).
+
+    Never commits: mutating flows (answer, pause, resume, submit) call it and commit
+    their own transaction. Read-only endpoints use :func:`expire_exam_session_if_due`.
+    """
     selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
     config = _effective_session_config(session, raw_config)
     changed = False
@@ -1640,30 +933,162 @@ def sync_exam_session_state(
             config["paused_at"] = None
             changed = True
 
-    timing = _build_exam_timing_metadata(session, now=now, config=config)
-    if session.completed_at is None and timing["remaining_seconds"] <= 0:
-        session.completed_at = now
-        config["auto_submitted"] = True
-        changed = True
-        timing = _build_exam_timing_metadata(session, now=now, config=config)
-
     if changed:
         session.selection_mix_json = _serialize_session_payload(
             selection_mix,
             session_config=config,
             active_filters=active_filters,
         )
-        db.commit()
-        db.refresh(session)
+
+    timing = _build_exam_timing_metadata(session, now=now, config=config)
+    if session.completed_at is None and timing["remaining_seconds"] <= 0:
+        complete_exam_session(db, session, completed_at=now, auto_submitted=True)
+        timing = _build_exam_timing_metadata(session, now=now)
 
     timing["selection_mix"] = selection_mix
     timing["active_filters"] = active_filters
     return timing
 
 
+def exam_session_expired(session: ExamSession, *, now: datetime | None = None) -> bool:
+    if session.completed_at is not None:
+        return False
+    timing = _build_exam_timing_metadata(session, now=now or datetime.utcnow())
+    return timing["remaining_seconds"] <= 0
+
+
+def expire_exam_session_if_due(db: Session, session: ExamSession) -> bool:
+    """The only write allowed on exam GET endpoints (M-B7).
+
+    A timed exam whose clock ran out must be auto-submitted even if the learner never
+    comes back to press "submit": otherwise the session would stay open forever and its
+    results would never reach progress/metrics/SRS. Reads therefore finalise an expired
+    session (once) and commit; in every other case they persist nothing.
+    """
+    if not exam_session_expired(session):
+        return False
+    now = datetime.utcnow()
+    complete_exam_session(db, session, completed_at=now, auto_submitted=True)
+    db.commit()
+    db.refresh(session)
+    return True
+
+
+def complete_exam_session(
+    db: Session,
+    session: ExamSession,
+    *,
+    completed_at: datetime | None = None,
+    auto_submitted: bool = False,
+) -> None:
+    """Mark the session completed and record its learning signals once (no commit)."""
+    if session.completed_at is None:
+        session.completed_at = completed_at or datetime.utcnow()
+    if auto_submitted:
+        selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
+        config = _effective_session_config(session, raw_config)
+        config["auto_submitted"] = True
+        session.selection_mix_json = _serialize_session_payload(
+            selection_mix,
+            session_config=config,
+            active_filters=active_filters,
+        )
+    finalize_exam_session(db, session)
+
+
+def finalize_exam_session(db: Session, session: ExamSession) -> bool:
+    """Record progress, domain metrics, SRS scheduling and the session snapshot (M-C2).
+
+    Runs once per session (guarded by ``finalized_at`` in the session config): each
+    question counts as a single attempt with its final answer, however many times the
+    learner changed it during the exam. Wrong answers enter the review queue.
+    """
+    selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
+    if raw_config.get("finalized_at"):
+        return False
+    db.flush()
+    owner_user_id, owner_client_key = session.user_id, None if session.user_id else session.client_key
+    rows = db.execute(
+        select(SessionAnswer, Question)
+        .join(Question, Question.id == SessionAnswer.question_id)
+        .where(SessionAnswer.session_id == session.id)
+        .order_by(SessionAnswer.answered_at.asc(), SessionAnswer.id.asc())
+    ).all()
+    for answer, question in rows:
+        attempted_at = answer.answered_at or session.completed_at or datetime.utcnow()
+        is_correct = bool(answer.is_correct)
+        upsert_question_progress(
+            db,
+            question_id=question.id,
+            mode="exam",
+            is_correct=is_correct,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            confidence_level=None,
+            attempted_at=attempted_at,
+        )
+        record_question_attempt_metrics(
+            db,
+            question_id=question.id,
+            mode="exam",
+            exam_id=question.exam_id,
+            certification=question.certification,
+            domain=question.domain,
+            is_correct=is_correct,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            confidence_level=None,
+            elapsed_seconds=answer.elapsed_seconds,
+            attempted_at=attempted_at,
+            selection_strategy=session.selection_strategy,
+        )
+        schedule_exam_answer_for_review(
+            db,
+            question_id=question.id,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            is_correct=is_correct,
+            attempted_at=attempted_at,
+            elapsed_seconds=answer.elapsed_seconds,
+        )
+
+    rows_for_result = _get_session_rows(db, session.id)
+    threshold, threshold_cert = _pass_threshold_from_rows(rows_for_result)
+    result = _analyze_session(session, rows_for_result, pass_threshold=threshold, pass_threshold_certification=threshold_cert)
+    record_session_metrics(
+        db,
+        session_id=session.id,
+        mode="exam",
+        exam_id=session.exam_id,
+        selection_strategy=session.selection_strategy,
+        total_questions=session.total_questions,
+        answered_count=session.correct_count + session.wrong_count,
+        correct_count=session.correct_count,
+        wrong_count=session.wrong_count,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        completed_at=session.completed_at,
+        created_at=session.created_at,
+        weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+    )
+    refresh_engagement_state(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
+
+    selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
+    config = dict(raw_config)
+    config["finalized_at"] = datetime.utcnow().isoformat()
+    session.selection_mix_json = _serialize_session_payload(
+        selection_mix,
+        session_config=config,
+        active_filters=active_filters,
+    )
+    db.flush()
+    return True
+
+
 def pause_exam_session(db: Session, session: ExamSession) -> ExamSession:
     timing = sync_exam_session_state(db, session)
     if session.completed_at is not None:
+        db.commit()
         raise ValueError("Session already completed.")
     if timing["paused"]:
         raise ValueError("Session is already paused.")
@@ -1691,6 +1116,7 @@ def resume_exam_session(db: Session, session: ExamSession) -> ExamSession:
     config = _effective_session_config(session, raw_config)
     paused_at = _parse_iso_datetime(config.get("paused_at"))
     if not paused_at:
+        db.commit()
         raise ValueError("Session is not paused.")
 
     now = datetime.utcnow()
@@ -1705,9 +1131,9 @@ def resume_exam_session(db: Session, session: ExamSession) -> ExamSession:
         session_config=config,
         active_filters=active_filters,
     )
+    sync_exam_session_state(db, session)
     db.commit()
     db.refresh(session)
-    sync_exam_session_state(db, session)
     return session
 
 
@@ -1740,7 +1166,7 @@ def serialize_exam_session(session: ExamSession) -> dict[str, Any]:
 
 
 def build_domain_catalog(db: Session, exam_id: Optional[str] = None) -> dict:
-    stmt = select(Question.domain, Question.certification).where(Question.domain.is_not(None))
+    stmt = select(Question.domain, Question.certification).where(Question.domain.is_not(None), active_question_clause())
     if exam_id:
         stmt = stmt.where(Question.exam_id == exam_id)
 
@@ -1831,7 +1257,7 @@ def build_weak_area_snapshot_for_owner(
         return {"certifications": items}
 
     certification_rows = db.execute(
-        select(Question.certification).where(Question.certification.is_not(None))
+        select(Question.certification).where(Question.certification.is_not(None), active_question_clause())
     ).all()
     certifications = sorted({
         str(certification or "").strip()
@@ -1897,42 +1323,56 @@ def build_weak_area_snapshot_for_owner(
 
     return {"certifications": items}
 
+
 def _get_correct_keys(db: Session, question_id: str) -> list[str]:
     stmt = select(Option.key).where(Option.question_id == question_id, Option.is_correct == True)
     return [r[0] for r in db.execute(stmt).all()]
 
 
-def _feedback_explanation(justification: str | None, *, is_correct: bool) -> str:
-    raw = " ".join(str(justification or "").split()).strip()
-    if raw:
-        lowered = raw.lower()
-        if any(marker in lowered for marker in ("alternativa", "correct answer", "resposta correta", "option ")):
-            raw = ""
-    if raw:
-        trimmed = raw[:SAFE_FEEDBACK_MAX_CHARS].rstrip()
-        if len(raw) > SAFE_FEEDBACK_MAX_CHARS:
-            trimmed += "..."
-        prefix = "Conceito-chave: " if is_correct else "Revise este conceito: "
-        return f"{prefix}{trimmed}"
-    if is_correct:
-        return "Resposta correta. A revisao completa continua disponivel no resumo final da sessao."
-    return "Resposta incorreta. O conceito foi registrado para revisao e a explicacao completa fica na tela final."
+def _published_version_ids(db: Session, question_ids: list[str]) -> dict[str, int | None]:
+    if not question_ids:
+        return {}
+    return {
+        stable_id: version_id
+        for stable_id, version_id in db.execute(
+            select(QuestionBank.stable_question_id, QuestionBank.published_version_id).where(
+                QuestionBank.stable_question_id.in_(question_ids)
+            )
+        ).all()
+    }
+
+
+def _option_rows(db: Session, question_id: str) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(Option.key, Option.text, Option.is_correct).where(Option.question_id == question_id).order_by(Option.key.asc())
+    ).all()
+    return [{"key": key, "text": text, "is_correct": bool(is_correct)} for key, text, is_correct in rows]
+
+
+def session_option_mapping(db: Session, session_question: SessionQuestion, option_keys: list[str] | None = None) -> OptionMapping:
+    """Display/original key mapping of one question inside one exam session."""
+    keys = option_keys
+    if keys is None:
+        keys = option_keys_by_question(db, [session_question.question_id]).get(session_question.question_id, [])
+    return OptionMapping.build(session_question.option_order_json, keys)
+
 
 def get_question_for_session(db: Session, session: ExamSession, position: int) -> Optional[Dict[str, Any]]:
     if position < 0 or position >= session.total_questions:
         return None
 
-    sq = db.execute(
-        select(SessionQuestion.question_id).where(SessionQuestion.session_id == session.id, SessionQuestion.position == position)
+    row = db.execute(
+        select(SessionQuestion).where(SessionQuestion.session_id == session.id, SessionQuestion.position == position)
     ).scalar_one_or_none()
-    if not sq:
+    if not row:
         return None
 
-    q = db.get(Question, sq)
+    q = db.get(Question, row.question_id)
     if not q:
         return None
 
-    opts = db.execute(select(Option.key, Option.text).where(Option.question_id == q.id).order_by(Option.key.asc())).all()
+    options = _option_rows(db, q.id)
+    mapping = OptionMapping.build(row.option_order_json, [item["key"] for item in options])
     return {
         "id": q.id,
         "exam_id": q.exam_id,
@@ -1941,154 +1381,37 @@ def get_question_for_session(db: Session, session: ExamSession, position: int) -
         "domain": q.domain,
         "difficulty": q.difficulty,
         "certification": q.certification,
-        "tags": _parse_tags(q.tags_json),
-        "options": [{"key": k, "text": t} for (k, t) in opts],
+        "tags": parse_tags(q.tags_json),
+        "options": [{"key": item["key"], "text": item["text"]} for item in mapping.display_options(options)],
     }
 
-def answer_question(db: Session, session: ExamSession, question_id: str, selected_keys: list[str]) -> dict:
-    timing = sync_exam_session_state(db, session)
-    if session.completed_at is not None and timing["remaining_seconds"] <= 0:
-        raise ValueError("Session time limit expired. The exam was auto-submitted.")
-    if timing["paused"]:
-        raise ValueError("Session is paused. Resume it before submitting an answer.")
 
-    # Validate that the question belongs to the session
-    belongs = db.execute(
-        select(SessionQuestion.id).where(
-            SessionQuestion.session_id == session.id,
-            SessionQuestion.question_id == question_id
-        )
-    ).scalar_one_or_none()
-    if not belongs:
-        raise ValueError("Question does not belong to this session.")
+def _pass_threshold_from_rows(rows) -> tuple[float, Optional[str]]:
+    counts: dict[Optional[str], int] = {}
+    for row in rows:
+        certification = row[6]
+        counts[certification] = counts.get(certification, 0) + 1
+    return resolve_pass_threshold(counts)
 
-    q = db.get(Question, question_id)
-    if not q:
-        raise ValueError("Question not found.")
-
-    option_keys = [r[0] for r in db.execute(
-        select(Option.key).where(Option.question_id == question_id)
-    ).all()]
-    if not option_keys:
-        raise ValueError("Question options not found.")
-
-    selected_set = {k.strip() for k in selected_keys if k and k.strip()}
-    invalid = sorted(set(selected_set) - set(option_keys))
-    if invalid:
-        raise ValueError(f"Invalid option key(s): {', '.join(invalid)}")
-    correct_keys = _get_correct_keys(db, question_id)
-    correct_set = set(correct_keys)
-
-    is_correct = (selected_set == correct_set)
-
-    # upsert answer for this question in this session
-    existing = db.execute(
-        select(SessionAnswer).where(SessionAnswer.session_id == session.id, SessionAnswer.question_id == question_id)
-    ).scalar_one_or_none()
-
-    if existing is None:
-        db.add(SessionAnswer(
-            session_id=session.id,
-            question_id=question_id,
-            selected_keys=",".join(sorted(selected_set)),
-            is_correct=is_correct
-        ))
-        if is_correct:
-            session.correct_count += 1
-        else:
-            session.wrong_count += 1
-    else:
-        # if user re-answers, adjust counts
-        if existing.is_correct != is_correct:
-            if existing.is_correct:
-                session.correct_count -= 1
-                session.wrong_count += 1
-            else:
-                session.wrong_count -= 1
-                session.correct_count += 1
-        existing.selected_keys = ",".join(sorted(selected_set))
-        existing.is_correct = is_correct
-
-    # Move forward only if they answered the current question
-    # (front-end should submit in order, but we keep safe)
-    q_current = get_question_for_session(db, session, session.current_index)
-    if q_current and q_current["id"] == question_id:
-        session.current_index += 1
-        if session.current_index >= session.total_questions:
-            session.completed_at = datetime.utcnow()
-
-    official_references = build_official_reference_summaries(db, question_id, limit=4)
-    feedback_summary = build_feedback_summary(db, question_id, is_correct=is_correct)
-    upsert_question_progress(
-        db,
-        question_id=question_id,
-        mode="exam",
-        is_correct=is_correct,
-        owner_user_id=session.user_id,
-        owner_client_key=session.client_key,
-        confidence_level=None,
-    )
-    record_question_attempt_metrics(
-        db,
-        question_id=question_id,
-        mode="exam",
-        exam_id=q.exam_id,
-        certification=q.certification,
-        domain=q.domain,
-        is_correct=is_correct,
-        owner_user_id=session.user_id,
-        owner_client_key=session.client_key,
-        selection_strategy=session.selection_strategy,
-    )
-    db.flush()
-    result_snapshot = _analyze_session(session, _get_session_rows(db, session.id))
-    db.commit()
-
-    finished = session.completed_at is not None
-    return {
-        "is_correct": is_correct,
-        "justification": feedback_summary,
-        "feedback_summary": feedback_summary,
-        "progress_index": session.current_index,
-        "current_position": session.current_position,
-        "total_questions": session.total_questions,
-        "answered_count": len(session.answers),
-        "correct_count": session.correct_count,
-        "wrong_count": session.wrong_count,
-        "marked_for_review_count": sum(1 for item in session.questions if item.marked_for_review),
-        "finished": finished,
-        "official_references": official_references,
-        "insight": result_snapshot["insight"]["live"],
-    }
 
 def compute_result(db: Session, session: ExamSession) -> dict:
-    result = _analyze_session(session, _get_session_rows(db, session.id))
-    timing = sync_exam_session_state(db, session)
+    """Read-only exam result (GET /result, /review; POST /submit after completing).
+
+    Persists nothing: the session snapshot/progress are written once by
+    :func:`finalize_exam_session` when the session is completed (M-B7).
+    """
+    rows = _get_session_rows(db, session.id)
+    threshold, threshold_cert = _pass_threshold_from_rows(rows)
+    result = _analyze_session(session, rows, pass_threshold=threshold, pass_threshold_certification=threshold_cert)
+    timing = _build_exam_timing_metadata(session)
     result["insight"]["readiness"] = build_readiness_snapshot(
         db,
         owner_user_id=session.user_id,
         owner_client_key=session.client_key,
         weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+        certification=threshold_cert,
     )
     result["time_limit_seconds"] = timing["time_limit_seconds"]
     result["time_spent_seconds"] = timing["time_spent_seconds"]
     result["timed_out"] = bool(timing["auto_submitted"] and session.completed_at is not None and timing["remaining_seconds"] <= 0)
-    if session.completed_at is not None:
-        record_session_metrics(
-            db,
-            session_id=session.id,
-            mode="exam",
-            exam_id=session.exam_id,
-            selection_strategy=session.selection_strategy,
-            total_questions=session.total_questions,
-            answered_count=session.correct_count + session.wrong_count,
-            correct_count=session.correct_count,
-            wrong_count=session.wrong_count,
-            owner_user_id=session.user_id,
-            owner_client_key=session.client_key,
-            completed_at=session.completed_at,
-            created_at=session.created_at,
-            weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
-        )
-        db.flush()
     return result
