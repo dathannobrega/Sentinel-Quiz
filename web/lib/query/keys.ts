@@ -5,6 +5,7 @@ export const queryKeys = {
   domains: (examId: string) => ["domains", examId] as const,
   questionSearch: (params: string) => ["question-search", params] as const,
   studyPlan: ["study-plan"] as const,
+  studyModules: (certification: string) => ["study-modules", certification] as const,
   studyOverview: ["study-overview"] as const,
   weakAreas: ["analytics", "weak-areas"] as const,
   engagement: ["analytics", "engagement"] as const,

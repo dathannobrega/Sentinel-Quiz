@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { API_TIMEOUTS, ApiError, apiClient, readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
+import { translateBackendMessage, translateReadinessBand } from "@/lib/i18n/backend-messages";
 import { useSessionReviewQuery, useSessionRole } from "@/lib/query/hooks";
 import { cn } from "@/lib/utils/cn";
 import { buildTheoryReaderHref } from "@/lib/utils/materials";
@@ -129,6 +130,13 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
     return null;
   }
 
+  // Factor texts come as code + params (M-C7); the backend text is the fallback.
+  const factorTexts = readiness.factor_codes?.length
+    ? readiness.factor_codes.map((factor, index) =>
+        translateBackendMessage(t, factor.code, factor.params, readiness.factors?.[index] ?? factor.code)
+      )
+    : readiness.factors ?? [];
+
   const rankedDomains = [...(readiness.domain_scores || [])]
     .sort((left, right) => left.score_percent - right.score_percent || left.domain.localeCompare(right.domain))
     .slice(0, 5);
@@ -143,13 +151,13 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
     >
       <div className="sq-surface-block">
         <div className="sq-metric-grid">
-          <MetricCard label={t("results.readinessCard.band")} value={readiness.band} />
+          <MetricCard label={t("results.readinessCard.band")} value={translateReadinessBand(t, readiness.band)} />
           <MetricCard label={t("results.readinessCard.suggestedSession")} value={t("results.summary.minutes", { value: readiness.recommended_minutes })} />
           <MetricCard label={t("results.readinessCard.trackedBase")} value={readiness.tracked_questions} />
         </div>
-        {readiness.factors?.length ? (
+        {factorTexts.length ? (
           <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
-            {readiness.factors.map((factor) => (
+            {factorTexts.map((factor) => (
               <div key={factor} className="sq-list-item">
                 <div className="sq-list-meta">{factor}</div>
               </div>
@@ -160,7 +168,7 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
           <div className="sq-page-stack" style={{ marginTop: "var(--sq-space-4)" }}>
             <div className="sq-list-title">{t("results.readinessCard.byDomain")}</div>
             {rankedDomains.map((domain) => (
-              <div key={domain.domain} className="sq-surface-block">
+              <div key={`${domain.certification ?? ""}-${domain.domain}`} className="sq-surface-block">
                 <div
                   style={{
                     display: "flex",
@@ -659,6 +667,14 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
                 <MetricCard
                   label={t("results.summary.timeUsed")}
                   value={t("results.summary.minutes", { value: Math.max(Math.round(examResult.time_spent_seconds / 60), 1) })}
+                />
+              ) : null}
+              {examResult ? (
+                <MetricCard
+                  label={t("results.summary.passThreshold")}
+                  value={`${formatScore(examResult.pass_threshold_percent)}${
+                    examResult.pass_threshold_certification ? ` · ${examResult.pass_threshold_certification}` : ""
+                  }`}
                 />
               ) : null}
               {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (

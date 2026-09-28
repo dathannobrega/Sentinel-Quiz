@@ -82,14 +82,46 @@ export interface StudyPlanItem {
   action: string;
 }
 
+/** Stable i18n code + interpolation params for a backend message (M-C7). */
+export interface MessageCode {
+  code: string;
+  params: Record<string, string | number | null>;
+}
+
 export interface StudyPlanTask {
   kind: string;
+  /** pt-BR fallback texts; prefer translating `code` + `params`. */
   title: string;
   description: string;
   cta_label: string;
   cta_href: string;
   preset_key: string;
   domain?: string | null;
+  certification?: string | null;
+  code?: string | null;
+  params?: Record<string, string | number | null>;
+}
+
+/** StudyModuleOut (GET /api/study/modules). */
+export interface StudyModule {
+  id: number;
+  certification: string;
+  code: string;
+  position: number;
+  title: string;
+  description: string | null;
+  domain: string | null;
+}
+
+export interface StudyModuleList {
+  certification: string | null;
+  modules: StudyModule[];
+}
+
+export interface StudyPlanRiskDomain {
+  certification: string | null;
+  domain: string;
+  score_percent: number | null;
 }
 
 export interface StudyPlanResponse {
@@ -98,7 +130,10 @@ export interface StudyPlanResponse {
   secondary_tasks: StudyPlanTask[];
   suggested_presets: string[];
   risk_domains: string[];
+  risk_domain_details?: StudyPlanRiskDomain[];
   review_backlog_due: number;
+  certification?: string | null;
+  recommended_module?: StudyModule | null;
   generated_at: string;
 }
 
@@ -111,22 +146,49 @@ export interface TimingBreakdown {
 
 export interface ReadinessDomainScore {
   domain: string;
+  certification?: string | null;
   score_percent: number;
   accuracy_percent: number;
   attempts: number;
   avg_elapsed_seconds?: number | null;
   low_confidence_count: number;
+  weight?: number | null;
+}
+
+export type ReadinessBand = "strong" | "stable" | "developing" | "at_risk" | "insufficient_data";
+
+export interface ReadinessCertification {
+  certification: string | null;
+  score_percent: number | null;
+  projected_score_percent: number | null;
+  band: ReadinessBand | string;
+  pass_threshold_percent: number;
+  coverage_percent: number;
+  attempts: number;
+  tracked_questions: number;
+  overdue_reviews: number;
+  trend_points: number;
+  overdue_penalty_points: number;
 }
 
 export interface ReadinessScore {
-  score_percent: number;
-  projected_score_percent: number;
-  band: "strong" | "stable" | "developing" | "at_risk" | string;
+  /** null (band "insufficient_data") while there is too little recent data. */
+  score_percent: number | null;
+  projected_score_percent: number | null;
+  band: ReadinessBand | string;
+  status?: "ok" | "insufficient_data" | string;
+  certification?: string | null;
+  pass_threshold_percent?: number | null;
+  coverage_percent?: number;
+  overdue_reviews?: number;
   recommended_minutes: number;
   tracked_questions: number;
+  /** pt-BR fallback texts; prefer translating `factor_codes`. */
   factors: string[];
+  factor_codes?: MessageCode[];
   domain_scores: ReadinessDomainScore[];
   weakest_domains: ReadinessDomainScore[];
+  certifications?: ReadinessCertification[];
 }
 
 /** LiveInsightOut: every field is always serialized by the backend. */
@@ -695,10 +757,12 @@ interface AnswerFeedbackBase {
   official_references: PedagogicalReferenceItem[];
   insight: LiveInsight | null;
   /**
-   * Correct option keys. Not yet part of AnswerFeedbackOut; when the backend starts sending it
-   * the runner highlights the correct option(s) after answering.
+   * Correct option keys in this session's display-key space (options are shuffled per session).
+   * null in exam-day mode, where the answer key is withheld.
    */
   correct_keys?: string[] | null;
+  /** The submitted selection, in display keys. */
+  selected_keys?: string[];
 }
 
 /** AnswerFeedbackOut */
@@ -723,7 +787,9 @@ export interface ExamResult {
   wrong_count: number;
   score_percent: number;
   passed: boolean;
+  /** Passing score of the session's certification (CISSP 70, Security+ 83, default 70). */
   pass_threshold_percent: number;
+  pass_threshold_certification?: string | null;
   strategy: string;
   selection_mix: Record<string, number>;
   time_limit_seconds: number | null;

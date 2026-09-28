@@ -47,6 +47,7 @@ export const results = {
     questions: "Questões",
     timeUsed: "Tempo usado",
     timeLimit: "Limite",
+    passThreshold: "Nota de aprovação",
     timedOutTitle: "Simulado encerrado por tempo",
     timedOutMessage:
       "O backend aplicou auto-submit quando o cronômetro zerou. Revise primeiro os itens errados e os que ficaram sem resposta."

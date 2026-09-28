@@ -54,7 +54,11 @@ export const dashboard = {
   planCard: {
     title: "My plan",
     subtitle: "The next best action is always visible.",
-    placementPending: "Pending diagnosis"
+    placementPending: "Pending diagnosis",
+    nextModule: "Next module: {code} · {title}",
+    nextModuleHint: "Suggested to reinforce {domain}, following the track order.",
+    trackToggle: "See the {certification} track ({count} modules)",
+    trackItem: "{position}. {title}"
   },
   weekCard: {
     title: "This week",

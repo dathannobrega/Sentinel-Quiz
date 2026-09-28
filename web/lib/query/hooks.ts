@@ -23,6 +23,7 @@ import type {
   SessionReview,
   StudyHistoryItem,
   StudyOverview,
+  StudyModuleList,
   StudyPlanResponse,
   StudySessionReview,
   StudyWeeklyAnalytics,
@@ -152,6 +153,18 @@ export function useStudyPlanQuery() {
   return useQuery({
     queryKey: queryKeys.studyPlan,
     queryFn: ({ signal }) => apiClient.get<StudyPlanResponse>("/study/plan", { signal })
+  });
+}
+
+/** GET /study/modules: ordered study track of a certification (M-A7). */
+export function useStudyModulesQuery(certification: string | null | undefined) {
+  const cert = certification?.trim() || "";
+  return useQuery({
+    queryKey: queryKeys.studyModules(cert),
+    queryFn: ({ signal }) =>
+      apiClient.get<StudyModuleList>(`/study/modules?certification=${encodeURIComponent(cert)}`, { signal }),
+    enabled: Boolean(cert),
+    staleTime: 60 * 60 * 1000
   });
 }
 

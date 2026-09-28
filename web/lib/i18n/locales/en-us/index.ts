@@ -18,6 +18,7 @@ import { runner } from "./runner";
 import { api } from "./api";
 import { system } from "./system";
 import { theory } from "./theory";
+import { backend } from "./backend";
 
 export const enUSMessages = {
   metadata,
@@ -39,5 +40,6 @@ export const enUSMessages = {
   runner,
   api,
   system,
-  theory
+  theory,
+  backend
 } as const;
