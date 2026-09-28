@@ -270,10 +270,17 @@ docker compose start api web proxy
 | `GEMINI_ENABLE` / `GEMINI_API_KEY` / `GEMINI_MODEL` | `true` / vazio / `gemini-2.5-flash` | — | Tutor IA (sem chave = tutor desligado). |
 | `GEMINI_TIMEOUT_SECONDS`, `_TEMPERATURE`, `_MAX_OUTPUT_TOKENS`, `_SYSTEM_PROMPT`, `_MIN_RESPONSE_CHARS`, `_RETRY_ON_SHORT`, `_CANDIDATE_COUNT` | `20`, `0.2`, `400`, vazio, `220`, `true`, `1` | — | Ajustes do tutor. |
 | `TUTOR_DAILY_QUOTA` | `40` | — | Pedidos ao tutor por usuário/dia. |
+| `DB_POOL_PRE_PING` | `true` | — | Testa a conexão antes de usar (evita conexões mortas). |
+| `AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS` | `60` | — | Intervalo mínimo entre reenvios do e-mail de verificação. |
+| `SMTP_TIMEOUT_SECONDS` | `20` | — | Timeout do envio SMTP (roda em background). |
+| `RATE_LIMIT_AUTH_SENSITIVE_REQUESTS` / `RATE_LIMIT_AUTH_SENSITIVE_WINDOW_SECONDS` | `10` / `60` | — | Bucket extra para cadastro/reset/verificação. |
+| `GEMINI_THINKING_BUDGET` | `0` | — | Orçamento de "thinking" do Gemini 2.5 (0 = desligado). |
 
 Somente da stack (não viram configuração da API): `APP_IMAGE_TAG`, `APP_IMAGE_REPOSITORY`, `APP_*_CONTAINER_NAME`, `APP_HTTP_PORT`, `APP_HTTPS_PORT`, `APP_NGINX_HOST`, `APP_NGINX_ALT_NAMES`, `APP_NGINX_CERT_DAYS`, `APP_NGINX_AUTH_RATE`, `APP_NGINX_AUTH_BURST`, `APP_NGINX_CLIENT_MAX_BODY_SIZE`, `APP_TLS_MODE`, `APP_TLS_CERTS_DIR`, `APP_TLS_CERTIFICATE`, `APP_TLS_CERTIFICATE_KEY`, `APP_MATERIAL_HOST_DIR`, `APP_*_CPUS`, `APP_*_MEMORY`.
 
 **Frontend:** `APP_PUBLIC_API_ORIGIN` → `NEXT_PUBLIC_API_ORIGIN` e `API_ORIGIN` no container `web`. Deixe **vazio** para usar a mesma origem do proxy (`https://<host>/api`); preencha só para apontar para outra API. O valor é lido em runtime pelo layout do servidor; em `npm run dev` use `web/.env.local`.
+
+**Frontend (dev/opcional):** `BACKEND_ORIGIN` (destino do rewrite `/api` no `next dev`, padrão `http://127.0.0.1:8000`), `AUTH_COOKIE_NAME` e `ADMIN_ROUTE_GUARD` (`auto`/`on`/`off`, guarda de rota do `/admin` no `middleware.ts`). Veja `web/.env.example`.
 
 ---
 
