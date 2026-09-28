@@ -4,11 +4,53 @@ import json
 import os
 import hashlib
 import re
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import func, select
-from app.models import Exam, Question, Option, Explanation, ImportState, QuestionBank, QuestionVersion
-from app.services.editorial import sync_imported_question_publication
+from sqlalchemy import exists, func, select
+from app.models import (
+    QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE,
+    DomainBlueprint,
+    EditorialAuditLog,
+    Exam,
+    ExamSession,
+    ImportState,
+    Question,
+    QuestionBank,
+    QuestionVersion,
+    StudyModule,
+    StudySession,
+)
+from app.services.editorial import LEGACY_IMPORT_MARKERS, sync_imported_question_publication
+from app.services.question_quality import build_fallback_rationale
 
+
+# Official exam outline weights (percent of the exam) per domain. Upserted into
+# domain_blueprint (weight column) on every ingest; see get_domain_blueprint_weights.
+OFFICIAL_DOMAIN_WEIGHTS: dict[str, list[tuple[str, str, float]]] = {
+    "CISSP": [
+        ("CISSP-D1", "Security and Risk Management", 16.0),
+        ("CISSP-D2", "Asset Security", 10.0),
+        ("CISSP-D3", "Security Architecture and Engineering", 13.0),
+        ("CISSP-D4", "Communication and Network Security", 13.0),
+        ("CISSP-D5", "Identity and Access Management (IAM)", 13.0),
+        ("CISSP-D6", "Security Assessment and Testing", 12.0),
+        ("CISSP-D7", "Security Operations", 13.0),
+        ("CISSP-D8", "Software Development Security", 10.0),
+    ],
+    "Security+": [
+        ("SY0-701-D1", "General Security Concepts", 12.0),
+        ("SY0-701-D2", "Threats, Vulnerabilities and Mitigations", 22.0),
+        ("SY0-701-D3", "Security Architecture", 18.0),
+        ("SY0-701-D4", "Security Operations", 28.0),
+        ("SY0-701-D5", "Security Program Management and Oversight", 20.0),
+    ],
+}
+
+STUDY_MODULE_SOURCES = (
+    # (file name inside material/, certification, parser)
+    ("Modulos_sec+.md", "Security+", "markdown_modules"),
+    ("cissp_domain.json", "CISSP", "domain_json"),
+)
 
 SECURITY_PLUS_DOMAIN_KEYWORDS = {
     "Threats, Vulnerabilities and Mitigations": [
@@ -264,6 +306,7 @@ def _normalize_correct_keys(raw_question: dict, options: list[dict]) -> list[str
 
 
 def _normalize_multi_select(raw_question: dict, correct_options: list[str]) -> bool:
+    # Derived from the answer key, never trusted from the file (M-A5).
     return len(correct_options) > 1
 
 
@@ -272,47 +315,90 @@ def _normalize_question_format(raw_question: dict, correct_options: list[str]) -
     if explicit:
         return explicit
 
-    question_type = str(raw_question.get("question_type") or "").strip().lower()
     if len(correct_options) > 1:
         return "multiple_response"
+    question_type = str(raw_question.get("question_type") or "").strip().lower()
     if question_type == "best_answer":
         return "best_answer"
-    if question_type in {"single_response", "multiple_response"}:
+    # question_type vocabulary (schema v3): single_response | multiple_response.
+    # Legacy CISSP values (application/knowledge) are cognitive levels, not formats.
+    if question_type in {"single_response", "multiple_response", "application", "knowledge"}:
         return "single_choice"
     return None
 
 
-def _build_fallback_rationale(options: list[dict], correct_options: list[str]) -> str:
-    option_map = {str(item.get("key") or "").strip().upper(): str(item.get("text") or "").strip() for item in options}
-    resolved: list[str] = []
-    for key in correct_options:
-        label = str(key or "").strip().upper()
-        if not label:
-            continue
-        text = option_map.get(label)
-        resolved.append(f"{label} ({text})" if text else label)
-
-    if not resolved:
-        return (
-            "The imported answer key identifies this as the correct answer. "
-            "This rationale was generated automatically because the source file did not include a written explanation."
-        )
-
-    label = "options" if len(resolved) != 1 else "option"
-    joined = ", ".join(resolved)
-    return (
-        f"The imported answer key identifies {joined} as the correct {label}. "
-        "This rationale was generated automatically because the source file did not include a written explanation."
-    )
+def _normalize_language(raw_question: dict, default_language: str | None = None) -> str | None:
+    value = _normalize_text(raw_question.get("language")) or _normalize_text(default_language)
+    if not value:
+        return None
+    lowered = value.lower()
+    if lowered in {"pt", "pt-br", "pt_br"}:
+        return "pt-BR"
+    if lowered.startswith("en"):
+        return "en"
+    return value[:8]
 
 
-def _resolve_rationale(raw_question: dict, options: list[dict], correct_options: list[str]) -> str:
-    return (
+def _resolve_rationale(
+    raw_question: dict,
+    options: list[dict],
+    correct_options: list[str],
+    language: str | None = None,
+) -> tuple[str, bool]:
+    """(rationale, explanation_missing). Missing explanations get a localized placeholder."""
+    written = (
         _normalize_text(raw_question.get("correct_rationale"))
         or _normalize_text(raw_question.get("justification"))
         or _normalize_text(raw_question.get("explanation"))
-        or _build_fallback_rationale(options, correct_options)
     )
+    if written:
+        return written, False
+    return build_fallback_rationale(options, correct_options, language), True
+
+
+def _normalize_question(raw: dict, *, certification, domain, language) -> dict | None:
+    qid = str(raw.get("id") or "").strip()
+    prompt = str(raw.get("question") or "").strip()
+    if not qid or not prompt:
+        return None
+
+    options = _normalize_options(raw.get("options"))
+    correct_options = _normalize_correct_keys(raw, options)
+    if not options or not correct_options:
+        return None
+
+    justification, explanation_missing = _resolve_rationale(raw, options, correct_options, language)
+    if not domain and certification == "Security+":
+        domain = _infer_security_plus_domain(prompt, options, None if explanation_missing else justification)
+
+    return {
+        "id": qid,
+        "question": prompt,
+        "multi_select": _normalize_multi_select(raw, correct_options),
+        "options": options,
+        "correct_options": correct_options,
+        "justification": justification,
+        "explanation_missing": explanation_missing,
+        "needs_review": bool(raw.get("needs_review")),
+        "language": language,
+        "domain": domain,
+        "difficulty": raw.get("difficulty"),
+        "certification": certification,
+        "subject": raw.get("subject"),
+        "subtopic": raw.get("subtopic"),
+        "subdomain": raw.get("subdomain"),
+        "objective_code": raw.get("objective_code"),
+        "blueprint_code": raw.get("blueprint_code"),
+        "keywords": raw.get("keywords"),
+        "trap_patterns": raw.get("trap_patterns"),
+        "question_format": _normalize_question_format(raw, correct_options),
+        "correct_rationale": _normalize_text(raw.get("correct_rationale")) or justification,
+        "incorrect_rationales": raw.get("incorrect_rationales"),
+        "avg_time_seconds": raw.get("avg_time_seconds"),
+        "global_accuracy_percent": raw.get("global_accuracy_percent"),
+        "tags": _merge_tags(raw.get("tags"), raw.get("cross_domain_tags")),
+        "citations": _normalize_citations(raw.get("citations")),
+    }
 
 
 def _normalize_wrapped_payload(file_name: str, payload: dict) -> list[dict]:
@@ -325,62 +411,28 @@ def _normalize_wrapped_payload(file_name: str, payload: dict) -> list[dict]:
     exam_id = str(exam.get("id") or _slugify(stem)).strip()
     title = str(exam.get("title") or exam_id or stem).strip()
     source = exam.get("source")
-    default_certification = _detect_certification(title, source, file_name)
+    default_certification = exam.get("certification") or _detect_certification(title, source, file_name)
 
     normalized_questions: list[dict] = []
     for q in questions:
         if not isinstance(q, dict):
             continue
-        qid = str(q.get("id") or "").strip()
-        prompt = str(q.get("question") or "").strip()
-        if not qid or not prompt:
-            continue
-
-        options = _normalize_options(q.get("options"))
-        correct_options = _normalize_correct_keys(q, options)
-        if not options or not correct_options:
-            continue
-
-        justification = _resolve_rationale(q, options, correct_options)
-        certification = q.get("certification") or default_certification
-        domain = q.get("domain") or q.get("topic")
-        if not domain and certification == "Security+":
-            domain = _infer_security_plus_domain(prompt, options, justification)
-
-        tags = _merge_tags(q.get("tags"), q.get("cross_domain_tags"))
-        multi_select = _normalize_multi_select(q, correct_options)
-        normalized_questions.append({
-            "id": qid,
-            "question": prompt,
-            "multi_select": multi_select,
-            "options": options,
-            "correct_options": correct_options,
-            "justification": justification,
-            "domain": domain,
-            "difficulty": q.get("difficulty"),
-            "certification": certification,
-            "subject": q.get("subject"),
-            "subtopic": q.get("subtopic"),
-            "subdomain": q.get("subdomain"),
-            "objective_code": q.get("objective_code"),
-            "blueprint_code": q.get("blueprint_code"),
-            "keywords": q.get("keywords"),
-            "trap_patterns": q.get("trap_patterns"),
-            "question_format": _normalize_question_format(q, correct_options),
-            "correct_rationale": _normalize_text(q.get("correct_rationale")) or justification,
-            "incorrect_rationales": q.get("incorrect_rationales"),
-            "avg_time_seconds": q.get("avg_time_seconds"),
-            "global_accuracy_percent": q.get("global_accuracy_percent"),
-            "tags": tags,
-            "citations": _normalize_citations(q.get("citations")),
-        })
+        normalized = _normalize_question(
+            q,
+            certification=q.get("certification") or default_certification,
+            domain=q.get("domain") or q.get("topic"),
+            language=_normalize_language(q, exam.get("language")),
+        )
+        if normalized:
+            normalized_questions.append(normalized)
 
     return [{
         "exam": {
             "id": exam_id,
             "title": title,
             "source": source,
-            "question_count": exam.get("question_count") or len(normalized_questions),
+            # Computed, never trusted from the file (the declared count drifted: 995 vs 1260).
+            "question_count": len(normalized_questions),
         },
         "questions": normalized_questions,
     }]
@@ -407,46 +459,14 @@ def _normalize_flat_payload(file_name: str, payload: list) -> list[dict]:
 
         normalized_questions: list[dict] = []
         for raw in group_items:
-            qid = str(raw.get("id") or "").strip()
-            prompt = str(raw.get("question") or "").strip()
-            if not qid or not prompt:
-                continue
-
-            options = _normalize_options(raw.get("options"))
-            correct_options = _normalize_correct_keys(raw, options)
-            if not options or not correct_options:
-                continue
-
-            domain = raw.get("domain") or raw.get("domain_primary")
-            justification = _resolve_rationale(raw, options, correct_options)
-            tags = _merge_tags(raw.get("tags"), raw.get("cross_domain_tags"))
-            multi_select = _normalize_multi_select(raw, correct_options)
-
-            normalized_questions.append({
-                "id": qid,
-                "question": prompt,
-                "multi_select": multi_select,
-                "options": options,
-                "correct_options": correct_options,
-                "justification": justification,
-                "domain": domain,
-                "difficulty": raw.get("difficulty"),
-                "certification": raw.get("certification") or certification,
-                "subject": raw.get("subject"),
-                "subtopic": raw.get("subtopic"),
-                "subdomain": raw.get("subdomain"),
-                "objective_code": raw.get("objective_code"),
-                "blueprint_code": raw.get("blueprint_code"),
-                "keywords": raw.get("keywords"),
-                "trap_patterns": raw.get("trap_patterns"),
-                "question_format": _normalize_question_format(raw, correct_options),
-                "correct_rationale": _normalize_text(raw.get("correct_rationale")) or justification,
-                "incorrect_rationales": raw.get("incorrect_rationales"),
-                "avg_time_seconds": raw.get("avg_time_seconds"),
-                "global_accuracy_percent": raw.get("global_accuracy_percent"),
-                "tags": tags,
-                "citations": _normalize_citations(raw.get("citations")),
-            })
+            normalized = _normalize_question(
+                raw,
+                certification=raw.get("certification") or certification,
+                domain=raw.get("domain") or raw.get("domain_primary"),
+                language=_normalize_language(raw),
+            )
+            if normalized:
+                normalized_questions.append(normalized)
 
         bundles.append({
             "exam": {
@@ -469,11 +489,40 @@ def _normalize_payload(file_name: str, payload) -> list[dict]:
     raise ValueError("Unsupported JSON structure")
 
 
+def _is_deleted(question: Question | None) -> bool:
+    """Deleted by an editor (not merely missing from the source file)."""
+    return bool(
+        question is not None
+        and not question.is_active
+        and question.deactivated_reason != QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE
+    )
+
+
+def _imported_active_question_ids(db: Session, exam_id: str) -> set[str]:
+    rows = db.execute(
+        select(Question.id)
+        .join(QuestionBank, QuestionBank.stable_question_id == Question.id)
+        .where(
+            Question.exam_id == exam_id,
+            Question.is_active.is_(True),
+            QuestionBank.last_import_hash.is_not(None),
+        )
+    ).scalars().all()
+    return set(rows)
+
+
 def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
     for bundle in bundles:
         exam = bundle.get("exam") or {}
         exam_id = str(exam.get("id") or "").strip()
-        if exam_id and not db.get(Exam, exam_id):
+        db_exam = db.get(Exam, exam_id) if exam_id else None
+        if exam_id and not db_exam:
+            return True
+        if db_exam is not None and db_exam.question_count != exam.get("question_count"):
+            return True
+
+        file_ids = {str(q.get("id") or "").strip() for q in bundle.get("questions") or []}
+        if exam_id and _imported_active_question_ids(db, exam_id) - file_ids:
             return True
 
         for q in bundle.get("questions") or []:
@@ -483,13 +532,23 @@ def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
             existing = db.get(Question, qid)
             if not existing:
                 return True
+            if _is_deleted(existing):
+                continue
+            if not existing.is_active:
+                return True
             bank = db.get(QuestionBank, qid)
-            if not bank or not bank.published_version_id:
+            if not bank or not bank.published_version_id or not bank.last_import_hash:
+                return True
+            if bank.last_import_hash in LEGACY_IMPORT_MARKERS:
                 return True
             published_version = db.get(QuestionVersion, bank.published_version_id)
             if not published_version:
                 return True
             if not published_version.question_format or not published_version.correct_rationale:
+                return True
+            if (existing.language or None) != (q.get("language") or None):
+                return True
+            if bool(q.get("needs_review")) and not existing.needs_review:
                 return True
             if q.get("domain") and existing.domain != q.get("domain"):
                 return True
@@ -509,6 +568,7 @@ def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
 
 
 def _delete_empty_exams(db: Session) -> None:
+    """Delete exams without any question (active or not) that nothing else references."""
     empty_exam_ids = db.execute(
         select(Exam.id)
         .outerjoin(Question, Question.exam_id == Exam.id)
@@ -517,12 +577,270 @@ def _delete_empty_exams(db: Session) -> None:
     ).scalars().all()
 
     for exam_id in empty_exam_ids:
+        referenced = db.execute(
+            select(
+                exists().where(ExamSession.exam_id == exam_id)
+                | exists().where(StudySession.exam_id == exam_id)
+                | exists().where(QuestionVersion.exam_id == exam_id)
+            )
+        ).scalar()
+        if referenced:
+            continue
         exam = db.get(Exam, exam_id)
         if exam:
             db.delete(exam)
 
 
-def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
+def _deactivate_removed_questions(db: Session, exam_id: str, file_ids: set[str]) -> int:
+    """Soft-deactivate previously imported questions that disappeared from the source file.
+
+    Questions created editorially (bank.last_import_hash IS NULL) are never touched.
+    """
+    removed_ids = sorted(_imported_active_question_ids(db, exam_id) - file_ids)
+    now = datetime.now(timezone.utc)
+    for qid in removed_ids:
+        question = db.get(Question, qid)
+        if question is None:
+            continue
+        question.is_active = False
+        question.deactivated_reason = QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE
+        question.deactivated_at = now
+        db.add(
+            EditorialAuditLog(
+                question_bank_id=qid,
+                actor_role="system",
+                action="import_deactivated",
+                reason="Question no longer present in the source JSON.",
+            )
+        )
+    return len(removed_ids)
+
+
+def _import_payload(exam_id: str, q: dict) -> dict:
+    correct_set = set(q.get("correct_options") or [])
+    return {
+        "id": q.get("id"),
+        "exam_id": exam_id,
+        "prompt": q.get("question"),
+        "multi_select": bool(q.get("multi_select", False)),
+        "domain": q.get("domain"),
+        "difficulty": q.get("difficulty"),
+        "certification": q.get("certification"),
+        "subject": q.get("subject"),
+        "subtopic": q.get("subtopic"),
+        "subdomain": q.get("subdomain"),
+        "objective_code": q.get("objective_code"),
+        "blueprint_code": q.get("blueprint_code"),
+        "keywords": q.get("keywords"),
+        "trap_patterns": q.get("trap_patterns"),
+        "question_format": q.get("question_format"),
+        "tags": _normalize_tags(q.get("tags")),
+        "citations": _normalize_citations(q.get("citations")),
+        "options": [
+            {
+                "key": str(opt.get("key", "")).strip().upper(),
+                "text": str(opt.get("text", "")).strip(),
+                "is_correct": str(opt.get("key", "")).strip().upper() in correct_set,
+            }
+            for opt in (q.get("options") or [])
+            if str(opt.get("key", "")).strip() and str(opt.get("text", "")).strip()
+        ],
+        "justification": q.get("justification"),
+        "correct_rationale": q.get("correct_rationale"),
+        "incorrect_rationales": q.get("incorrect_rationales"),
+        "avg_time_seconds": q.get("avg_time_seconds"),
+        "global_accuracy_percent": q.get("global_accuracy_percent"),
+        "change_summary": "Import refresh",
+    }
+
+
+# --------------------------------------------------------------------------- domain weights (M-A6)
+
+def sync_domain_blueprint_weights(db: Session) -> int:
+    """Upsert the official domain weights (domain-level domain_blueprint rows)."""
+    touched = 0
+    for certification, rows in OFFICIAL_DOMAIN_WEIGHTS.items():
+        for blueprint_code, domain, weight in rows:
+            row = db.execute(
+                select(DomainBlueprint).where(
+                    DomainBlueprint.certification == certification,
+                    DomainBlueprint.domain == domain,
+                    DomainBlueprint.weight.is_not(None),
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                row = db.execute(
+                    select(DomainBlueprint).where(
+                        DomainBlueprint.certification == certification,
+                        DomainBlueprint.blueprint_code == blueprint_code,
+                        DomainBlueprint.objective_code.is_(None),
+                    )
+                ).scalar_one_or_none()
+            if row is None:
+                db.add(
+                    DomainBlueprint(
+                        certification=certification,
+                        blueprint_code=blueprint_code,
+                        objective_code=None,
+                        domain=domain,
+                        title=domain,
+                        description=f"Official {certification} exam domain weight ({weight:g}%).",
+                        weight=weight,
+                    )
+                )
+                touched += 1
+                continue
+            if row.weight != weight or row.domain != domain:
+                row.weight = weight
+                row.domain = domain
+                row.updated_at = datetime.utcnow()
+                touched += 1
+    db.flush()
+    return touched
+
+
+def get_domain_blueprint_weights(db: Session, certification: str) -> dict[str, float]:
+    """{domain: weight} for a certification (case-insensitive), from domain_blueprint."""
+    wanted = str(certification or "").strip().lower()
+    rows = db.execute(
+        select(DomainBlueprint.certification, DomainBlueprint.domain, DomainBlueprint.weight).where(
+            DomainBlueprint.weight.is_not(None),
+            DomainBlueprint.domain.is_not(None),
+        )
+    ).all()
+    return {domain: float(weight) for cert, domain, weight in rows if str(cert or "").strip().lower() == wanted}
+
+
+# --------------------------------------------------------------------------- study modules (M-A7)
+
+_MODULE_HEADING = re.compile(r"^##\s+M[óo]dulo\s+(\d+)\s*[–—-]\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def parse_markdown_modules(text: str) -> list[dict]:
+    """Parse '## Módulo N – Title' sections (objective bullets + 'Principais tópicos')."""
+    modules: list[dict] = []
+    current: dict | None = None
+    body: list[str] = []
+
+    def close() -> None:
+        if current is None:
+            return
+        lines = [line.rstrip() for line in body]
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        current["description"] = "\n".join(lines) or None
+        modules.append(current)
+
+    for line in text.splitlines():
+        match = _MODULE_HEADING.match(line.strip())
+        if match:
+            close()
+            number = int(match.group(1))
+            current = {
+                "code": f"M{number:02d}",
+                "position": number,
+                "title": match.group(2).strip(),
+                "domain": None,
+            }
+            body = []
+            continue
+        if current is not None:
+            body.append(line)
+    close()
+    return modules
+
+
+def parse_domain_json_modules(payload: dict) -> list[dict]:
+    modules: list[dict] = []
+    for index, item in enumerate(payload.get("domains") or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        number = int(item.get("id") or index)
+        modules.append({
+            "code": f"D{number}",
+            "position": number,
+            "title": name,
+            "domain": name,
+            "description": str(item.get("description") or "").strip() or None,
+        })
+    return modules
+
+
+def load_study_modules(material_dir: str) -> dict[str, dict]:
+    """{certification: {"source_file": ..., "modules": [...]}} for the known material files."""
+    loaded: dict[str, dict] = {}
+    for file_name, certification, parser in STUDY_MODULE_SOURCES:
+        path = os.path.join(material_dir, file_name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, "r", encoding="utf-8") as handle:
+            if parser == "markdown_modules":
+                modules = parse_markdown_modules(handle.read())
+            else:
+                payload = json.load(handle)
+                certification = str(payload.get("certification") or certification)
+                modules = parse_domain_json_modules(payload)
+        loaded[certification] = {"source_file": f"material/{file_name}", "modules": modules}
+    return loaded
+
+
+def sync_study_modules(db: Session, material_dir: str | None) -> int:
+    if not material_dir or not os.path.isdir(material_dir):
+        return 0
+    total = 0
+    for certification, spec in load_study_modules(material_dir).items():
+        source_file = spec["source_file"]
+        wanted = {module["code"]: module for module in spec["modules"]}
+        existing = {
+            row.code: row
+            for row in db.execute(
+                select(StudyModule).where(StudyModule.certification == certification)
+            ).scalars().all()
+        }
+        for code, row in existing.items():
+            if code not in wanted and row.source_file == source_file:
+                db.delete(row)
+        for code, module in wanted.items():
+            row = existing.get(code)
+            if row is None:
+                row = StudyModule(certification=certification, code=code, source_file=source_file,
+                                  position=module["position"], title=module["title"])
+                db.add(row)
+            row.position = module["position"]
+            row.title = module["title"][:255]
+            row.description = module.get("description")
+            row.domain = module.get("domain")
+            row.source_file = source_file
+            total += 1
+    db.flush()
+    return total
+
+
+def _resolve_material_dir(questions_dir: str, material_dir: str | None) -> str | None:
+    candidates = []
+    if material_dir:
+        candidates.append(material_dir)
+    try:
+        from app.core.config import settings
+
+        candidates.append(settings.material_dir)
+    except Exception:  # pragma: no cover - settings unavailable
+        pass
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(questions_dir)), "material"))
+    for candidate in candidates:
+        if candidate and os.path.isdir(candidate):
+            return os.path.abspath(candidate)
+    return None
+
+
+# --------------------------------------------------------------------------- entrypoint
+
+def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str | None = None) -> dict:
     dir_path = os.path.abspath(dir_path)
     if not os.path.isdir(dir_path):
         return {"imported": 0, "skipped": 0, "errors": [f"QUESTION_JSON_DIR not found: {dir_path}"]}
@@ -530,6 +848,13 @@ def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
     imported = 0
     skipped = 0
     errors: list[str] = []
+    stats = {
+        "questions_imported": 0,
+        "skipped_deleted": 0,
+        "skipped_editorial": 0,
+        "reactivated": 0,
+        "deactivated": 0,
+    }
 
     for name in sorted(os.listdir(dir_path)):
         if not name.lower().endswith(".json"):
@@ -554,6 +879,7 @@ def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
 
             imported_questions = 0
             file_errors: list[str] = []
+            file_stats = dict.fromkeys(stats, 0)
 
             for bundle in bundles:
                 exam = bundle.get("exam") or {}
@@ -565,110 +891,45 @@ def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
 
                 db_exam = db.get(Exam, exam_id)
                 if not db_exam:
-                    db_exam = Exam(
-                        id=exam_id,
-                        title=title,
-                        source=exam.get("source"),
-                        question_count=exam.get("question_count"),
-                    )
+                    db_exam = Exam(id=exam_id, title=title, source=exam.get("source"))
                     db.add(db_exam)
-                else:
-                    db_exam.title = title
-                    db_exam.source = exam.get("source")
-                    db_exam.question_count = exam.get("question_count")
+                db_exam.title = title
+                db_exam.source = exam.get("source")
+                db_exam.question_count = len(questions)
+                db.flush()
 
                 for q in questions:
                     qid = q.get("id")
-                    prompt = q.get("question")
-                    if not qid or not prompt:
+                    if not qid or not q.get("question"):
+                        continue
+                    existing = db.get(Question, qid)
+                    if _is_deleted(existing):
+                        # Deleted by an editor: never resurrected by the import.
+                        file_stats["skipped_deleted"] += 1
                         continue
                     try:
                         with db.begin_nested():
-                            tags_json = json.dumps(_normalize_tags(q.get("tags")), ensure_ascii=False) if q.get("tags") else None
-                            citations_json = json.dumps(_normalize_citations(q.get("citations")), ensure_ascii=False) if q.get("citations") else None
+                            result = sync_imported_question_publication(db, _import_payload(exam_id, q))
                             db_q = db.get(Question, qid)
-                            if not db_q:
-                                db_q = Question(
-                                    id=qid,
-                                    exam_id=exam_id,
-                                    prompt=prompt,
-                                    multi_select=bool(q.get("multi_select", False)),
-                                    domain=q.get("domain"),
-                                    difficulty=q.get("difficulty"),
-                                    certification=q.get("certification"),
-                                    tags_json=tags_json,
-                                    citations_json=citations_json,
-                                )
-                                db.add(db_q)
-                            else:
-                                db_q.exam_id = exam_id
-                                db_q.prompt = prompt
-                                db_q.multi_select = bool(q.get("multi_select", False))
-                                db_q.domain = q.get("domain")
-                                db_q.difficulty = q.get("difficulty")
-                                db_q.certification = q.get("certification")
-                                db_q.tags_json = tags_json
-                                db_q.citations_json = citations_json
-
-                            if db_q.options:
-                                for opt in list(db_q.options):
-                                    db.delete(opt)
-
-                            correct_set = set((q.get("correct_options") or []))
-                            for opt in q.get("options") or []:
-                                key = str(opt.get("key", "")).strip().upper()
-                                text = str(opt.get("text", "")).strip()
-                                if not key or not text:
-                                    continue
-                                db.add(Option(question_id=qid, key=key, text=text, is_correct=(key in correct_set)))
-
-                            just = q.get("justification")
-                            db_exp = db.get(Explanation, qid)
-                            if not db_exp:
-                                db.add(Explanation(question_id=qid, justification=just))
-                            else:
-                                db_exp.justification = just
-
-                            sync_imported_question_publication(
-                                db,
-                                {
-                                    "id": qid,
-                                    "exam_id": exam_id,
-                                    "prompt": prompt,
-                                    "multi_select": bool(q.get("multi_select", False)),
-                                    "domain": q.get("domain"),
-                                    "difficulty": q.get("difficulty"),
-                                    "certification": q.get("certification"),
-                                    "subject": q.get("subject"),
-                                    "subtopic": q.get("subtopic"),
-                                    "subdomain": q.get("subdomain"),
-                                    "objective_code": q.get("objective_code"),
-                                    "blueprint_code": q.get("blueprint_code"),
-                                    "keywords": q.get("keywords"),
-                                    "trap_patterns": q.get("trap_patterns"),
-                                    "question_format": q.get("question_format"),
-                                    "tags": _normalize_tags(q.get("tags")),
-                                    "citations": _normalize_citations(q.get("citations")),
-                                    "options": [
-                                        {
-                                            "key": str(opt.get("key", "")).strip().upper(),
-                                            "text": str(opt.get("text", "")).strip(),
-                                            "is_correct": str(opt.get("key", "")).strip().upper() in correct_set,
-                                        }
-                                        for opt in (q.get("options") or [])
-                                        if str(opt.get("key", "")).strip() and str(opt.get("text", "")).strip()
-                                    ],
-                                    "justification": just,
-                                    "correct_rationale": q.get("correct_rationale"),
-                                    "incorrect_rationales": q.get("incorrect_rationales"),
-                                    "avg_time_seconds": q.get("avg_time_seconds"),
-                                    "global_accuracy_percent": q.get("global_accuracy_percent"),
-                                    "change_summary": "Import refresh",
-                                },
-                            )
+                            if db_q is None:
+                                raise ValueError("Question projection was not created.")
+                            db_q.language = q.get("language")
+                            db_q.needs_review = bool(q.get("needs_review")) or bool(db_q.explanation_missing)
+                            if not db_q.is_active:
+                                db_q.is_active = True
+                                db_q.deactivated_reason = None
+                                db_q.deactivated_at = None
+                                file_stats["reactivated"] += 1
+                            db.flush()
+                        if result.get("skipped_editorial"):
+                            file_stats["skipped_editorial"] += 1
                         imported_questions += 1
                     except Exception as exc:
                         file_errors.append(f"{name}:{qid}: {exc}")
+
+                if questions:
+                    file_ids = {str(q.get("id") or "").strip() for q in questions}
+                    file_stats["deactivated"] += _deactivate_removed_questions(db, exam_id, file_ids)
 
             _delete_empty_exams(db)
 
@@ -682,9 +943,29 @@ def ingest_questions_from_dir(db: Session, dir_path: str) -> dict:
             db.commit()
             errors.extend(file_errors)
             imported += 1
+            file_stats["questions_imported"] = imported_questions
+            for key, value in file_stats.items():
+                stats[key] += value
 
         except Exception as e:
             db.rollback()
             errors.append(f"{name}: {e}")
 
-    return {"imported": imported, "skipped": skipped, "errors": errors}
+    try:
+        weights = sync_domain_blueprint_weights(db)
+        modules = sync_study_modules(db, _resolve_material_dir(dir_path, material_dir))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        weights = 0
+        modules = 0
+        errors.append(f"reference data: {exc}")
+
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors,
+        **stats,
+        "domain_weights_updated": weights,
+        "study_modules": modules,
+    }

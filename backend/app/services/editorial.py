@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    QUESTION_DEACTIVATED_DELETED,
     DomainBlueprint,
     DomainCatalog,
     EditorialAuditLog,
@@ -19,7 +21,16 @@ from app.models import (
     QuestionVersion,
     QuestionVersionOption,
 )
-from app.services.question_quality import assess_question_quality, json_text_list, normalize_editorial_payload
+from app.services.question_quality import (
+    assess_question_quality,
+    is_fallback_rationale,
+    json_text_list,
+    normalize_difficulty,
+    normalize_editorial_payload,
+)
+
+# import_hash markers for versions that predate provenance tracking (migration 0014).
+LEGACY_IMPORT_MARKERS = {"legacy-import", "seeded-projection"}
 
 
 def _parse_text_list(raw: str | None) -> list[str]:
@@ -90,6 +101,10 @@ def _payload_signature(payload: dict[str, Any]) -> str:
     return json.dumps(signature_payload, ensure_ascii=False, sort_keys=True)
 
 
+def _signature_hash(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(_payload_signature(payload).encode("utf-8")).hexdigest()
+
+
 def _quality_summary(quality: dict[str, Any]) -> dict[str, Any]:
     return {
         "blocking_issues": list(quality.get("blocking_issues") or []),
@@ -126,7 +141,8 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "prompt": str(payload.get("prompt") or "").strip(),
         "multi_select": bool(payload.get("multi_select")),
         "domain": str(payload.get("domain") or "").strip() or None,
-        "difficulty": str(payload.get("difficulty") or "").strip() or None,
+        # Canonical Easy/Medium/Hard (CHECK constraint); invalid values raise ValueError (-> HTTP 400).
+        "difficulty": normalize_difficulty(payload.get("difficulty")),
         "certification": str(payload.get("certification") or "").strip() or None,
         "tags": tags,
         "citations": citations,
@@ -437,8 +453,10 @@ def _create_version(
     actor_user_id: str | None,
     approved_by_user_id: str | None = None,
     published_at: datetime | None = None,
+    import_hash: str | None = None,
 ) -> QuestionVersion:
     version = QuestionVersion(
+        import_hash=import_hash,
         question_bank_id=question_id,
         version_number=_next_version_number(db, question_id),
         status=status,
@@ -507,6 +525,7 @@ def _ensure_bank_seeded_from_projection(
             actor_user_id=None,
             approved_by_user_id=None,
             published_at=datetime.utcnow(),
+            import_hash="seeded-projection",
         )
         bank.published_version_id = seeded_version.id
         bank.review_status = "published"
@@ -529,6 +548,8 @@ def _ensure_bank_seeded_from_projection(
     bank = QuestionBank(
         stable_question_id=question_id,
         review_status="published",
+        # A projection without a bank can only come from a pre-editorial import.
+        last_import_hash="seeded-projection",
     )
     db.add(bank)
     db.flush()
@@ -541,6 +562,7 @@ def _ensure_bank_seeded_from_projection(
         actor_user_id=None,
         approved_by_user_id=None,
         published_at=datetime.utcnow(),
+        import_hash="seeded-projection",
     )
     bank.published_version_id = seeded_version.id
     _write_audit_log(
@@ -586,6 +608,8 @@ def _sync_projection_from_version(
 ) -> None:
     projection = db.get(Question, question_id)
     if not projection:
+        if not version.exam_id:
+            raise ValueError("Cannot project a question version without exam_id.")
         projection = Question(
             id=question_id,
             exam_id=version.exam_id,
@@ -599,7 +623,10 @@ def _sync_projection_from_version(
         )
         db.add(projection)
     else:
-        projection.exam_id = version.exam_id
+        # is_active / deactivation fields are intentionally untouched: publishing a new
+        # version never resurrects a deleted question (see reactivate_question).
+        if version.exam_id:
+            projection.exam_id = version.exam_id
         projection.prompt = version.prompt
         projection.multi_select = version.multi_select
         projection.domain = version.domain
@@ -608,20 +635,14 @@ def _sync_projection_from_version(
         projection.tags_json = version.tags_json
         projection.citations_json = version.citations_json
 
-    if projection.options:
-        for item in list(projection.options):
-            db.delete(item)
-    db.flush()
-
-    for item in sorted(version.options, key=lambda option: option.key):
-        db.add(
-            Option(
-                question_id=question_id,
-                key=item.key,
-                text=item.text,
-                is_correct=item.is_correct,
-            )
-        )
+    sync_projection_options(
+        db,
+        projection,
+        [
+            {"key": item.key, "text": item.text, "is_correct": item.is_correct}
+            for item in sorted(version.options, key=lambda option: option.key)
+        ],
+    )
 
     explanation = db.get(Explanation, question_id)
     explanation_text = version.correct_rationale or version.justification
@@ -629,7 +650,51 @@ def _sync_projection_from_version(
         db.add(Explanation(question_id=question_id, justification=explanation_text))
     else:
         explanation.justification = explanation_text
+    projection.explanation_missing = (not explanation_text) or is_fallback_rationale(explanation_text)
     db.flush()
+
+
+def sync_projection_options(
+    db: Session,
+    question: Question,
+    options: list[dict[str, Any]],
+) -> None:
+    """Update the projection options in place, keyed by option key.
+
+    Existing rows keep their primary key (text/is_correct are updated), options whose
+    key disappeared are deleted and flushed *before* new keys are inserted, so the
+    (question_id, key) unique constraint is never hit. (C1: re-import used to delete and
+    re-insert the same keys in one flush, which the unit of work orders INSERT-first.)
+    """
+    desired: dict[str, dict[str, Any]] = {}
+    for item in options:
+        key = str(item.get("key") or "").strip().upper()
+        text = str(item.get("text") or "").strip()
+        if not key or not text:
+            continue
+        desired[key] = {"text": text, "is_correct": bool(item.get("is_correct"))}
+
+    existing = {
+        option.key: option
+        for option in db.execute(select(Option).where(Option.question_id == question.id)).scalars().all()
+    }
+    removed = False
+    for key, option in existing.items():
+        if key not in desired:
+            db.delete(option)
+            removed = True
+    if removed:
+        db.flush()
+
+    for key, values in desired.items():
+        option = existing.get(key)
+        if option is not None:
+            option.text = values["text"]
+            option.is_correct = values["is_correct"]
+        else:
+            db.add(Option(question_id=question.id, key=key, text=values["text"], is_correct=values["is_correct"]))
+    db.flush()
+    db.expire(question, ["options"])
 
 
 def _serialize_version_summary(bank: QuestionBank, version: QuestionVersion) -> dict[str, Any]:
@@ -1089,6 +1154,10 @@ def rollback_question_to_version(
     }
 
 
+def _utcnow_aware() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def delete_question_with_history(
     db: Session,
     question_id: str,
@@ -1097,6 +1166,13 @@ def delete_question_with_history(
     actor_role: str | None,
     reason: str | None = None,
 ) -> dict[str, Any]:
+    """Soft delete: deactivate the question so student history (answers, attempts,
+    review queue, progress) is preserved. Name/signature/return shape are unchanged.
+
+    The question disappears from new sessions (callers filter Question.is_active),
+    its editorial bank is archived and the JSON ingest will not resurrect it; use
+    reactivate_question to bring it back.
+    """
     bank = _ensure_bank_seeded_from_projection(db, question_id)
     projection = db.get(Question, question_id)
     if not bank and not projection:
@@ -1111,12 +1187,25 @@ def delete_question_with_history(
         actor_user_id=actor_user_id,
         actor_role=actor_role,
         reason=reason,
+        metadata={"soft_delete": True},
     )
 
     if bank:
-        db.delete(bank)
+        draft = _get_version(db, bank.draft_version_id)
+        if draft and draft.id != bank.published_version_id:
+            draft.status = "archived"
+            draft.updated_by_user_id = actor_user_id
+        bank.draft_version_id = None
+        published = _get_version(db, bank.published_version_id)
+        if published:
+            published.status = "archived"
+            published.updated_by_user_id = actor_user_id
+        bank.review_status = "archived"
+        bank.updated_by_user_id = actor_user_id
     if projection:
-        db.delete(projection)
+        projection.is_active = False
+        projection.deactivated_reason = QUESTION_DEACTIVATED_DELETED
+        projection.deactivated_at = _utcnow_aware()
     db.flush()
 
     return {
@@ -1126,10 +1215,63 @@ def delete_question_with_history(
     }
 
 
+def reactivate_question(
+    db: Session,
+    question_id: str,
+    *,
+    actor_user_id: str | None,
+    actor_role: str | None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Explicitly re-enable a soft-deleted question (the only way ingest-proof deletes are undone)."""
+    projection = db.get(Question, question_id)
+    if not projection:
+        raise ValueError("Question not found.")
+    bank = _get_question_bank(db, question_id)
+    if bank:
+        published = _get_version(db, bank.published_version_id)
+        if published and published.status == "archived":
+            published.status = "published"
+            published.updated_by_user_id = actor_user_id
+        bank.review_status = "published"
+        bank.updated_by_user_id = actor_user_id
+        if bank.last_import_hash:
+            # Imports skipped this question while it was deleted: force the next ingest
+            # to re-evaluate it (unchanged source files are otherwise skipped by hash).
+            bank.last_import_hash = "legacy-import"
+    projection.is_active = True
+    projection.deactivated_reason = None
+    projection.deactivated_at = None
+    _write_audit_log(
+        db,
+        question_id=question_id,
+        version_id=bank.published_version_id if bank else None,
+        action="reactivated",
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        reason=reason,
+    )
+    db.flush()
+    return {"ok": True, "id": question_id, "status": "published"}
+
+
+def is_import_origin_version(version: QuestionVersion | None) -> bool:
+    return bool(version is not None and version.import_hash)
+
+
 def sync_imported_question_publication(
     db: Session,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    """Publish the imported payload unless an editor owns the current published version.
+
+    - No published version yet -> publish the import (version.import_hash = payload hash).
+    - Published version came from the import (import_hash set) -> republish only when the
+      imported payload changed.
+    - Published version was created editorially (import_hash NULL) -> never overwritten;
+      the new import hash is recorded on the bank and an ``import_skipped_editorial``
+      audit entry is written once per distinct payload so editors can reconcile.
+    """
     quality = assess_question_quality(_clean_payload(payload), db=db)
     clean = quality["normalized"]
     question_id = clean.get("id")
@@ -1141,6 +1283,7 @@ def sync_imported_question_publication(
             + "; ".join(str(item) for item in quality["blocking_issues"])
         )
 
+    target_hash = _signature_hash(clean)
     bank = _get_question_bank(db, question_id)
     if not bank:
         bank = QuestionBank(
@@ -1153,17 +1296,50 @@ def sync_imported_question_publication(
         db.flush()
 
     current_published = _get_version(db, bank.published_version_id)
-    if current_published:
-        current_signature = _payload_signature(_question_payload_from_version(current_published))
-        target_signature = _payload_signature(clean)
-        if current_signature == target_signature:
-            _sync_domain_blueprint_catalog(db, clean)
+    if current_published and not is_import_origin_version(current_published):
+        if bank.last_import_hash != target_hash:
+            _write_audit_log(
+                db,
+                question_id=question_id,
+                version_id=current_published.id,
+                action="import_skipped_editorial",
+                actor_user_id=None,
+                actor_role="system",
+                reason="Published version was edited editorially; imported content not applied.",
+                metadata={"import_hash": target_hash, "version_number": current_published.version_number},
+            )
+        bank.last_import_hash = target_hash
+        if current_published.status == "published":
             _sync_projection_from_version(db, question_id, current_published)
+        db.flush()
+        return {
+            "question_id": question_id,
+            "version_id": current_published.id,
+            "version_number": current_published.version_number,
+            "changed": False,
+            "skipped_editorial": True,
+            "quality": _quality_summary(quality),
+        }
+
+    if current_published:
+        if current_published.import_hash in LEGACY_IMPORT_MARKERS:
+            unchanged = _payload_signature(_question_payload_from_version(current_published)) == _payload_signature(clean)
+            if unchanged:
+                current_published.import_hash = target_hash
+        else:
+            unchanged = current_published.import_hash == target_hash
+        if unchanged:
+            bank.last_import_hash = target_hash
+            _sync_domain_blueprint_catalog(db, clean)
+            if current_published.status == "published":
+                _sync_projection_from_version(db, question_id, current_published)
+            db.flush()
             return {
                 "question_id": question_id,
                 "version_id": current_published.id,
                 "version_number": current_published.version_number,
                 "changed": False,
+                "skipped_editorial": False,
                 "quality": _quality_summary(quality),
             }
         current_published.status = "archived"
@@ -1177,9 +1353,11 @@ def sync_imported_question_publication(
         actor_user_id=None,
         approved_by_user_id=None,
         published_at=datetime.utcnow(),
+        import_hash=target_hash,
     )
     bank.published_version_id = published_version.id
-    if not bank.draft_version_id:
+    bank.last_import_hash = target_hash
+    if not bank.draft_version_id and bank.review_status != "archived":
         bank.review_status = "published"
     bank.updated_by_user_id = None
 
@@ -1194,6 +1372,7 @@ def sync_imported_question_publication(
         metadata={
             "version_number": published_version.version_number,
             "completeness_score": quality["completeness_score"],
+            "import_hash": target_hash,
         },
     )
     db.flush()
@@ -1202,5 +1381,6 @@ def sync_imported_question_publication(
         "version_id": published_version.id,
         "version_number": published_version.version_number,
         "changed": True,
+        "skipped_editorial": False,
         "quality": _quality_summary(quality),
     }
