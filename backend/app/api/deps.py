@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Cookie, Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.errors import api_error
 from app.db.session import get_db
 from app.models import User
 from app.services.auth import get_user_for_token, normalize_client_key, parse_bearer_token
@@ -28,9 +29,10 @@ def get_current_user_optional(
 
 def get_current_user_required(current_user: User | None = Depends(get_current_user_optional)) -> User:
     if not current_user:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required.",
+        raise api_error(
+            401,
+            "auth_required",
+            "Authentication required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return current_user
