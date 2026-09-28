@@ -648,7 +648,7 @@ def answer_study_question(
     )
 
     official_references = build_official_reference_summaries(db, question_id, limit=4)
-    feedback_summary = build_feedback_summary(db, question_id, is_correct=is_correct)
+    feedback_summary = mapping.remap_text(build_feedback_summary(db, question_id, is_correct=is_correct))
     remaining = max(session.total_questions - session.current_index, 0)
     if not is_correct:
         message = "Erro convertido em revisao. Esta questao voltara rapidamente para reforco."
@@ -1009,7 +1009,7 @@ def get_study_session_review(db: Session, session: StudySession) -> dict[str, An
             "confidence_level": normalized_confidence,
             "elapsed_seconds": int(elapsed_seconds) if elapsed_seconds is not None else None,
             "answered_at": answered_at.isoformat() if answered_at else None,
-            "justification": explanation_map.get(question_id),
+            "justification": mapping.remap_text(explanation_map.get(question_id)),
             "tags": parse_tags(tags_json),
             "citations": parse_citation_dicts(citations_json),
         })

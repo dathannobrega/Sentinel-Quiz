@@ -131,6 +131,56 @@ class OptionMapping:
             rendered.append(copy)
         return rendered
 
+    def remap_text(self, text: Optional[str]) -> Optional[str]:
+        """Rewrite explicit option-letter references (original keys) into this session's display keys.
+
+        Official justifications cite letters ("Correct Answer: B", "alternativa C", "(D)", per-option
+        lines "A) ..."). Each match is translated in a single pass so swaps (B<->C) never chain.
+        Bare letters outside those reference forms are left untouched to avoid rewriting prose.
+        """
+        if not text or not self.shuffled:
+            return text
+
+        def translate_letters(fragment: str) -> str:
+            return _SINGLE_LETTER.sub(lambda m: self.original_to_display.get(m.group(0), m.group(0)), fragment)
+
+        def keyword(match: re.Match) -> str:
+            return match.group("prefix") + translate_letters(match.group("letters"))
+
+        def paren(match: re.Match) -> str:
+            return f"({translate_letters(match.group('letters'))})"
+
+        def line(match: re.Match) -> str:
+            return match.group("prefix") + translate_letters(match.group("letters"))
+
+        # Mark rewritten spans so later passes don't translate them twice.
+        sentinel = "\u0000"
+        protected: list[str] = []
+
+        def protect(replacement: str) -> str:
+            protected.append(replacement)
+            return f"{sentinel}{len(protected) - 1}{sentinel}"
+
+        out = _KEYWORD_REFERENCE.sub(lambda m: protect(keyword(m)), text)
+        out = _PAREN_REFERENCE.sub(lambda m: protect(paren(m)), out)
+        out = _LINE_REFERENCE.sub(lambda m: protect(line(m)), out)
+        return re.sub(f"{sentinel}(\\d+){sentinel}", lambda m: protected[int(m.group(1))], out)
+
+
+# Letters stay case-sensitive even inside IGNORECASE patterns ("answer is a ..." is prose, not "A").
+_LETTER_LIST = r"(?-i:[A-Z])(?:\s*(?:,|/|\be\b|\bou\b|\band\b|\bor\b)\s*(?-i:[A-Z]))*"
+# "Correct Answer:** B", "alternativa C", "opções A e D", "resposta correta é B", "letter B"...
+_KEYWORD_REFERENCE = re.compile(
+    r"(?P<prefix>\b(?:correct\s+answers?|answers?|options?|choices?|alternatives?|letters?|"
+    r"alternativas?|op[çc](?:[aã]o|[oõ]es)|respostas?(?:\s+corretas?)?|letras?|corretas?\s+(?:[ée]|s[aã]o))"
+    r"\s*(?:\*\*)?\s*(?:is|are|[ée]|s[aã]o)?\s*[:\-–]?\s*(?:\*\*)?\s*\(?)(?P<letters>" + _LETTER_LIST + r")(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+# "(B)" anywhere, and per-option lines such as "B) ...", "- C. ...", "**D:** ...".
+_PAREN_REFERENCE = re.compile(r"\((?P<letters>[A-Z])\)")
+_LINE_REFERENCE = re.compile(r"(?m)^(?P<prefix>\s*(?:[-*]\s*)?(?:\*\*)?)(?P<letters>[A-Z])(?=(?:\*\*)?[).:](?:\*\*)?\s)")
+_SINGLE_LETTER = re.compile(r"(?<![A-Za-z0-9])[A-Z](?![A-Za-z0-9])")
+
 
 def split_keys(raw: Optional[str]) -> list[str]:
     return [key for key in str(raw or "").split(",") if key]

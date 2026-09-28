@@ -211,7 +211,7 @@ def save_exam_response(
         complete_exam_session(db, session)
 
     official_references = build_official_reference_summaries(db, question_id, limit=4)
-    feedback_summary = build_feedback_summary(db, question_id, is_correct=is_correct)
+    feedback_summary = mapping.remap_text(build_feedback_summary(db, question_id, is_correct=is_correct))
     db.flush()
     result_snapshot = _analyze_session(session, _get_session_rows(db, session.id))
     db.commit()

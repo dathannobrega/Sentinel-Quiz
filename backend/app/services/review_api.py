@@ -162,7 +162,7 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
             "correct_keys": [o["key"] for o in opts if o["is_correct"]],
             "selected_keys": mapping.to_display(answer.get("selected_keys", [])),
             "is_correct": answer.get("is_correct"),
-            "justification": exp_map.get(qid),
+            "justification": mapping.remap_text(exp_map.get(qid)),
             "tags": _parse_list(tags_json),
             "citations": _parse_list(citations_json, dicts=True),
         })

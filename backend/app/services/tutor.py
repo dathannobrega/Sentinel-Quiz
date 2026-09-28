@@ -149,7 +149,8 @@ def build_tutor_context(
 
     # The official justification is only shared after the question was answered.
     if is_correct is not None:
-        context.justification = resolve_full_explanation_text(db, question_id)
+        # Cited letters follow the learner's (shuffled) option keys, like the options above.
+        context.justification = mapping.remap_text(resolve_full_explanation_text(db, question_id))
     return context
 
 
