@@ -1,21 +1,30 @@
 # syntax=docker/dockerfile:1.7
+#
+# Sentinel Quiz web (Next.js standalone output).
+# Base image pinned by digest (Node 22 LTS); Dependabot keeps it fresh.
+ARG NODE_IMAGE=node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
 
-FROM node:20-alpine AS base
+FROM ${NODE_IMAGE} AS base
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /app
 
+# ---------------------------------------------------------------------------
+# deps: reproducible install from the committed lockfile (fails without it)
+# ---------------------------------------------------------------------------
 FROM base AS deps
 
-COPY package*.json ./
+COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+    npm ci --no-audit --no-fund
 
+# ---------------------------------------------------------------------------
+# builder
+# ---------------------------------------------------------------------------
 FROM base AS builder
 
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
@@ -23,7 +32,10 @@ COPY . ./
 RUN --mount=type=cache,target=/app/.next/cache \
     npm run build
 
-FROM node:20-alpine AS runner
+# ---------------------------------------------------------------------------
+# runner: only the standalone server, non-root
+# ---------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS runner
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -36,8 +48,8 @@ RUN addgroup -S app \
     && adduser -S app -G app
 
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder --chown=app:app /app/.next/standalone ./
+COPY --from=builder --chown=app:app /app/.next/static ./.next/static
 
 USER app
 
