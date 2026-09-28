@@ -6,8 +6,13 @@ Create Date: 2026-03-02 20:15:00
 """
 from __future__ import annotations
 
-from alembic import op
+import os
+import sys
+
 import sqlalchemy as sa
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sq_migration_helpers as h  # noqa: E402
 
 
 revision = "0011_auth_recovery_and_verification"
@@ -15,13 +20,17 @@ down_revision = "0010_pedagogy_and_engagement"
 branch_labels = None
 depends_on = None
 
+# Idempotent: revision 0008 runs create_all with the current models, so on an empty
+# database everything below may already exist. Every operation checks the live
+# schema first (see alembic/sq_migration_helpers.py).
+
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("email_verified", sa.Boolean(), nullable=False, server_default=sa.false()))
-    op.add_column("users", sa.Column("email_verified_at", sa.DateTime(), nullable=True))
-    op.create_index("ix_users_email_verified_at", "users", ["email_verified_at"], unique=False)
+    h.add_column("users", sa.Column("email_verified", sa.Boolean(), nullable=False, server_default=sa.false()))
+    h.add_column("users", sa.Column("email_verified_at", sa.DateTime(), nullable=True))
+    h.create_index("ix_users_email_verified_at", "users", ["email_verified_at"], unique=False)
 
-    op.create_table(
+    h.create_table(
         "auth_challenges",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", sa.String(length=36), nullable=False),
@@ -35,21 +44,21 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("token_hash"),
     )
-    op.create_index("ix_auth_challenges_user_id", "auth_challenges", ["user_id"], unique=False)
-    op.create_index("ix_auth_challenges_challenge_type", "auth_challenges", ["challenge_type"], unique=False)
-    op.create_index("ix_auth_challenges_expires_at", "auth_challenges", ["expires_at"], unique=False)
-    op.create_index("ix_auth_challenges_consumed_at", "auth_challenges", ["consumed_at"], unique=False)
+    h.create_index("ix_auth_challenges_user_id", "auth_challenges", ["user_id"], unique=False)
+    h.create_index("ix_auth_challenges_challenge_type", "auth_challenges", ["challenge_type"], unique=False)
+    h.create_index("ix_auth_challenges_expires_at", "auth_challenges", ["expires_at"], unique=False)
+    h.create_index("ix_auth_challenges_consumed_at", "auth_challenges", ["consumed_at"], unique=False)
 
-    op.alter_column("users", "email_verified", server_default=None)
+    h.clear_server_default("users", "email_verified")
 
 
 def downgrade() -> None:
-    op.drop_index("ix_auth_challenges_consumed_at", table_name="auth_challenges")
-    op.drop_index("ix_auth_challenges_expires_at", table_name="auth_challenges")
-    op.drop_index("ix_auth_challenges_challenge_type", table_name="auth_challenges")
-    op.drop_index("ix_auth_challenges_user_id", table_name="auth_challenges")
-    op.drop_table("auth_challenges")
+    h.drop_index("ix_auth_challenges_consumed_at", "auth_challenges")
+    h.drop_index("ix_auth_challenges_expires_at", "auth_challenges")
+    h.drop_index("ix_auth_challenges_challenge_type", "auth_challenges")
+    h.drop_index("ix_auth_challenges_user_id", "auth_challenges")
+    h.drop_table("auth_challenges")
 
-    op.drop_index("ix_users_email_verified_at", table_name="users")
-    op.drop_column("users", "email_verified_at")
-    op.drop_column("users", "email_verified")
+    h.drop_index("ix_users_email_verified_at", "users")
+    h.drop_column("users", "email_verified_at")
+    h.drop_column("users", "email_verified")

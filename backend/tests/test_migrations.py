@@ -1,0 +1,206 @@
+"""Alembic migration tests (C2, M-A4, L-A3 and 0014).
+
+- `upgrade head` on an EMPTY database works and the resulting schema matches the models
+  (alembic autogenerate compare returns no diffs).
+- Round trips head -> 0013 -> head and head -> 0008 -> head exercise the non-skip
+  paths of the idempotent migrations and must also end with no diffs.
+- `downgrade base` leaves only alembic_version.
+- 0014 data migration on a populated 0013 database.
+
+SQLite always; PostgreSQL when TEST_DATABASE_URL is set (each test uses its own
+throw-away schema through search_path, so it never touches existing tables).
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+import uuid
+from pathlib import Path
+
+BACKEND = Path(__file__).resolve().parents[1]
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
+
+from alembic import command  # noqa: E402
+from alembic.autogenerate import compare_metadata  # noqa: E402
+from alembic.config import Config  # noqa: E402
+from alembic.migration import MigrationContext  # noqa: E402
+from alembic.script import ScriptDirectory  # noqa: E402
+from sqlalchemy import create_engine, event, inspect, text  # noqa: E402
+from sqlalchemy.exc import IntegrityError  # noqa: E402
+
+from app.db.base import Base  # noqa: E402
+import app.models  # noqa: E402,F401
+
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "").strip()
+REV_0008 = "0008_question_stats_snapshot"
+REV_0013 = "0013_issue_workflow_and_placement"
+
+
+def alembic_config(url: str) -> Config:
+    cfg = Config(str(BACKEND / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND / "alembic"))
+    cfg.attributes["sqlalchemy.url"] = url
+    cfg.attributes["skip_logging_config"] = True
+    return cfg
+
+
+class _MigrationMixin:
+    url: str
+
+    def make_url(self) -> str:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def engine_kwargs(self) -> dict:
+        return {}
+
+    def setUp(self) -> None:
+        self.url = self.make_url()
+        self.cfg = alembic_config(self.url)
+        self.engine = create_engine(self.url, **self.engine_kwargs())
+        if self.engine.dialect.name == "sqlite":
+            @event.listens_for(self.engine, "connect")
+            def _enable_fk(dbapi_connection, _record):  # noqa: ANN001
+                dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+        self.cleanup()
+
+    def cleanup(self) -> None:  # pragma: no cover - overridden
+        pass
+
+    # ------------------------------------------------------------------ helpers
+    def schema_diffs(self) -> list:
+        with self.engine.connect() as conn:
+            context = MigrationContext.configure(
+                conn, opts={"compare_type": True, "compare_server_default": True}
+            )
+            return compare_metadata(context, Base.metadata)
+
+    def assert_models_match(self) -> None:
+        diffs = self.schema_diffs()
+        self.assertEqual(diffs, [], f"schema drift between models and migrations: {diffs[:10]}")
+
+    def current_revision(self) -> str | None:
+        with self.engine.connect() as conn:
+            return MigrationContext.configure(conn).get_current_revision()
+
+    def check_names(self, table: str) -> set[str]:
+        return {ck["name"] for ck in inspect(self.engine).get_check_constraints(table)}
+
+    # ------------------------------------------------------------------ tests
+    def test_upgrade_head_on_empty_database_matches_models(self) -> None:
+        command.upgrade(self.cfg, "head")
+        head = ScriptDirectory.from_config(self.cfg).get_current_head()
+        self.assertEqual(self.current_revision(), head)
+        self.assert_models_match()
+        # Idempotent: running it again is a no-op.
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+
+    def test_roundtrip_through_0013_and_0008(self) -> None:
+        command.upgrade(self.cfg, "head")
+        for target in (REV_0013, REV_0008):
+            command.downgrade(self.cfg, target)
+            self.assertEqual(self.current_revision(), target)
+            command.upgrade(self.cfg, "head")
+            self.assert_models_match()
+            self.assertIn("ck_exam_sessions_owner_scope_xor", self.check_names("exam_sessions"))
+            self.assertIn("ck_users_role_allowed", self.check_names("users"))
+            indexes = {ix["name"]: ix for ix in inspect(self.engine).get_indexes("user_exam_metrics_snapshot")}
+            self.assertTrue(indexes["ix_user_exam_metrics_snapshot_session_id"]["unique"])
+
+    def test_downgrade_base_removes_everything(self) -> None:
+        command.upgrade(self.cfg, "head")
+        command.downgrade(self.cfg, "base")
+        remaining = set(inspect(self.engine).get_table_names()) - {"alembic_version"}
+        self.assertEqual(remaining, set())
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+
+    def test_0014_data_migration_on_populated_database(self) -> None:
+        command.upgrade(self.cfg, "head")
+        command.downgrade(self.cfg, REV_0013)
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO users (id, email, password_hash, role, is_active, email_verified, created_at, updated_at) "
+                "VALUES ('u1', 'u1@example.com', 'x', 'student', true, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ))
+            conn.execute(text("INSERT INTO exams (id, title) VALUES ('ex', 'Exam')"))
+            conn.execute(text(
+                "INSERT INTO questions (id, exam_id, prompt, multi_select, difficulty) VALUES "
+                "('q1', 'ex', 'p', false, 'medium')"
+            ))
+            conn.execute(text(
+                "INSERT INTO exam_sessions (id, created_at, user_id, exam_id, selection_strategy, total_questions, "
+                "experience_mode, current_index, current_position, correct_count, wrong_count) VALUES "
+                "('s1', CURRENT_TIMESTAMP, 'u1', 'renamed-exam', 'standard', 1, 'standard', 0, 0, 0, 0)"
+            ))
+            conn.execute(text(
+                "INSERT INTO session_answers (session_id, question_id, selected_keys, is_correct, answered_at) "
+                "VALUES ('s1', 'q1', 'A', true, CURRENT_TIMESTAMP)"
+            ))
+            conn.execute(text(
+                "INSERT INTO question_bank (stable_question_id, published_version_id, review_status, created_at, "
+                "updated_at) VALUES ('q1', 424242, 'published', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ))
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+        with self.engine.begin() as conn:
+            self.assertEqual(conn.execute(text("SELECT difficulty FROM questions WHERE id='q1'")).scalar(), "Medium")
+            self.assertTrue(conn.execute(text("SELECT is_active FROM questions WHERE id='q1'")).scalar())
+            self.assertIsNone(conn.execute(text("SELECT exam_id FROM exam_sessions WHERE id='s1'")).scalar())
+            self.assertIsNone(
+                conn.execute(text("SELECT published_version_id FROM question_bank WHERE stable_question_id='q1'")).scalar()
+            )
+            weights = conn.execute(text("SELECT COUNT(*) FROM domain_blueprint WHERE weight IS NOT NULL")).scalar()
+            self.assertEqual(weights, 13)
+        # M-A3: history blocks hard deletes; M-A1: deleting the user cascades its sessions.
+        with self.assertRaises(IntegrityError):
+            with self.engine.begin() as conn:
+                conn.execute(text("DELETE FROM questions WHERE id='q1'"))
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM users WHERE id='u1'"))
+            self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM exam_sessions")).scalar(), 0)
+            self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM session_answers")).scalar(), 0)
+
+
+class SqliteMigrationTests(_MigrationMixin, unittest.TestCase):
+    def make_url(self) -> str:
+        self.tmpdir = tempfile.mkdtemp()
+        return f"sqlite+pysqlite:///{Path(self.tmpdir) / 'migrations.db'}"
+
+    def cleanup(self) -> None:
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+
+@unittest.skipUnless(TEST_DATABASE_URL.startswith("postgresql"), "TEST_DATABASE_URL (PostgreSQL) not set")
+class PostgresMigrationTests(_MigrationMixin, unittest.TestCase):
+    def make_url(self) -> str:
+        self.schema = f"test_mig_{uuid.uuid4().hex[:10]}"
+        admin = create_engine(TEST_DATABASE_URL)
+        with admin.begin() as conn:
+            conn.execute(text(f'CREATE SCHEMA "{self.schema}"'))
+        admin.dispose()
+        separator = "&" if "?" in TEST_DATABASE_URL else "?"
+        return f"{TEST_DATABASE_URL}{separator}options=-csearch_path%3D{self.schema}"
+
+    def cleanup(self) -> None:
+        admin = create_engine(TEST_DATABASE_URL)
+        with admin.begin() as conn:
+            conn.execute(text(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE'))
+        admin.dispose()
+
+    def test_advisory_lock_is_released_after_upgrade(self) -> None:
+        command.upgrade(self.cfg, "head")
+        with self.engine.connect() as conn:
+            held = conn.execute(text("SELECT COUNT(*) FROM pg_locks WHERE locktype = 'advisory'")).scalar()
+        self.assertEqual(held, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,12 +1,32 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
-    String, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Text, Float, CheckConstraint
+    String, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Text, Float, CheckConstraint, Index,
+    text, true, false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
+
+
+# Closed value sets enforced with CHECK constraints (migration 0014).
+USER_ROLES = ("student", "editor", "reviewer", "admin")
+QUESTION_DIFFICULTIES = ("Easy", "Medium", "Hard")
+QUESTION_VERSION_STATUSES = ("draft", "in_review", "approved", "published", "archived")
+QUESTION_ISSUE_STATUSES = ("open", "triaged", "fix_in_progress", "verified", "released", "dismissed")
+# Why a question projection was deactivated (soft delete).
+QUESTION_DEACTIVATED_DELETED = "deleted"
+QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE = "removed_from_source"
+
+
+def _sql_in(column: str, values: tuple[str, ...]) -> str:
+    joined = ", ".join(f"'{value}'" for value in values)
+    return f"{column} IN ({joined})"
+
+
+def utcnow_aware() -> datetime:
+    return datetime.now(timezone.utc)
 
 class ImportState(Base):
     __tablename__ = "import_state"
@@ -41,11 +61,21 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    sessions: Mapped[list["ExamSession"]] = relationship(back_populates="owner")
+    # Sessions are removed together with the user (FK ON DELETE CASCADE); SET NULL would
+    # violate the owner XOR check constraint on exam_sessions/study_sessions.
+    sessions: Mapped[list["ExamSession"]] = relationship(
+        back_populates="owner",
+        cascade="all",
+        passive_deletes=True,
+    )
     tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     auth_challenges: Mapped[list["AuthChallenge"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     bookmarks: Mapped[list["UserBookmark"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     notes: Mapped[list["UserNote"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint(_sql_in("role", USER_ROLES), name="ck_users_role_allowed"),
+    )
 
 class AuthToken(Base):
     __tablename__ = "auth_tokens"
@@ -127,15 +157,46 @@ class QuestionBank(Base):
     __tablename__ = "question_bank"
 
     stable_question_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    published_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    draft_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # question_bank <-> question_versions is a reference cycle; use_alter lets the
+    # DDL add these FKs after both tables exist.
+    published_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey(
+            "question_versions.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_question_bank_published_version_id",
+        ),
+        nullable=True,
+    )
+    draft_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey(
+            "question_versions.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_question_bank_draft_version_id",
+        ),
+        nullable=True,
+    )
     review_status: Mapped[str] = mapped_column(String(24), nullable=False, default="published", index=True)
+    # sha256 of the last imported payload signature ("legacy-import" for pre-0014 rows).
+    # NULL means the question was never imported from the JSON source.
+    last_import_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     updated_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    versions: Mapped[list["QuestionVersion"]] = relationship(back_populates="question_bank", cascade="all, delete-orphan")
+    versions: Mapped[list["QuestionVersion"]] = relationship(
+        back_populates="question_bank",
+        cascade="all, delete-orphan",
+        foreign_keys="QuestionVersion.question_bank_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint(_sql_in("review_status", QUESTION_VERSION_STATUSES), name="ck_question_bank_review_status"),
+    )
 
 
 class DomainCatalog(Base):
@@ -177,6 +238,9 @@ class DomainBlueprint(Base):
     subdomain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Official exam weight (percent) of the domain. Only domain-level rows carry a weight;
+    # objective-level rows created by the editorial flow keep it NULL.
+    weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -186,6 +250,15 @@ class DomainBlueprint(Base):
             "blueprint_code",
             "objective_code",
             name="uq_domain_blueprint_identity",
+        ),
+        # One weighted (domain-level) row per certification + domain.
+        Index(
+            "uq_domain_blueprint_weighted_domain",
+            "certification",
+            "domain",
+            unique=True,
+            postgresql_where=text("weight IS NOT NULL"),
+            sqlite_where=text("weight IS NOT NULL"),
         ),
     )
 
@@ -202,7 +275,7 @@ class QuestionVersion(Base):
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft", index=True)
-    exam_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    exam_id: Mapped[str | None] = mapped_column(String(128), ForeignKey("exams.id", ondelete="SET NULL"), nullable=True)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     multi_select: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -231,14 +304,25 @@ class QuestionVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    # sha256 of the imported payload signature when this version was created by the JSON
+    # import ("legacy-import"/"seeded-projection" markers for rows that predate 0014).
+    # NULL => created editorially; ingest never overwrites an editorial published version.
+    import_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    question_bank: Mapped["QuestionBank"] = relationship(back_populates="versions")
+    question_bank: Mapped["QuestionBank"] = relationship(back_populates="versions", foreign_keys=[question_bank_id])
     options: Mapped[list["QuestionVersionOption"]] = relationship(back_populates="version", cascade="all, delete-orphan")
     references: Mapped[list["QuestionReference"]] = relationship(back_populates="version", cascade="all, delete-orphan")
     hint_rows: Mapped[list["QuestionHint"]] = relationship(back_populates="version", cascade="all, delete-orphan")
     reference_catalog_rows: Mapped[list["ReferenceCatalog"]] = relationship(back_populates="version", cascade="all, delete-orphan")
 
-    __table_args__ = (UniqueConstraint("question_bank_id", "version_number", name="uq_question_versions_bank_version"),)
+    __table_args__ = (
+        UniqueConstraint("question_bank_id", "version_number", name="uq_question_versions_bank_version"),
+        CheckConstraint(_sql_in("status", QUESTION_VERSION_STATUSES), name="ck_question_versions_status"),
+        CheckConstraint(
+            "difficulty IS NULL OR " + _sql_in("difficulty", QUESTION_DIFFICULTIES),
+            name="ck_question_versions_difficulty",
+        ),
+    )
 
 
 class QuestionVersionOption(Base):
@@ -382,21 +466,38 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    exam_id: Mapped[str] = mapped_column(String(128), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False)
+    exam_id: Mapped[str] = mapped_column(String(128), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
 
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     multi_select: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    difficulty: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    certification: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    difficulty: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    certification: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     citations_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Soft delete: inactive questions are hidden from new sessions but keep student history.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true(), index=True)
+    deactivated_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Content language of the question text, e.g. "en" or "pt-BR".
+    language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # Editorial flags so admins can find incomplete content.
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false(), index=True)
+    explanation_missing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false(), index=True)
 
     exam: Mapped["Exam"] = relationship(back_populates="questions")
     options: Mapped[list["Option"]] = relationship(back_populates="question", cascade="all, delete-orphan")
     explanation: Mapped["Explanation"] = relationship(back_populates="question", cascade="all, delete-orphan", uselist=False)
     bookmarks: Mapped[list["UserBookmark"]] = relationship(back_populates="question", cascade="all, delete-orphan")
     notes: Mapped[list["UserNote"]] = relationship(back_populates="question", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_questions_certification_domain", "certification", "domain"),
+        CheckConstraint(
+            "difficulty IS NULL OR " + _sql_in("difficulty", QUESTION_DIFFICULTIES),
+            name="ck_questions_difficulty",
+        ),
+    )
 
 class Option(Base):
     __tablename__ = "options"
@@ -425,10 +526,10 @@ class ExamSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
-    exam_id: Mapped[str] = mapped_column(String(128), nullable=True)  # null => mixed
+    exam_id: Mapped[str | None] = mapped_column(String(128), ForeignKey("exams.id", ondelete="SET NULL"), nullable=True)  # null => mixed
     selection_strategy: Mapped[str] = mapped_column(String(24), nullable=False, default="standard", index=True)
     selection_mix_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=90)
@@ -456,10 +557,12 @@ class SessionQuestion(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("exam_sessions.id", ondelete="CASCADE"), nullable=False)
-    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     marked_for_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    # JSON list of option keys in the order shown to the student (per-session shuffle).
+    option_order_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["ExamSession"] = relationship(back_populates="questions")
 
@@ -470,7 +573,14 @@ class SessionAnswer(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("exam_sessions.id", ondelete="CASCADE"), nullable=False)
-    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
+    # Published question version the student actually answered (filled by the runtime).
+    question_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     selected_keys: Mapped[str] = mapped_column(String(255), nullable=False)  # comma-separated keys
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -530,6 +640,7 @@ class QuestionIssue(Base):
             "(user_id IS NULL) <> (client_key IS NULL)",
             name="ck_question_issues_owner_scope_xor",
         ),
+        CheckConstraint(_sql_in("status", QUESTION_ISSUE_STATUSES), name="ck_question_issues_status"),
     )
 
 
@@ -561,7 +672,7 @@ class StudySession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     exam_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -589,8 +700,10 @@ class StudySessionQuestion(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("study_sessions.id", ondelete="CASCADE"), nullable=False)
-    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    # JSON list of option keys in the order shown to the student (per-session shuffle).
+    option_order_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["StudySession"] = relationship(back_populates="questions")
 
@@ -602,7 +715,14 @@ class StudyAttempt(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("study_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
-    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
+    # Published question version the student actually answered (filled by the runtime).
+    question_version_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     selected_keys: Mapped[str] = mapped_column(String(255), nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     confidence_level: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
@@ -620,7 +740,7 @@ class ReviewQueueItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
     due_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     repetition_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -665,7 +785,7 @@ class UserQuestionProgress(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     total_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -864,4 +984,28 @@ class WeeklyProgressSnapshot(Base):
         ),
         UniqueConstraint("user_id", "week_start", name="uq_weekly_progress_snapshot_user"),
         UniqueConstraint("client_key", "week_start", name="uq_weekly_progress_snapshot_client"),
+    )
+
+
+class StudyModule(Base):
+    """Ordered study track (modules/domains) per certification, loaded from material/."""
+
+    __tablename__ = "study_modules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    certification: Mapped[str] = mapped_column(String(64), nullable=False)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_file: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow_aware, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow_aware, onupdate=utcnow_aware, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("certification", "code", name="uq_study_modules_certification_code"),
+        Index("ix_study_modules_certification_position", "certification", "position"),
     )

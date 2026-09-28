@@ -10,6 +10,72 @@ from sqlalchemy.orm import Session
 from app.models import DomainBlueprint
 
 ALLOWED_QUESTION_FORMATS = {"single_choice", "multiple_response", "best_answer", "matching", "ordering"}
+ALLOWED_DIFFICULTIES = ("Easy", "Medium", "Hard")
+
+# Marker sentences appended to automatically generated rationales. They let the
+# platform recognise fallback text (explanation_missing flag / quality warning).
+FALLBACK_RATIONALE_MARKERS = {
+    "en": "This rationale was generated automatically because the source file did not include a written explanation.",
+    "pt-BR": "Esta justificativa foi gerada automaticamente porque o arquivo de origem não trazia uma explicação escrita.",
+}
+
+
+def _language_family(language: str | None) -> str:
+    normalized = str(language or "").strip().lower()
+    return "pt-BR" if normalized.startswith("pt") else "en"
+
+
+def build_fallback_rationale(
+    options: list[dict[str, Any]],
+    correct_keys: list[str],
+    language: str | None = None,
+) -> str:
+    """Neutral, localized placeholder used when the source has no written explanation.
+
+    It only restates the answer key; it never invents an expert explanation.
+    """
+    family = _language_family(language)
+    option_map = {
+        str(item.get("key") or "").strip().upper(): str(item.get("text") or "").strip()
+        for item in options
+    }
+    resolved: list[str] = []
+    for key in correct_keys:
+        label = str(key or "").strip().upper()
+        if not label:
+            continue
+        text = option_map.get(label)
+        resolved.append(f"{label} ({text})" if text else label)
+
+    marker = FALLBACK_RATIONALE_MARKERS[family]
+    joined = ", ".join(resolved)
+    if family == "pt-BR":
+        if not resolved:
+            return f"O gabarito importado identifica a resposta correta. {marker}"
+        label = "as alternativas corretas" if len(resolved) != 1 else "a alternativa correta"
+        return f"O gabarito importado indica {joined} como {label}. {marker}"
+    if not resolved:
+        return f"The imported answer key identifies this as the correct answer. {marker}"
+    label = "options" if len(resolved) != 1 else "option"
+    return f"The imported answer key identifies {joined} as the correct {label}. {marker}"
+
+
+def is_fallback_rationale(text: str | None) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+    return any(marker in value for marker in FALLBACK_RATIONALE_MARKERS.values())
+
+
+def normalize_difficulty(value: Any) -> str | None:
+    """Canonical difficulty (Easy/Medium/Hard) or None; raises ValueError otherwise."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for allowed in ALLOWED_DIFFICULTIES:
+        if text.lower() == allowed.lower():
+            return allowed
+    raise ValueError(f"Difficulty must be one of: {', '.join(ALLOWED_DIFFICULTIES)}.")
 
 
 def _normalize_text(value: Any) -> str | None:
@@ -152,6 +218,9 @@ def assess_question_quality(
     if not normalized.get("correct_rationale"):
         blocking_issues.append("A correct rationale is required.")
         field_status["correct_rationale"] = "missing"
+    elif is_fallback_rationale(normalized.get("correct_rationale")):
+        warnings.append("Rationale is an automatic placeholder; write a real explanation.")
+        field_status["correct_rationale"] = "placeholder"
     else:
         field_status["correct_rationale"] = "ok"
 

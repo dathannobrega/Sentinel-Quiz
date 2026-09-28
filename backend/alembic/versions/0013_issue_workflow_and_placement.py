@@ -6,8 +6,13 @@ Create Date: 2026-03-04 10:30:00
 """
 from __future__ import annotations
 
-from alembic import op
+import os
+import sys
+
 import sqlalchemy as sa
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sq_migration_helpers as h  # noqa: E402
 
 
 revision = "0013_issue_workflow_and_placement"
@@ -15,15 +20,19 @@ down_revision = "0012_exam_runtime_and_issue_reporting"
 branch_labels = None
 depends_on = None
 
+# Idempotent: revision 0008 runs create_all with the current models, so on an empty
+# database everything below may already exist. Every operation checks the live
+# schema first (see alembic/sq_migration_helpers.py).
+
 
 def upgrade() -> None:
-    op.add_column("question_issues", sa.Column("internal_note", sa.Text(), nullable=True))
-    op.add_column("question_issues", sa.Column("triaged_by_user_id", sa.String(length=36), nullable=True))
-    op.add_column("question_issues", sa.Column("triaged_at", sa.DateTime(), nullable=True))
-    op.add_column("question_issues", sa.Column("resolved_version_id", sa.Integer(), nullable=True))
-    op.add_column("question_issues", sa.Column("resolved_by_user_id", sa.String(length=36), nullable=True))
-    op.add_column("question_issues", sa.Column("resolved_at", sa.DateTime(), nullable=True))
-    op.create_foreign_key(
+    h.add_column("question_issues", sa.Column("internal_note", sa.Text(), nullable=True))
+    h.add_column("question_issues", sa.Column("triaged_by_user_id", sa.String(length=36), nullable=True))
+    h.add_column("question_issues", sa.Column("triaged_at", sa.DateTime(), nullable=True))
+    h.add_column("question_issues", sa.Column("resolved_version_id", sa.Integer(), nullable=True))
+    h.add_column("question_issues", sa.Column("resolved_by_user_id", sa.String(length=36), nullable=True))
+    h.add_column("question_issues", sa.Column("resolved_at", sa.DateTime(), nullable=True))
+    h.create_foreign_key(
         "fk_question_issues_triaged_by_user_id",
         "question_issues",
         "users",
@@ -31,7 +40,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    h.create_foreign_key(
         "fk_question_issues_resolved_by_user_id",
         "question_issues",
         "users",
@@ -39,7 +48,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    h.create_foreign_key(
         "fk_question_issues_resolved_version_id",
         "question_issues",
         "question_versions",
@@ -47,13 +56,13 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_index("ix_question_issues_triaged_by_user_id", "question_issues", ["triaged_by_user_id"], unique=False)
-    op.create_index("ix_question_issues_triaged_at", "question_issues", ["triaged_at"], unique=False)
-    op.create_index("ix_question_issues_resolved_version_id", "question_issues", ["resolved_version_id"], unique=False)
-    op.create_index("ix_question_issues_resolved_by_user_id", "question_issues", ["resolved_by_user_id"], unique=False)
-    op.create_index("ix_question_issues_resolved_at", "question_issues", ["resolved_at"], unique=False)
+    h.create_index("ix_question_issues_triaged_by_user_id", "question_issues", ["triaged_by_user_id"], unique=False)
+    h.create_index("ix_question_issues_triaged_at", "question_issues", ["triaged_at"], unique=False)
+    h.create_index("ix_question_issues_resolved_version_id", "question_issues", ["resolved_version_id"], unique=False)
+    h.create_index("ix_question_issues_resolved_by_user_id", "question_issues", ["resolved_by_user_id"], unique=False)
+    h.create_index("ix_question_issues_resolved_at", "question_issues", ["resolved_at"], unique=False)
 
-    op.create_table(
+    h.create_table(
         "placement_state",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", sa.String(length=36), nullable=True),
@@ -69,30 +78,31 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", name="uq_placement_state_user"),
         sa.UniqueConstraint("client_key", name="uq_placement_state_client"),
     )
-    op.create_index("ix_placement_state_user_id", "placement_state", ["user_id"], unique=False)
-    op.create_index("ix_placement_state_client_key", "placement_state", ["client_key"], unique=False)
-    op.create_index("ix_placement_state_placement_completed_at", "placement_state", ["placement_completed_at"], unique=False)
-    op.create_index("ix_placement_state_placement_exam_id", "placement_state", ["placement_exam_id"], unique=False)
+    h.create_index("ix_placement_state_user_id", "placement_state", ["user_id"], unique=False)
+    h.create_index("ix_placement_state_client_key", "placement_state", ["client_key"], unique=False)
+    h.create_index("ix_placement_state_placement_completed_at", "placement_state", ["placement_completed_at"], unique=False)
+    h.create_index("ix_placement_state_placement_exam_id", "placement_state", ["placement_exam_id"], unique=False)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_placement_state_placement_exam_id", table_name="placement_state")
-    op.drop_index("ix_placement_state_placement_completed_at", table_name="placement_state")
-    op.drop_index("ix_placement_state_client_key", table_name="placement_state")
-    op.drop_index("ix_placement_state_user_id", table_name="placement_state")
-    op.drop_table("placement_state")
+    h.drop_index("ix_placement_state_placement_exam_id", "placement_state")
+    h.drop_index("ix_placement_state_placement_completed_at", "placement_state")
+    h.drop_index("ix_placement_state_client_key", "placement_state")
+    h.drop_index("ix_placement_state_user_id", "placement_state")
+    h.drop_table("placement_state")
 
-    op.drop_index("ix_question_issues_resolved_at", table_name="question_issues")
-    op.drop_index("ix_question_issues_resolved_by_user_id", table_name="question_issues")
-    op.drop_index("ix_question_issues_resolved_version_id", table_name="question_issues")
-    op.drop_index("ix_question_issues_triaged_at", table_name="question_issues")
-    op.drop_index("ix_question_issues_triaged_by_user_id", table_name="question_issues")
-    op.drop_constraint("fk_question_issues_resolved_version_id", "question_issues", type_="foreignkey")
-    op.drop_constraint("fk_question_issues_resolved_by_user_id", "question_issues", type_="foreignkey")
-    op.drop_constraint("fk_question_issues_triaged_by_user_id", "question_issues", type_="foreignkey")
-    op.drop_column("question_issues", "resolved_at")
-    op.drop_column("question_issues", "resolved_by_user_id")
-    op.drop_column("question_issues", "resolved_version_id")
-    op.drop_column("question_issues", "triaged_at")
-    op.drop_column("question_issues", "triaged_by_user_id")
-    op.drop_column("question_issues", "internal_note")
+    h.drop_index("ix_question_issues_resolved_at", "question_issues")
+    h.drop_index("ix_question_issues_resolved_by_user_id", "question_issues")
+    h.drop_index("ix_question_issues_resolved_version_id", "question_issues")
+    h.drop_index("ix_question_issues_triaged_at", "question_issues")
+    h.drop_index("ix_question_issues_triaged_by_user_id", "question_issues")
+    # Constraint names differ between migrated and create_all databases: look them up.
+    h.drop_foreign_key("question_issues", ["resolved_version_id"], "question_versions")
+    h.drop_foreign_key("question_issues", ["resolved_by_user_id"], "users")
+    h.drop_foreign_key("question_issues", ["triaged_by_user_id"], "users")
+    h.drop_column("question_issues", "resolved_at")
+    h.drop_column("question_issues", "resolved_by_user_id")
+    h.drop_column("question_issues", "resolved_version_id")
+    h.drop_column("question_issues", "triaged_at")
+    h.drop_column("question_issues", "triaged_by_user_id")
+    h.drop_column("question_issues", "internal_note")
