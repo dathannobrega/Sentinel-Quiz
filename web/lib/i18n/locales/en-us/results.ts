@@ -47,6 +47,7 @@ export const results = {
     questions: "Questions",
     timeUsed: "Time used",
     timeLimit: "Limit",
+    passThreshold: "Passing score",
     timedOutTitle: "Simulation ended by time",
     timedOutMessage:
       "The backend applied auto-submit when the timer reset. Review the incorrect and unanswered items first."

@@ -1,7 +1,15 @@
+"""Engagement snapshot: goals, streak and adaptive profile.
+
+``build_engagement_snapshot`` (GET /analytics/engagement) is read-only (M-B7): goals
+fall back to defaults, streak and adaptive profile are computed on the fly. The rows are
+persisted by :func:`refresh_engagement_state`, called from the mutating flows (end of a
+study session, exam submission).
+"""
 from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from sqlalchemy import func, select
@@ -71,6 +79,12 @@ def _progress_payload(*, completed: int, target: int) -> dict[str, Any]:
     }
 
 
+def _find_user_goal(db: Session, *, owner_user_id: Optional[str], owner_client_key: Optional[str]) -> UserGoal | None:
+    return db.execute(
+        select(UserGoal).where(*_owner_filters(UserGoal, owner_user_id, owner_client_key))
+    ).scalar_one_or_none()
+
+
 def get_or_create_user_goal(
     db: Session,
     *,
@@ -78,9 +92,7 @@ def get_or_create_user_goal(
     owner_client_key: Optional[str],
 ) -> UserGoal:
     owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
-    goal = db.execute(
-        select(UserGoal).where(*_owner_filters(UserGoal, owner_user_id, owner_client_key))
-    ).scalar_one_or_none()
+    goal = _find_user_goal(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
     if goal:
         return goal
 
@@ -94,18 +106,8 @@ def get_or_create_user_goal(
     return goal
 
 
-def sync_user_streak(
-    db: Session,
-    *,
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-    observed_at: Optional[datetime] = None,
-    daily_goal_completed: bool = False,
-) -> UserStreak:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
-    now = observed_at or datetime.utcnow()
+def _compute_streak(db: Session, *, owner_user_id: Optional[str], owner_client_key: Optional[str], now: datetime) -> dict[str, Any]:
     today = _day_start(now)
-
     rows = db.execute(
         select(UserDomainMetricDaily.metric_date)
         .where(
@@ -115,20 +117,6 @@ def sync_user_streak(
         .order_by(UserDomainMetricDaily.metric_date.asc())
     ).scalars().all()
     activity_days = sorted({_day_start(item) for item in rows if item})
-
-    streak = db.execute(
-        select(UserStreak).where(*_owner_filters(UserStreak, owner_user_id, owner_client_key))
-    ).scalar_one_or_none()
-    if not streak:
-        streak = UserStreak(
-            user_id=owner_user_id,
-            client_key=owner_client_key,
-            current_streak_days=0,
-            best_streak_days=0,
-            total_active_days=0,
-        )
-        db.add(streak)
-        db.flush()
 
     best = 0
     current_run = 0
@@ -153,32 +141,67 @@ def sync_user_streak(
                     cursor = day
                     continue
                 break
+    return {
+        "current": current,
+        "best": max(best, current),
+        "total_active_days": len(activity_days),
+        "last_activity_date": activity_days[-1] if activity_days else None,
+    }
 
-    streak.current_streak_days = current
-    streak.best_streak_days = max(best, current, int(streak.best_streak_days or 0))
-    streak.total_active_days = len(activity_days)
-    streak.last_activity_date = activity_days[-1] if activity_days else None
+
+def _find_streak(db: Session, *, owner_user_id: Optional[str], owner_client_key: Optional[str]) -> UserStreak | None:
+    return db.execute(
+        select(UserStreak).where(*_owner_filters(UserStreak, owner_user_id, owner_client_key))
+    ).scalar_one_or_none()
+
+
+def sync_user_streak(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    observed_at: Optional[datetime] = None,
+    daily_goal_completed: bool = False,
+) -> UserStreak:
+    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    now = observed_at or datetime.utcnow()
+    computed = _compute_streak(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now)
+
+    streak = _find_streak(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
+    if not streak:
+        streak = UserStreak(
+            user_id=owner_user_id,
+            client_key=owner_client_key,
+            current_streak_days=0,
+            best_streak_days=0,
+            total_active_days=0,
+        )
+        db.add(streak)
+        db.flush()
+
+    streak.current_streak_days = computed["current"]
+    streak.best_streak_days = max(computed["best"], int(streak.best_streak_days or 0))
+    streak.total_active_days = computed["total_active_days"]
+    streak.last_activity_date = computed["last_activity_date"]
     if daily_goal_completed:
-        streak.last_goal_completed_date = today
+        streak.last_goal_completed_date = _day_start(now)
     streak.updated_at = now
     db.flush()
     return streak
 
 
-def recompute_adaptive_profile(
+def _compute_adaptive_profile(
     db: Session,
     *,
     owner_user_id: Optional[str],
     owner_client_key: Optional[str],
+    now: datetime,
     lookback_days: int = 21,
-    observed_at: Optional[datetime] = None,
-) -> AdaptiveProfile:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
-    now = observed_at or datetime.utcnow()
+) -> dict[str, Any]:
     since = _day_start(now - timedelta(days=max(int(lookback_days), 1) - 1))
-
     rows = db.execute(
         select(
+            UserDomainMetricDaily.certification,
             UserDomainMetricDaily.domain,
             func.sum(UserDomainMetricDaily.attempts_total),
             func.sum(UserDomainMetricDaily.wrong_count),
@@ -188,13 +211,14 @@ def recompute_adaptive_profile(
             *_owner_filters(UserDomainMetricDaily, owner_user_id, owner_client_key),
             UserDomainMetricDaily.metric_date >= since,
         )
-        .group_by(UserDomainMetricDaily.domain)
+        .group_by(UserDomainMetricDaily.certification, UserDomainMetricDaily.domain)
     ).all()
 
+    # Grouped by (certification, domain) so homonymous domains never merge (M-C5).
     focus_domains: list[dict[str, Any]] = []
     confidence_weighted_total = 0.0
     attempt_total = 0
-    for domain, attempts_total, wrong_count, low_confidence_count in rows:
+    for certification, domain, attempts_total, wrong_count, low_confidence_count in rows:
         attempts = int(attempts_total or 0)
         if attempts <= 0:
             continue
@@ -205,6 +229,7 @@ def recompute_adaptive_profile(
         focus_score = round((wrong_rate * 0.7) + (uncertainty_rate * 0.3), 4)
         focus_domains.append(
             {
+                "certification": str(certification or "").strip() or None,
                 "domain": str(domain or "Sem dominio").strip() or "Sem dominio",
                 "attempts": attempts,
                 "wrong_rate_percent": round(wrong_rate * 100.0, 2),
@@ -227,7 +252,27 @@ def recompute_adaptive_profile(
         ).scalar_one()
         or 0
     )
+    return {
+        "focus_domains": focus_domains[:3],
+        "low_confidence_bias": low_confidence_bias,
+        "variety_floor_percent": 30.0 if len(focus_domains) >= 3 else 40.0,
+        "recovery_mode": due_count >= 12 or low_confidence_bias >= 35.0,
+    }
 
+
+def recompute_adaptive_profile(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    lookback_days: int = 21,
+    observed_at: Optional[datetime] = None,
+) -> AdaptiveProfile:
+    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    now = observed_at or datetime.utcnow()
+    computed = _compute_adaptive_profile(
+        db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now, lookback_days=lookback_days
+    )
     profile = db.execute(
         select(AdaptiveProfile).where(*_owner_filters(AdaptiveProfile, owner_user_id, owner_client_key))
     ).scalar_one_or_none()
@@ -240,10 +285,10 @@ def recompute_adaptive_profile(
         db.add(profile)
         db.flush()
 
-    profile.weak_domain_focus_json = json.dumps(focus_domains[:3], ensure_ascii=False) if focus_domains else None
-    profile.low_confidence_bias = low_confidence_bias
-    profile.variety_floor_percent = 30.0 if len(focus_domains) >= 3 else 40.0
-    profile.recovery_mode = due_count >= 12 or low_confidence_bias >= 35.0
+    profile.weak_domain_focus_json = json.dumps(computed["focus_domains"], ensure_ascii=False) if computed["focus_domains"] else None
+    profile.low_confidence_bias = computed["low_confidence_bias"]
+    profile.variety_floor_percent = computed["variety_floor_percent"]
+    profile.recovery_mode = computed["recovery_mode"]
     profile.last_recomputed_at = now
     profile.updated_at = now
     db.flush()
@@ -261,11 +306,7 @@ def build_engagement_snapshot(
     today = _day_start(now)
     week_start = _week_start(now)
 
-    goals = get_or_create_user_goal(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-    )
+    goals = _find_user_goal(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key) or SimpleNamespace(**DEFAULT_GOALS)
 
     today_questions_answered = int(
         db.execute(
@@ -328,28 +369,14 @@ def build_engagement_snapshot(
     )
 
     daily_goal_completed = daily_question_goal["reached"] and daily_review_goal["reached"]
-    streak = sync_user_streak(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        observed_at=now,
-        daily_goal_completed=daily_goal_completed,
+    streak = _compute_streak(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now)
+    stored_streak = _find_streak(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
+    best_days = max(streak["best"], int(stored_streak.best_streak_days or 0) if stored_streak else 0)
+    goal_completed_today = daily_goal_completed or bool(
+        stored_streak and stored_streak.last_goal_completed_date == today
     )
-    profile = recompute_adaptive_profile(
-        db,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-        observed_at=now,
-    )
-
-    focus_domains = []
-    if profile.weak_domain_focus_json:
-        try:
-            parsed = json.loads(profile.weak_domain_focus_json)
-        except (TypeError, ValueError):
-            parsed = []
-        if isinstance(parsed, list):
-            focus_domains = [item for item in parsed if isinstance(item, dict)]
+    profile = _compute_adaptive_profile(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now)
+    focus_domains = profile["focus_domains"]
 
     if due_now > max(goals.daily_review_target, 0):
         recommended_next_action = (
@@ -376,19 +403,44 @@ def build_engagement_snapshot(
         "weekly_goal": weekly_question_goal,
         "weekly_review_goal": weekly_review_goal,
         "streak": {
-            "current_days": int(streak.current_streak_days or 0),
-            "best_days": int(streak.best_streak_days or 0),
-            "total_active_days": int(streak.total_active_days or 0),
-            "last_activity_at": streak.last_activity_date.isoformat() if streak.last_activity_date else None,
-            "goal_completed_today": bool(streak.last_goal_completed_date == today),
+            "current_days": int(streak["current"]),
+            "best_days": int(best_days),
+            "total_active_days": int(streak["total_active_days"]),
+            "last_activity_at": streak["last_activity_date"].isoformat() if streak["last_activity_date"] else None,
+            "goal_completed_today": bool(goal_completed_today),
         },
         "adaptive_profile": {
-            "recovery_mode": bool(profile.recovery_mode),
-            "low_confidence_bias": round(float(profile.low_confidence_bias or 0.0), 2),
-            "variety_floor_percent": round(float(profile.variety_floor_percent or 0.0), 2),
+            "recovery_mode": bool(profile["recovery_mode"]),
+            "low_confidence_bias": round(float(profile["low_confidence_bias"] or 0.0), 2),
+            "variety_floor_percent": round(float(profile["variety_floor_percent"] or 0.0), 2),
             "focus_domains": focus_domains,
-            "last_recomputed_at": profile.last_recomputed_at.isoformat() if profile.last_recomputed_at else None,
+            "last_recomputed_at": now.isoformat(),
         },
         "review_backlog_due": due_now,
         "recommended_next_action": recommended_next_action,
     }
+
+
+def refresh_engagement_state(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+) -> None:
+    """Persist goals/streak/adaptive profile (mutating flows only; never from a GET)."""
+    try:
+        owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    except ValueError:
+        return
+    now = datetime.utcnow()
+    get_or_create_user_goal(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
+    snapshot = build_engagement_snapshot(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
+    daily_goal_completed = bool(snapshot["daily_goal"]["reached"] and snapshot["daily_review_goal"]["reached"])
+    sync_user_streak(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        observed_at=now,
+        daily_goal_completed=daily_goal_completed,
+    )
+    recompute_adaptive_profile(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, observed_at=now)

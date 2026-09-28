@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
-    DomainCatalog,
     Question,
     QuestionBank,
     QuestionHint,
-    QuestionReference,
     QuestionVersion,
     ReferenceCatalog,
 )
@@ -125,158 +122,6 @@ def _is_official_reference(source_kind: str, label: str, reference_text: str | N
     return "nist" in haystack or "iso" in haystack or "official" in haystack
 
 
-def _sync_reference_catalog_for_version(db: Session, version: QuestionVersion) -> list[ReferenceCatalog]:
-    existing_rows = db.execute(
-        select(ReferenceCatalog)
-        .where(ReferenceCatalog.question_version_id == version.id)
-        .order_by(ReferenceCatalog.id.asc())
-    ).scalars().all()
-    latest_row_update = max((row.updated_at for row in existing_rows if row.updated_at), default=None)
-    needs_rebuild = not existing_rows or (version.updated_at and latest_row_update and latest_row_update < version.updated_at)
-    if needs_rebuild and existing_rows:
-        db.execute(delete(ReferenceCatalog).where(ReferenceCatalog.question_version_id == version.id))
-        db.flush()
-        existing_rows = []
-
-    if existing_rows:
-        return existing_rows
-
-    now = datetime.utcnow()
-    rows: list[ReferenceCatalog] = []
-
-    if version.blueprint_code:
-        rows.append(
-            ReferenceCatalog(
-                question_version_id=version.id,
-                certification=version.certification,
-                domain=version.domain,
-                subdomain=version.subdomain,
-                objective_code=version.objective_code,
-                blueprint_code=version.blueprint_code,
-                source_kind="blueprint",
-                label=f"Blueprint {version.blueprint_code}",
-                reference_text=" | ".join(
-                    part
-                    for part in [
-                        _clean_text(version.certification),
-                        _clean_text(version.domain),
-                        _clean_text(version.subdomain),
-                    ]
-                    if part
-                )
-                or None,
-                is_official=True,
-                created_at=now,
-                updated_at=now,
-            )
-        )
-
-    if version.objective_code:
-        rows.append(
-            ReferenceCatalog(
-                question_version_id=version.id,
-                certification=version.certification,
-                domain=version.domain,
-                subdomain=version.subdomain,
-                objective_code=version.objective_code,
-                blueprint_code=version.blueprint_code,
-                source_kind="objective",
-                label=f"Objective {version.objective_code}",
-                reference_text="Use este codigo para localizar o objetivo oficial no blueprint desta certificacao.",
-                is_official=True,
-                created_at=now,
-                updated_at=now,
-            )
-        )
-
-    if version.certification and version.domain:
-        catalog_match = db.execute(
-            select(DomainCatalog)
-            .where(
-                DomainCatalog.certification == version.certification,
-                DomainCatalog.domain == version.domain,
-            )
-            .order_by(DomainCatalog.id.asc())
-        ).scalars().first()
-        if catalog_match:
-            rows.append(
-                ReferenceCatalog(
-                    question_version_id=version.id,
-                    certification=version.certification,
-                    domain=version.domain,
-                    subdomain=version.subdomain,
-                    objective_code=version.objective_code,
-                    blueprint_code=version.blueprint_code,
-                    source_kind="domain_map",
-                    label=f"Dominio {version.domain}",
-                    reference_text=_clean_text(catalog_match.description) or _clean_text(catalog_match.title),
-                    is_official=True,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-
-    explicit_references = db.execute(
-        select(QuestionReference)
-        .where(QuestionReference.question_version_id == version.id)
-        .order_by(QuestionReference.id.asc())
-    ).scalars().all()
-    if not explicit_references:
-        for item in _load_citation_dicts(version.citations_json):
-            explicit_references.append(
-                QuestionReference(
-                    question_version_id=version.id,
-                    source=_clean_text(item.get("source")),
-                    reference=_clean_text(item.get("reference")),
-                    chapter=_clean_text(item.get("chapter")),
-                    locator=_clean_text(item.get("locator")),
-                    material_path=_clean_text(item.get("material_path")),
-                    page_start=int(item["page_start"]) if isinstance(item.get("page_start"), int) else None,
-                    page_end=int(item["page_end"]) if isinstance(item.get("page_end"), int) else None,
-                    created_at=now,
-                )
-            )
-
-    for reference in explicit_references:
-        label = (
-            _clean_text(reference.reference)
-            or _clean_text(reference.chapter)
-            or _clean_text(reference.source)
-            or "Material interno"
-        )
-        reference_text = _clean_text(reference.reference)
-        source_kind = "material" if reference.material_path else "citation"
-        rows.append(
-            ReferenceCatalog(
-                question_version_id=version.id,
-                certification=version.certification,
-                domain=version.domain,
-                subdomain=version.subdomain,
-                objective_code=version.objective_code,
-                blueprint_code=version.blueprint_code,
-                source_kind=source_kind,
-                label=label,
-                reference_text=reference_text,
-                material_path=_clean_text(reference.material_path),
-                locator=_clean_text(reference.locator),
-                page_start=reference.page_start,
-                page_end=reference.page_end,
-                is_official=_is_official_reference(
-                    source_kind,
-                    label,
-                    " ".join(part for part in [reference.source or "", reference.reference or ""] if part),
-                ),
-                created_at=now,
-                updated_at=now,
-            )
-        )
-
-    for row in rows:
-        db.add(row)
-    db.flush()
-    return rows
-
-
 def build_official_reference_summaries(
     db: Session,
     question_id: str,
@@ -364,46 +209,103 @@ def _build_hint_rows(
     ]
 
 
-def _ensure_question_hints(
+def _summary_from_catalog_row(row: ReferenceCatalog) -> dict[str, Any]:
+    return {
+        "source_kind": row.source_kind,
+        "label": row.label,
+        "reference": row.reference_text,
+        "material_path": row.material_path,
+        "locator": row.locator,
+        "page_start": row.page_start,
+        "page_end": row.page_end,
+        "is_official": bool(row.is_official),
+    }
+
+
+def _reference_summaries_readonly(
     db: Session,
     question: Question,
     version: QuestionVersion | None,
-    references: list[dict[str, Any]],
-) -> list[QuestionHint]:
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Reference summaries without touching the reference catalog cache (GET-safe).
+
+    Uses the cached ``reference_catalog`` rows when they are fresh; otherwise builds the
+    same kind of summary in memory from the version metadata and citations.
+    """
+    if version is not None:
+        cached = db.execute(
+            select(ReferenceCatalog)
+            .where(ReferenceCatalog.question_version_id == version.id)
+            .order_by(ReferenceCatalog.id.asc())
+        ).scalars().all()
+        latest = max((row.updated_at for row in cached if row.updated_at), default=None)
+        fresh = bool(cached) and not (version.updated_at and latest and latest < version.updated_at)
+        if fresh:
+            ordered = sorted(cached, key=lambda item: (0 if item.is_official else 1, item.source_kind, item.id))
+            return [_summary_from_catalog_row(row) for row in ordered[:limit]]
+
+    items: list[dict[str, Any]] = []
+    if version is not None and version.blueprint_code:
+        items.append({
+            "source_kind": "blueprint",
+            "label": f"Blueprint {version.blueprint_code}",
+            "reference": " | ".join(
+                part for part in [_clean_text(version.certification), _clean_text(version.domain), _clean_text(version.subdomain)] if part
+            ) or None,
+            "material_path": None,
+            "locator": None,
+            "page_start": None,
+            "page_end": None,
+            "is_official": True,
+        })
+    if version is not None and version.objective_code:
+        items.append({
+            "source_kind": "objective",
+            "label": f"Objective {version.objective_code}",
+            "reference": "Use este código para localizar o objetivo oficial no blueprint desta certificação.",
+            "material_path": None,
+            "locator": None,
+            "page_start": None,
+            "page_end": None,
+            "is_official": True,
+        })
+    citations = _load_citation_dicts(version.citations_json if version is not None else None) or _load_citation_dicts(question.citations_json)
+    for citation in citations:
+        label = _clean_text(citation.get("reference")) or _clean_text(citation.get("source")) or _clean_text(citation.get("chapter")) or "Material interno"
+        reference_text = _clean_text(citation.get("reference"))
+        if reference_text == label:
+            reference_text = _clean_text(citation.get("locator"))
+        source_kind = "material" if _clean_text(citation.get("material_path")) else "citation"
+        items.append({
+            "source_kind": source_kind,
+            "label": label,
+            "reference": reference_text,
+            "material_path": _clean_text(citation.get("material_path")),
+            "locator": _clean_text(citation.get("locator")),
+            "page_start": citation.get("page_start") if isinstance(citation.get("page_start"), int) else None,
+            "page_end": citation.get("page_end") if isinstance(citation.get("page_end"), int) else None,
+            "is_official": _is_official_reference(source_kind, label, " ".join(
+                part for part in [str(citation.get("source") or ""), str(citation.get("reference") or "")] if part
+            )),
+        })
+    items.sort(key=lambda item: (0 if item["is_official"] else 1, item["source_kind"]))
+    return items[:limit]
+
+
+def _persisted_hints(db: Session, version: QuestionVersion | None) -> list[QuestionHint]:
+    """Cached hints of the version when complete and fresh (read-only)."""
     if version is None:
         return []
-
-    existing_rows = db.execute(
+    rows = db.execute(
         select(QuestionHint)
         .where(QuestionHint.question_version_id == version.id)
         .order_by(QuestionHint.level.asc())
     ).scalars().all()
-    latest_update = max((row.updated_at for row in existing_rows if row.updated_at), default=None)
-    needs_rebuild = len(existing_rows) != 3 or (version.updated_at and latest_update and latest_update < version.updated_at)
-    if needs_rebuild and existing_rows:
-        db.execute(delete(QuestionHint).where(QuestionHint.question_version_id == version.id))
-        db.flush()
-        existing_rows = []
-
-    if existing_rows:
-        return existing_rows
-
-    now = datetime.utcnow()
-    rows: list[QuestionHint] = []
-    for item in _build_hint_rows(question, version, references):
-        row = QuestionHint(
-            question_version_id=version.id,
-            level=item["level"],
-            title=item["title"],
-            hint_text=item["hint_text"],
-            hint_kind=item["hint_kind"],
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(row)
-        rows.append(row)
-    db.flush()
-    return rows
+    latest_update = max((row.updated_at for row in rows if row.updated_at), default=None)
+    stale = len(rows) != 3 or (version.updated_at and latest_update and latest_update < version.updated_at)
+    return [] if stale else list(rows)
 
 
 def build_question_hint(
@@ -412,6 +314,7 @@ def build_question_hint(
     *,
     level: int,
 ) -> dict[str, Any]:
+    """Hint for a question (read-only: GET /study/.../hint never writes, M-B7)."""
     if level not in {1, 2, 3}:
         raise ValueError("Hint level must be between 1 and 3.")
 
@@ -419,8 +322,8 @@ def build_question_hint(
     if not question:
         raise ValueError("Question not found.")
 
-    references = build_official_reference_summaries(db, question_id, limit=3)
-    persisted_hints = _ensure_question_hints(db, question, version, references)
+    references = _reference_summaries_readonly(db, question, version, limit=3)
+    persisted_hints = _persisted_hints(db, version)
     if persisted_hints:
         hint_map = {row.level: row for row in persisted_hints}
         row = hint_map[level]

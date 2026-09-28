@@ -151,24 +151,55 @@ class TimingBreakdownOut(BaseModel):
     slowest_seconds: Optional[float] = None
 
 
+class MessageCodeOut(BaseModel):
+    """Stable i18n code + interpolation params for a backend-generated message (M-C7)."""
+
+    code: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 class ReadinessDomainOut(BaseModel):
     domain: str
+    certification: Optional[str] = None
     score_percent: float
     accuracy_percent: float = 0.0
     attempts: int = 0
     avg_elapsed_seconds: Optional[float] = None
     low_confidence_count: int = 0
+    weight: Optional[float] = None
+
+
+class ReadinessCertificationOut(BaseModel):
+    certification: Optional[str] = None
+    score_percent: Optional[float] = None
+    projected_score_percent: Optional[float] = None
+    band: str
+    pass_threshold_percent: float
+    coverage_percent: float = 0.0
+    attempts: int = 0
+    tracked_questions: int = 0
+    overdue_reviews: int = 0
+    trend_points: float = 0.0
+    overdue_penalty_points: float = 0.0
 
 
 class ReadinessScoreOut(BaseModel):
-    score_percent: float
-    projected_score_percent: float
+    # None (with band/status "insufficient_data") when there is too little recent data.
+    score_percent: Optional[float] = None
+    projected_score_percent: Optional[float] = None
     band: str
+    status: str = "ok"
+    certification: Optional[str] = None
+    pass_threshold_percent: Optional[float] = None
+    coverage_percent: float = 0.0
+    overdue_reviews: int = 0
     recommended_minutes: int
     tracked_questions: int = 0
     factors: List[str] = Field(default_factory=list)
+    factor_codes: List[MessageCodeOut] = Field(default_factory=list)
     domain_scores: List[ReadinessDomainOut] = Field(default_factory=list)
     weakest_domains: List[ReadinessDomainOut] = Field(default_factory=list)
+    certifications: List[ReadinessCertificationOut] = Field(default_factory=list)
 
 
 class LiveInsightOut(BaseModel):
@@ -292,6 +323,9 @@ class AnswerFeedbackOut(BaseModel):
     finished: bool
     official_references: List[PedagogicalReferenceOut] = Field(default_factory=list)
     insight: Optional[LiveInsightOut] = None
+    # Correct option keys in this session's display-key space (omitted in exam_day mode).
+    correct_keys: Optional[List[str]] = None
+    selected_keys: List[str] = Field(default_factory=list)
 
 class ResultOut(BaseModel):
     session_id: str
@@ -301,6 +335,7 @@ class ResultOut(BaseModel):
     score_percent: float
     passed: bool
     pass_threshold_percent: float
+    pass_threshold_certification: Optional[str] = None
     strategy: str = "standard"
     selection_mix: Dict[str, int] = Field(default_factory=dict)
     time_limit_seconds: Optional[int] = None
@@ -482,6 +517,9 @@ class StudyAnswerFeedbackOut(BaseModel):
     review_due_count: int = 0
     official_references: List[PedagogicalReferenceOut] = Field(default_factory=list)
     insight: Optional[LiveInsightOut] = None
+    # Correct option keys in this session's display-key space.
+    correct_keys: Optional[List[str]] = None
+    selected_keys: List[str] = Field(default_factory=list)
 
 
 class StudyResultOut(BaseModel):
@@ -629,6 +667,31 @@ class StudyPlanTaskOut(BaseModel):
     cta_href: str
     preset_key: str
     domain: Optional[str] = None
+    certification: Optional[str] = None
+    # Stable i18n code + params; title/description/cta_label stay as pt-BR fallback (M-C7).
+    code: Optional[str] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyModuleOut(BaseModel):
+    id: int
+    certification: str
+    code: str
+    position: int
+    title: str
+    description: Optional[str] = None
+    domain: Optional[str] = None
+
+
+class StudyModuleListOut(BaseModel):
+    certification: Optional[str] = None
+    modules: List[StudyModuleOut] = Field(default_factory=list)
+
+
+class StudyPlanRiskDomainOut(BaseModel):
+    certification: Optional[str] = None
+    domain: str
+    score_percent: Optional[float] = None
 
 
 class StudyPlanOut(BaseModel):
@@ -637,7 +700,10 @@ class StudyPlanOut(BaseModel):
     secondary_tasks: List[StudyPlanTaskOut] = Field(default_factory=list)
     suggested_presets: List[str] = Field(default_factory=list)
     risk_domains: List[str] = Field(default_factory=list)
+    risk_domain_details: List[StudyPlanRiskDomainOut] = Field(default_factory=list)
     review_backlog_due: int = 0
+    certification: Optional[str] = None
+    recommended_module: Optional[StudyModuleOut] = None
     generated_at: str
 
 

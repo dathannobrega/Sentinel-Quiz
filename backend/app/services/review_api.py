@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Exam, ExamSession, Explanation, Option, Question, SessionAnswer, SessionQuestion
+from app.services.option_order import OptionMapping
 
 
 def iso(dt: datetime | None) -> str | None:
@@ -108,6 +109,7 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
             Question.certification,
             Question.tags_json,
             Question.citations_json,
+            SessionQuestion.option_order_json,
         )
         .join(Question, Question.id == SessionQuestion.question_id)
         .where(SessionQuestion.session_id == session.id)
@@ -143,8 +145,11 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
     }
 
     questions = []
-    for _pos, qid, prompt, multi, domain, difficulty, certification, tags_json, citations_json in q_rows:
-        opts = opt_map.get(qid, [])
+    for _pos, qid, prompt, multi, domain, difficulty, certification, tags_json, citations_json, option_order_json in q_rows:
+        raw_opts = opt_map.get(qid, [])
+        # Present options/keys exactly as in this session (per-session shuffle, M-C1).
+        mapping = OptionMapping.build(option_order_json, [o["key"] for o in raw_opts])
+        opts = mapping.display_options(raw_opts)
         answer = ans_map.get(qid, {})
         questions.append({
             "id": qid,
@@ -155,7 +160,7 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
             "certification": certification,
             "options": [{"key": o["key"], "text": o["text"]} for o in opts],
             "correct_keys": [o["key"] for o in opts if o["is_correct"]],
-            "selected_keys": answer.get("selected_keys", []),
+            "selected_keys": mapping.to_display(answer.get("selected_keys", [])),
             "is_correct": answer.get("is_correct"),
             "justification": exp_map.get(qid),
             "tags": _parse_list(tags_json),

@@ -24,9 +24,11 @@ from app.schemas import (
     StudySessionStateOut,
     StudyStateIn,
     StudyStateOut,
+    StudyModuleListOut,
     StudyWeeklyAnalyticsOut,
 )
 from app.services.discovery import list_active_study_sessions
+from app.services.owner_scope import session_belongs_to
 from app.services.pedagogy import build_question_hint
 from app.services.study import (
     answer_study_question,
@@ -41,6 +43,7 @@ from app.services.study import (
     get_question_for_study_session,
     get_question_state,
     list_study_history,
+    list_study_modules,
     serialize_study_session,
     set_question_state,
 )
@@ -67,16 +70,8 @@ def _get_study_session(
     client_key: str | None,
 ) -> StudySession:
     session = db.get(StudySession, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Study session not found.")
-    if session.user_id:
-        if not current_user or session.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Study session not found.")
-    elif session.client_key:
-        if not client_key or session.client_key != client_key:
-            raise HTTPException(status_code=404, detail="Study session not found.")
-    else:
-        # Sessions without any owner are never readable (deny by default).
+    # Sessions without any owner are never readable (deny by default).
+    if not session_belongs_to(session, user_id=current_user.id if current_user else None, client_key=client_key):
         raise HTTPException(status_code=404, detail="Study session not found.")
     return session
 
@@ -119,6 +114,16 @@ def study_plan(
             owner_client_key=owner_client_key,
         )
     )
+
+
+@router.get("/modules", response_model=StudyModuleListOut)
+def study_modules(
+    certification: str | None = Query(default=None, max_length=64),
+    db: Session = Depends(get_db),
+):
+    """Ordered study track (modules) of a certification; all tracks when omitted (M-A7)."""
+    normalized = certification.strip() if certification else None
+    return StudyModuleListOut(certification=normalized or None, modules=list_study_modules(db, normalized or None))
 
 
 @router.get("/sessions/active", response_model=list[ActiveSessionOut])
@@ -209,7 +214,7 @@ def study_question_hint(
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail)
-    db.commit()
+    # Read-only (M-B7): hints are computed without touching the hint/reference caches.
     return QuestionHintOut(**payload)
 
 
@@ -439,9 +444,8 @@ def study_result(
         result = compute_study_result(db, session)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    response = StudyResultOut(**result)
-    db.commit()
-    return response
+    # Read-only (M-B7): placement/metrics are recorded when the session completes.
+    return StudyResultOut(**result)
 
 
 @router.get("/sessions/{session_id}/review", response_model=StudySessionReviewOut)
@@ -456,6 +460,4 @@ def study_session_review(
         review = get_study_session_review(db, session)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    response = StudySessionReviewOut(**review)
-    db.commit()
-    return response
+    return StudySessionReviewOut(**review)

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import ExamSession, Option, Question, SessionAnswer, SessionQuestion
+from app.services.option_order import OptionMapping, split_keys
 from app.services.reference_resolver import resolve_full_explanation_text
 
 
@@ -79,13 +80,13 @@ def build_tutor_context(
     mode: str | None,
     user_message: str | None,
 ) -> TutorContext:
-    belongs = db.execute(
-        select(SessionQuestion.id).where(
+    session_row = db.execute(
+        select(SessionQuestion).where(
             SessionQuestion.session_id == session_id,
             SessionQuestion.question_id == question_id,
         )
     ).scalar_one_or_none()
-    if not belongs:
+    if not session_row:
         raise TutorRequestError(400, "Question does not belong to this session.")
 
     question = db.get(Question, question_id)
@@ -107,7 +108,10 @@ def build_tutor_context(
         .where(Option.question_id == question_id)
         .order_by(Option.key.asc())
     ).all()
-    options = [{"key": key, "text": text, "is_correct": ok} for (key, text, ok) in option_rows]
+    raw_options = [{"key": key, "text": text, "is_correct": ok} for (key, text, ok) in option_rows]
+    # Show the model the options exactly as the learner saw them (per-session shuffle).
+    mapping = OptionMapping.build(session_row.option_order_json, [item["key"] for item in raw_options])
+    options = mapping.display_options(raw_options)
 
     answer = db.execute(
         select(SessionAnswer.selected_keys, SessionAnswer.is_correct)
@@ -117,7 +121,7 @@ def build_tutor_context(
     is_correct: Optional[bool] = None
     if answer:
         selected_raw, ok = answer
-        selected_keys = [key for key in (selected_raw.split(",") if selected_raw else []) if key]
+        selected_keys = mapping.to_display(split_keys(selected_raw))
         is_correct = bool(ok)
 
     context = TutorContext(

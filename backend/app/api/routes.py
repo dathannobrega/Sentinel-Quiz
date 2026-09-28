@@ -59,11 +59,12 @@ from app.services.quiz import (
     build_weak_area_snapshot_for_owner,
     pause_exam_session,
     resume_exam_session,
+    expire_exam_session_if_due,
     serialize_exam_session,
-    sync_exam_session_state,
 )
 from app.services.gemini import ask_gemini, GeminiDisabled, GeminiError
 from app.services.materials import build_material_preview
+from app.services.owner_scope import session_belongs_to
 from app.services.readiness import build_readiness_snapshot
 from app.services.review_api import (
     build_exam_review_questions,
@@ -127,7 +128,7 @@ def engagement_snapshot(
         owner_user_id=current_user.id if current_user else None,
         owner_client_key=None if current_user else client_key,
     )
-    db.commit()
+    # Read-only (M-B7): goals/streak/profile are persisted by the answer/submit flows.
     return EngagementSnapshotOut(**payload)
 
 
@@ -262,16 +263,8 @@ def _get_session(
     client_key: str | None = None,
 ) -> ExamSession:
     session = db.get(ExamSession, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.user_id:
-        if not current_user or session.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Session not found")
-    elif session.client_key:
-        if not client_key or session.client_key != client_key:
-            raise HTTPException(status_code=404, detail="Session not found")
-    else:
-        # Sessions without any owner are never readable (deny by default).
+    # Sessions without any owner are never readable (deny by default).
+    if not session_belongs_to(session, user_id=current_user.id if current_user else None, client_key=client_key):
         raise HTTPException(status_code=404, detail="Session not found")
     return session
 
@@ -283,7 +276,8 @@ def get_session_state(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
-    sync_exam_session_state(db, session)
+    # Only write allowed on this GET: auto-submit an exam whose timer ran out.
+    expire_exam_session_if_due(db, session)
     return SessionStateOut(**serialize_exam_session(session))
 
 @router.get(
@@ -460,10 +454,8 @@ def get_result(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
-    sync_exam_session_state(db, session)
-    result = ResultOut(**compute_result(db, session))
-    db.commit()
-    return result
+    expire_exam_session_if_due(db, session)
+    return ResultOut(**compute_result(db, session))
 
 
 @router.post("/questions/{question_id}/issues", response_model=QuestionIssueOut)
@@ -502,19 +494,18 @@ def get_review(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
-    sync_exam_session_state(db, session)
+    expire_exam_session_if_due(db, session)
     if session.completed_at is None:
         raise HTTPException(status_code=400, detail="Session not completed.")
     session_meta = SessionHistoryOut(**build_exam_session_meta(db, session))
     questions = [ReviewQuestionOut(**item) for item in build_exam_review_questions(db, session)]
 
-    response = SessionReviewOut(
+    # Read-only (M-B7): compute_result persists nothing.
+    return SessionReviewOut(
         session=session_meta,
         result=ResultOut(**compute_result(db, session)),
-        questions=questions
+        questions=questions,
     )
-    db.commit()
-    return response
 
 
 @router.get("/materials/preview", response_class=HTMLResponse)
@@ -604,7 +595,7 @@ def tutor_question(
     db: Session = Depends(get_db),
 ):
     session = _get_session(db, session_id, current_user, client_key)
-    sync_exam_session_state(db, session)
+    expire_exam_session_if_due(db, session)
     user_id = current_user.id
     try:
         ensure_tutor_allowed(session)

@@ -1,3 +1,10 @@
+"""Exam runtime (navigation, answers, review screen, submission).
+
+Answers are exchanged in the session's display keys (per-session option shuffle,
+M-C1) and stored with the original keys. Saving/changing an answer only updates the
+session row; learning signals are recorded once at completion (M-C2, see
+:func:`app.services.quiz.finalize_exam_session`).
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,14 +13,15 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ExamSession, Option, Question, SessionAnswer, SessionQuestion
-from app.services.learning import upsert_question_progress
-from app.services.metrics import record_question_attempt_metrics
+from app.models import ExamSession, Option, Question, QuestionBank, SessionAnswer, SessionQuestion
+from app.services.option_order import OptionMapping, option_keys_by_question, split_keys
 from app.services.quiz import (
     _analyze_session,
     _get_correct_keys,
     _get_session_rows,
+    complete_exam_session,
     compute_result,
+    expire_exam_session_if_due,
     get_question_for_session,
     sync_exam_session_state,
 )
@@ -37,6 +45,13 @@ def _find_session_question(session: ExamSession, *, question_id: str | None = No
     return None
 
 
+def _mapping_for(db: Session, row: SessionQuestion, option_keys: list[str] | None = None) -> OptionMapping:
+    keys = option_keys
+    if keys is None:
+        keys = option_keys_by_question(db, [row.question_id]).get(row.question_id, [])
+    return OptionMapping.build(row.option_order_json, keys)
+
+
 def _current_question_payload(db: Session, session: ExamSession, position: int) -> dict[str, Any] | None:
     row = _find_session_question(session, position=position)
     if not row:
@@ -45,7 +60,8 @@ def _current_question_payload(db: Session, session: ExamSession, position: int) 
     if not payload:
         return None
     answer = next((item for item in session.answers if item.question_id == row.question_id), None)
-    payload["selected_keys"] = [key for key in (answer.selected_keys.split(",") if answer and answer.selected_keys else []) if key]
+    mapping = _mapping_for(db, row)
+    payload["selected_keys"] = mapping.to_display(split_keys(answer.selected_keys)) if answer else []
     payload["is_answered"] = bool(answer)
     payload["marked_for_review"] = bool(row.marked_for_review)
     payload["elapsed_seconds"] = answer.elapsed_seconds if answer else None
@@ -64,7 +80,13 @@ def get_exam_question_state(
     *,
     position: int | None = None,
 ) -> dict[str, Any]:
-    sync_exam_session_state(db, session)
+    """Question at ``position`` and move the server-side cursor there.
+
+    Moving the cursor (``current_position``/``last_viewed_at``) is the documented
+    purpose of this call (the runner resumes from it), so it commits that navigation
+    state; results/progress are never touched here.
+    """
+    expire_exam_session_if_due(db, session)
     if session.completed_at is not None:
         return {"finished": True}
 
@@ -97,6 +119,11 @@ def get_exam_question_state(
     }
 
 
+def _published_version_id(db: Session, question_id: str) -> int | None:
+    bank = db.get(QuestionBank, question_id)
+    return bank.published_version_id if bank else None
+
+
 def save_exam_response(
     db: Session,
     session: ExamSession,
@@ -108,8 +135,12 @@ def save_exam_response(
     auto_submit_when_complete: bool = False,
 ) -> dict[str, Any]:
     timing = sync_exam_session_state(db, session)
-    if session.completed_at is not None and timing["remaining_seconds"] <= 0:
-        raise ValueError("Session time limit expired. The exam was auto-submitted.")
+    if session.completed_at is not None:
+        # Persist a timer auto-submission detected just now before refusing the answer.
+        db.commit()
+        if timing["remaining_seconds"] <= 0:
+            raise ValueError("Session time limit expired. The exam was auto-submitted.")
+        raise ValueError("Session already completed.")
     if timing["paused"]:
         raise ValueError("Session is paused. Resume it before submitting an answer.")
 
@@ -125,13 +156,14 @@ def save_exam_response(
     if not option_keys:
         raise ValueError("Question options not found.")
 
-    selected_set = {key.strip() for key in selected_keys if key and key.strip()}
-    invalid = sorted(set(selected_set) - set(option_keys))
-    if invalid:
-        raise ValueError(f"Invalid option key(s): {', '.join(invalid)}")
+    mapping = _mapping_for(db, session_row, option_keys)
+    # Display keys -> original keys: grading, storage and analytics use original keys.
+    original_selected = mapping.to_original(selected_keys)
+    stored_keys = ",".join(original_selected)
 
-    correct_set = set(_get_correct_keys(db, question_id))
-    is_correct = selected_set == correct_set
+    correct_keys = _get_correct_keys(db, question_id)
+    is_correct = set(original_selected) == set(correct_keys)
+    question_version_id = _published_version_id(db, question_id)
     existing = db.execute(
         select(SessionAnswer).where(
             SessionAnswer.session_id == session.id,
@@ -144,7 +176,8 @@ def save_exam_response(
             SessionAnswer(
                 session_id=session.id,
                 question_id=question_id,
-                selected_keys=",".join(sorted(selected_set)),
+                question_version_id=question_version_id,
+                selected_keys=stored_keys,
                 is_correct=is_correct,
                 elapsed_seconds=elapsed_seconds,
             )
@@ -161,8 +194,9 @@ def save_exam_response(
             else:
                 session.wrong_count -= 1
                 session.correct_count += 1
-        existing.selected_keys = ",".join(sorted(selected_set))
+        existing.selected_keys = stored_keys
         existing.is_correct = is_correct
+        existing.question_version_id = question_version_id
         existing.elapsed_seconds = elapsed_seconds
         existing.answered_at = datetime.utcnow()
 
@@ -174,38 +208,16 @@ def save_exam_response(
 
     answered_count = _answered_count(session)
     if auto_submit_when_complete and answered_count >= session.total_questions:
-        session.completed_at = datetime.utcnow()
+        complete_exam_session(db, session)
 
     official_references = build_official_reference_summaries(db, question_id, limit=4)
     feedback_summary = build_feedback_summary(db, question_id, is_correct=is_correct)
-    upsert_question_progress(
-        db,
-        question_id=question_id,
-        mode="exam",
-        is_correct=is_correct,
-        owner_user_id=session.user_id,
-        owner_client_key=session.client_key,
-        confidence_level=None,
-    )
-    record_question_attempt_metrics(
-        db,
-        question_id=question_id,
-        mode="exam",
-        exam_id=question.exam_id,
-        certification=question.certification,
-        domain=question.domain,
-        is_correct=is_correct,
-        owner_user_id=session.user_id,
-        owner_client_key=session.client_key,
-        confidence_level=None,
-        elapsed_seconds=elapsed_seconds,
-        selection_strategy=session.selection_strategy,
-    )
     db.flush()
     result_snapshot = _analyze_session(session, _get_session_rows(db, session.id))
     db.commit()
     db.refresh(session)
 
+    exam_day = (session.experience_mode or "standard") == "exam_day"
     return {
         "is_correct": is_correct,
         "justification": feedback_summary,
@@ -220,6 +232,9 @@ def save_exam_response(
         "official_references": official_references,
         "insight": result_snapshot["insight"]["live"],
         "marked_for_review_count": _marked_for_review_count(session),
+        # Answer key in this session's display keys; withheld in exam-day mode.
+        "correct_keys": None if exam_day else mapping.to_display(correct_keys),
+        "selected_keys": mapping.to_display(original_selected),
     }
 
 
@@ -261,20 +276,24 @@ def build_exam_review_screen(
     db: Session,
     session: ExamSession,
 ) -> dict[str, Any]:
-    sync_exam_session_state(db, session)
+    """Read-only overview of answered/marked questions (display keys)."""
+    expire_exam_session_if_due(db, session)
     answer_map = {
         item.question_id: item
         for item in session.answers
     }
+    ordered_rows = sorted(session.questions, key=lambda item: item.position)
+    keys_map = option_keys_by_question(db, [row.question_id for row in ordered_rows])
     items: list[dict[str, Any]] = []
-    for session_row in sorted(session.questions, key=lambda item: item.position):
+    for session_row in ordered_rows:
         answer = answer_map.get(session_row.question_id)
+        mapping = OptionMapping.build(session_row.option_order_json, keys_map.get(session_row.question_id, []))
         items.append(
             {
                 "position": session_row.position,
                 "question_id": session_row.question_id,
                 "answered": bool(answer),
-                "selected_keys": [key for key in (answer.selected_keys.split(",") if answer and answer.selected_keys else []) if key],
+                "selected_keys": mapping.to_display(split_keys(answer.selected_keys)) if answer else [],
                 "marked_for_review": bool(session_row.marked_for_review),
                 "is_current": session_row.position == session.current_position,
             }
@@ -296,9 +315,10 @@ def submit_exam_session(
     db: Session,
     session: ExamSession,
 ) -> dict[str, Any]:
+    """Complete the exam (once): records progress/metrics/SRS, then returns the result."""
     sync_exam_session_state(db, session)
     if session.completed_at is None:
-        session.completed_at = datetime.utcnow()
-        db.commit()
-        db.refresh(session)
+        complete_exam_session(db, session)
+    db.commit()
+    db.refresh(session)
     return compute_result(db, session)

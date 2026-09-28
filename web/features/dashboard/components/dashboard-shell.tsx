@@ -10,18 +10,20 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { useI18n } from "@/lib/i18n";
+import { translateBackendMessage, translateReadinessBand } from "@/lib/i18n/backend-messages";
 import {
   useActiveExamSessionsQuery,
   useActiveStudySessionsQuery,
   useEngagementQuery,
   useExamHistoryQuery,
   useReadinessQuery,
+  useStudyModulesQuery,
   useStudyOverviewQuery,
   useStudyPlanQuery,
   useWeakAreasQuery
 } from "@/lib/query/hooks";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
-import type { EngagementSnapshot, StudyOverview } from "@/types/api";
+import type { EngagementSnapshot, StudyOverview, StudyPlanTask } from "@/types/api";
 
 const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
   scope: "device",
@@ -54,8 +56,17 @@ function formatSecondsMetric(value: number | null | undefined): string {
   return `${Math.round(value)}s`;
 }
 
+type TaskField = "title" | "description" | "cta";
+
 export function DashboardShell() {
   const { t } = useI18n();
+
+  /** Study plan texts come as code + params (M-C7); the backend text is the fallback. */
+  function taskText(task: StudyPlanTask, field: TaskField): string {
+    const fallback = field === "cta" ? task.cta_label : task[field];
+    return translateBackendMessage(t, task.code, task.params, fallback, field);
+  }
+
   const weakAreasQuery = useWeakAreasQuery();
   const engagementQuery = useEngagementQuery();
   const readinessQuery = useReadinessQuery();
@@ -91,6 +102,15 @@ export function DashboardShell() {
   const studyOverview = overviewQuery.data ?? DEFAULT_STUDY_OVERVIEW;
   const latestExam = historyQuery.data?.[0] ?? null;
   const studyPlan = studyPlanQuery.data ?? null;
+  const recommendedModule = studyPlan?.recommended_module ?? null;
+  const trackCertification = recommendedModule?.certification ?? studyPlan?.certification ?? null;
+  const modulesQuery = useStudyModulesQuery(trackCertification);
+  const trackModules = modulesQuery.data?.modules ?? [];
+  const readinessValue = readiness
+    ? readiness.score_percent === null
+      ? translateReadinessBand(t, readiness.band)
+      : formatScore(readiness.score_percent)
+    : "-";
 
   const activeSessions = useMemo(() => {
     const examItems = (activeExamQuery.data ?? []).map((session) => ({
@@ -176,7 +196,7 @@ export function DashboardShell() {
               subtitle={t("dashboard.planCard.subtitle")}
               actions={
                 <Link href={studyPlan.primary_task.cta_href} className="sq-button sq-button--sm sq-button--primary">
-                  {studyPlan.primary_task.cta_label}
+                  {taskText(studyPlan.primary_task, "cta")}
                 </Link>
               }
             >
@@ -187,17 +207,51 @@ export function DashboardShell() {
                   </div>
                 ) : null}
                 <div className="sq-list-item">
-                  <div className="sq-list-title">{studyPlan.primary_task.title}</div>
-                  <div className="sq-list-meta">{studyPlan.primary_task.description}</div>
+                  <div className="sq-list-title">{taskText(studyPlan.primary_task, "title")}</div>
+                  <div className="sq-list-meta">{taskText(studyPlan.primary_task, "description")}</div>
                 </div>
+                {recommendedModule ? (
+                  <div className="sq-list-item" data-testid="plan-next-module">
+                    <div className="sq-list-title">
+                      {t("dashboard.planCard.nextModule", { code: recommendedModule.code, title: recommendedModule.title })}
+                    </div>
+                    {recommendedModule.domain ? (
+                      <div className="sq-list-meta">
+                        {t("dashboard.planCard.nextModuleHint", { domain: recommendedModule.domain })}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {trackModules.length ? (
+                  <details className="sq-surface-block">
+                    <summary className="sq-list-meta">
+                      {t("dashboard.planCard.trackToggle", {
+                        certification: trackCertification ?? "",
+                        count: trackModules.length
+                      })}
+                    </summary>
+                    <ol className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
+                      {trackModules.map((module) => (
+                        <li
+                          key={module.id}
+                          className="sq-list-meta"
+                          aria-current={module.id === recommendedModule?.id ? "step" : undefined}
+                          style={module.id === recommendedModule?.id ? { fontWeight: 600 } : undefined}
+                        >
+                          {t("dashboard.planCard.trackItem", { position: module.position, title: module.title })}
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                ) : null}
                 {studyPlan.secondary_tasks.length ? (
                   <div className="sq-list">
                     {studyPlan.secondary_tasks.map((task) => (
                       <div key={`${task.kind}-${task.cta_href}`} className="sq-list-item">
-                        <div className="sq-list-title">{task.title}</div>
-                        <div className="sq-list-meta">{task.description}</div>
+                        <div className="sq-list-title">{taskText(task, "title")}</div>
+                        <div className="sq-list-meta">{taskText(task, "description")}</div>
                         <Link href={task.cta_href} className="sq-text-link">
-                          {task.cta_label}
+                          {taskText(task, "cta")}
                         </Link>
                       </div>
                     ))}
@@ -254,7 +308,7 @@ export function DashboardShell() {
                 />
                 <MetricCard
                   label={t("dashboard.todayCard.readiness")}
-                  value={readiness ? formatScore(readiness.score_percent) : "-"}
+                  value={readinessValue}
                 />
               </div>
 
@@ -262,7 +316,7 @@ export function DashboardShell() {
                 <div className="sq-list-title">{t("dashboard.todayCard.nextStep")}</div>
                 <div className="sq-list-meta">
                   {engagement.recommended_next_action}
-                  {readiness
+                  {readiness && readiness.projected_score_percent !== null
                     ? ` · ${t("dashboard.todayCard.projection", { value: formatScore(readiness.projected_score_percent) })}`
                     : ""}
                 </div>
@@ -372,7 +426,7 @@ export function DashboardShell() {
                 .sort((left, right) => left.score_percent - right.score_percent || left.domain.localeCompare(right.domain))
                 .slice(0, 5)
                 .map((item) => (
-                  <div key={item.domain} className="sq-surface-block">
+                  <div key={`${item.certification ?? ""}-${item.domain}`} className="sq-surface-block">
                     <div
                       style={{
                         display: "flex",
@@ -381,7 +435,10 @@ export function DashboardShell() {
                         alignItems: "center"
                       }}
                     >
-                      <div className="sq-list-title">{item.domain}</div>
+                      <div className="sq-list-title">
+                        {item.domain}
+                        {item.certification ? <span className="sq-list-meta"> · {item.certification}</span> : null}
+                      </div>
                       <div className="sq-list-meta">{formatScore(item.score_percent)}</div>
                     </div>
                     <div

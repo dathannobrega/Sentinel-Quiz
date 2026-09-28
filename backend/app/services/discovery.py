@@ -102,6 +102,8 @@ def search_questions(
         )
         .join(Exam, Exam.id == Question.exam_id)
         .outerjoin(version_subquery, version_subquery.c.question_id == Question.id)
+        # Deactivated questions never show up in discovery (M-A2).
+        .where(Question.is_active.is_(True))
     )
 
     if owner_user_id or owner_client_key:
