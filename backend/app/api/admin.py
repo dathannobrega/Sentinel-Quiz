@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
@@ -55,6 +55,7 @@ from app.services.editorial import (
     list_editorial_audit_logs,
     list_question_versions,
     publish_question,
+    reactivate_question,
     rollback_question_to_version,
     save_question_draft,
     submit_question_for_review,
@@ -303,29 +304,43 @@ def admin_list_questions(
     exam_id: Optional[str] = Query(default=None, max_length=128),
     search: Optional[str] = Query(default=None, max_length=200),
     limit: int = Query(default=100, ge=1, le=500),
+    status: Literal["active", "inactive", "all"] = Query(
+        default="active",
+        description="Question lifecycle filter (Question.is_active). Inactive = soft-deleted or removed from source.",
+    ),
+    needs_review: Optional[bool] = Query(default=None, description="Filter on the ingest needs_review flag."),
+    explanation_missing: Optional[bool] = Query(
+        default=None, description="Filter on the ingest explanation_missing flag (placeholder rationale)."
+    ),
     _: User = Depends(require_editor),
     db: Session = Depends(get_db)
 ):
     return [
         AdminQuestionSummaryOut(**item)
-        for item in list_admin_questions(db, exam_id=exam_id, search=search, limit=limit)
+        for item in list_admin_questions(
+            db,
+            exam_id=exam_id,
+            search=search,
+            limit=limit,
+            status=status,
+            needs_review=needs_review,
+            explanation_missing=explanation_missing,
+        )
     ]
 
 
+# GET handlers are read-only: they never seed the editorial bank nor commit (M-B7).
 @router.get("/questions/{question_id}", response_model=AdminQuestionOut)
 def admin_get_question(question_id: str, _: User = Depends(require_editor), db: Session = Depends(get_db)):
     document = build_admin_question_document(db, question_id)
     if not document:
         raise HTTPException(status_code=404, detail="Question not found")
-    db.commit()
     return AdminQuestionOut(**document)
 
 
 @router.get("/questions/{question_id}/versions", response_model=List[AdminQuestionVersionOut])
 def admin_question_versions(question_id: str, _: User = Depends(require_editor), db: Session = Depends(get_db)):
-    items = [AdminQuestionVersionOut(**item) for item in list_question_versions(db, question_id)]
-    db.commit()
-    return items
+    return [AdminQuestionVersionOut(**item) for item in list_question_versions(db, question_id)]
 
 
 @router.get("/questions/{question_id}/analytics-history", response_model=List[AdminQuestionAnalyticsSnapshotOut])
@@ -517,16 +532,51 @@ def admin_delete_question(
     current_user: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
+    """Deactivate (soft delete) a question: hidden from new sessions, student history kept.
+
+    The response keeps ``status: "deleted"`` for compatibility; undo with
+    POST /questions/{question_id}/reactivate.
+    """
+    normalized_id = question_id.strip()
     try:
         result = delete_question_with_history(
             db,
-            question_id.strip(),
+            normalized_id,
             actor_user_id=current_user.id if current_user else None,
             actor_role=_actor_role(current_user),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     db.commit()
+    logger.info("admin.question.deactivated question_id=%s actor=%s", normalized_id, current_user.id)
+    return result
+
+
+@router.post(
+    "/questions/{question_id}/reactivate",
+    response_model=EditorialActionOut,
+    response_model_exclude_unset=True,
+)
+def admin_reactivate_question(
+    question_id: str,
+    payload: Optional[AdminReviewActionIn] = None,
+    current_user: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Re-enable a deactivated question (writes a ``reactivated`` editorial audit entry)."""
+    normalized_id = question_id.strip()
+    try:
+        result = reactivate_question(
+            db,
+            normalized_id,
+            actor_user_id=current_user.id if current_user else None,
+            actor_role=_actor_role(current_user),
+            reason=_clean_reason(payload.reason) if payload else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    db.commit()
+    logger.info("admin.question.reactivated question_id=%s actor=%s", normalized_id, current_user.id)
     return result
 
 @router.get(

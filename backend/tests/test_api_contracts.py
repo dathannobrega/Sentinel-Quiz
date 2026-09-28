@@ -177,7 +177,16 @@ def test_editorial_actions_keep_their_shapes(login_client, db):
     assert any(item["id"] == "q-new" and item["loaded_from"] == "draft" for item in listed)
 
     overview = client.get("/api/admin/overview").json()
-    assert set(overview) == {"exam_count", "question_count", "completed_session_count", "question_breakdown"}
+    # Additive contract (phase 2 F): lifecycle/editorial counters were added.
+    assert set(overview) == {
+        "exam_count",
+        "question_count",
+        "completed_session_count",
+        "question_breakdown",
+        "inactive_question_count",
+        "needs_review_count",
+        "explanation_missing_count",
+    }
     assert overview["exam_count"] == 1
 
     deleted = client.delete("/api/admin/questions/q-new")

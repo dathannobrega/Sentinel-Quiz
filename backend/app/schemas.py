@@ -885,6 +885,12 @@ class AdminQuestionOut(BaseModel):
     published_version_number: Optional[int] = None
     draft_version_number: Optional[int] = None
     quality: Optional[Dict[str, Any]] = None
+    # Lifecycle of the student-facing projection (soft delete) and ingest flags.
+    is_active: bool = True
+    deactivated_reason: Optional[str] = None
+    deactivated_at: Optional[str] = None
+    needs_review: bool = False
+    explanation_missing: bool = False
 
 
 class AdminQuestionSummaryOut(BaseModel):
@@ -901,13 +907,21 @@ class AdminQuestionSummaryOut(BaseModel):
     draft_version_number: Optional[int] = None
     published_version_number: Optional[int] = None
     loaded_from: Optional[str] = None
+    is_active: bool = True
+    deactivated_reason: Optional[str] = None
+    needs_review: bool = False
+    explanation_missing: bool = False
 
 
 class AdminOverviewOut(BaseModel):
     exam_count: int
+    # Active questions only (inactive ones are counted in inactive_question_count).
     question_count: int
     completed_session_count: int
     question_breakdown: Dict[str, int]
+    inactive_question_count: int = 0
+    needs_review_count: int = 0
+    explanation_missing_count: int = 0
 
 
 class AdminAnalyticsSummaryOut(BaseModel):
@@ -1083,9 +1097,18 @@ class AdminQuestionIssueUpdateIn(BaseModel):
 
 
 class AdminIngestResultOut(PassthroughModel):
+    """Summary returned by services/ingest.py ingest_questions_from_dir."""
+
     imported: int = 0
     skipped: int = 0
     errors: List[Any] = Field(default_factory=list)
+    questions_imported: int = 0
+    skipped_deleted: int = 0
+    skipped_editorial: int = 0
+    reactivated: int = 0
+    deactivated: int = 0
+    domain_weights_updated: int = 0
+    study_modules: int = 0
 
 
 class EditorialActionOut(PassthroughModel):
