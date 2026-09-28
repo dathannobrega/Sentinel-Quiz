@@ -21,7 +21,8 @@ from enrich_epub_references import (
 )
 
 
-CISSP2_FILE = ROOT / "questions" / "cissp2.json"
+# The raw cissp2 PDF import is not versioned in the repo; pass it with --input.
+DEFAULT_INPUT = ROOT / "questions" / "cissp2.json"
 UNSUPPORTED_OPTION_TEXTS = ["Mastered", "Not Mastered"]
 
 CANONICAL_DOMAINS = [
@@ -182,8 +183,20 @@ GENERIC_SECTION_TITLES = {
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Normalize questions/cissp2.json into the canonical CISSP schema.")
-    parser.add_argument("--write", action="store_true", help="Persist the normalized dataset to questions/cissp2.json.")
+    parser = argparse.ArgumentParser(description="Normalize a raw cissp2 JSON export into the canonical CISSP schema (v3).")
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=DEFAULT_INPUT,
+        help=f"Raw cissp2 JSON file to normalize (default: {DEFAULT_INPUT.relative_to(ROOT)}).",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Where to write the normalized dataset when --write is given (default: overwrite --input).",
+    )
+    parser.add_argument("--write", action="store_true", help="Persist the normalized dataset.")
     return parser.parse_args()
 
 
@@ -583,24 +596,35 @@ def normalize_question(question: dict[str, Any], book: BookIndex) -> tuple[dict[
         normalize_epub_citation(build_citation(book, section, confidence, []), section),
     ]
 
+    # Schema v3 (see scripts/validate_content.py): question_type is the response type,
+    # the former CISSP question_type (application/knowledge) is cognitive_level, and
+    # multi_select is derived from the answer key.
+    is_multi = len(correct_options) > 1
     normalized = {
         "id": str(question.get("id") or "").strip(),
         "question": str(question.get("question") or "").strip(),
-        "multi_select": bool(question.get("multi_select")),
+        "language": "en",
+        "multi_select": is_multi,
         "domain": domain,
         "difficulty": difficulty,
         "certification": "CISSP",
         "tags": tags,
         "cross_domain_tags": cross_domain_tags,
-        "question_type": question_type,
+        "question_type": "multiple_response" if is_multi else "single_response",
+        "cognitive_level": question_type,
         "format_type": format_type,
         "citations": citations,
         "source_materials": ["material/CISSP For Dummies.epub"],
         "question_set": "normalized_pdf_import",
         "quality_score": compute_quality_score(tags, confidence, domain_inferred, question_type),
+        "source_exam_id": None,
+        "source_exam_title": None,
+        "legacy_source_file": None,
         "options": options,
         "correct_options": correct_options,
         "justification": None,
+        "needs_review": False,
+        "review_notes": None,
     }
 
     report = {
@@ -611,8 +635,10 @@ def normalize_question(question: dict[str, Any], book: BookIndex) -> tuple[dict[
     return normalized, report
 
 
-def normalize_dataset(write_changes: bool) -> dict[str, Any]:
-    payload = json.loads(CISSP2_FILE.read_text(encoding="utf-8"))
+def normalize_dataset(input_path: Path, output_path: Path, write_changes: bool) -> dict[str, Any]:
+    if not input_path.is_file():
+        raise SystemExit(f"Input file not found: {input_path}. Pass the raw export with --input <path>.")
+    payload = json.loads(input_path.read_text(encoding="utf-8"))
     questions = payload.get("questions")
     if not isinstance(questions, list):
         raise ValueError("Invalid cissp2 payload")
@@ -650,7 +676,8 @@ def normalize_dataset(write_changes: bool) -> dict[str, Any]:
             "source": "cissp2 normalized import",
             "question_count": len(normalized_questions),
             "certification": "CISSP",
-            "schema_version": 2,
+            "language": "en",
+            "schema_version": 3,
             "notes": (
                 "Canonical normalized dataset derived from the original cissp2 PDF import. "
                 "Unsupported non-multiple-choice prompts were filtered out; tags, difficulty, "
@@ -661,11 +688,12 @@ def normalize_dataset(write_changes: bool) -> dict[str, Any]:
     }
 
     if write_changes:
-        CISSP2_FILE.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     average_confidence = round(confidence_total / len(normalized_questions), 2) if normalized_questions else 0.0
     return {
-        "file": str(CISSP2_FILE.relative_to(ROOT)),
+        "input": str(input_path),
+        "output": str(output_path),
         "write": write_changes,
         "retained": len(normalized_questions),
         "dropped": len(dropped_ids),
@@ -678,7 +706,8 @@ def normalize_dataset(write_changes: bool) -> dict[str, Any]:
 
 def main() -> None:
     args = parse_args()
-    report = normalize_dataset(write_changes=args.write)
+    output_path = args.output or args.input
+    report = normalize_dataset(args.input, output_path, write_changes=args.write)
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
