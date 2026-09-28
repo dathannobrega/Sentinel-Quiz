@@ -1,23 +1,23 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
 
 import { Field } from "@/components/ui/field";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBanner } from "@/components/ui/status-banner";
-import { ApiError, apiClient } from "@/lib/api/client";
+import { apiClient, readErrorMessage } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
+import { useDomainsQuery, useExamsQuery, useQuestionSearchQuery } from "@/lib/query/hooks";
 import type {
-  DomainCatalogResponse,
-  Exam,
   QuestionSearchResponse,
   SessionRequest,
   SessionResponse,
-  StudySessionRequest
+  StudySessionRequest,
+  StudySessionResponse
 } from "@/types/api";
 
 import { ExamLauncher } from "@/features/dashboard/components/exam-launcher";
@@ -35,6 +35,7 @@ const DEFAULT_LAUNCH_FORM: LaunchFormValues = {
   lowConfidenceOnly: false,
   mode: "exam",
   examStrategy: "standard",
+  experienceMode: "standard",
   studyStrategy: "standard",
   totalQuestions: 30,
   timeLimitMinutes: 45
@@ -131,16 +132,6 @@ function toNotice(
   return { tone, title, message };
 }
 
-function readErrorMessage(error: unknown, fallbackMessage: string): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallbackMessage;
-}
-
 function parseCsvFilter(value: string): string[] | null {
   const items = value
     .split(",")
@@ -149,29 +140,88 @@ function parseCsvFilter(value: string): string[] | null {
   return items.length ? items : null;
 }
 
+const EMPTY_SEARCH: QuestionSearchResponse = { items: [], total: 0, limit: 8, offset: 0, applied_filters: {} };
+const PRESET_KEYS: LaunchPresetKey[] = ["placement", "daily_review", "quick_15", "comptia_exam", "sprint_25", "risk_focus"];
+
+function readStoredJson<T>(key: string): Partial<T> | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Partial<T>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredJson(key: string, value: unknown): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Best effort only (private mode / quota).
+  }
+}
+
+function sanitizeStoredLaunch(value: Partial<LaunchFormValues> | null): Partial<LaunchFormValues> {
+  if (!value) {
+    return {};
+  }
+  const next: Partial<LaunchFormValues> = { ...value };
+  if (next.experienceMode !== "standard" && next.experienceMode !== "exam_day") {
+    delete next.experienceMode;
+  }
+  if (next.mode !== "exam" && next.mode !== "study") {
+    delete next.mode;
+  }
+  return next;
+}
+
+type LaunchResult = { mode: "exam" | "study"; id: string };
+
 export function StartSessionShell() {
   const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [isLoading, setIsLoading] = useState(true);
-  const [isDomainLoading, setIsDomainLoading] = useState(false);
-  const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
-  const [pendingLaunch, setPendingLaunch] = useState(false);
-  const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [launchNotice, setLaunchNotice] = useState<DashboardNotice | null>(null);
-
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [domains, setDomains] = useState<DomainCatalogResponse["domains"]>([]);
   const [launchValues, setLaunchValues] = useState<LaunchFormValues>(DEFAULT_LAUNCH_FORM);
   const [selectedPresetKey, setSelectedPresetKey] = useState<LaunchPresetKey>("custom");
   const [discoveryFilters, setDiscoveryFilters] = useState<DiscoveryFilters>(DEFAULT_DISCOVERY_FILTERS);
-  const [questionSearch, setQuestionSearch] = useState<QuestionSearchResponse>({
-    items: [],
-    total: 0,
-    limit: 8,
-    offset: 0,
-    applied_filters: {}
-  });
+  const [hasRestoredFilters, setHasRestoredFilters] = useState(false);
+
+  const examsQuery = useExamsQuery();
+  const domainsQuery = useDomainsQuery(launchValues.examId);
+  const exams = examsQuery.data ?? [];
+  const domains = domainsQuery.data?.domains ?? [];
+
+  const deferredDiscovery = useDeferredValue(discoveryFilters);
+  const searchParamsForQuery = useMemo(() => {
+    const params = new URLSearchParams();
+    if (launchValues.examId) {
+      params.set("exam_id", launchValues.examId);
+    }
+    if (deferredDiscovery.query.trim()) {
+      params.set("query", deferredDiscovery.query.trim());
+    }
+    if (deferredDiscovery.domain) {
+      params.set("domain", deferredDiscovery.domain);
+    }
+    if (deferredDiscovery.tag.trim()) {
+      params.set("tag", deferredDiscovery.tag.trim());
+    }
+    if (deferredDiscovery.bookmarkedOnly) {
+      params.set("bookmarked_only", "true");
+    }
+    if (deferredDiscovery.notesOnly) {
+      params.set("notes_only", "true");
+    }
+    params.set("limit", "8");
+    return params;
+  }, [deferredDiscovery, launchValues.examId]);
+  const questionSearchQuery = useQuestionSearchQuery(searchParamsForQuery);
+  const questionSearch = questionSearchQuery.data ?? EMPTY_SEARCH;
+  const isDiscoveryLoading = questionSearchQuery.isFetching;
 
   function updateLaunchValue(field: keyof LaunchFormValues, value: LaunchFormValues[keyof LaunchFormValues]) {
     setLaunchNotice(null);
@@ -191,97 +241,19 @@ export function StartSessionShell() {
     setLaunchValues((current) => buildPresetValues(presetKey, current));
   }
 
-  const boot = useEffectEvent(async () => {
-    setIsLoading(true);
-    setPageNotice(null);
-
-    try {
-      setExams(await apiClient.get<Exam[]>("/exams"));
-    } catch (error) {
-      setExams([]);
-      setPageNotice(readErrorMessage(error, t("start.errors.unexpected")));
-    } finally {
-      setIsLoading(false);
-    }
-  });
-
-  const loadDomains = useEffectEvent(async (examId: string) => {
-    setIsDomainLoading(true);
-    try {
-      const query = examId ? `?exam_id=${encodeURIComponent(examId)}` : "";
-      const response = await apiClient.get<DomainCatalogResponse>(`/domains${query}`);
-      setDomains(response.domains);
-    } catch {
-      setDomains([]);
-    } finally {
-      setIsDomainLoading(false);
-    }
-  });
-
-  const refreshQuestionSearch = useEffectEvent(async () => {
-    setIsDiscoveryLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (launchValues.examId) {
-        params.set("exam_id", launchValues.examId);
-      }
-      if (discoveryFilters.query.trim()) {
-        params.set("query", discoveryFilters.query.trim());
-      }
-      if (discoveryFilters.domain) {
-        params.set("domain", discoveryFilters.domain);
-      }
-      if (discoveryFilters.tag.trim()) {
-        params.set("tag", discoveryFilters.tag.trim());
-      }
-      if (discoveryFilters.bookmarkedOnly) {
-        params.set("bookmarked_only", "true");
-      }
-      if (discoveryFilters.notesOnly) {
-        params.set("notes_only", "true");
-      }
-      params.set("limit", "8");
-
-      const response = await apiClient.get<QuestionSearchResponse>(`/questions/search?${params.toString()}`);
-      setQuestionSearch(response);
-    } catch (error) {
-      setQuestionSearch({ items: [], total: 0, limit: 8, offset: 0, applied_filters: {} });
-      setPageNotice(t("start.errors.searchUnavailable", { message: readErrorMessage(error, t("start.errors.unexpected")) }));
-    } finally {
-      setIsDiscoveryLoading(false);
-    }
-  });
-
   useEffect(() => {
-    void boot();
-  }, [boot]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
+    const storedLaunch = sanitizeStoredLaunch(readStoredJson<LaunchFormValues>(START_LAUNCH_STORAGE_KEY));
+    const storedDiscovery = readStoredJson<DiscoveryFilters>(START_DISCOVERY_STORAGE_KEY);
+    setLaunchValues((current) => ({ ...current, ...storedLaunch }));
+    if (storedDiscovery) {
+      setDiscoveryFilters((current) => ({ ...current, ...storedDiscovery }));
     }
-    try {
-      const rawLaunch = window.localStorage.getItem(START_LAUNCH_STORAGE_KEY);
-      if (rawLaunch) {
-        const parsed = JSON.parse(rawLaunch) as Partial<LaunchFormValues>;
-        setLaunchValues((current) => ({ ...current, ...parsed }));
-      }
-      const rawDiscovery = window.localStorage.getItem(START_DISCOVERY_STORAGE_KEY);
-      if (rawDiscovery) {
-        const parsed = JSON.parse(rawDiscovery) as Partial<DiscoveryFilters>;
-        setDiscoveryFilters((current) => ({ ...current, ...parsed }));
-      }
-    } catch {
-      // Ignore invalid local cache.
-    }
+    setHasRestoredFilters(true);
   }, []);
 
   useEffect(() => {
     const presetParam = (searchParams.get("preset") || "").trim() as LaunchPresetKey;
-    if (!presetParam) {
-      return;
-    }
-    if (!["placement", "daily_review", "quick_15", "comptia_exam", "sprint_25", "risk_focus"].includes(presetParam)) {
+    if (!presetParam || !PRESET_KEYS.includes(presetParam)) {
       return;
     }
     setSelectedPresetKey(presetParam);
@@ -295,43 +267,84 @@ export function StartSessionShell() {
     });
   }, [searchParams]);
 
+  useEffect(() => {
+    if (hasRestoredFilters) {
+      writeStoredJson(START_LAUNCH_STORAGE_KEY, launchValues);
+    }
+  }, [hasRestoredFilters, launchValues]);
+
+  useEffect(() => {
+    if (hasRestoredFilters) {
+      writeStoredJson(START_DISCOVERY_STORAGE_KEY, discoveryFilters);
+    }
+  }, [discoveryFilters, hasRestoredFilters]);
+
   const presetSummary = t(`launcher.presets.items.${selectedPresetKey}.summary`);
 
-  useEffect(() => {
-    void loadDomains(launchValues.examId);
-  }, [launchValues.examId, loadDomains]);
+  const launchMutation = useMutation({
+    mutationFn: async (values: LaunchFormValues): Promise<LaunchResult> => {
+      const domainsFilter = values.domain ? [values.domain] : null;
+      const difficulties = parseCsvFilter(values.difficultyQuery);
+      const tags = parseCsvFilter(values.tagQuery);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
+      if (selectedPresetKey === "placement") {
+        const query = values.examId ? `?exam_id=${encodeURIComponent(values.examId)}` : "";
+        const session = await apiClient.post<StudySessionResponse>(`/study/placement/session${query}`);
+        return { mode: "study", id: session.id };
+      }
+      if (values.mode === "study") {
+        const payload: StudySessionRequest = {
+          exam_id: values.examId || null,
+          total_questions: values.totalQuestions,
+          domains: domainsFilter,
+          difficulties,
+          tags,
+          bookmarked_only: values.bookmarkedOnly,
+          notes_only: values.notesOnly,
+          incorrect_only: values.incorrectOnly,
+          unseen_only: values.unseenOnly,
+          low_confidence_only: values.lowConfidenceOnly,
+          strategy: values.studyStrategy,
+          queue_only: selectedPresetKey === "daily_review"
+        };
+        const session = await apiClient.post<StudySessionResponse>(
+          selectedPresetKey === "daily_review" ? "/study/review/sessions" : "/study/sessions",
+          payload
+        );
+        return { mode: "study", id: session.id };
+      }
+      const payload: SessionRequest = {
+        exam_id: values.examId || null,
+        total_questions: values.totalQuestions,
+        domains: domainsFilter,
+        difficulties,
+        tags,
+        bookmarked_only: values.bookmarkedOnly,
+        notes_only: values.notesOnly,
+        incorrect_only: values.incorrectOnly,
+        unseen_only: values.unseenOnly,
+        low_confidence_only: values.lowConfidenceOnly,
+        time_limit_minutes: values.timeLimitMinutes,
+        strategy: values.examStrategy,
+        experience_mode: values.experienceMode
+      };
+      const session = await apiClient.post<SessionResponse>("/sessions", payload);
+      return { mode: "exam", id: session.id };
+    },
+    onSuccess: (result) => {
+      persistSessionId(result.mode, result.id);
+      startTransition(() => {
+        router.push(result.mode === "study" ? `/study/${result.id}` : `/exam/${result.id}`);
+      });
+    },
+    onError: (error) => {
+      setLaunchNotice(toNotice("danger", t("start.errors.createSessionTitle"), readErrorMessage(error, t("start.errors.unexpected"))));
     }
-    window.localStorage.setItem(START_LAUNCH_STORAGE_KEY, JSON.stringify(launchValues));
-  }, [launchValues]);
+  });
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(START_DISCOVERY_STORAGE_KEY, JSON.stringify(discoveryFilters));
-  }, [discoveryFilters]);
-
-  useEffect(() => {
-    void refreshQuestionSearch();
-  }, [
-    discoveryFilters.query,
-    discoveryFilters.domain,
-    discoveryFilters.tag,
-    discoveryFilters.bookmarkedOnly,
-    discoveryFilters.notesOnly,
-    launchValues.examId,
-    refreshQuestionSearch
-  ]);
-
-  async function handleLaunch() {
+  function handleLaunch() {
     if (launchValues.totalQuestions < 1) {
-      setLaunchNotice(
-        toNotice("warning", t("start.errors.invalidQuantityTitle"), t("start.errors.invalidQuantityMessage"))
-      );
+      setLaunchNotice(toNotice("warning", t("start.errors.invalidQuantityTitle"), t("start.errors.invalidQuantityMessage")));
       return;
     }
 
@@ -355,66 +368,8 @@ export function StartSessionShell() {
       return;
     }
 
-    setPendingLaunch(true);
     setLaunchNotice(null);
-
-    try {
-      const domainsFilter = launchValues.domain ? [launchValues.domain] : null;
-      const difficulties = parseCsvFilter(launchValues.difficultyQuery);
-      const tags = parseCsvFilter(launchValues.tagQuery);
-      let session: SessionResponse;
-
-      if (selectedPresetKey === "placement") {
-        const query = launchValues.examId ? `?exam_id=${encodeURIComponent(launchValues.examId)}` : "";
-        session = await apiClient.post<SessionResponse>(`/study/placement/session${query}`);
-      } else if (launchValues.mode === "study") {
-        const payload: StudySessionRequest = {
-          exam_id: launchValues.examId || null,
-          total_questions: launchValues.totalQuestions,
-          domains: domainsFilter,
-          difficulties,
-          tags,
-          bookmarked_only: launchValues.bookmarkedOnly,
-          notes_only: launchValues.notesOnly,
-          incorrect_only: launchValues.incorrectOnly,
-          unseen_only: launchValues.unseenOnly,
-          low_confidence_only: launchValues.lowConfidenceOnly,
-          strategy: launchValues.studyStrategy,
-          queue_only: selectedPresetKey === "daily_review"
-        };
-        session = await apiClient.post<SessionResponse>(
-          selectedPresetKey === "daily_review" ? "/study/review/sessions" : "/study/sessions",
-          payload
-        );
-      } else {
-        const payload: SessionRequest = {
-          exam_id: launchValues.examId || null,
-          total_questions: launchValues.totalQuestions,
-          domains: domainsFilter,
-          difficulties,
-          tags,
-          bookmarked_only: launchValues.bookmarkedOnly,
-          notes_only: launchValues.notesOnly,
-          incorrect_only: launchValues.incorrectOnly,
-          unseen_only: launchValues.unseenOnly,
-          low_confidence_only: launchValues.lowConfidenceOnly,
-          time_limit_minutes: launchValues.timeLimitMinutes,
-          strategy: launchValues.examStrategy
-        };
-        session = await apiClient.post<SessionResponse>("/sessions", payload);
-      }
-
-      persistSessionId(launchValues.mode, session.id);
-      startTransition(() => {
-        router.push(launchValues.mode === "study" ? `/study/${session.id}` : `/exam/${session.id}`);
-      });
-    } catch (error) {
-      setLaunchNotice(
-        toNotice("danger", t("start.errors.createSessionTitle"), readErrorMessage(error, t("start.errors.unexpected")))
-      );
-    } finally {
-      setPendingLaunch(false);
-    }
+    launchMutation.mutate(launchValues);
   }
 
   const shouldExpandDiscovery =
@@ -427,9 +382,9 @@ export function StartSessionShell() {
         discoveryFilters.notesOnly
     );
 
-  if (isLoading) {
+  if (examsQuery.isPending) {
     return (
-      <main className="sq-app-shell">
+      <main className="sq-app-shell" aria-busy="true">
         <div className="sq-page-stack">
           <Skeleton height={180} />
           <Skeleton height={320} />
@@ -458,25 +413,49 @@ export function StartSessionShell() {
           </div>
         </header>
 
-        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
+        {examsQuery.isError ? (
+          <QueryErrorBanner
+            tone="warning"
+            title={t("common.errors.attention")}
+            error={examsQuery.error}
+            onRetry={() => void examsQuery.refetch()}
+            retrying={examsQuery.isFetching}
+          />
+        ) : null}
+        {domainsQuery.isError ? (
+          <QueryErrorBanner
+            tone="warning"
+            title={t("common.errors.attention")}
+            error={domainsQuery.error}
+            onRetry={() => void domainsQuery.refetch()}
+            retrying={domainsQuery.isFetching}
+          />
+        ) : null}
+        {questionSearchQuery.isError ? (
+          <QueryErrorBanner
+            tone="warning"
+            title={t("common.errors.attention")}
+            error={questionSearchQuery.error}
+            onRetry={() => void questionSearchQuery.refetch()}
+            retrying={questionSearchQuery.isFetching}
+          />
+        ) : null}
 
         <ExamLauncher
           exams={exams}
           domains={domains}
           values={launchValues}
           notice={
-            isDomainLoading && !launchNotice
+            domainsQuery.isFetching && !launchNotice
               ? toNotice("neutral", t("start.notices.loadingDomainsTitle"), t("start.notices.loadingDomainsMessage"))
               : launchNotice
           }
-          pending={pendingLaunch}
+          pending={launchMutation.isPending}
           selectedPresetKey={selectedPresetKey}
           presetSummary={presetSummary}
           onChange={updateLaunchValue}
           onApplyPreset={applyPreset}
-          onSubmit={() => {
-            void handleLaunch();
-          }}
+          onSubmit={handleLaunch}
         />
 
         <details className="sq-card sq-disclosure" open={shouldExpandDiscovery ? true : undefined}>

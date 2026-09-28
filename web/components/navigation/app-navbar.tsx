@@ -1,25 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-import { ApiError } from "@/lib/api/client";
-import { fetchCurrentUser, logoutUser } from "@/lib/auth/session";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
-import type { AuthUser } from "@/types/api";
-
-function readNavError(error: unknown, fallbackMessage: string): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallbackMessage;
-}
+import { useLogoutMutation, useSessionRole } from "@/lib/query/hooks";
 
 function isDashboardPath(pathname: string): boolean {
   return pathname === "/" || pathname === "/dashboard";
@@ -31,32 +19,15 @@ function shouldHideNavbar(pathname: string): boolean {
 
 export function AppNavbar() {
   const { availableLocales, locale, setLocale, t } = useI18n();
-  const pathname = usePathname();
+  const pathname = usePathname() || "/";
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [sessionState, setSessionState] = useState<"loading" | "ready">("loading");
-  const [pendingAction, setPendingAction] = useState<"logout" | null>(null);
+  const hidden = shouldHideNavbar(pathname);
+  const { user: currentUser, isStaff, query } = useSessionRole();
+  const logoutMutation = useLogoutMutation();
   const [navNotice, setNavNotice] = useState<string | null>(null);
 
-  const syncSession = useEffectEvent(async () => {
-    setSessionState("loading");
-    setNavNotice(null);
-    try {
-      setCurrentUser(await fetchCurrentUser());
-    } catch (error) {
-      setCurrentUser(null);
-      setNavNotice(readNavError(error, t("navigation.errors.sessionRefresh")));
-    } finally {
-      setSessionState("ready");
-    }
-  });
-
-  useEffect(() => {
-    if (shouldHideNavbar(pathname)) {
-      return;
-    }
-    void syncSession();
-  }, [pathname, syncSession]);
+  const isSessionLoading = query.isPending && !hidden;
+  const sessionError = query.isError ? readErrorMessage(query.error, t("navigation.errors.sessionRefresh")) : null;
 
   const links = useMemo(() => {
     if (!currentUser && pathname === "/") {
@@ -72,30 +43,30 @@ export function AppNavbar() {
       { href: "/history", label: t("common.labels.history") },
       { href: "/settings", label: t("common.labels.settings") }
     ];
-    if (currentUser?.role === "admin") {
+    if (isStaff) {
       baseLinks.push({ href: "/admin", label: t("common.labels.admin") });
     }
     return baseLinks;
-  }, [currentUser, pathname, t]);
+  }, [currentUser, isStaff, pathname, t]);
 
-  async function handleLogout() {
-    setPendingAction("logout");
+  function handleLogout() {
     setNavNotice(null);
-    try {
-      await logoutUser();
-      setCurrentUser(null);
-      router.push("/login");
-      router.refresh();
-    } catch (error) {
-      setNavNotice(readNavError(error, t("navigation.errors.sessionRefresh")));
-    } finally {
-      setPendingAction(null);
-    }
+    logoutMutation.mutate(undefined, {
+      onSuccess: () => {
+        router.push("/login");
+        router.refresh();
+      },
+      onError: (error) => {
+        setNavNotice(readErrorMessage(error, t("navigation.errors.sessionRefresh")));
+      }
+    });
   }
 
-  if (shouldHideNavbar(pathname)) {
+  if (hidden) {
     return null;
   }
+
+  const notice = navNotice || sessionError;
 
   return (
     <nav className="sq-global-nav" aria-label={t("navigation.ariaLabel")}>
@@ -106,9 +77,7 @@ export function AppNavbar() {
           </div>
           <div className="sq-brand-copy">
             <div className="sq-page-title">{t("navigation.brandTitle")}</div>
-            <p className="sq-page-subtitle">
-              {t("navigation.brandSubtitle")}
-            </p>
+            <p className="sq-page-subtitle">{t("navigation.brandSubtitle")}</p>
           </div>
         </div>
 
@@ -120,7 +89,7 @@ export function AppNavbar() {
                   ? isDashboardPath(pathname)
                   : link.href.includes("#")
                     ? false
-                  : pathname === link.href || pathname.startsWith(`${link.href}/`);
+                    : pathname === link.href || pathname.startsWith(`${link.href}/`);
 
               return (
                 <Link
@@ -146,8 +115,10 @@ export function AppNavbar() {
                   <button
                     key={item}
                     type="button"
+                    lang={item}
                     className={`sq-locale-switch__button${active ? " sq-locale-switch__button--active" : ""}`}
                     aria-pressed={active}
+                    aria-label={title}
                     title={title}
                     onClick={() => setLocale(item)}
                   >
@@ -157,20 +128,24 @@ export function AppNavbar() {
               })}
             </div>
 
-            {sessionState === "loading" ? <span className="sq-chip">{t("common.status.syncingSession")}</span> : null}
+            {isSessionLoading ? (
+              <span className="sq-chip" role="status">
+                {t("common.status.syncingSession")}
+              </span>
+            ) : null}
 
-            {sessionState === "ready" && currentUser ? (
+            {!isSessionLoading && currentUser ? (
               <>
                 <span className="sq-chip">
                   {currentUser.display_name || currentUser.email} · {currentUser.role}
                 </span>
-                <Button variant="ghost" size="sm" busy={pendingAction === "logout"} onClick={() => void handleLogout()}>
+                <Button variant="ghost" size="sm" busy={logoutMutation.isPending} onClick={handleLogout}>
                   {t("common.actions.signOut")}
                 </Button>
               </>
             ) : null}
 
-            {sessionState === "ready" && !currentUser ? (
+            {!isSessionLoading && !currentUser ? (
               <>
                 <Link href="/login" className="sq-nav-link">
                   {t("common.actions.signIn")}
@@ -184,7 +159,19 @@ export function AppNavbar() {
         </div>
       </div>
 
-      {navNotice ? <div className="sq-global-nav__notice">{navNotice}</div> : null}
+      {notice ? (
+        <div className="sq-global-nav__notice" role="status">
+          {notice}
+          {sessionError && !navNotice ? (
+            <>
+              {" "}
+              <button type="button" className="sq-text-link" onClick={() => void query.refetch()}>
+                {t("common.actions.retry")}
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </nav>
   );
 }

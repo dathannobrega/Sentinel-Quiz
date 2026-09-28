@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBanner } from "@/components/ui/status-banner";
-import { ApiError, apiClient } from "@/lib/api/client";
-import { fetchCurrentUser, logoutUser } from "@/lib/auth/session";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
-import type { AuthUser, StudyOverview } from "@/types/api";
+import { useCurrentUser, useLogoutMutation, useStudyOverviewQuery } from "@/lib/query/hooks";
+import type { StudyOverview } from "@/types/api";
 
 import { AccountPanel } from "@/features/dashboard/components/account-panel";
 import type { DashboardNotice } from "@/features/dashboard/types";
@@ -25,92 +24,30 @@ const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
   due_reviews: []
 };
 
-function readErrorMessage(error: unknown, fallbackMessage: string): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallbackMessage;
-}
-
-function isUnauthorized(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 401;
-}
-
-function toNotice(
-  tone: DashboardNotice["tone"],
-  title: string,
-  message: string
-): DashboardNotice {
-  return { tone, title, message };
-}
-
 export function SettingsShell() {
   const { t } = useI18n();
-  const [isLoading, setIsLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<"logout" | null>(null);
-  const [pageNotice, setPageNotice] = useState<string | null>(null);
+  const overviewQuery = useStudyOverviewQuery();
+  const currentUserQuery = useCurrentUser();
+  const logoutMutation = useLogoutMutation();
   const [authNotice, setAuthNotice] = useState<DashboardNotice | null>(null);
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [studyOverview, setStudyOverview] = useState<StudyOverview>(DEFAULT_STUDY_OVERVIEW);
 
-  const load = useEffectEvent(async () => {
-    setIsLoading(true);
-    setPageNotice(null);
+  function handleLogout() {
     setAuthNotice(null);
-
-    const overviewPromise = apiClient.get<StudyOverview>("/study/overview");
-    const userPromise = fetchCurrentUser();
-
-    const [overviewResult, userResult] = await Promise.allSettled([overviewPromise, userPromise]);
-
-    if (overviewResult.status === "fulfilled") {
-      setStudyOverview(overviewResult.value);
-    } else {
-      setStudyOverview(DEFAULT_STUDY_OVERVIEW);
-      setPageNotice(readErrorMessage(overviewResult.reason, t("common.errors.unexpected")));
-    }
-
-    if (userResult.status === "fulfilled") {
-      setCurrentUser(userResult.value);
-    } else {
-      setCurrentUser(null);
-      if (!isUnauthorized(userResult.reason)) {
-        setAuthNotice(
-          toNotice("warning", t("common.errors.sessionUnavailable"), readErrorMessage(userResult.reason, t("common.errors.unexpected")))
-        );
-      }
-    }
-
-    setIsLoading(false);
-  });
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  async function handleLogout() {
-    setPendingAction("logout");
-    setAuthNotice(null);
-
-    try {
-      await logoutUser();
-      setCurrentUser(null);
-      setAuthNotice(toNotice("success", t("settings.notices.loggedOutTitle"), t("settings.notices.loggedOutMessage")));
-    } catch (error) {
-      setAuthNotice(
-        toNotice("danger", t("settings.notices.logoutFailureTitle"), readErrorMessage(error, t("common.errors.unexpected")))
-      );
-    }
-
-    setPendingAction(null);
+    logoutMutation.mutate(undefined, {
+      onSuccess: () =>
+        setAuthNotice({ tone: "success", title: t("settings.notices.loggedOutTitle"), message: t("settings.notices.loggedOutMessage") }),
+      onError: (error) =>
+        setAuthNotice({
+          tone: "danger",
+          title: t("settings.notices.logoutFailureTitle"),
+          message: readErrorMessage(error, t("common.errors.unexpected"))
+        })
+    });
   }
 
-  if (isLoading) {
+  if (overviewQuery.isPending || currentUserQuery.isPending) {
     return (
-      <main className="sq-app-shell">
+      <main className="sq-app-shell" aria-busy="true">
         <div className="sq-page-stack">
           <Skeleton height={180} />
           <Skeleton height={360} />
@@ -118,6 +55,14 @@ export function SettingsShell() {
       </main>
     );
   }
+
+  const sessionNotice: DashboardNotice | null = currentUserQuery.isError
+    ? {
+        tone: "warning",
+        title: t("common.errors.sessionUnavailable"),
+        message: readErrorMessage(currentUserQuery.error, t("common.errors.unexpected"))
+      }
+    : null;
 
   return (
     <main className="sq-app-shell">
@@ -128,7 +73,7 @@ export function SettingsShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">{t("settings.header.title")}</div>
+              <h1 className="sq-page-title">{t("settings.header.title")}</h1>
               <p className="sq-page-subtitle">{t("settings.header.subtitle")}</p>
             </div>
           </div>
@@ -139,16 +84,22 @@ export function SettingsShell() {
           </div>
         </header>
 
-        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
+        {overviewQuery.isError ? (
+          <QueryErrorBanner
+            tone="warning"
+            title={t("common.errors.attention")}
+            error={overviewQuery.error}
+            onRetry={() => void overviewQuery.refetch()}
+            retrying={overviewQuery.isFetching}
+          />
+        ) : null}
 
         <AccountPanel
-          user={currentUser}
-          overview={studyOverview}
-          notice={authNotice}
-          pendingAction={pendingAction}
-          onLogout={() => {
-            void handleLogout();
-          }}
+          user={currentUserQuery.data ?? null}
+          overview={overviewQuery.data ?? DEFAULT_STUDY_OVERVIEW}
+          notice={authNotice ?? sessionNotice}
+          pendingAction={logoutMutation.isPending ? "logout" : null}
+          onLogout={handleLogout}
         />
       </div>
     </main>

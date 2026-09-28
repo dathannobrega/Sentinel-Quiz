@@ -1,20 +1,22 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { ApiError, apiClient } from "@/lib/api/client";
+import { apiClient, readErrorMessage } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
+import { useExamsQuery, useReviewQueueQuery } from "@/lib/query/hooks";
 import { formatDateTime } from "@/lib/utils/format";
-import type { Exam, ReviewQueueSnapshot, SessionResponse, StudySessionRequest } from "@/types/api";
+import type { ReviewQueueSnapshot, StudySessionRequest, StudySessionResponse } from "@/types/api";
 
 const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
   due_count: 0,
@@ -38,16 +40,6 @@ const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
   items: []
 };
 
-function readReviewError(error: unknown, fallbackMessage: string): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallbackMessage;
-}
-
 function describeQueueState(
   item: ReviewQueueSnapshot["items"][number],
   t: (key: string, values?: Record<string, string | number>) => string
@@ -69,13 +61,13 @@ function describeQueueState(
     : t("review.queueState.scheduled");
 }
 
-function buildReviewQueueQuery(
+function buildReviewQueueParams(
   examId: string,
   reviewState: string,
   bookmarksOnly: boolean,
   notesOnly: boolean,
   domains: string[]
-): string {
+): URLSearchParams {
   const params = new URLSearchParams();
   if (examId) {
     params.set("exam_id", examId);
@@ -91,143 +83,107 @@ function buildReviewQueueQuery(
     params.set("notes_only", "true");
   }
   params.set("limit", "12");
-  const query = params.toString();
-  return query ? `?${query}` : "";
+  return params;
 }
 
 export function ReviewShell() {
   const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const deepLinkKey = searchParams.getAll("domains").join("\u0000");
   const deepLinkDomains = useMemo(
-    () => searchParams.getAll("domains").map((item) => item.trim()).filter(Boolean),
-    [searchParams]
+    () =>
+      deepLinkKey
+        .split("\u0000")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    [deepLinkKey]
   );
   const deepLinkAutoStart = searchParams.get("auto_start") === "true";
-  const [isLoading, setIsLoading] = useState(true);
-  const [isStartingReview, setIsStartingReview] = useState(false);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
-
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [reviewQueue, setReviewQueue] = useState<ReviewQueueSnapshot>(DEFAULT_REVIEW_QUEUE);
 
   const [selectedExamId, setSelectedExamId] = useState("");
   const [reviewStateFilter, setReviewStateFilter] = useState("");
   const [reviewBookmarksOnly, setReviewBookmarksOnly] = useState(false);
   const [reviewNotesOnly, setReviewNotesOnly] = useState(false);
   const [reviewDomainFilters, setReviewDomainFilters] = useState<string[]>(deepLinkDomains);
-  const [hasAutoStarted, setHasAutoStarted] = useState(false);
-
-  const load = useEffectEvent(async () => {
-    setIsLoading(true);
-    setPageNotice(null);
-
-    const results = await Promise.allSettled([
-      apiClient.get<Exam[]>("/exams"),
-      apiClient.get<ReviewQueueSnapshot>(
-        `/study/review/queue${buildReviewQueueQuery(
-          selectedExamId,
-          reviewStateFilter,
-          reviewBookmarksOnly,
-          reviewNotesOnly,
-          reviewDomainFilters
-        )}`
-      )
-    ]);
-
-    if (results[0].status === "fulfilled") {
-      setExams(results[0].value);
-    } else {
-      setExams([]);
-      setPageNotice(readReviewError(results[0].reason, t("review.errors.loadQueue")));
-    }
-
-    if (results[1].status === "fulfilled") {
-      setReviewQueue(results[1].value);
-    } else {
-      setReviewQueue(DEFAULT_REVIEW_QUEUE);
-      setPageNotice(readReviewError(results[1].reason, t("review.errors.loadQueue")));
-    }
-
-    setIsLoading(false);
-  });
-
-  const refreshQueue = useEffectEvent(async () => {
-    try {
-      const snapshot = await apiClient.get<ReviewQueueSnapshot>(
-        `/study/review/queue${buildReviewQueueQuery(
-          selectedExamId,
-          reviewStateFilter,
-          reviewBookmarksOnly,
-          reviewNotesOnly,
-          reviewDomainFilters
-        )}`
-      );
-      setReviewQueue(snapshot);
-    } catch (error) {
-      setPageNotice(readReviewError(error, t("review.errors.loadQueue")));
-    }
-  });
-
-  const startRecommendedReview = useEffectEvent(async () => {
-    setIsStartingReview(true);
-    setPageNotice(null);
-
-    try {
-      const payload: StudySessionRequest = {
-        exam_id: selectedExamId || null,
-        total_questions: Math.max(reviewQueue.recommended_batch_size || 10, 1),
-        domains: reviewDomainFilters.length ? reviewDomainFilters : null,
-        difficulties: null,
-        tags: null,
-        bookmarked_only: reviewBookmarksOnly,
-        notes_only: reviewNotesOnly,
-        incorrect_only: false,
-        unseen_only: false,
-        low_confidence_only: false,
-        strategy: "review",
-        queue_only: true,
-        review_states: reviewStateFilter ? [reviewStateFilter] : null
-      };
-
-      const response = await apiClient.post<SessionResponse>("/study/review/sessions", payload);
-      persistSessionId("study", response.id);
-      startTransition(() => {
-        router.push(`/study/${response.id}`);
-      });
-    } catch (error) {
-      setPageNotice(readReviewError(error, t("review.errors.loadQueue")));
-    } finally {
-      setIsStartingReview(false);
-    }
-  });
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-    void refreshQueue();
-  }, [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, reviewDomainFilters, isLoading, refreshQueue]);
+  const hasAutoStartedRef = useRef(false);
 
   useEffect(() => {
     setReviewDomainFilters(deepLinkDomains);
   }, [deepLinkDomains]);
 
+  const examsQuery = useExamsQuery();
+  const queueParams = useMemo(
+    () => buildReviewQueueParams(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, reviewDomainFilters),
+    [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, reviewDomainFilters]
+  );
+  const reviewQueueQuery = useReviewQueueQuery(queueParams);
+  const exams = examsQuery.data ?? [];
+  const reviewQueue = reviewQueueQuery.data ?? DEFAULT_REVIEW_QUEUE;
+
+  const startReviewMutation = useMutation({
+    mutationFn: (payload: StudySessionRequest) => apiClient.post<StudySessionResponse>("/study/review/sessions", payload),
+    onSuccess: (response) => {
+      persistSessionId("study", response.id);
+      startTransition(() => {
+        router.push(`/study/${response.id}`);
+      });
+    },
+    onError: (error) => setPageNotice(readErrorMessage(error, t("review.errors.loadQueue")))
+  });
+  const { mutate: startReview, isPending: isStartingReview } = startReviewMutation;
+
+  const recommendedBatch = Math.max(reviewQueue.recommended_batch_size || 10, 1);
+  const hasQueueItems = reviewQueue.items.length > 0;
+
+  function startRecommendedReview() {
+    setPageNotice(null);
+    startReview({
+      exam_id: selectedExamId || null,
+      total_questions: recommendedBatch,
+      domains: reviewDomainFilters.length ? reviewDomainFilters : null,
+      difficulties: null,
+      tags: null,
+      bookmarked_only: reviewBookmarksOnly,
+      notes_only: reviewNotesOnly,
+      incorrect_only: false,
+      unseen_only: false,
+      low_confidence_only: false,
+      strategy: "review",
+      queue_only: true,
+      review_states: reviewStateFilter ? [reviewStateFilter] : null
+    });
+  }
+
+  const isInitialLoading = (examsQuery.isPending && examsQuery.isFetching) || (reviewQueueQuery.isPending && reviewQueueQuery.isFetching);
+
   useEffect(() => {
-    if (isLoading || isStartingReview || hasAutoStarted || !deepLinkAutoStart || !reviewQueue.items.length) {
+    if (!deepLinkAutoStart || hasAutoStartedRef.current || isInitialLoading || isStartingReview || !hasQueueItems) {
       return;
     }
-    setHasAutoStarted(true);
-    void startRecommendedReview();
-  }, [deepLinkAutoStart, hasAutoStarted, isLoading, isStartingReview, reviewQueue.items.length, startRecommendedReview]);
+    hasAutoStartedRef.current = true;
+    setPageNotice(null);
+    startReview({
+      exam_id: null,
+      total_questions: recommendedBatch,
+      domains: deepLinkDomains.length ? deepLinkDomains : null,
+      difficulties: null,
+      tags: null,
+      bookmarked_only: false,
+      notes_only: false,
+      incorrect_only: false,
+      unseen_only: false,
+      low_confidence_only: false,
+      strategy: "review",
+      queue_only: true,
+      review_states: null
+    });
+  }, [deepLinkAutoStart, deepLinkDomains, hasQueueItems, isInitialLoading, isStartingReview, recommendedBatch, startReview]);
 
-  if (isLoading) {
+  if (isInitialLoading) {
     return (
-      <main className="sq-app-shell">
+      <main className="sq-app-shell" aria-busy="true">
         <div className="sq-page-stack">
           <Skeleton height={180} />
           <Skeleton height={320} />
@@ -245,7 +201,7 @@ export function ReviewShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">{t("review.header.title")}</div>
+              <h1 className="sq-page-title">{t("review.header.title")}</h1>
               <p className="sq-page-subtitle">{t("review.header.subtitle")}</p>
             </div>
           </div>
@@ -256,19 +212,38 @@ export function ReviewShell() {
           </div>
         </header>
 
-        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
+        {pageNotice ? (
+          <StatusBanner tone="warning" role="alert" title={t("common.errors.attention")} message={pageNotice} />
+        ) : null}
+        {examsQuery.isError ? (
+          <QueryErrorBanner
+            tone="warning"
+            error={examsQuery.error}
+            onRetry={() => void examsQuery.refetch()}
+            retrying={examsQuery.isFetching}
+          />
+        ) : null}
+        {reviewQueueQuery.isError ? (
+          <QueryErrorBanner
+            title={t("review.errors.loadQueue")}
+            error={reviewQueueQuery.error}
+            onRetry={() => void reviewQueueQuery.refetch()}
+            retrying={reviewQueueQuery.isFetching}
+          />
+        ) : null}
 
         {reviewDomainFilters.length ? (
-          <Card title="Filtros ativos" subtitle="Este bloco veio de um deep link de revisão focada por domínio.">
+          <Card title={t("review.activeFilters.title")} subtitle={t("review.activeFilters.subtitle")}>
             <div className="sq-chip-row">
               {reviewDomainFilters.map((domain) => (
                 <button
                   key={domain}
                   type="button"
                   className="sq-chip"
+                  aria-label={t("review.activeFilters.removeDomain", { domain })}
                   onClick={() => setReviewDomainFilters((current) => current.filter((item) => item !== domain))}
                 >
-                  {domain} ×
+                  {domain} <span aria-hidden="true">×</span>
                 </button>
               ))}
             </div>
@@ -283,8 +258,8 @@ export function ReviewShell() {
               variant="secondary"
               size="sm"
               busy={isStartingReview}
-              disabled={!reviewQueue.items.length}
-              onClick={() => void startRecommendedReview()}
+              disabled={!hasQueueItems}
+              onClick={startRecommendedReview}
             >
               {t("common.actions.reviewNow")}
             </Button>
@@ -360,26 +335,28 @@ export function ReviewShell() {
         </Card>
 
         <Card title={t("review.priorityCard.title")} subtitle={t("review.priorityCard.subtitle")}>
-          {reviewQueue.items.length ? (
-            <div className="sq-list">
-              {reviewQueue.items.map((item) => (
-                <div key={item.question_id} className="sq-list-item">
-                  <div className="sq-list-title">{item.prompt}</div>
-                  <div className="sq-list-meta">
-                    {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item, t)}
-                  </div>
-                  {(item.bookmarked || item.has_note) ? (
-                    <div className="sq-chip-row sq-gap-top-sm">
-                      {item.bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
-                      {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
+          <div aria-busy={reviewQueueQuery.isFetching || undefined}>
+            {hasQueueItems ? (
+              <div className="sq-list">
+                {reviewQueue.items.map((item) => (
+                  <div key={item.question_id} className="sq-list-item">
+                    <div className="sq-list-title">{item.prompt}</div>
+                    <div className="sq-list-meta">
+                      {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item, t)}
                     </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="sq-empty">{t("review.empty")}</div>
-          )}
+                    {item.bookmarked || item.has_note ? (
+                      <div className="sq-chip-row sq-gap-top-sm">
+                        {item.bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
+                        {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="sq-empty">{t("review.empty")}</div>
+            )}
+          </div>
         </Card>
       </div>
     </main>

@@ -1,0 +1,120 @@
+/* Accessibility helpers and small components added during the frontend hardening pass. */
+
+.sq-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.sq-field-hint-button[aria-expanded="true"] {
+  background: rgba(21, 122, 110, 0.18);
+}
+
+.sq-input[aria-invalid="true"],
+.sq-select[aria-invalid="true"],
+.sq-textarea[aria-invalid="true"] {
+  border-color: var(--sq-danger);
+}
+
+.sq-skip-link {
+  position: absolute;
+  left: var(--sq-space-4);
+  top: -48px;
+  z-index: var(--sq-z-toast);
+  padding: var(--sq-space-2) var(--sq-space-4);
+  border-radius: var(--sq-radius-sm);
+  background: var(--sq-surface);
+  box-shadow: var(--sq-shadow-md);
+}
+
+.sq-skip-link:focus {
+  top: var(--sq-space-2);
+}
+
+/* Confirm dialog (native <dialog>, non-blocking for the JS thread). */
+.sq-dialog {
+  max-width: min(480px, calc(100vw - 32px));
+  width: 100%;
+  border: 1px solid var(--sq-border);
+  border-radius: var(--sq-radius-lg);
+  background: var(--sq-surface);
+  color: var(--sq-text);
+  box-shadow: var(--sq-shadow-lg);
+  padding: var(--sq-space-6);
+}
+
+.sq-dialog::backdrop {
+  background: rgba(19, 16, 10, 0.42);
+}
+
+.sq-dialog__title {
+  margin: 0 0 var(--sq-space-2);
+  font-family: var(--sq-font-display);
+  font-size: 1.25rem;
+}
+
+.sq-dialog__message {
+  margin: 0 0 var(--sq-space-5);
+  color: var(--sq-text-muted);
+}
+
+/* Runner option state indicators (icon + text, not color only). */
+.sq-choice-card__state {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sq-space-1);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sq-choice-card__state--correct {
+  color: var(--sq-success);
+}
+
+.sq-choice-card__state--wrong {
+  color: var(--sq-danger);
+}
+
+.sq-choice-card--answer {
+  border-color: rgba(15, 157, 88, 0.45);
+  border-style: dashed;
+}
+
+.sq-navigator-item[aria-current="true"] {
+  outline: 2px solid rgba(15, 118, 110, 0.55);
+  outline-offset: 1px;
+}
+
+.sq-state-page {
+  min-height: 50vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sq-state-page__card {
+  max-width: 560px;
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+h1.sq-page-title {
+  margin: 0;
+}

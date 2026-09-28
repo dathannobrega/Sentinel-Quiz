@@ -1,8 +1,28 @@
+export interface ApiFieldError {
+  /** Dotted field path without the "body"/"query" prefix, e.g. "options.0.text". */
+  field: string;
+  message: string;
+  type?: string;
+}
+
 export interface ApiErrorPayload {
   code: string;
   message: string;
   details?: string;
   status?: number;
+  fieldErrors?: ApiFieldError[];
+  retryAfterSeconds?: number | null;
+  requestId?: string | null;
+}
+
+/** Error envelope returned by the backend (contract §1). */
+export interface ApiErrorEnvelope {
+  detail: string;
+  code: string;
+  message?: string;
+  errors?: Array<{ loc: Array<string | number>; msg: string; type: string }>;
+  details?: Record<string, unknown>;
+  request_id?: string;
 }
 
 export interface HealthResponse {
@@ -109,38 +129,41 @@ export interface ReadinessScore {
   weakest_domains: ReadinessDomainScore[];
 }
 
+/** LiveInsightOut: every field is always serialized by the backend. */
 export interface LiveInsight {
-  accuracy_percent?: number;
-  remaining_questions?: number;
-  current_correct_streak?: number;
-  weakest_area?: Record<string, unknown> | null;
-  message?: string;
+  accuracy_percent: number;
+  remaining_questions: number;
+  current_correct_streak: number;
+  weakest_area: Record<string, unknown> | null;
+  message: string;
 }
 
+/** ResultInsightOut: list/dict fields default to empty collections server-side. */
 export interface ResultInsight {
   summary: Record<string, unknown>;
-  by_type?: Record<string, unknown>;
-  by_domain?: Array<Record<string, unknown>>;
-  by_difficulty?: Array<Record<string, unknown>>;
-  by_certification?: Array<Record<string, unknown>>;
-  by_exam?: Array<Record<string, unknown>>;
-  weakest_domains?: WeakDomainInsight[];
-  strongest_domains?: Array<Record<string, unknown>>;
-  patterns?: string[];
-  focus?: string[];
-  study_plan?: StudyPlanItem[];
-  readiness?: ReadinessScore | null;
-  timing?: TimingBreakdown | null;
-  recommendation?: string | null;
-  missed_sample?: Array<Record<string, unknown>>;
-  live?: LiveInsight | null;
+  by_type: Record<string, unknown>;
+  by_domain: Array<Record<string, unknown>>;
+  by_difficulty: Array<Record<string, unknown>>;
+  by_certification: Array<Record<string, unknown>>;
+  by_exam: Array<Record<string, unknown>>;
+  weakest_domains: WeakDomainInsight[];
+  strongest_domains: Array<Record<string, unknown>>;
+  patterns: string[];
+  focus: string[];
+  study_plan: StudyPlanItem[];
+  readiness: ReadinessScore | null;
+  timing: TimingBreakdown | null;
+  recommendation: string | null;
+  missed_sample: Array<Record<string, unknown>>;
+  live: LiveInsight | null;
 }
 
+/** ExamRuntimeQuestionOut */
 export interface ExamRuntimeQuestion extends QuestionItem {
-  selected_keys?: string[];
-  is_answered?: boolean;
-  marked_for_review?: boolean;
-  elapsed_seconds?: number | null;
+  selected_keys: string[];
+  is_answered: boolean;
+  marked_for_review: boolean;
+  elapsed_seconds: number | null;
 }
 
 export interface ReviewScreenQuestionStatus {
@@ -162,20 +185,32 @@ export interface ExamReviewScreen {
   items: ReviewScreenQuestionStatus[];
 }
 
+export type TutorMode = "help" | "why_wrong" | "review";
+
 export interface TutorRequestPayload {
   user_message?: string | null;
-  mode?: "help" | "why_wrong" | "review";
+  mode?: TutorMode;
 }
 
 export interface TutorReply {
   message: string;
   blocked: boolean;
-  model?: string | null;
+  model: string | null;
 }
+
+/** Error codes the tutor endpoint can return (contract §3). */
+export type TutorErrorCode =
+  | "auth_required"
+  | "tutor_unavailable_during_exam"
+  | "tutor_quota_exceeded"
+  | "tutor_upstream_error";
+
+/** Issue reports are tied to the session type that surfaced the question. */
+export type QuestionIssueMode = "exam" | "study";
 
 export interface QuestionIssueRequest {
   session_id?: string | null;
-  mode: "exam" | "study" | "review";
+  mode: QuestionIssueMode;
   category: "gabarito" | "explicacao" | "referencia" | "clareza";
   message: string;
   question_version_id?: number | null;
@@ -220,15 +255,16 @@ export interface QuestionHint {
   references: PedagogicalReferenceItem[];
 }
 
+/** QuestionOut */
 export interface QuestionItem {
   id: string;
   exam_id: string;
   prompt: string;
   multi_select: boolean;
-  domain?: string | null;
-  difficulty?: string | null;
-  certification?: string | null;
-  tags?: string[] | null;
+  domain: string | null;
+  difficulty: string | null;
+  certification: string | null;
+  tags: string[] | null;
   options: OptionItem[];
 }
 
@@ -244,12 +280,14 @@ export interface DomainCatalogResponse {
   domains: DomainCatalogEntry[];
 }
 
+/** Bucket built by services/quiz.py (_bucket_template + label). */
 export interface WeakAreaDomain {
   label: string;
   total: number;
+  correct: number;
   wrong: number;
-  accuracy?: number;
-  wrong_rate?: number;
+  pedagogical_signal: number;
+  score_percent: number;
 }
 
 export interface WeakAreaTrack {
@@ -326,20 +364,26 @@ export interface StudyState {
   scope: string;
 }
 
+export type UserRole = "admin" | "reviewer" | "editor" | "student" | (string & {});
+
 export interface AuthUser {
   id: string;
   email: string;
-  display_name?: string | null;
-  role: string;
+  display_name: string | null;
+  role: UserRole;
   is_active: boolean;
   email_verified: boolean;
   created_at: string;
 }
 
+/**
+ * Login/register response. Since contract §2 the session lives in the HttpOnly cookie and
+ * `token` is omitted/null unless AUTH_RETURN_TOKEN_IN_BODY is enabled server-side.
+ */
 export interface AuthTokenResponse {
-  token: string;
-  token_type: string;
-  expires_at: string;
+  token?: string | null;
+  token_type?: string | null;
+  expires_at?: string | null;
   user: AuthUser;
 }
 
@@ -357,6 +401,7 @@ export interface PasswordResetRequest {
 }
 
 export type SessionMode = "exam" | "study";
+export type ExperienceMode = "standard" | "exam_day";
 export type ExamStrategy = "standard" | "adaptive";
 export type StudyStrategy = "standard" | "adaptive" | "review";
 
@@ -373,7 +418,7 @@ export interface SessionRequest {
   low_confidence_only?: boolean;
   strategy: ExamStrategy;
   time_limit_minutes?: number | null;
-  experience_mode?: "standard" | "exam_day";
+  experience_mode?: ExperienceMode;
 }
 
 export interface StudySessionRequest {
@@ -392,35 +437,59 @@ export interface StudySessionRequest {
   review_states?: string[] | null;
 }
 
+/** SessionOut / SessionStateOut (exam sessions). All fields are always serialized. */
 export interface SessionResponse {
   id: string;
   exam_id: string | null;
   selection_strategy: string;
   selection_mix: Record<string, number>;
-  active_filters?: Record<string, unknown>;
+  active_filters: Record<string, unknown>;
   total_questions: number;
   current_index: number;
-  current_position?: number;
+  current_position: number;
   correct_count: number;
   wrong_count: number;
-  answered_count?: number;
-  marked_for_review_count?: number;
-  experience_mode?: "standard" | "exam_day";
-  time_limit_seconds?: number | null;
-  remaining_seconds?: number | null;
-  expires_at?: string | null;
-  paused?: boolean;
-  pause_count?: number;
-  auto_submitted?: boolean;
+  answered_count: number;
+  marked_for_review_count: number;
+  experience_mode: ExperienceMode | (string & {});
+  time_limit_seconds: number | null;
+  remaining_seconds: number | null;
+  expires_at: string | null;
+  paused: boolean;
+  pause_count: number;
+  auto_submitted: boolean;
   finished: boolean;
 }
 
+/** StudySessionOut / StudySessionStateOut. */
+export interface StudySessionResponse {
+  id: string;
+  exam_id: string | null;
+  selection_strategy: string;
+  selection_mix: Record<string, number>;
+  total_questions: number;
+  current_index: number;
+  answered_count: number;
+  correct_count: number;
+  wrong_count: number;
+  finished: boolean;
+}
+
+/** Mark-for-review toggle response (exam_runtime.toggle_mark_for_review). */
+export interface MarkForReviewResponse {
+  question_id: string;
+  marked_for_review: boolean;
+  marked_for_review_count: number;
+  current_position: number;
+}
+
+/** SessionHistoryOut */
 export interface SessionHistoryItem {
   id: string;
-  exam_id?: string | null;
-  exam_title?: string | null;
-  created_at?: string | null;
-  completed_at?: string | null;
+  exam_id: string | null;
+  exam_title: string | null;
+  created_at: string | null;
+  completed_at: string | null;
   selection_strategy: string;
   selection_mix: Record<string, number>;
   total_questions: number;
@@ -589,39 +658,61 @@ export interface StudyWeeklyAnalytics {
   summary: StudyWeeklySummary;
 }
 
-export interface SessionQuestionResponse {
+/** ExamQuestionStateOut: optional fields are always present (null when unknown). */
+export interface ExamQuestionState {
   finished: boolean;
-  question?: ExamRuntimeQuestion;
-  progress_index?: number;
-  current_position?: number;
-  total_questions?: number;
-  answered_count?: number;
-  marked_for_review_count?: number;
-  experience_mode?: "standard" | "exam_day";
+  question: ExamRuntimeQuestion | null;
+  progress_index: number | null;
+  current_position: number | null;
+  total_questions: number | null;
+  answered_count: number | null;
+  marked_for_review_count: number | null;
+  experience_mode: ExperienceMode | (string & {}) | null;
 }
 
-export interface ExamAnswerFeedback {
+/** @deprecated use ExamQuestionState. Kept as an alias for older call sites. */
+export type SessionQuestionResponse = ExamQuestionState;
+
+/** GET /study/sessions/{id}/next (plain dict; keys are omitted when finished). */
+export interface StudyNextQuestionResponse {
+  finished: boolean;
+  question?: QuestionItem;
+  progress_index?: number;
+  total_questions?: number;
+  answered_count?: number;
+}
+
+interface AnswerFeedbackBase {
   is_correct: boolean;
-  justification?: string | null;
-  feedback_summary?: string | null;
+  justification: string | null;
+  feedback_summary: string | null;
   progress_index: number;
-  current_position?: number;
   total_questions: number;
   answered_count: number;
   correct_count: number;
   wrong_count: number;
-  marked_for_review_count?: number;
   finished: boolean;
-  official_references?: PedagogicalReferenceItem[];
-  insight?: LiveInsight | null;
+  official_references: PedagogicalReferenceItem[];
+  insight: LiveInsight | null;
+  /**
+   * Correct option keys. Not yet part of AnswerFeedbackOut; when the backend starts sending it
+   * the runner highlights the correct option(s) after answering.
+   */
+  correct_keys?: string[] | null;
 }
 
-export interface StudyAnswerFeedback extends ExamAnswerFeedback {
-  answered_count: number;
+/** AnswerFeedbackOut */
+export interface ExamAnswerFeedback extends AnswerFeedbackBase {
+  current_position: number | null;
+  marked_for_review_count: number;
+}
+
+/** StudyAnswerFeedbackOut */
+export interface StudyAnswerFeedback extends AnswerFeedbackBase {
   confidence_level: string;
   confidence_signal: string;
-  uncertain_correct?: boolean;
-  next_review_at?: string | null;
+  uncertain_correct: boolean;
+  next_review_at: string | null;
   review_due_count: number;
 }
 
@@ -635,9 +726,9 @@ export interface ExamResult {
   pass_threshold_percent: number;
   strategy: string;
   selection_mix: Record<string, number>;
-  time_limit_seconds?: number | null;
-  time_spent_seconds?: number | null;
-  timed_out?: boolean;
+  time_limit_seconds: number | null;
+  time_spent_seconds: number | null;
+  timed_out: boolean;
   insight: ResultInsight;
 }
 
@@ -652,24 +743,25 @@ export interface StudyResult {
   strategy: string;
   selection_mix: Record<string, number>;
   review_due_count: number;
-  placement_completed?: boolean;
+  placement_completed: boolean;
   insight: ResultInsight;
 }
 
+/** ReviewQuestionOut */
 export interface ReviewQuestion {
   id: string;
   prompt: string;
   multi_select: boolean;
-  domain?: string | null;
-  difficulty?: string | null;
-  certification?: string | null;
+  domain: string | null;
+  difficulty: string | null;
+  certification: string | null;
   options: OptionItem[];
   correct_keys: string[];
   selected_keys: string[];
-  is_correct?: boolean | null;
-  justification?: string | null;
-  tags?: string[] | null;
-  citations?: CitationItem[] | null;
+  is_correct: boolean | null;
+  justification: string | null;
+  tags: string[] | null;
+  citations: CitationItem[] | null;
 }
 
 export interface SessionReview {
@@ -678,11 +770,12 @@ export interface SessionReview {
   questions: ReviewQuestion[];
 }
 
+/** StudyReviewQuestionOut */
 export interface StudyReviewQuestion extends ReviewQuestion {
   question_number: number;
-  confidence_level?: string | null;
-  elapsed_seconds?: number | null;
-  answered_at?: string | null;
+  confidence_level: string | null;
+  elapsed_seconds: number | null;
+  answered_at: string | null;
 }
 
 export interface StudySessionReview {

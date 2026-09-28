@@ -130,6 +130,24 @@ export function ExamLauncher({
           </Field>
 
           {!isStudy ? (
+            <Field
+              label={t("launcher.fields.experienceMode")}
+              htmlFor="experience-mode"
+              hint={t("launcher.fields.experienceModeHint")}
+            >
+              <select
+                id="experience-mode"
+                className="sq-select"
+                value={values.experienceMode}
+                onChange={(event) => onChange("experienceMode", event.target.value as LaunchFormValues["experienceMode"])}
+              >
+                <option value="standard">{t("launcher.experienceModes.standard")}</option>
+                <option value="exam_day">{t("launcher.experienceModes.examDay")}</option>
+              </select>
+            </Field>
+          ) : null}
+
+          {!isStudy ? (
             <Field label={t("launcher.fields.timeMinutes")} htmlFor="time-limit-minutes">
               <input
                 id="time-limit-minutes"
