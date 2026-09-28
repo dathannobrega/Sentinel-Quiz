@@ -1,4 +1,5 @@
-import { getMessages, isSupportedLocale, type AppLocale } from "@/lib/i18n/core";
+import { getActiveLocale, setActiveLocale } from "@/lib/i18n/active-locale";
+import { getMessages, type AppLocale } from "@/lib/i18n/core";
 import type { ApiErrorPayload, ApiFieldError } from "@/types/api";
 
 /**
@@ -36,30 +37,15 @@ export function isUnauthorizedError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
 
-let activeLocale: AppLocale | null = null;
-
 /** Called by the I18nProvider so that client-side error messages follow the UI locale. */
 export function setApiErrorLocale(locale: AppLocale): void {
-  activeLocale = locale;
-}
-
-function resolveLocale(): AppLocale {
-  if (activeLocale) {
-    return activeLocale;
-  }
-  if (typeof document !== "undefined") {
-    const lang = document.documentElement.lang;
-    if (isSupportedLocale(lang)) {
-      return lang;
-    }
-  }
-  return "pt-BR";
+  setActiveLocale(locale);
 }
 
 type ApiMessageKey = keyof ReturnType<typeof getMessages>["api"];
 
 export function apiMessage(key: ApiMessageKey, values?: Record<string, string | number>): string {
-  const template = String(getMessages(resolveLocale()).api[key] ?? key);
+  const template = String(getMessages(getActiveLocale()).api[key] ?? key);
   if (!values) {
     return template;
   }

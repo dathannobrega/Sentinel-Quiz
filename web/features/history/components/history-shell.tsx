@@ -1,8 +1,9 @@
 "use client";
 
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { startTransition, useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,20 +14,27 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { Tabs } from "@/components/ui/tabs";
-import { ApiError, apiClient } from "@/lib/api/client";
+import { apiClient, readErrorMessage } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
+import {
+  useExamHistoryQuery,
+  useExamsQuery,
+  useReviewQueueQuery,
+  useSessionRole,
+  useStudyHistoryQuery,
+  useStudyWeeklyQuery
+} from "@/lib/query/hooks";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
 import type {
-  Exam,
   ReviewQueueGoals,
   ReviewQueueSnapshot,
   SessionHistoryItem,
-  SessionResponse,
   StudyHistoryItem,
   StudySessionRequest,
-  StudyWeeklyAnalytics
+  StudySessionResponse,
+  StudyWeeklyAnalytics,
+  StudyWeeklySummary
 } from "@/types/api";
 
 const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
@@ -56,15 +64,8 @@ const DEFAULT_WEEKLY_ANALYTICS: StudyWeeklyAnalytics = {
   summary: {}
 };
 
-function readHistoryError(error: unknown, fallbackMessage: string): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallbackMessage;
-}
+const EMPTY_EXAM_HISTORY: SessionHistoryItem[] = [];
+const EMPTY_STUDY_HISTORY: StudyHistoryItem[] = [];
 
 function normalizeSearch(value: string): string {
   return value.trim().toLowerCase();
@@ -115,12 +116,12 @@ function describeQueueState(
     : t("review.queueState.scheduled");
 }
 
-function buildReviewQueueQuery(
+function buildReviewQueueParams(
   examId: string,
   reviewState: string,
   bookmarksOnly: boolean,
   notesOnly: boolean
-): string {
+): URLSearchParams {
   const params = new URLSearchParams();
   if (examId) {
     params.set("exam_id", examId);
@@ -135,23 +136,14 @@ function buildReviewQueueQuery(
     params.set("notes_only", "true");
   }
   params.set("limit", "12");
-  const query = params.toString();
-  return query ? `?${query}` : "";
+  return params;
 }
 
 export function HistoryShell() {
   const { t } = useI18n();
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [isStartingReview, setIsStartingReview] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const { isStaff } = useSessionRole();
   const [pageNotice, setPageNotice] = useState<string | null>(null);
-
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
-  const [studyHistory, setStudyHistory] = useState<StudyHistoryItem[]>([]);
-  const [weeklyAnalytics, setWeeklyAnalytics] = useState<StudyWeeklyAnalytics>(DEFAULT_WEEKLY_ANALYTICS);
-  const [reviewQueue, setReviewQueue] = useState<ReviewQueueSnapshot>(DEFAULT_REVIEW_QUEUE);
 
   const [selectedExamId, setSelectedExamId] = useState("");
   const [minimumScore, setMinimumScore] = useState("0");
@@ -160,89 +152,44 @@ export function HistoryShell() {
   const [reviewBookmarksOnly, setReviewBookmarksOnly] = useState(false);
   const [reviewNotesOnly, setReviewNotesOnly] = useState(false);
 
+  const examsQuery = useExamsQuery();
+  const examHistoryQuery = useExamHistoryQuery(80);
+  const studyHistoryQuery = useStudyHistoryQuery(80);
+  const weeklyQuery = useStudyWeeklyQuery(8);
+  const reviewQueueParams = useMemo(
+    () => buildReviewQueueParams(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly),
+    [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly]
+  );
+  const reviewQueueQuery = useReviewQueueQuery(reviewQueueParams);
+
+  const exams = examsQuery.data ?? [];
+  const examHistory = examHistoryQuery.data ?? EMPTY_EXAM_HISTORY;
+  const studyHistory = studyHistoryQuery.data ?? EMPTY_STUDY_HISTORY;
+  const weeklyAnalytics = weeklyQuery.data ?? DEFAULT_WEEKLY_ANALYTICS;
+  const reviewQueue = reviewQueueQuery.data ?? DEFAULT_REVIEW_QUEUE;
+
+  const sections = [
+    { query: examsQuery, label: t("history.failedAreas.exams") },
+    { query: examHistoryQuery, label: t("history.failedAreas.examSessions") },
+    { query: studyHistoryQuery, label: t("history.failedAreas.study") },
+    { query: weeklyQuery, label: t("history.failedAreas.weekly") },
+    { query: reviewQueueQuery, label: t("history.failedAreas.reviewQueue") }
+  ];
+  const isLoading = sections.some((section) => section.query.isPending && section.query.isFetching);
+  const failedSections = sections.filter((section) => section.query.isError);
+  const loadError = failedSections.length
+    ? t("history.errors.partialLoad", { items: failedSections.map((section) => section.label).join(", ") })
+    : null;
+
+  function retryFailed() {
+    failedSections.forEach((section) => {
+      void section.query.refetch();
+    });
+  }
+
   const deferredSearch = useDeferredValue(searchValue);
   const normalizedSearch = normalizeSearch(deferredSearch);
   const minimumScoreValue = Number(minimumScore || 0);
-
-  const load = useEffectEvent(async () => {
-    setIsLoading(true);
-    setLoadError(null);
-
-    const results = await Promise.allSettled([
-      apiClient.get<Exam[]>("/exams"),
-      apiClient.get<SessionHistoryItem[]>("/sessions/history?limit=80"),
-      apiClient.get<StudyHistoryItem[]>("/study/history?limit=80"),
-      apiClient.get<StudyWeeklyAnalytics>("/study/analytics/weekly?weeks=8"),
-      apiClient.get<ReviewQueueSnapshot>(
-        `/study/review/queue${buildReviewQueueQuery(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly)}`
-      )
-    ]);
-
-    const failed: string[] = [];
-
-    if (results[0].status === "fulfilled") {
-      setExams(results[0].value);
-    } else {
-      setExams([]);
-      failed.push(t("history.failedAreas.exams"));
-    }
-
-    if (results[1].status === "fulfilled") {
-      setExamHistory(results[1].value);
-    } else {
-      setExamHistory([]);
-      failed.push(t("history.failedAreas.examSessions"));
-    }
-
-    if (results[2].status === "fulfilled") {
-      setStudyHistory(results[2].value);
-    } else {
-      setStudyHistory([]);
-      failed.push(t("history.failedAreas.study"));
-    }
-
-    if (results[3].status === "fulfilled") {
-      setWeeklyAnalytics(results[3].value);
-    } else {
-      setWeeklyAnalytics(DEFAULT_WEEKLY_ANALYTICS);
-      failed.push(t("history.failedAreas.weekly"));
-    }
-
-    if (results[4].status === "fulfilled") {
-      setReviewQueue(results[4].value);
-    } else {
-      setReviewQueue(DEFAULT_REVIEW_QUEUE);
-      failed.push(t("history.failedAreas.reviewQueue"));
-    }
-
-    if (failed.length) {
-      setLoadError(t("history.errors.partialLoad", { items: failed.join(", ") }));
-    }
-
-    setIsLoading(false);
-  });
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const refreshReviewQueue = useEffectEvent(async () => {
-    try {
-      const snapshot = await apiClient.get<ReviewQueueSnapshot>(
-        `/study/review/queue${buildReviewQueueQuery(selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly)}`
-      );
-      setReviewQueue(snapshot);
-    } catch (error) {
-      setPageNotice(readHistoryError(error, t("history.errors.loadHistory")));
-    }
-  });
-
-  useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-    void refreshReviewQueue();
-  }, [selectedExamId, reviewStateFilter, reviewBookmarksOnly, reviewNotesOnly, isLoading, refreshReviewQueue]);
 
   const filteredExamHistory = useMemo(() => {
     return examHistory.filter((item) => {
@@ -267,7 +214,8 @@ export function HistoryShell() {
 
   const examAverage = averageScore(filteredExamHistory);
   const studyAverage = averageScore(filteredStudyHistory);
-  const recommendation = String(weeklyAnalytics.summary.recommendation || "").trim();
+  const weeklySummary = weeklyAnalytics.summary as StudyWeeklySummary;
+  const recommendation = String(weeklySummary.recommendation || "").trim();
   const weeklyGoal: ReviewQueueGoals & {
     weekly_question_target?: number;
     weekly_new_question_target?: number;
@@ -279,46 +227,44 @@ export function HistoryShell() {
     daily_review_target: reviewQueue.goals.daily_review_target,
     weekly_review_target: reviewQueue.goals.weekly_review_target,
     new_question_budget: reviewQueue.goals.new_question_budget,
-    ...(weeklyAnalytics.summary.weekly_goal || {})
+    ...(weeklySummary.weekly_goal || {})
   };
-  const reviewForecast = weeklyAnalytics.summary.review_forecast;
+  const reviewForecast = weeklySummary.review_forecast;
 
-  async function startRecommendedReview() {
-    setIsStartingReview(true);
-    setPageNotice(null);
-
-    try {
-      const payload: StudySessionRequest = {
-        exam_id: selectedExamId || null,
-        total_questions: Math.max(reviewQueue.recommended_batch_size || 10, 1),
-        domains: null,
-        difficulties: null,
-        tags: null,
-        bookmarked_only: reviewBookmarksOnly,
-        notes_only: reviewNotesOnly,
-        incorrect_only: false,
-        unseen_only: false,
-        low_confidence_only: false,
-        strategy: "review",
-        queue_only: true,
-        review_states: reviewStateFilter ? [reviewStateFilter] : null
-      };
-
-      const response = await apiClient.post<SessionResponse>("/study/review/sessions", payload);
+  const startReviewMutation = useMutation({
+    mutationFn: (payload: StudySessionRequest) => apiClient.post<StudySessionResponse>("/study/review/sessions", payload),
+    onSuccess: (response) => {
       persistSessionId("study", response.id);
       startTransition(() => {
         router.push(`/study/${response.id}`);
       });
-    } catch (error) {
-      setPageNotice(readHistoryError(error, t("history.errors.loadHistory")));
-    } finally {
-      setIsStartingReview(false);
-    }
+    },
+    onError: (error) => setPageNotice(readErrorMessage(error, t("history.errors.loadHistory")))
+  });
+  const isStartingReview = startReviewMutation.isPending;
+
+  function startRecommendedReview() {
+    setPageNotice(null);
+    startReviewMutation.mutate({
+      exam_id: selectedExamId || null,
+      total_questions: Math.max(reviewQueue.recommended_batch_size || 10, 1),
+      domains: null,
+      difficulties: null,
+      tags: null,
+      bookmarked_only: reviewBookmarksOnly,
+      notes_only: reviewNotesOnly,
+      incorrect_only: false,
+      unseen_only: false,
+      low_confidence_only: false,
+      strategy: "review",
+      queue_only: true,
+      review_states: reviewStateFilter ? [reviewStateFilter] : null
+    });
   }
 
   if (isLoading) {
     return (
-      <main className="sq-app-shell">
+      <main className="sq-app-shell" aria-busy="true">
         <div className="sq-page-stack">
           <Skeleton height={180} />
           <Skeleton height={320} />
@@ -358,16 +304,20 @@ export function HistoryShell() {
                   href={resolveExamResultHref(item)}
                   className="sq-list-item sq-list-link"
                 >
-                  <div className="sq-list-title">{item.exam_title || item.exam_id || "Sessao mista"}</div>
+                  <div className="sq-list-title">{item.exam_title || item.exam_id || t("history.labels.mixedSession")}</div>
                   <div className="sq-list-meta">
-                    {formatScore(item.score_percent)} · {item.correct_count}/{item.total_questions} corretas ·{" "}
-                    {formatDateTime(item.completed_at)}
+                    {t("history.labels.examMeta", {
+                      score: formatScore(item.score_percent),
+                      correct: item.correct_count,
+                      total: item.total_questions,
+                      date: formatDateTime(item.completed_at)
+                    })}
                   </div>
                 </Link>
               ))}
             </div>
           ) : (
-            <EmptyState description="Nenhum simulado encontrado para os filtros atuais." />
+            <EmptyState description={t("history.labels.noExams")} />
           )}
         </Card>
 
@@ -380,10 +330,13 @@ export function HistoryShell() {
                   href={resolveStudyResultHref(item)}
                   className="sq-list-item sq-list-link"
                 >
-                  <div className="sq-list-title">{item.exam_title || item.exam_id || "Bloco misto"}</div>
+                  <div className="sq-list-title">{item.exam_title || item.exam_id || t("history.labels.mixedBlock")}</div>
                   <div className="sq-list-meta">
-                    {formatScore(item.score_percent)} · estrategia {item.selection_strategy} ·{" "}
-                    {formatDateTime(item.completed_at)}
+                    {t("history.labels.studyMeta", {
+                      score: formatScore(item.score_percent),
+                      strategy: item.selection_strategy,
+                      date: formatDateTime(item.completed_at)
+                    })}
                   </div>
                   {item.weakest_domains.length ? (
                     <div className="sq-chip-row sq-gap-top-sm">
@@ -398,7 +351,7 @@ export function HistoryShell() {
               ))}
             </div>
           ) : (
-            <EmptyState description="Nenhum bloco de estudo encontrado para os filtros atuais." />
+            <EmptyState description={t("history.labels.noStudies")} />
           )}
         </Card>
       </div>
@@ -427,11 +380,13 @@ export function HistoryShell() {
           <div className="sq-list sq-gap-top-md">
             <div className="sq-list-item">
               <div className="sq-list-title">
-                {weeklyGoal.on_track === false ? "Voce esta abaixo da meta" : "Ritmo semanal em linha"}
+                {weeklyGoal.on_track === false ? t("history.labels.belowGoal") : t("history.labels.onTrack")}
               </div>
               <div className="sq-list-meta">
-                Proximo passo: {weeklyGoal.suggested_daily_question_target || 0} nova(s) +{" "}
-                {weeklyGoal.suggested_daily_review_target || weeklyGoal.daily_review_target || 0} revisao(oes) por dia.
+                {t("history.labels.nextStepDaily", {
+                  newCount: weeklyGoal.suggested_daily_question_target || 0,
+                  reviewCount: weeklyGoal.suggested_daily_review_target || weeklyGoal.daily_review_target || 0
+                })}
               </div>
             </div>
           </div>
@@ -442,7 +397,7 @@ export function HistoryShell() {
             <MetricCard label={t("history.reviewPanel.dueInSevenDays")} value={reviewForecast?.projected_due_next_7_days || 0} />
             <MetricCard label={t("history.reviewPanel.enteringRisk")} value={reviewForecast?.projected_at_risk_next_7_days || 0} />
             <MetricCard label={t("history.reviewPanel.peakDay")} value={reviewForecast?.peak_load_day || 0} />
-            <MetricCard label={t("history.reviewPanel.pressure")} value={String(reviewForecast?.pressure || "estavel")} />
+            <MetricCard label={t("history.reviewPanel.pressure")} value={String(reviewForecast?.pressure || t("history.labels.pressureDefault"))} />
           </div>
 
           {reviewQueue.upcoming_load.length ? (
@@ -451,13 +406,13 @@ export function HistoryShell() {
                 <div key={day.date} className="sq-list-item">
                   <div className="sq-list-title">{day.label}</div>
                   <div className="sq-list-meta">
-                    {day.due_count} vencendo · {day.at_risk_count} entrando em risco
+                    {t("history.labels.forecastDay", { due: day.due_count, risk: day.at_risk_count })}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <EmptyState className="sq-gap-top-md" size="compact" description="Sem carga futura relevante no momento." />
+            <EmptyState className="sq-gap-top-md" size="compact" description={t("history.labels.noUpcoming")} />
           )}
         </Card>
       </div>
@@ -471,7 +426,7 @@ export function HistoryShell() {
             size="sm"
             busy={isStartingReview}
             disabled={!reviewQueue.items.length}
-            onClick={() => void startRecommendedReview()}
+            onClick={startRecommendedReview}
           >
             {t("common.actions.reviewNow")}
           </Button>
@@ -494,9 +449,10 @@ export function HistoryShell() {
             </select>
           </Field>
 
-          <Field label={t("review.filters.refine")} htmlFor="review-bookmark-toggle">
+          <fieldset className="sq-field" style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend className="sq-field-label">{t("review.filters.refine")}</legend>
             <div className="sq-checkbox-grid">
-              <label id="review-bookmark-toggle" className="sq-checkbox-row">
+              <label className="sq-checkbox-row">
                 <input
                   type="checkbox"
                   checked={reviewBookmarksOnly}
@@ -509,7 +465,7 @@ export function HistoryShell() {
                 {t("review.filters.notesOnly")}
               </label>
             </div>
-          </Field>
+          </fieldset>
         </div>
 
         {reviewQueue.items.length ? (
@@ -546,17 +502,21 @@ export function HistoryShell() {
                 <div>
                   <div className="sq-list-title">{week.label}</div>
                   <div className="sq-progress-meta">
-                    Estudo: {week.study_questions} · Revisao: {week.review_questions} · Sessoes: {week.completed_sessions}
+                    {t("history.labels.weekMeta", {
+                      study: week.study_questions,
+                      review: week.review_questions,
+                      sessions: week.completed_sessions
+                    })}
                   </div>
                 </div>
-                <div className="sq-progress-meta">{week.accuracy_percent}% de precisao</div>
+                <div className="sq-progress-meta">{t("history.labels.weekAccuracy", { value: week.accuracy_percent })}</div>
               </div>
               <ProgressBar value={week.accuracy_percent} />
             </div>
           ))}
         </div>
       ) : (
-        <EmptyState description="Sem dados semanais suficientes ainda." />
+        <EmptyState description={t("history.labels.noWeeks")} />
       )}
     </Card>
   );
@@ -570,7 +530,7 @@ export function HistoryShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">{t("history.header.title")}</div>
+              <h1 className="sq-page-title">{t("history.header.title")}</h1>
               <p className="sq-page-subtitle">{t("history.header.subtitle")}</p>
             </div>
           </div>
@@ -578,12 +538,26 @@ export function HistoryShell() {
             <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
             <Link href="/start">{t("common.actions.newSession")}</Link>
             <Link href="/review">{t("common.labels.review")}</Link>
-            <Link href="/admin">{t("common.labels.admin")}</Link>
+            {isStaff ? <Link href="/admin">{t("common.labels.admin")}</Link> : null}
           </div>
         </header>
 
-        {loadError ? <StatusBanner tone="warning" title={t("common.errors.partialLoad")} message={loadError} /> : null}
-        {pageNotice ? <StatusBanner tone="warning" title={t("common.errors.attention")} message={pageNotice} /> : null}
+        {loadError ? (
+          <StatusBanner
+            tone="warning"
+            role="alert"
+            title={t("common.errors.partialLoad")}
+            message={loadError}
+            action={
+              <Button variant="ghost" size="sm" onClick={retryFailed}>
+                {t("common.actions.retry")}
+              </Button>
+            }
+          />
+        ) : null}
+        {pageNotice ? (
+          <StatusBanner tone="warning" role="alert" title={t("common.errors.attention")} message={pageNotice} />
+        ) : null}
 
         <Card title={t("history.filters.title")} subtitle={t("history.filters.subtitle")}>
           <div className="sq-form-grid">

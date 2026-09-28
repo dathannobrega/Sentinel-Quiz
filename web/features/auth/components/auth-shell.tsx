@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { ApiError } from "@/lib/api/client";
-import { fetchCurrentUser, loginUser, logoutUser, registerUser, requestEmailVerification } from "@/lib/auth/session";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { ApiError, readErrorMessage } from "@/lib/api/client";
+import { requestEmailVerification, sanitizeNextPath } from "@/lib/auth/session";
 import { useI18n } from "@/lib/i18n";
-import type { AuthUser } from "@/types/api";
+import { useCurrentUser, useLoginMutation, useLogoutMutation, useRegisterMutation } from "@/lib/query/hooks";
 
 type AuthMode = "login" | "register";
 type NoticeTone = "neutral" | "success" | "warning" | "danger";
@@ -28,78 +27,61 @@ function toNotice(tone: NoticeTone, title: string, message: string): NoticeState
   return { tone, title, message };
 }
 
-function readAuthError(error: unknown, fallbackMessage: string): string {
-  if (error instanceof ApiError) {
-    return error.message;
+function fieldError(error: unknown, field: string): string | undefined {
+  if (!(error instanceof ApiError)) {
+    return undefined;
   }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallbackMessage;
+  return error.fieldErrors.find((item) => item.field === field || item.field.endsWith(`.${field}`))?.message;
 }
 
 export function AuthShell({ mode }: { mode: AuthMode }) {
   const { t, getMessage } = useI18n();
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<"submit" | "logout" | "resend" | null>(null);
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const searchParams = useSearchParams();
+  const nextPath = sanitizeNextPath(searchParams.get("next")) ?? "/dashboard";
+  const currentUserQuery = useCurrentUser();
+  const loginMutation = useLoginMutation();
+  const registerMutation = useRegisterMutation();
+  const logoutMutation = useLogoutMutation();
+  const [isResending, setIsResending] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [submitError, setSubmitError] = useState<unknown>(null);
   const [loginValues, setLoginValues] = useState({ email: "", password: "" });
   const [registerValues, setRegisterValues] = useState({ displayName: "", email: "", password: "" });
   const stats = getMessage<Array<{ label: string; value: string; meta: string }>>("auth.stats");
   const flowSteps = getMessage<Array<{ title: string; description: string }>>("auth.flow.steps");
 
-  const syncSession = useEffectEvent(async () => {
-    setIsLoading(true);
-    setNotice(null);
-    try {
-      setCurrentUser(await fetchCurrentUser());
-    } catch (error) {
-      setCurrentUser(null);
-      setNotice(toNotice("warning", t("auth.notices.sessionUnavailable"), readAuthError(error, t("auth.errors.authUnavailable"))));
-    } finally {
-      setIsLoading(false);
-    }
-  });
+  const currentUser = currentUserQuery.data ?? null;
+  const isSubmitting = loginMutation.isPending || registerMutation.isPending;
+  const sessionNotice =
+    currentUserQuery.isError && !notice
+      ? toNotice(
+          "warning",
+          t("auth.notices.sessionUnavailable"),
+          readErrorMessage(currentUserQuery.error, t("auth.errors.authUnavailable"))
+        )
+      : null;
 
-  useEffect(() => {
-    void syncSession();
-  }, []);
-
-  async function handleSubmit() {
+  function handleSubmit() {
     const values = mode === "login" ? loginValues : registerValues;
     const email = values.email.trim();
-    const password = values.password.trim();
+    // Passwords are sent exactly as typed (spaces are significant).
+    const password = values.password;
 
     if (!email || !password) {
-      setNotice(
-        toNotice("warning", t("common.errors.requiredFields"), t("auth.form.requiredMessage"))
-      );
+      setNotice(toNotice("warning", t("common.errors.requiredFields"), t("auth.form.requiredMessage")));
       return;
     }
 
     if (mode === "register" && password.length < 8) {
-      setNotice(
-        toNotice("warning", t("common.errors.invalidPassword"), t("auth.form.invalidPasswordMessage"))
-      );
+      setNotice(toNotice("warning", t("common.errors.invalidPassword"), t("auth.form.invalidPasswordMessage")));
       return;
     }
 
-    setPendingAction("submit");
     setNotice(null);
+    setSubmitError(null);
 
-    try {
-      const user =
-        mode === "login"
-          ? await loginUser({ email, password })
-          : await registerUser({
-              email,
-              password,
-              display_name: registerValues.displayName.trim() || null
-            });
-
-      setCurrentUser(user);
+    const onSuccess = () => {
       setNotice(
         toNotice(
           "success",
@@ -107,54 +89,52 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
           t("auth.notices.localMerged")
         )
       );
-      router.push("/dashboard");
+      router.push(nextPath);
       router.refresh();
-    } catch (error) {
-      setNotice(toNotice("danger", t("common.errors.authFailure"), readAuthError(error, t("auth.errors.authUnavailable"))));
-    } finally {
-      setPendingAction(null);
+    };
+    const onError = (error: unknown) => {
+      setSubmitError(error);
+      setNotice(toNotice("danger", t("common.errors.authFailure"), readErrorMessage(error, t("auth.errors.authUnavailable"))));
+    };
+
+    if (mode === "login") {
+      loginMutation.mutate({ email, password }, { onSuccess, onError });
+    } else {
+      registerMutation.mutate(
+        { email, password, display_name: registerValues.displayName.trim() || null },
+        { onSuccess, onError }
+      );
     }
   }
 
-  async function handleLogout() {
-    setPendingAction("logout");
+  function handleLogout() {
     setNotice(null);
-    try {
-      await logoutUser();
-      setCurrentUser(null);
-      setNotice(toNotice("success", t("auth.notices.loggedOut"), t("auth.notices.localMode")));
-    } catch (error) {
-      setNotice(toNotice("danger", t("auth.notices.logoutFailed"), readAuthError(error, t("auth.errors.authUnavailable"))));
-    } finally {
-      setPendingAction(null);
-    }
+    logoutMutation.mutate(undefined, {
+      onSuccess: () => setNotice(toNotice("success", t("auth.notices.loggedOut"), t("auth.notices.localMode"))),
+      onError: (error) =>
+        setNotice(toNotice("danger", t("auth.notices.logoutFailed"), readErrorMessage(error, t("auth.errors.authUnavailable"))))
+    });
   }
 
   async function handleResendVerification() {
     if (!currentUser) {
       return;
     }
-    setPendingAction("resend");
+    setIsResending(true);
     setNotice(null);
     try {
       await requestEmailVerification({ email: currentUser.email });
-      setNotice(
-        toNotice(
-          "success",
-          t("auth.notices.verificationResent"),
-          t("auth.notices.verificationResentMessage")
-        )
-      );
+      setNotice(toNotice("success", t("auth.notices.verificationResent"), t("auth.notices.verificationResentMessage")));
     } catch (error) {
-      setNotice(toNotice("danger", t("auth.notices.resendFailed"), readAuthError(error, t("auth.errors.authUnavailable"))));
+      setNotice(toNotice("danger", t("auth.notices.resendFailed"), readErrorMessage(error, t("auth.errors.authUnavailable"))));
     } finally {
-      setPendingAction(null);
+      setIsResending(false);
     }
   }
 
-  if (isLoading) {
+  if (currentUserQuery.isPending) {
     return (
-      <main className="sq-app-shell">
+      <main className="sq-app-shell" aria-busy="true">
         <div className="sq-page-stack">
           <Skeleton height={180} />
           <div className="sq-grid-2">
@@ -167,6 +147,7 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
   }
 
   const isLogin = mode === "login";
+  const activeNotice = notice ?? sessionNotice;
 
   return (
     <main className="sq-app-shell">
@@ -183,9 +164,7 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
         >
           <div className="sq-hero-copy">
             <div className="sq-eyebrow">{isLogin ? t("auth.hero.loginEyebrow") : t("auth.hero.registerEyebrow")}</div>
-            <h1 className="sq-hero-title">
-              {isLogin ? t("auth.hero.loginTitle") : t("auth.hero.registerTitle")}
-            </h1>
+            <h1 className="sq-hero-title">{isLogin ? t("auth.hero.loginTitle") : t("auth.hero.registerTitle")}</h1>
             <p className="sq-hero-lead">{t("auth.hero.lead")}</p>
           </div>
 
@@ -203,14 +182,24 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
         <div className="sq-grid-2">
           <Card
             title={isLogin ? t("auth.form.loginTitle") : t("auth.form.registerTitle")}
-            subtitle={
-              isLogin
-                ? t("auth.form.loginSubtitle")
-                : t("auth.form.registerSubtitle")
-            }
+            subtitle={isLogin ? t("auth.form.loginSubtitle") : t("auth.form.registerSubtitle")}
           >
             <div className="sq-surface-block">
-              {notice ? <StatusBanner tone={notice.tone} title={notice.title} message={notice.message} /> : null}
+              {activeNotice ? (
+                <StatusBanner
+                  tone={activeNotice.tone}
+                  title={activeNotice.title}
+                  message={activeNotice.message}
+                  role={activeNotice.tone === "danger" ? "alert" : "status"}
+                  action={
+                    activeNotice === sessionNotice ? (
+                      <Button variant="ghost" size="sm" onClick={() => void currentUserQuery.refetch()}>
+                        {t("common.actions.retry")}
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              ) : null}
 
               {currentUser ? (
                 <div className="sq-surface-block">
@@ -225,15 +214,15 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                   </div>
 
                   <div className="sq-actions" style={{ marginTop: "var(--sq-space-4)" }}>
-                    <Link href="/dashboard" className="sq-button sq-button--md sq-button--primary">
+                    <Link href={nextPath} className="sq-button sq-button--md sq-button--primary">
                       {t("common.actions.goToDashboard")}
                     </Link>
                     {!currentUser.email_verified ? (
-                      <Button variant="ghost" busy={pendingAction === "resend"} onClick={() => void handleResendVerification()}>
+                      <Button variant="ghost" busy={isResending} onClick={() => void handleResendVerification()}>
                         {t("common.actions.resendVerification")}
                       </Button>
                     ) : null}
-                    <Button variant="ghost" busy={pendingAction === "logout"} onClick={() => void handleLogout()}>
+                    <Button variant="ghost" busy={logoutMutation.isPending} onClick={handleLogout}>
                       {t("common.actions.signOut")}
                     </Button>
                   </div>
@@ -243,12 +232,17 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                   className="sq-surface-block"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    void handleSubmit();
+                    handleSubmit();
                   }}
                   noValidate
                 >
                   {!isLogin ? (
-                    <Field label={t("auth.form.name")} htmlFor="auth-display-name" hint={t("auth.form.nameHint")}>
+                    <Field
+                      label={t("auth.form.name")}
+                      htmlFor="auth-display-name"
+                      hint={t("auth.form.nameHint")}
+                      error={fieldError(submitError, "display_name")}
+                    >
                       <input
                         id="auth-display-name"
                         className="sq-input"
@@ -262,12 +256,13 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                     </Field>
                   ) : null}
 
-                  <Field label={t("auth.form.email")} htmlFor="auth-email">
+                  <Field label={t("auth.form.email")} htmlFor="auth-email" error={fieldError(submitError, "email")}>
                     <input
                       id="auth-email"
                       className="sq-input"
                       type="email"
                       autoComplete="email"
+                      required
                       value={isLogin ? loginValues.email : registerValues.email}
                       onChange={(event) => {
                         const nextValue = event.target.value;
@@ -284,12 +279,15 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                     label={t("auth.form.password")}
                     htmlFor="auth-password"
                     hint={isLogin ? t("auth.form.loginPasswordHint") : t("auth.form.registerPasswordHint")}
+                    error={fieldError(submitError, "password")}
                   >
                     <input
                       id="auth-password"
                       className="sq-input"
                       type="password"
                       autoComplete={isLogin ? "current-password" : "new-password"}
+                      required
+                      minLength={isLogin ? undefined : 8}
                       value={isLogin ? loginValues.password : registerValues.password}
                       onChange={(event) => {
                         const nextValue = event.target.value;
@@ -303,11 +301,11 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                   </Field>
 
                   <div className="sq-actions">
-                    <Button type="submit" busy={pendingAction === "submit"}>
+                    <Button type="submit" busy={isSubmitting}>
                       {isLogin ? t("common.actions.signIn") : t("common.actions.createAccount")}
                     </Button>
                     <Link
-                      href={isLogin ? "/register" : "/login"}
+                      href={`${isLogin ? "/register" : "/login"}${searchParams.get("next") ? `?next=${encodeURIComponent(nextPath)}` : ""}`}
                       className="sq-button sq-button--md sq-button--ghost"
                     >
                       {isLogin ? t("auth.form.goToRegister") : t("common.actions.alreadyHaveAccount")}
@@ -323,10 +321,7 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
             </div>
           </Card>
 
-          <Card
-            title={t("auth.flow.title")}
-            subtitle={t("auth.flow.subtitle")}
-          >
+          <Card title={t("auth.flow.title")} subtitle={t("auth.flow.subtitle")}>
             <div className="sq-list">
               {flowSteps.map((item) => (
                 <div key={item.title} className="sq-list-item">

@@ -9,7 +9,9 @@ export const dashboard = {
     review: "review",
     history: "history",
     examSessions: "simulation sessions",
-    studySessions: "study sessions"
+    studySessions: "study sessions",
+    readiness: "readiness",
+    studyPlan: "study plan"
   },
   modes: {
     examMixed: "Mixed simulation",
@@ -25,7 +27,9 @@ export const dashboard = {
     dueReviews: "Expired reviews",
     dailyProgress: "Daily progress",
     latestScore: "Last score",
-    nextStep: "Next step"
+    nextStep: "Next step",
+    readiness: "Readiness",
+    projection: "projection {value}"
   },
   continueCard: {
     title: "Continue",
@@ -58,5 +62,13 @@ export const dashboard = {
     reviewBacklog: "Backlog",
     weeklyProgress: "Weekly goal",
     reviewGoal: "Review goal"
+  },
+  masteryCard: {
+    title: "Mastery by domain",
+    subtitle: "Readiness now shows gaps per domain, with accuracy, confidence and pace.",
+    accuracy: "accuracy {value}",
+    attempts: "{count} attempt(s)",
+    pace: "pace {value}",
+    lowConfidence: "low confidence {count}"
   }
 } as const;

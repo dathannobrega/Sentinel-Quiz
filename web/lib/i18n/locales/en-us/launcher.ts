@@ -8,6 +8,8 @@ export const launcher = {
     mode: "Mode",
     questions: "Questions",
     timeMinutes: "Time (min)",
+    experienceMode: "Experience",
+    experienceModeHint: "Exam day simulates the real test: no instant feedback, tutor or hints until you submit.",
     advancedFilters: "Advanced filters",
     domain: "Domain",
     strategy: "Strategy",
@@ -51,6 +53,10 @@ export const launcher = {
         summary: "Manually adjust the filters and assemble a custom block."
       }
     }
+  },
+  experienceModes: {
+    standard: "Standard (with feedback)",
+    examDay: "Exam day"
   },
   filters: {
     bookmarked: "Marked",

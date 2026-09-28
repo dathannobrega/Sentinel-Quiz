@@ -3,7 +3,7 @@
 import { createContext, startTransition, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
-import { setApiErrorLocale } from "@/lib/api/errors";
+import { setActiveLocale as setModuleLocale } from "@/lib/i18n/active-locale";
 import {
   createTranslator,
   getMessages,
@@ -71,8 +71,8 @@ export function I18nProvider({
   const [activeLocale, setActiveLocale] = useState<AppLocale>(locale);
   const messages = useMemo(() => getMessages(activeLocale), [activeLocale]);
 
-  // Keep module-level consumers (apiClient error messages) in sync during render.
-  setApiErrorLocale(activeLocale);
+  // Keep module-level consumers (apiClient error messages, date formatting) in sync during render.
+  setModuleLocale(activeLocale);
 
   useEffect(() => {
     setActiveLocale(locale);

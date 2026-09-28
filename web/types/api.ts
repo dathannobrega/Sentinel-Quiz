@@ -364,7 +364,7 @@ export interface StudyState {
   scope: string;
 }
 
-export type UserRole = "admin" | "reviewer" | "editor" | "user" | (string & {});
+export type UserRole = "admin" | "reviewer" | "editor" | "student" | (string & {});
 
 export interface AuthUser {
   id: string;

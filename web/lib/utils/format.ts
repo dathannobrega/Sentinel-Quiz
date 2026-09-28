@@ -1,30 +1,31 @@
-export function formatDateTime(value?: string | null): string {
+import { getActiveLocale } from "@/lib/i18n/active-locale";
+import { getMessages, type AppLocale } from "@/lib/i18n/core";
+
+function parseDate(value?: string | null): Date | null {
   if (!value) {
-    return "-";
+    return null;
   }
-
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function formatDateTime(value?: string | null, locale: AppLocale = getActiveLocale()): string {
+  const parsed = parseDate(value);
+  if (!parsed) {
     return "-";
   }
-
-  return parsed.toLocaleString("pt-BR", {
+  return parsed.toLocaleString(locale, {
     dateStyle: "short",
     timeStyle: "short"
   });
 }
 
-export function formatDate(value?: string | null): string {
-  if (!value) {
+export function formatDate(value?: string | null, locale: AppLocale = getActiveLocale()): string {
+  const parsed = parseDate(value);
+  if (!parsed) {
     return "-";
   }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "-";
-  }
-
-  return parsed.toLocaleDateString("pt-BR");
+  return parsed.toLocaleDateString(locale);
 }
 
 export function formatScore(value?: number | null): string {
@@ -34,6 +35,8 @@ export function formatScore(value?: number | null): string {
   return `${Number(value).toFixed(1)}%`;
 }
 
-export function formatScope(scope: string): string {
-  return scope === "user" ? "Conta sincronizada" : "Dispositivo local";
+/** "user" → synced account, anything else → this device only (localized). */
+export function formatScope(scope: string, locale: AppLocale = getActiveLocale()): string {
+  const labels = getMessages(locale).account.scope;
+  return scope === "user" ? labels.user : labels.device;
 }

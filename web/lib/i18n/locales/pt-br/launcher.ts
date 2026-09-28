@@ -8,6 +8,8 @@ export const launcher = {
     mode: "Modo",
     questions: "Questões",
     timeMinutes: "Tempo (min)",
+    experienceMode: "Experiência",
+    experienceModeHint: "Modo prova simula o dia do exame: sem correção instantânea, sem tutor e sem dicas até o envio final.",
     advancedFilters: "Filtros avançados",
     domain: "Domínio",
     strategy: "Estratégia",
@@ -51,6 +53,10 @@ export const launcher = {
         summary: "Ajuste manualmente os filtros e monte um bloco sob medida."
       }
     }
+  },
+  experienceModes: {
+    standard: "Padrão (com correção)",
+    examDay: "Modo prova (dia do exame)"
   },
   filters: {
     bookmarked: "Marcadas",

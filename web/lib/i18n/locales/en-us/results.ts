@@ -38,6 +38,7 @@ export const results = {
     studyTitle: "{score} study performance",
     examTitle: "score {score} · readiness {readiness}",
     strategySubtitle: "Strategy {strategy}.",
+    minutes: "{value} min",
     score: "Score",
     readiness: "Readiness",
     correct: "Hits",
@@ -65,7 +66,8 @@ export const results = {
     byDomain: "Domain by domain",
     accuracy: "hit {value}",
     pace: "rhythm {value}",
-    lowConfidence: "low confidence {count}"
+    lowConfidence: "low confidence {count}",
+    attempts: "{count} attempt(s)"
   },
   timingCard: {
     title: "Session rhythm",
@@ -79,7 +81,8 @@ export const results = {
     title: "Recommended plan (15-45 min)",
     subtitle: "Prioritize the highest friction domains and jump straight into focused review.",
     openReview: "Start review",
-    openReferences: "Open references"
+    openReferences: "Open references",
+    itemTitle: "{domain} · {wrong}/{total} wrong · {score}"
   },
   tutor: {
     title: "Question tutor",
@@ -89,7 +92,13 @@ export const results = {
     loading: "Consulting tutor...",
     unavailable: "Tutor unavailable",
     blocked: "Tutor blocked this review",
-    answered: "Tutor replied"
+    answered: "Tutor replied",
+    authRequired: "Sign in to use the AI tutor.",
+    lockedDuringExam: "The tutor becomes available after the exam is finished.",
+    quotaExceeded: "You reached the tutor's daily quota. Try again tomorrow.",
+    quotaExceededRetry: "You reached the tutor quota. Try again in {seconds}s.",
+    upstream: "The AI tutor is temporarily unavailable. Please try again shortly.",
+    signIn: "Sign in to use the tutor"
   },
   issueReport: {
     title: "Report issue",
@@ -99,6 +108,8 @@ export const results = {
     reference: "Reference",
     send: "Send report",
     success: "Report sent to the editorial backlog.",
-    failure: "Unable to report this issue now."
+    failure: "Unable to report this issue now.",
+    categoryLabel: "Report category",
+    messageLabel: "Describe the problem (min. 8 characters)"
   }
 } as const;

@@ -1,4 +1,4 @@
-import type { ExamStrategy, SessionMode } from "@/types/api";
+import type { ExamStrategy, ExperienceMode, SessionMode } from "@/types/api";
 
 export type LaunchPresetKey = "placement" | "daily_review" | "quick_15" | "comptia_exam" | "sprint_25" | "risk_focus" | "custom";
 
@@ -22,6 +22,7 @@ export interface LaunchFormValues {
   lowConfidenceOnly: boolean;
   mode: SessionMode;
   examStrategy: ExamStrategy;
+  experienceMode: ExperienceMode;
   studyStrategy: "standard" | "adaptive";
   totalQuestions: number;
   timeLimitMinutes: number;

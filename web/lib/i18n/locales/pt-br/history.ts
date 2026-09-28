@@ -59,5 +59,22 @@ export const history = {
   weeksPanel: {
     title: "Ritmo semanal",
     subtitle: "Volume, revisões e qualidade por semana."
+  },
+  labels: {
+    mixedSession: "Sessão mista",
+    mixedBlock: "Bloco misto",
+    noExams: "Nenhum simulado encontrado para os filtros atuais.",
+    noStudies: "Nenhum bloco de estudo encontrado para os filtros atuais.",
+    examMeta: "{score} · {correct}/{total} corretas · {date}",
+    studyMeta: "{score} · estratégia {strategy} · {date}",
+    belowGoal: "Você está abaixo da meta",
+    onTrack: "Ritmo semanal em linha",
+    nextStepDaily: "Próximo passo: {newCount} nova(s) + {reviewCount} revisão(ões) por dia.",
+    pressureDefault: "estável",
+    forecastDay: "{due} vencendo · {risk} entrando em risco",
+    noUpcoming: "Sem carga futura relevante no momento.",
+    weekMeta: "Estudo: {study} · Revisão: {review} · Sessões: {sessions}",
+    weekAccuracy: "{value}% de precisão",
+    noWeeks: "Sem dados semanais suficientes ainda."
   }
 } as const;

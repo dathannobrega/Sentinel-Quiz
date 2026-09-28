@@ -1,26 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { apiClient } from "@/lib/api/client";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
 import { useI18n } from "@/lib/i18n";
-import { useStudyPlanQuery } from "@/lib/query/hooks";
+import {
+  useActiveExamSessionsQuery,
+  useActiveStudySessionsQuery,
+  useEngagementQuery,
+  useExamHistoryQuery,
+  useReadinessQuery,
+  useStudyOverviewQuery,
+  useStudyPlanQuery,
+  useWeakAreasQuery
+} from "@/lib/query/hooks";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
-import type {
-  ActiveSessionItem,
-  EngagementSnapshot,
-  ReadinessScore,
-  SessionHistoryItem,
-  StudyOverview,
-  WeakAreasResponse
-} from "@/types/api";
+import type { EngagementSnapshot, StudyOverview } from "@/types/api";
 
 const DEFAULT_STUDY_OVERVIEW: StudyOverview = {
   scope: "device",
@@ -55,113 +56,55 @@ function formatSecondsMetric(value: number | null | undefined): string {
 
 export function DashboardShell() {
   const { t } = useI18n();
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [weakAreas, setWeakAreas] = useState<WeakAreasResponse["certifications"]>([]);
-  const [engagement, setEngagement] = useState<EngagementSnapshot>(() =>
-    createDefaultEngagement(t("dashboard.defaults.recommendedNextAction"))
-  );
-  const [studyOverview, setStudyOverview] = useState<StudyOverview>(DEFAULT_STUDY_OVERVIEW);
-  const [examHistory, setExamHistory] = useState<SessionHistoryItem[]>([]);
-  const [activeExamSessions, setActiveExamSessions] = useState<ActiveSessionItem[]>([]);
-  const [activeStudySessions, setActiveStudySessions] = useState<ActiveSessionItem[]>([]);
-  const [readiness, setReadiness] = useState<ReadinessScore | null>(null);
+  const weakAreasQuery = useWeakAreasQuery();
+  const engagementQuery = useEngagementQuery();
+  const readinessQuery = useReadinessQuery();
+  const overviewQuery = useStudyOverviewQuery();
+  const historyQuery = useExamHistoryQuery(6);
+  const activeExamQuery = useActiveExamSessionsQuery(3);
+  const activeStudyQuery = useActiveStudySessionsQuery(3);
   const studyPlanQuery = useStudyPlanQuery();
 
-  const load = useEffectEvent(async () => {
-    setIsLoading(true);
-    await refreshDashboard();
-    setIsLoading(false);
-  });
+  const sections = [
+    { query: weakAreasQuery, label: t("dashboard.failedAreas.weakAreas") },
+    { query: engagementQuery, label: t("dashboard.failedAreas.pace") },
+    { query: readinessQuery, label: t("dashboard.failedAreas.readiness") },
+    { query: overviewQuery, label: t("dashboard.failedAreas.review") },
+    { query: historyQuery, label: t("dashboard.failedAreas.history") },
+    { query: activeExamQuery, label: t("dashboard.failedAreas.examSessions") },
+    { query: activeStudyQuery, label: t("dashboard.failedAreas.studySessions") },
+    { query: studyPlanQuery, label: t("dashboard.failedAreas.studyPlan") }
+  ];
+  const isLoading = sections.some((section) => section.query.isPending && section.query.isFetching);
+  const isRefreshing = sections.some((section) => section.query.isFetching);
+  const failedSections = sections.filter((section) => section.query.isError);
 
-  async function refreshDashboard() {
-    setIsRefreshing(true);
-    setLoadError(null);
-
-    const results = await Promise.allSettled([
-      apiClient.get<WeakAreasResponse>("/analytics/weak-areas"),
-      apiClient.get<EngagementSnapshot>("/analytics/engagement"),
-      apiClient.get<ReadinessScore>("/analytics/readiness"),
-      apiClient.get<StudyOverview>("/study/overview"),
-      apiClient.get<SessionHistoryItem[]>("/sessions/history?limit=6"),
-      apiClient.get<ActiveSessionItem[]>("/sessions/active?limit=3"),
-      apiClient.get<ActiveSessionItem[]>("/study/sessions/active?limit=3")
-    ]);
-
-    const failedLabels: string[] = [];
-
-    if (results[0].status === "fulfilled") {
-      setWeakAreas(results[0].value.certifications);
-    } else {
-      setWeakAreas([]);
-      failedLabels.push(t("dashboard.failedAreas.weakAreas"));
-    }
-
-    if (results[1].status === "fulfilled") {
-      setEngagement(results[1].value);
-    } else {
-      setEngagement(createDefaultEngagement(t("dashboard.defaults.recommendedNextAction")));
-      failedLabels.push(t("dashboard.failedAreas.pace"));
-    }
-
-    if (results[2].status === "fulfilled") {
-      setReadiness(results[2].value);
-    } else {
-      setReadiness(null);
-      failedLabels.push("readiness");
-    }
-
-    if (results[3].status === "fulfilled") {
-      setStudyOverview(results[3].value);
-    } else {
-      setStudyOverview(DEFAULT_STUDY_OVERVIEW);
-      failedLabels.push(t("dashboard.failedAreas.review"));
-    }
-
-    if (results[4].status === "fulfilled") {
-      setExamHistory(results[4].value);
-    } else {
-      setExamHistory([]);
-      failedLabels.push(t("dashboard.failedAreas.history"));
-    }
-
-    if (results[5].status === "fulfilled") {
-      setActiveExamSessions(results[5].value);
-    } else {
-      setActiveExamSessions([]);
-      failedLabels.push(t("dashboard.failedAreas.examSessions"));
-    }
-
-    if (results[6].status === "fulfilled") {
-      setActiveStudySessions(results[6].value);
-    } else {
-      setActiveStudySessions([]);
-      failedLabels.push(t("dashboard.failedAreas.studySessions"));
-    }
-
-    if (failedLabels.length) {
-      setLoadError(t("dashboard.loadError", { items: failedLabels.join(", ") }));
-    }
-
-    setIsRefreshing(false);
+  function retryFailed() {
+    failedSections.forEach((section) => {
+      void section.query.refetch();
+    });
   }
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const weakAreas = useMemo(() => weakAreasQuery.data?.certifications ?? [], [weakAreasQuery.data]);
+  const engagement = engagementQuery.data ?? createDefaultEngagement(t("dashboard.defaults.recommendedNextAction"));
+  const readiness = readinessQuery.data ?? null;
+  const studyOverview = overviewQuery.data ?? DEFAULT_STUDY_OVERVIEW;
+  const latestExam = historyQuery.data?.[0] ?? null;
+  const studyPlan = studyPlanQuery.data ?? null;
 
-  const latestExam = examHistory[0] || null;
   const activeSessions = useMemo(() => {
-    const examItems = activeExamSessions.map((session) => ({ ...session, modeLabel: t("common.labels.exam"), href: `/exam/${session.id}` }));
-    const studyItems = activeStudySessions.map((session) => ({
+    const examItems = (activeExamQuery.data ?? []).map((session) => ({
       ...session,
-      modeLabel: t("common.labels.study"),
+      kind: "exam" as const,
+      href: `/exam/${session.id}`
+    }));
+    const studyItems = (activeStudyQuery.data ?? []).map((session) => ({
+      ...session,
+      kind: "study" as const,
       href: `/study/${session.id}`
     }));
     return [...examItems, ...studyItems].slice(0, 3);
-  }, [activeExamSessions, activeStudySessions, t]);
+  }, [activeExamQuery.data, activeStudyQuery.data]);
 
   const weakFocus = useMemo(() => {
     return weakAreas
@@ -178,8 +121,9 @@ export function DashboardShell() {
 
   if (isLoading) {
     return (
-      <main className="sq-app-shell">
-        <div className="sq-page-stack">
+      <main className="sq-app-shell" aria-busy="true">
+        <div className="sq-page-stack" role="status">
+          <span className="sq-visually-hidden">{t("system.loading")}</span>
           <Skeleton height={180} />
           <div className="sq-grid-3">
             <Skeleton height={240} />
@@ -200,7 +144,7 @@ export function DashboardShell() {
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">{t("dashboard.header.title")}</div>
+              <h1 className="sq-page-title">{t("dashboard.header.title")}</h1>
               <p className="sq-page-subtitle">{t("dashboard.header.subtitle")}</p>
             </div>
           </div>
@@ -211,32 +155,44 @@ export function DashboardShell() {
           </div>
         </header>
 
-        {loadError ? <StatusBanner tone="warning" title={t("common.errors.partialLoad")} message={loadError} /> : null}
+        {failedSections.length ? (
+          <StatusBanner
+            tone="warning"
+            role="alert"
+            title={t("common.errors.partialLoad")}
+            message={t("dashboard.loadError", { items: failedSections.map((section) => section.label).join(", ") })}
+            action={
+              <Button variant="ghost" size="sm" busy={isRefreshing} onClick={retryFailed}>
+                {t("common.actions.retry")}
+              </Button>
+            }
+          />
+        ) : null}
 
-        {studyPlanQuery.data?.primary_task ? (
+        {studyPlan?.primary_task ? (
           <div className="sq-grid-2">
             <Card
               title={t("dashboard.planCard.title")}
               subtitle={t("dashboard.planCard.subtitle")}
               actions={
-                <Link href={studyPlanQuery.data.primary_task.cta_href} className="sq-button sq-button--sm sq-button--primary">
-                  {studyPlanQuery.data.primary_task.cta_label}
+                <Link href={studyPlan.primary_task.cta_href} className="sq-button sq-button--sm sq-button--primary">
+                  {studyPlan.primary_task.cta_label}
                 </Link>
               }
             >
               <div className="sq-stack-md">
-                {studyPlanQuery.data.placement_required ? (
+                {studyPlan.placement_required ? (
                   <div className="sq-chip-row">
                     <span className="sq-chip">{t("dashboard.planCard.placementPending")}</span>
                   </div>
                 ) : null}
                 <div className="sq-list-item">
-                  <div className="sq-list-title">{studyPlanQuery.data.primary_task.title}</div>
-                  <div className="sq-list-meta">{studyPlanQuery.data.primary_task.description}</div>
+                  <div className="sq-list-title">{studyPlan.primary_task.title}</div>
+                  <div className="sq-list-meta">{studyPlan.primary_task.description}</div>
                 </div>
-                {studyPlanQuery.data.secondary_tasks.length ? (
+                {studyPlan.secondary_tasks.length ? (
                   <div className="sq-list">
-                    {studyPlanQuery.data.secondary_tasks.map((task) => (
+                    {studyPlan.secondary_tasks.map((task) => (
                       <div key={`${task.kind}-${task.cta_href}`} className="sq-list-item">
                         <div className="sq-list-title">{task.title}</div>
                         <div className="sq-list-meta">{task.description}</div>
@@ -250,12 +206,9 @@ export function DashboardShell() {
               </div>
             </Card>
 
-            <Card
-              title={t("dashboard.weekCard.title")}
-              subtitle={t("dashboard.weekCard.subtitle")}
-            >
+            <Card title={t("dashboard.weekCard.title")} subtitle={t("dashboard.weekCard.subtitle")}>
               <div className="sq-metric-grid">
-                <MetricCard label={t("dashboard.weekCard.reviewBacklog")} value={studyPlanQuery.data.review_backlog_due} />
+                <MetricCard label={t("dashboard.weekCard.reviewBacklog")} value={studyPlan.review_backlog_due} />
                 <MetricCard
                   label={t("dashboard.weekCard.weeklyProgress")}
                   value={`${engagement.weekly_goal.completed}/${engagement.weekly_goal.target}`}
@@ -265,9 +218,9 @@ export function DashboardShell() {
                   value={`${engagement.weekly_review_goal.completed}/${engagement.weekly_review_goal.target}`}
                 />
               </div>
-              {studyPlanQuery.data.risk_domains.length ? (
+              {studyPlan.risk_domains.length ? (
                 <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-4)" }}>
-                  {studyPlanQuery.data.risk_domains.map((domain) => (
+                  {studyPlan.risk_domains.map((domain) => (
                     <span key={domain} className="sq-chip">
                       {domain}
                     </span>
@@ -295,15 +248,23 @@ export function DashboardShell() {
                   label={t("dashboard.todayCard.dailyProgress")}
                   value={`${engagement.daily_goal.completed}/${engagement.daily_goal.target}`}
                 />
-                <MetricCard label={t("dashboard.todayCard.latestScore")} value={latestExam ? formatScore(latestExam.score_percent) : "-"} />
-                <MetricCard label="Readiness" value={readiness ? formatScore(readiness.score_percent) : "-"} />
+                <MetricCard
+                  label={t("dashboard.todayCard.latestScore")}
+                  value={latestExam ? formatScore(latestExam.score_percent) : "-"}
+                />
+                <MetricCard
+                  label={t("dashboard.todayCard.readiness")}
+                  value={readiness ? formatScore(readiness.score_percent) : "-"}
+                />
               </div>
 
               <div className="sq-list-item">
                 <div className="sq-list-title">{t("dashboard.todayCard.nextStep")}</div>
                 <div className="sq-list-meta">
                   {engagement.recommended_next_action}
-                  {readiness ? ` · projeção ${formatScore(readiness.projected_score_percent)}` : ""}
+                  {readiness
+                    ? ` · ${t("dashboard.todayCard.projection", { value: formatScore(readiness.projected_score_percent) })}`
+                    : ""}
                 </div>
               </div>
             </div>
@@ -324,12 +285,11 @@ export function DashboardShell() {
                   <div key={session.id} className="sq-list-item">
                     <div className="sq-list-title">
                       {session.exam_title ||
-                        (session.modeLabel === t("common.labels.exam")
-                          ? t("dashboard.modes.examMixed")
-                          : t("dashboard.modes.studyMixed"))}
+                        (session.kind === "exam" ? t("dashboard.modes.examMixed") : t("dashboard.modes.studyMixed"))}
                     </div>
                     <div className="sq-list-meta">
-                      {session.modeLabel} · {session.answered_count}/{session.total_questions} · {session.progress_percent}%
+                      {session.kind === "exam" ? t("common.labels.exam") : t("common.labels.study")} ·{" "}
+                      {session.answered_count}/{session.total_questions} · {session.progress_percent}%
                     </div>
                     <Link href={session.href} className="sq-text-link">
                       {t("common.actions.resume")}
@@ -399,8 +359,8 @@ export function DashboardShell() {
 
         {readiness?.domain_scores?.length ? (
           <Card
-            title="Mastery por domínio"
-            subtitle="O readiness agora explicita lacunas por domínio, com acerto, confiança e ritmo."
+            title={t("dashboard.masteryCard.title")}
+            subtitle={t("dashboard.masteryCard.subtitle")}
             actions={
               <Link href="/review" className="sq-text-link">
                 {t("common.actions.reviewNow")}
@@ -425,6 +385,11 @@ export function DashboardShell() {
                       <div className="sq-list-meta">{formatScore(item.score_percent)}</div>
                     </div>
                     <div
+                      role="meter"
+                      aria-label={item.domain}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(item.score_percent)}
                       style={{
                         marginTop: "var(--sq-space-3)",
                         height: 8,
@@ -448,10 +413,16 @@ export function DashboardShell() {
                       />
                     </div>
                     <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
-                      <span className="sq-chip">acerto {formatScore(item.accuracy_percent)}</span>
-                      <span className="sq-chip">{item.attempts} tentativa(s)</span>
-                      <span className="sq-chip">ritmo {formatSecondsMetric(item.avg_elapsed_seconds)}</span>
-                      <span className="sq-chip">baixa confiança {item.low_confidence_count}</span>
+                      <span className="sq-chip">
+                        {t("dashboard.masteryCard.accuracy", { value: formatScore(item.accuracy_percent) })}
+                      </span>
+                      <span className="sq-chip">{t("dashboard.masteryCard.attempts", { count: item.attempts })}</span>
+                      <span className="sq-chip">
+                        {t("dashboard.masteryCard.pace", { value: formatSecondsMetric(item.avg_elapsed_seconds) })}
+                      </span>
+                      <span className="sq-chip">
+                        {t("dashboard.masteryCard.lowConfidence", { count: item.low_confidence_count })}
+                      </span>
                     </div>
                   </div>
                 ))}

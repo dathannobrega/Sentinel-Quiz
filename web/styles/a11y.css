@@ -114,3 +114,7 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+h1.sq-page-title {
+  margin: 0;
+}

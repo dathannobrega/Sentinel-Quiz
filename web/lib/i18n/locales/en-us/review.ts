@@ -34,5 +34,10 @@ export const review = {
     mastered: "already consolidated",
     scheduledFor: "scheduled for {date}",
     scheduled: "scheduled"
+  },
+  activeFilters: {
+    title: "Active filters",
+    subtitle: "This block came from a domain-focused review link.",
+    removeDomain: "Remove filter {domain}"
   }
 } as const;

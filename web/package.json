@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "i18n:check": "node scripts/check-i18n-parity.mjs",
+    "i18n:check": "vitest run lib/i18n",
     "format": "prettier --write ."
   },
   "dependencies": {

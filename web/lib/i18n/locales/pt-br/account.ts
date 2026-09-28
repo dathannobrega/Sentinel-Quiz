@@ -1,4 +1,8 @@
 export const account = {
+  scope: {
+    user: "Conta sincronizada",
+    device: "Dispositivo local"
+  },
   card: {
     title: "Conta e sincronização",
     subtitle: "Sincronize progresso entre dispositivos sem perder o fallback local."

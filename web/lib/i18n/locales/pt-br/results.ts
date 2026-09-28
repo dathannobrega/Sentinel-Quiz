@@ -38,6 +38,7 @@ export const results = {
     studyTitle: "{score} de aproveitamento em estudo",
     examTitle: "{score} de score · prontidão {readiness}",
     strategySubtitle: "Estratégia {strategy}.",
+    minutes: "{value} min",
     score: "Score",
     readiness: "Prontidão",
     correct: "Acertos",
@@ -65,7 +66,8 @@ export const results = {
     byDomain: "Domínio por domínio",
     accuracy: "acerto {value}",
     pace: "ritmo {value}",
-    lowConfidence: "baixa confiança {count}"
+    lowConfidence: "baixa confiança {count}",
+    attempts: "{count} tentativa(s)"
   },
   timingCard: {
     title: "Ritmo da sessão",
@@ -79,7 +81,8 @@ export const results = {
     title: "Plano recomendado (15-45 min)",
     subtitle: "Priorize os domínios com maior atrito e entre direto em revisão focada.",
     openReview: "Iniciar revisão",
-    openReferences: "Abrir referências"
+    openReferences: "Abrir referências",
+    itemTitle: "{domain} · {wrong}/{total} erradas · {score}"
   },
   tutor: {
     title: "Tutor da questão",
@@ -89,7 +92,13 @@ export const results = {
     loading: "Consultando tutor...",
     unavailable: "Tutor indisponível",
     blocked: "Tutor bloqueou esta análise",
-    answered: "Tutor respondeu"
+    answered: "Tutor respondeu",
+    authRequired: "Entre na sua conta para usar o tutor de IA.",
+    lockedDuringExam: "O tutor fica disponível depois que o simulado é finalizado.",
+    quotaExceeded: "Você atingiu a cota diária do tutor. Tente novamente amanhã.",
+    quotaExceededRetry: "Você atingiu a cota do tutor. Tente novamente em {seconds}s.",
+    upstream: "O tutor de IA está temporariamente indisponível. Tente novamente em instantes.",
+    signIn: "Entrar para usar o tutor"
   },
   issueReport: {
     title: "Reportar questão",
@@ -99,6 +108,8 @@ export const results = {
     reference: "Referência",
     send: "Enviar reporte",
     success: "Reporte enviado para o backlog editorial.",
-    failure: "Não foi possível reportar esta questão agora."
+    failure: "Não foi possível reportar esta questão agora.",
+    categoryLabel: "Categoria do reporte",
+    messageLabel: "Descreva o problema (mín. 8 caracteres)"
   }
 } as const;

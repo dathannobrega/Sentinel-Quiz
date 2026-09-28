@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 import { Accordion, AccordionItem } from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { ApiError, apiClient } from "@/lib/api/client";
-import { useEffectEvent } from "@/lib/hooks/use-effect-event";
+import { API_TIMEOUTS, ApiError, apiClient, readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
+import { useSessionReviewQuery, useSessionRole } from "@/lib/query/hooks";
 import { cn } from "@/lib/utils/cn";
 import { buildTheoryReaderHref } from "@/lib/utils/materials";
 import { formatDateTime, formatScore } from "@/lib/utils/format";
@@ -28,6 +31,7 @@ import type {
   StudyReviewQuestion,
   StudySessionReview,
   TimingBreakdown,
+  TutorMode,
   TutorReply
 } from "@/types/api";
 
@@ -38,18 +42,30 @@ interface SessionResultShellProps {
   mode: ResultMode;
 }
 
-function resolveResultBasePath(mode: ResultMode): string {
-  return mode === "study" ? "/study/sessions" : "/sessions";
-}
+type Translate = (key: string, values?: Record<string, string | number>) => string;
 
-function readResultError(error: unknown, fallbackMessage: string): string {
+/** Maps tutor failures (contract §3) to user-facing copy. */
+export function describeTutorError(error: unknown, t: Translate): { message: string; needsLogin: boolean } {
   if (error instanceof ApiError) {
-    return error.message;
+    if (error.status === 401 || error.code === "auth_required") {
+      return { message: t("results.tutor.authRequired"), needsLogin: true };
+    }
+    if (error.status === 409 || error.code === "tutor_unavailable_during_exam") {
+      return { message: t("results.tutor.lockedDuringExam"), needsLogin: false };
+    }
+    if (error.status === 429 || error.code === "tutor_quota_exceeded") {
+      return {
+        message: error.retryAfterSeconds
+          ? t("results.tutor.quotaExceededRetry", { seconds: error.retryAfterSeconds })
+          : t("results.tutor.quotaExceeded"),
+        needsLogin: false
+      };
+    }
+    if (error.status === 502 || error.status === 503 || error.code === "tutor_upstream_error") {
+      return { message: t("results.tutor.upstream"), needsLogin: false };
+    }
   }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallbackMessage;
+  return { message: readErrorMessage(error, t("results.tutor.unavailable")), needsLogin: false };
 }
 
 function renderInsightLines(
@@ -128,7 +144,7 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
       <div className="sq-surface-block">
         <div className="sq-metric-grid">
           <MetricCard label={t("results.readinessCard.band")} value={readiness.band} />
-          <MetricCard label={t("results.readinessCard.suggestedSession")} value={`${readiness.recommended_minutes} min`} />
+          <MetricCard label={t("results.readinessCard.suggestedSession")} value={t("results.summary.minutes", { value: readiness.recommended_minutes })} />
           <MetricCard label={t("results.readinessCard.trackedBase")} value={readiness.tracked_questions} />
         </div>
         {readiness.factors?.length ? (
@@ -157,6 +173,11 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
                   <div className="sq-list-meta">{formatScore(domain.score_percent)}</div>
                 </div>
                 <div
+                  role="meter"
+                  aria-label={domain.domain}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(domain.score_percent)}
                   style={{
                     marginTop: "var(--sq-space-3)",
                     height: 8,
@@ -181,7 +202,7 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
                 </div>
                 <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
                   <span className="sq-chip">{t("results.readinessCard.accuracy", { value: formatScore(domain.accuracy_percent) })}</span>
-                  <span className="sq-chip">{domain.attempts} tentativa(s)</span>
+                  <span className="sq-chip">{t("results.readinessCard.attempts", { count: domain.attempts })}</span>
                   <span className="sq-chip">{t("results.readinessCard.pace", { value: formatSecondsMetric(domain.avg_elapsed_seconds) })}</span>
                   <span className="sq-chip">{t("results.readinessCard.lowConfidence", { count: domain.low_confidence_count })}</span>
                 </div>
@@ -226,7 +247,12 @@ function StudyPlanCard({ items }: { items: StudyPlanItem[] }) {
         {items.slice(0, 3).map((item) => (
           <div key={`${item.domain}-${item.action}`} className="sq-surface-block">
             <div className="sq-list-title">
-              {item.domain} · {item.wrong}/{item.total} erradas · {formatScore(item.score_percent)}
+              {t("results.studyPlanCard.itemTitle", {
+                domain: item.domain,
+                wrong: item.wrong,
+                total: item.total,
+                score: formatScore(item.score_percent)
+              })}
             </div>
             <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-2)" }}>
               {item.reason}
@@ -323,24 +349,31 @@ function ReviewBlock({
   openMaterialLabel: string;
 }) {
   const { t: localT } = useI18n();
+  const pathname = usePathname();
+  const { isAuthenticated } = useSessionRole();
+  const fieldId = useId();
   const questionNumber = "question_number" in question ? question.question_number : index + 1;
   const [isTutorLoading, setIsTutorLoading] = useState(false);
   const [tutorReply, setTutorReply] = useState<TutorReply | null>(null);
-  const [tutorError, setTutorError] = useState<string | null>(null);
+  const [tutorError, setTutorError] = useState<{ message: string; needsLogin: boolean } | null>(null);
   const [isIssueSubmitting, setIsIssueSubmitting] = useState(false);
   const [issueCategory, setIssueCategory] = useState<QuestionIssueRequest["category"]>("clareza");
   const [issueMessage, setIssueMessage] = useState("");
   const [issueNotice, setIssueNotice] = useState<string | null>(null);
 
-  async function runTutor(mode: "help" | "why_wrong" | "review") {
+  async function runTutor(mode: TutorMode) {
     setIsTutorLoading(true);
     setTutorError(null);
     try {
-      const reply = await apiClient.post<TutorReply>(`/sessions/${sessionId}/questions/${question.id}/tutor`, { mode });
+      const reply = await apiClient.post<TutorReply>(
+        `/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(question.id)}/tutor`,
+        { mode },
+        { timeoutMs: API_TIMEOUTS.tutor }
+      );
       setTutorReply(reply);
     } catch (error) {
       setTutorReply(null);
-      setTutorError(readResultError(error, localT("results.tutor.unavailable")));
+      setTutorError(describeTutorError(error, localT));
     } finally {
       setIsTutorLoading(false);
     }
@@ -362,7 +395,7 @@ function ReviewBlock({
       setIssueMessage("");
       setIssueNotice(localT("results.issueReport.success"));
     } catch (error) {
-      setIssueNotice(readResultError(error, localT("results.issueReport.failure")));
+      setIssueNotice(readErrorMessage(error, localT("results.issueReport.failure")));
     } finally {
       setIsIssueSubmitting(false);
     }
@@ -414,19 +447,51 @@ function ReviewBlock({
       {enableTutor ? (
         <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
           <div className="sq-list-title">{t("results.tutor.title")}</div>
-          <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
-            <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("help")}>
-              {t("results.tutor.explain")}
-            </button>
-            <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("why_wrong")}>
-              {t("results.tutor.whyWrong")}
-            </button>
-            <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("review")}>
-              {t("results.tutor.reviewTopic")}
-            </button>
+          {isAuthenticated ? (
+            <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+              <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("help")}>
+                {t("results.tutor.explain")}
+              </button>
+              <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("why_wrong")}>
+                {t("results.tutor.whyWrong")}
+              </button>
+              <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("review")}>
+                {t("results.tutor.reviewTopic")}
+              </button>
+            </div>
+          ) : (
+            <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+              <span className="sq-list-meta">{t("results.tutor.authRequired")}</span>
+              <Link href={`/login?next=${encodeURIComponent(pathname || "/")}`} className="sq-button sq-button--sm sq-button--primary">
+                {t("results.tutor.signIn")}
+              </Link>
+            </div>
+          )}
+          <div aria-live="polite">
+            {isTutorLoading ? (
+              <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>
+                {t("results.tutor.loading")}
+              </div>
+            ) : null}
           </div>
-          {isTutorLoading ? <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>{t("results.tutor.loading")}</div> : null}
-          {tutorError ? <StatusBanner tone="warning" title={t("results.tutor.unavailable")} message={tutorError} /> : null}
+          {tutorError ? (
+            <StatusBanner
+              tone="warning"
+              role="alert"
+              title={t("results.tutor.unavailable")}
+              message={tutorError.message}
+              action={
+                tutorError.needsLogin ? (
+                  <Link
+                    href={`/login?next=${encodeURIComponent(pathname || "/")}`}
+                    className="sq-button sq-button--sm sq-button--primary"
+                  >
+                    {t("results.tutor.signIn")}
+                  </Link>
+                ) : undefined
+              }
+            />
+          ) : null}
           {tutorReply ? (
             <StatusBanner
               tone={tutorReply.blocked ? "warning" : "neutral"}
@@ -439,8 +504,12 @@ function ReviewBlock({
 
       <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
         <div className="sq-list-title">{t("results.issueReport.title")}</div>
-        <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+        <div className="sq-field" style={{ marginTop: "var(--sq-space-3)" }}>
+          <label className="sq-field-label" htmlFor={`${fieldId}-issue-category`}>
+            {t("results.issueReport.categoryLabel")}
+          </label>
           <select
+            id={`${fieldId}-issue-category`}
             className="sq-select"
             value={issueCategory}
             onChange={(event) => setIssueCategory(event.target.value as QuestionIssueRequest["category"])}
@@ -451,19 +520,32 @@ function ReviewBlock({
             <option value="referencia">{t("results.issueReport.reference")}</option>
           </select>
         </div>
-        <textarea
-          className="sq-textarea"
-          rows={3}
-          value={issueMessage}
-          onChange={(event) => setIssueMessage(event.target.value)}
-          style={{ marginTop: "var(--sq-space-3)" }}
-        />
+        <div className="sq-field" style={{ marginTop: "var(--sq-space-3)" }}>
+          <label className="sq-field-label" htmlFor={`${fieldId}-issue-message`}>
+            {t("results.issueReport.messageLabel")}
+          </label>
+          <textarea
+            id={`${fieldId}-issue-message`}
+            className="sq-textarea"
+            rows={3}
+            minLength={8}
+            maxLength={2000}
+            value={issueMessage}
+            onChange={(event) => setIssueMessage(event.target.value)}
+          />
+        </div>
         <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
           <button type="button" className="sq-chip" disabled={isIssueSubmitting || issueMessage.trim().length < 8} onClick={() => void runIssueReport()}>
             {t("results.issueReport.send")}
           </button>
         </div>
-        {issueNotice ? <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>{issueNotice}</div> : null}
+        <div aria-live="polite">
+          {issueNotice ? (
+            <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>
+              {issueNotice}
+            </div>
+          ) : null}
+        </div>
       </div>
     </AccordionItem>
   );
@@ -471,28 +553,11 @@ function ReviewBlock({
 
 export function SessionResultShell({ sessionId, mode }: SessionResultShellProps) {
   const { t } = useI18n();
-  const basePath = resolveResultBasePath(mode);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [review, setReview] = useState<SessionReview | StudySessionReview | null>(null);
-
-  const load = useEffectEvent(async () => {
-    setIsLoading(true);
-    setLoadError(null);
-
-    try {
-      const response = await apiClient.get<SessionReview | StudySessionReview>(`${basePath}/${sessionId}/review`);
-      setReview(response);
-    } catch (error) {
-      setLoadError(readResultError(error, t("results.errors.loadResult")));
-    } finally {
-      setIsLoading(false);
-    }
-  });
-
-  useEffect(() => {
-    void load();
-  }, [sessionId, mode, load]);
+  const { isStaff } = useSessionRole();
+  const reviewQuery = useSessionReviewQuery(mode, sessionId);
+  const review: SessionReview | StudySessionReview | null = reviewQuery.data ?? null;
+  const isLoading = reviewQuery.isPending;
+  const loadError = reviewQuery.isError ? readErrorMessage(reviewQuery.error, t("results.errors.loadResult")) : null;
 
   const result = review?.result || null;
   const reviewQuestions = review?.questions || [];
@@ -503,7 +568,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
   if (isLoading) {
     return (
-      <main className="sq-app-shell">
+      <main className="sq-app-shell" aria-busy="true">
         <div className="sq-page-stack">
           <Skeleton height={180} />
           <Skeleton height={440} />
@@ -516,13 +581,29 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
     return (
       <main className="sq-app-shell">
         <div className="sq-page-stack">
-          <StatusBanner
-            tone="danger"
-            title={t("results.errors.bannerTitle")}
-            message={loadError || t("results.errors.missingReview")}
-            role="alert"
-            action={<Link href="/dashboard">{t("common.actions.goToDashboard")}</Link>}
-          />
+          {reviewQuery.isError ? (
+            <QueryErrorBanner
+              title={t("results.errors.bannerTitle")}
+              error={reviewQuery.error}
+              onRetry={() => void reviewQuery.refetch()}
+              retrying={reviewQuery.isFetching}
+            />
+          ) : (
+            <StatusBanner
+              tone="danger"
+              title={t("results.errors.bannerTitle")}
+              message={loadError || t("results.errors.missingReview")}
+              role="alert"
+              action={
+                <>
+                  <Button variant="ghost" size="sm" busy={reviewQuery.isFetching} onClick={() => void reviewQuery.refetch()}>
+                    {t("common.actions.retry")}
+                  </Button>
+                  <Link href="/dashboard">{t("common.actions.goToDashboard")}</Link>
+                </>
+              }
+            />
+          )}
         </div>
       </main>
     );
@@ -548,7 +629,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
               SQ
             </div>
             <div className="sq-brand-copy">
-              <div className="sq-page-title">{t("results.header.title")}</div>
+              <h1 className="sq-page-title">{t("results.header.title")}</h1>
               <p className="sq-page-subtitle">
                 {sessionMeta.exam_title || sessionMeta.exam_id || t("results.header.mixedSession")} ·{" "}
                 {t("results.header.completedAt", { date: formatDateTime(sessionMeta.completed_at) })}
@@ -558,7 +639,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
           <div className="sq-inline-actions">
             <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
             <Link href="/history">{t("common.labels.history")}</Link>
-            <Link href="/admin">{t("common.labels.admin")}</Link>
+            {isStaff ? <Link href="/admin">{t("common.labels.admin")}</Link> : null}
             <Link href="/start">{t("common.actions.goToStart")}</Link>
           </div>
         </header>
@@ -577,13 +658,13 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
               {examResult?.time_spent_seconds !== undefined && examResult?.time_spent_seconds !== null ? (
                 <MetricCard
                   label={t("results.summary.timeUsed")}
-                  value={`${Math.max(Math.round(examResult.time_spent_seconds / 60), 1)} min`}
+                  value={t("results.summary.minutes", { value: Math.max(Math.round(examResult.time_spent_seconds / 60), 1) })}
                 />
               ) : null}
               {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (
                 <MetricCard
                   label={t("results.summary.timeLimit")}
-                  value={`${Math.max(Math.round(examResult.time_limit_seconds / 60), 1)} min`}
+                  value={t("results.summary.minutes", { value: Math.max(Math.round(examResult.time_limit_seconds / 60), 1) })}
                 />
               ) : null}
             </div>

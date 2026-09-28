@@ -9,7 +9,9 @@ export const dashboard = {
     review: "revisão",
     history: "histórico",
     examSessions: "sessões de simulado",
-    studySessions: "sessões de estudo"
+    studySessions: "sessões de estudo",
+    readiness: "prontidão",
+    studyPlan: "plano de estudo"
   },
   modes: {
     examMixed: "Simulado misto",
@@ -25,7 +27,9 @@ export const dashboard = {
     dueReviews: "Revisões vencidas",
     dailyProgress: "Progresso diário",
     latestScore: "Último score",
-    nextStep: "Próximo passo"
+    nextStep: "Próximo passo",
+    readiness: "Prontidão",
+    projection: "projeção {value}"
   },
   continueCard: {
     title: "Continuar",
@@ -58,5 +62,13 @@ export const dashboard = {
     reviewBacklog: "Backlog",
     weeklyProgress: "Meta semanal",
     reviewGoal: "Meta de revisão"
+  },
+  masteryCard: {
+    title: "Domínio por área",
+    subtitle: "A prontidão mostra as lacunas por domínio, com acerto, confiança e ritmo.",
+    accuracy: "acerto {value}",
+    attempts: "{count} tentativa(s)",
+    pace: "ritmo {value}",
+    lowConfidence: "baixa confiança {count}"
   }
 } as const;

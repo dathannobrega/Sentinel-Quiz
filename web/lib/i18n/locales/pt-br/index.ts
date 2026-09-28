@@ -17,6 +17,7 @@ import { results } from "./results";
 import { runner } from "./runner";
 import { api } from "./api";
 import { system } from "./system";
+import { theory } from "./theory";
 
 export const ptBRMessages = {
   metadata,
@@ -37,5 +38,6 @@ export const ptBRMessages = {
   results,
   runner,
   api,
-  system
+  system,
+  theory
 } as const;
