@@ -15,6 +15,7 @@ import {
 
 import type { AdminTask } from "@/features/admin/types";
 import { readAdminError } from "@/features/admin/utils/admin-errors";
+import { ingestSummaryLines } from "@/features/admin/utils/question-draft";
 
 const EXPORT_FALLBACK_FILENAME = "sentinel-quiz-export.json";
 
@@ -64,11 +65,7 @@ export function useAdminMaintenance({ canAdmin, canEdit }: { canAdmin: boolean; 
       const response = await ingestMutation.mutateAsync();
       setNotice({
         tone: response?.errors?.length ? "neutral" : "success",
-        message: t("admin.misc.ingestDone", {
-          imported: response?.imported ?? 0,
-          skipped: response?.skipped ?? 0,
-          errors: response?.errors?.length ?? 0
-        })
+        message: [t("admin.misc.ingestDoneTitle"), ...ingestSummaryLines(response, t)].join(" ")
       });
     } catch (error) {
       setNotice({ tone: "danger", message: readAdminError(error, t, "admin.misc.ingestFailed") });

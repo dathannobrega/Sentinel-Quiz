@@ -75,6 +75,12 @@ export function AdminMaintenanceCard({
           <MetricCard label={t("admin.access.exams")} value={overview?.exam_count ?? "-"} />
           <MetricCard label={t("admin.access.questions")} value={overview?.question_count ?? "-"} />
           <MetricCard label={t("admin.access.completedSessions")} value={overview?.completed_session_count ?? "-"} />
+          <MetricCard label={t("admin.access.inactiveQuestions")} value={overview?.inactive_question_count ?? "-"} />
+          <MetricCard label={t("admin.access.needsReviewQuestions")} value={overview?.needs_review_count ?? "-"} />
+          <MetricCard
+            label={t("admin.access.explanationMissingQuestions")}
+            value={overview?.explanation_missing_count ?? "-"}
+          />
         </div>
       </div>
     </Card>

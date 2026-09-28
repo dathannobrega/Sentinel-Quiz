@@ -1,6 +1,14 @@
 import type { AdminQuestion, AdminQuestionInput, CitationItem } from "@/types/api";
 
-import type { CitationDraft, ExamDraft, OptionDraft, QuestionDraft } from "@/features/admin/types";
+import type {
+  AdminFlagFilter,
+  AdminIngestResult,
+  CitationDraft,
+  ExamDraft,
+  OptionDraft,
+  QuestionDraft,
+  Translate
+} from "@/features/admin/types";
 
 export const QUESTION_FORMAT_OPTIONS = [
   { value: "", labelKey: "admin.form.formatAuto" },
@@ -136,6 +144,9 @@ export function qualityStatusKey(value: string | undefined): string | null {
   if (value === "missing") {
     return "admin.quality.pending";
   }
+  if (value === "placeholder") {
+    return "admin.quality.placeholder";
+  }
   return null;
 }
 
@@ -143,10 +154,72 @@ export function qualityTone(value: string | undefined): "default" | "good" | "wa
   if (value === "ok" || value === "provided") {
     return "good";
   }
-  if (value === "unverified") {
+  if (value === "unverified" || value === "placeholder") {
     return "warning";
   }
   return "default";
+}
+
+/** Amber chip used for editorial warnings (inactive, needs review, placeholder...). */
+export const WARNING_CHIP_STYLE = {
+  background: "rgba(245, 158, 11, 0.14)",
+  borderColor: "rgba(245, 158, 11, 0.25)"
+} as const;
+
+/** Browser flag filter -> GET /admin/questions boolean param (undefined = no filter). */
+export function flagFilterValue(value: AdminFlagFilter): boolean | undefined {
+  if (value === "yes") {
+    return true;
+  }
+  if (value === "no") {
+    return false;
+  }
+  return undefined;
+}
+
+/** i18n key for Question.deactivated_reason. */
+export function deactivatedReasonKey(reason: string | null | undefined): string {
+  if (reason === "removed_from_source") {
+    return "admin.lifecycle.reasonRemovedFromSource";
+  }
+  if (reason === "deleted") {
+    return "admin.lifecycle.reasonDeleted";
+  }
+  return "admin.lifecycle.reasonUnknown";
+}
+
+/** Lines of the POST /admin/ingest summary (only non-zero lifecycle counters). */
+export function ingestSummaryLines(
+  response: Partial<AdminIngestResult> | null | undefined,
+  t: Translate
+): string[] {
+  const value = (key: keyof AdminIngestResult) => {
+    const raw = response?.[key];
+    return typeof raw === "number" ? raw : 0;
+  };
+  const lines = [
+    t("admin.ingest.files", {
+      imported: value("imported"),
+      skipped: value("skipped"),
+      errors: response?.errors?.length ?? 0
+    }),
+    t("admin.ingest.questions", { count: value("questions_imported") })
+  ];
+  const counters: Array<[keyof AdminIngestResult, string]> = [
+    ["deactivated", "admin.ingest.deactivated"],
+    ["reactivated", "admin.ingest.reactivated"],
+    ["skipped_deleted", "admin.ingest.skippedDeleted"],
+    ["skipped_editorial", "admin.ingest.skippedEditorial"],
+    ["study_modules", "admin.ingest.studyModules"],
+    ["domain_weights_updated", "admin.ingest.domainWeights"]
+  ];
+  for (const [key, labelKey] of counters) {
+    const count = value(key);
+    if (count > 0) {
+      lines.push(t(labelKey, { count }));
+    }
+  }
+  return lines;
 }
 
 export function hasCitationValue(value: unknown): boolean {

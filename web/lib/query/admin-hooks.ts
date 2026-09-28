@@ -9,6 +9,7 @@ import type {
   AdminAuditLog,
   AdminCreateExamInput,
   AdminDomainCatalogPage,
+  AdminIngestResponse,
   AdminMutationResponse,
   AdminOverview,
   AdminQuestion,
@@ -16,6 +17,7 @@ import type {
   AdminQuestionAnalyticsSnapshot,
   AdminQuestionInput,
   AdminQuestionIssueUpdateInput,
+  AdminQuestionStatusFilter,
   AdminQuestionSummary,
   AdminQuestionVersion,
   AdminUser,
@@ -37,7 +39,15 @@ export const adminKeys = {
   issues: ["admin-issues"] as const,
   overview: ["admin-overview"] as const,
   analytics: ["admin-analytics"] as const,
-  questions: (examId: string, search: string) => ["admin-questions", examId, search] as const,
+  questions: (params: AdminQuestionListParams) =>
+    [
+      "admin-questions",
+      params.examId,
+      params.search.trim(),
+      params.status ?? "active",
+      params.needsReview ?? null,
+      params.explanationMissing ?? null
+    ] as const,
   questionsPrefix: ["admin-questions"] as const,
   question: (questionId: string) => ["admin-question", questionId] as const,
   versions: (questionId: string) => ["admin-question-versions", questionId] as const,
@@ -47,6 +57,17 @@ export const adminKeys = {
 
 function encode(value: string): string {
   return encodeURIComponent(value);
+}
+
+/** GET /admin/questions filters (backend admin.py admin_list_questions). */
+export interface AdminQuestionListParams {
+  examId: string;
+  search: string;
+  /** Question.is_active filter; the backend defaults to "active". */
+  status?: AdminQuestionStatusFilter;
+  /** undefined/null = no filter on the ingest flag. */
+  needsReview?: boolean | null;
+  explanationMissing?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,18 +202,25 @@ export function useAdminAnalyticsQuery(options?: AdminQueryOptions) {
   });
 }
 
-export function useAdminQuestionListQuery(params: { examId: string; search: string }, options?: AdminQueryOptions) {
+export function useAdminQuestionListQuery(params: AdminQuestionListParams, options?: AdminQueryOptions) {
   const search = params.search.trim();
   return useQuery({
-    queryKey: adminKeys.questions(params.examId, search),
+    queryKey: adminKeys.questions(params),
     queryFn: ({ signal }) => {
       const query = new URLSearchParams();
       query.set("limit", "200");
+      query.set("status", params.status ?? "active");
       if (params.examId) {
         query.set("exam_id", params.examId);
       }
       if (search) {
         query.set("search", search);
+      }
+      if (typeof params.needsReview === "boolean") {
+        query.set("needs_review", String(params.needsReview));
+      }
+      if (typeof params.explanationMissing === "boolean") {
+        query.set("explanation_missing", String(params.explanationMissing));
       }
       return apiClient.get<AdminQuestionSummary[]>(`/admin/questions?${query.toString()}`, { ...ADMIN_REQUEST, signal });
     },
@@ -273,7 +301,7 @@ export function useAdminIngestMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiClient.post<{ imported: number; skipped: number; errors?: string[] }>("/admin/ingest", {}, {
+      apiClient.post<AdminIngestResponse>("/admin/ingest", {}, {
         ...ADMIN_REQUEST,
         timeoutMs: API_TIMEOUTS.adminLong
       }),
@@ -334,7 +362,9 @@ export function useAdminSaveQuestionMutation() {
 export type AdminQuestionAction =
   | { kind: "submit-review" | "approve" | "publish"; questionId: string; reason: string | null }
   | { kind: "rollback"; questionId: string; versionId: number; reason: string | null }
-  | { kind: "delete"; questionId: string };
+  /** DELETE = deactivate (soft delete); "reactivate" undoes it. */
+  | { kind: "delete"; questionId: string }
+  | { kind: "reactivate"; questionId: string; reason: string | null };
 
 export function useAdminQuestionActionMutation() {
   const queryClient = useQueryClient();
@@ -344,6 +374,8 @@ export function useAdminQuestionActionMutation() {
       switch (action.kind) {
         case "delete":
           return apiClient.delete<AdminMutationResponse>(base, ADMIN_REQUEST);
+        case "reactivate":
+          return apiClient.post<AdminMutationResponse>(`${base}/reactivate`, { reason: action.reason }, ADMIN_REQUEST);
         case "rollback":
           return apiClient.post<AdminMutationResponse>(
             `${base}/rollback`,
@@ -354,11 +386,6 @@ export function useAdminQuestionActionMutation() {
           return apiClient.post<AdminMutationResponse>(`${base}/${action.kind}`, { reason: action.reason }, ADMIN_REQUEST);
       }
     },
-    onSuccess: (_response, action) => {
-      if (action.kind === "delete") {
-        queryClient.removeQueries({ queryKey: adminKeys.question(action.questionId) });
-      }
-      return invalidateQuestion(queryClient, action.questionId);
-    }
+    onSuccess: (_response, action) => invalidateQuestion(queryClient, action.questionId)
   });
 }

@@ -14,7 +14,13 @@ import {
   useAdminSaveQuestionMutation
 } from "@/lib/query/admin-hooks";
 
-import type { AdminTask, QuestionDraft, QuestionQuality, QuestionWorkflowAction } from "@/features/admin/types";
+import type {
+  AdminQuestionState,
+  AdminTask,
+  QuestionDraft,
+  QuestionQuality,
+  QuestionWorkflowAction
+} from "@/features/admin/types";
 import { readAdminError, versionSuffix } from "@/features/admin/utils/admin-errors";
 import {
   buildQuestionPayload,
@@ -77,6 +83,7 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
   const [questionDraft, setQuestionDraft] = useState<QuestionDraft>(() => createEmptyQuestionDraft(preferredExamId));
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [questionQuality, setQuestionQuality] = useState<QuestionQuality | null>(null);
+  const [questionState, setQuestionState] = useState<AdminQuestionState | null>(null);
   const [qualitySignature, setQualitySignature] = useState("");
   const [questionNotice, setQuestionNotice] = useState<string | null>(() =>
     editorOnly && !initialQuestionId ? t("admin.misc.freshDraftReady") : null
@@ -122,6 +129,7 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
   function resetWorkflowState() {
     setSelectedQuestionId(null);
     setQuestionQuality(null);
+    setQuestionState(null);
     setQualitySignature("");
   }
 
@@ -141,6 +149,12 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
         const nextDraft = toQuestionDraft(response);
         setQuestionDraft(nextDraft);
         setQuestionQuality((response.quality as QuestionQuality | null) || null);
+        setQuestionState({
+          isActive: response.is_active !== false,
+          deactivatedReason: response.deactivated_reason ?? null,
+          needsReview: Boolean(response.needs_review),
+          explanationMissing: Boolean(response.explanation_missing)
+        });
         setQualitySignature(JSON.stringify(buildQuestionPayload(nextDraft)));
         setSelectedQuestionId(response.id);
         if (!options?.silent) {
@@ -150,6 +164,7 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
       } catch (error) {
         setSelectedQuestionId(null);
         setQuestionQuality(null);
+        setQuestionState(null);
         setQualitySignature("");
         setQuestionNotice(readAdminError(error, t, "admin.misc.questionLoadFailed"));
         return false;
@@ -280,6 +295,7 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
     }
   }
 
+  /** DELETE /admin/questions/{id} is a soft delete: the question is deactivated, history is kept. */
   async function deleteQuestion() {
     if (!permissions.canAdmin) {
       setQuestionNotice(t("admin.misc.adminRequiredAction"));
@@ -302,11 +318,49 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
     setQuestionNotice(null);
     try {
       await questionActionMutation.mutateAsync({ kind: "delete", questionId: draftId });
-      resetWorkflowState();
-      setQuestionDraft(createEmptyQuestionDraft(preferredExamId));
+      // Keep the question on screen in its inactive state so it can be reactivated.
+      const reloaded = await loadQuestion(draftId, { silent: true });
+      if (!reloaded) {
+        resetWorkflowState();
+        setQuestionDraft(createEmptyQuestionDraft(preferredExamId));
+      }
       setQuestionNotice(t("admin.misc.questionDeleted", { id: draftId }));
     } catch (error) {
       setQuestionNotice(readAdminError(error, t, "admin.misc.deleteFailed"));
+    } finally {
+      setActiveTask(null);
+    }
+  }
+
+  async function reactivateQuestion() {
+    if (!permissions.canAdmin) {
+      setQuestionNotice(t("admin.misc.adminRequiredAction"));
+      return;
+    }
+    if (!draftId) {
+      setQuestionNotice(t("admin.lifecycle.noQuestionToReactivate"));
+      return;
+    }
+    const accepted = await confirm({
+      title: t("admin.lifecycle.confirmReactivateTitle"),
+      message: t("admin.lifecycle.confirmReactivateMessage", { id: draftId }),
+      confirmLabel: t("admin.lifecycle.confirmReactivateAction")
+    });
+    if (!accepted) {
+      return;
+    }
+    setActiveTask("reactivateQuestion");
+    setQuestionNotice(null);
+    try {
+      await questionActionMutation.mutateAsync({
+        kind: "reactivate",
+        questionId: draftId,
+        reason: questionDraft.changeSummary.trim() || null
+      });
+      await loadQuestion(draftId, { silent: true });
+      setQuestionNotice(t("admin.lifecycle.reactivated", { id: draftId }));
+    } catch (error) {
+      setQuestionNotice(readAdminError(error, t, "admin.lifecycle.reactivateFailed"));
     } finally {
       setActiveTask(null);
     }
@@ -324,6 +378,7 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
     updateQuestionDraft,
     selectedQuestionId,
     questionQuality,
+    questionState,
     isQualityStale,
     questionNotice,
     setQuestionNotice,
@@ -353,6 +408,7 @@ export function useAdminQuestionEditor({ initialQuestionId, editorOnly, preferre
     cancelRollback: () => setRollbackTarget(null),
     rollbackTarget,
     deleteQuestion,
+    reactivateQuestion,
     confirmDialog
   };
 }

@@ -25,10 +25,18 @@ import { AdminUsersPanel } from "@/features/admin/components/admin-users-panel";
 import { QuestionEditorCard } from "@/features/admin/components/question-editor/question-editor-card";
 import { useAdminMaintenance } from "@/features/admin/hooks/use-admin-maintenance";
 import { useAdminQuestionEditor, type AdminPermissions } from "@/features/admin/hooks/use-admin-question-editor";
-import type { ExamDraft } from "@/features/admin/types";
+import type { AdminQuestionFilters, ExamDraft } from "@/features/admin/types";
 import { readAdminError } from "@/features/admin/utils/admin-errors";
 import { userRoleLabel } from "@/features/admin/utils/labels";
-import { createEmptyExamDraft } from "@/features/admin/utils/question-draft";
+import { createEmptyExamDraft, flagFilterValue } from "@/features/admin/utils/question-draft";
+
+const DEFAULT_QUESTION_FILTERS: AdminQuestionFilters = {
+  examId: "",
+  search: "",
+  status: "active",
+  needsReview: "any",
+  explanationMissing: "any"
+};
 
 interface AdminWorkspaceProps {
   editorOnly: boolean;
@@ -39,9 +47,9 @@ interface AdminWorkspaceProps {
 
 export function AdminWorkspace({ editorOnly, initialQuestionId, role, permissions }: AdminWorkspaceProps) {
   const { t } = useI18n();
-  const [browserExamId, setBrowserExamId] = useState("");
-  const [questionSearch, setQuestionSearch] = useState("");
-  const deferredQuestionSearch = useDeferredValue(questionSearch);
+  const [questionFilters, setQuestionFilters] = useState<AdminQuestionFilters>(DEFAULT_QUESTION_FILTERS);
+  const browserExamId = questionFilters.examId;
+  const deferredQuestionSearch = useDeferredValue(questionFilters.search);
   const [examDraft, setExamDraft] = useState<ExamDraft>(createEmptyExamDraft);
 
   const panelsEnabled = !editorOnly && permissions.canEdit;
@@ -49,7 +57,13 @@ export function AdminWorkspace({ editorOnly, initialQuestionId, role, permission
   const overviewQuery = useAdminOverviewQuery({ enabled: panelsEnabled });
   const analyticsQuery = useAdminAnalyticsQuery({ enabled: panelsEnabled });
   const questionListQuery = useAdminQuestionListQuery(
-    { examId: browserExamId, search: deferredQuestionSearch },
+    {
+      examId: browserExamId,
+      search: deferredQuestionSearch,
+      status: questionFilters.status,
+      needsReview: flagFilterValue(questionFilters.needsReview),
+      explanationMissing: flagFilterValue(questionFilters.explanationMissing)
+    },
     { enabled: panelsEnabled }
   );
   const recentIssuesQuery = useAdminIssuesQuery({ limit: 8 }, { enabled: panelsEnabled });
@@ -170,16 +184,14 @@ export function AdminWorkspace({ editorOnly, initialQuestionId, role, permission
             <div className="sq-page-stack">
               <AdminQuestionBrowser
                 exams={exams}
-                examId={browserExamId}
-                search={questionSearch}
+                filters={questionFilters}
                 items={questionListQuery.data ?? []}
                 isFetching={questionListQuery.isFetching}
                 error={questionListQuery.error}
                 onRetry={() => void questionListQuery.refetch()}
                 selectedQuestionId={editor.selectedQuestionId}
                 canEdit={permissions.canEdit}
-                onExamChange={setBrowserExamId}
-                onSearchChange={setQuestionSearch}
+                onFiltersChange={(patch) => setQuestionFilters((current) => ({ ...current, ...patch }))}
                 onSelect={(questionId) => void editor.loadQuestion(questionId)}
                 onNewQuestion={editor.startNewQuestion}
               />

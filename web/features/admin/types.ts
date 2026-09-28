@@ -1,4 +1,4 @@
-import type { AdminQuestion, CitationItem } from "@/types/api";
+import type { AdminIngestResponse, AdminQuestion, AdminQuestionStatusFilter, CitationItem } from "@/types/api";
 
 /** Roles accepted by PATCH /admin/users/{id} (backend admin.py allowed_roles). */
 export const ADMIN_USER_ROLES = ["student", "editor", "reviewer", "admin"] as const;
@@ -64,10 +64,26 @@ export type QuestionQuality = NonNullable<AdminQuestion["quality"]>;
 export type QuestionWorkflowAction = "submit-review" | "approve" | "publish";
 
 /** Response of POST /admin/ingest (services/ingest.py ingest_questions_from_dir). */
-export interface AdminIngestResult {
-  imported: number;
-  skipped: number;
-  errors: string[];
+export type AdminIngestResult = AdminIngestResponse;
+
+/** "any" = no filter on the ingest flag; "yes"/"no" map to true/false. */
+export type AdminFlagFilter = "any" | "yes" | "no";
+
+/** Filters of the question browser (GET /admin/questions). */
+export interface AdminQuestionFilters {
+  examId: string;
+  search: string;
+  status: AdminQuestionStatusFilter;
+  needsReview: AdminFlagFilter;
+  explanationMissing: AdminFlagFilter;
+}
+
+/** Lifecycle + ingest flags of the question loaded in the editor. */
+export interface AdminQuestionState {
+  isActive: boolean;
+  deactivatedReason: string | null;
+  needsReview: boolean;
+  explanationMissing: boolean;
 }
 
 export type AdminTask =
@@ -81,6 +97,7 @@ export type AdminTask =
   | "approveQuestion"
   | "publishQuestion"
   | "rollbackQuestion"
-  | "deleteQuestion";
+  | "deleteQuestion"
+  | "reactivateQuestion";
 
 export type Translate = (key: string, values?: Record<string, string | number>) => string;

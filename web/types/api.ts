@@ -827,9 +827,34 @@ export interface AdminUserUpdateInput {
 
 export interface AdminOverview {
   exam_count: number;
+  /** Active questions only (what students can get in new sessions). */
   question_count: number;
   completed_session_count: number;
+  /** Active questions per certification. */
   question_breakdown: Record<string, number>;
+  /** Soft-deleted or removed-from-source questions. */
+  inactive_question_count: number;
+  /** Active questions flagged by the JSON ingest. */
+  needs_review_count: number;
+  explanation_missing_count: number;
+}
+
+/** GET /admin/questions?status= (Question.is_active). */
+export type AdminQuestionStatusFilter = "active" | "inactive" | "all";
+
+/** Why a question is inactive (backend models.QUESTION_DEACTIVATED_*). */
+export type AdminQuestionDeactivatedReason = "deleted" | "removed_from_source";
+
+/** quality.field_status values (backend services/question_quality.py). */
+export type AdminQualityFieldStatus = "ok" | "provided" | "missing" | "unverified" | "placeholder";
+
+export interface AdminQuestionQuality {
+  blocking_issues: string[];
+  warnings: string[];
+  field_status: Record<string, AdminQualityFieldStatus>;
+  completeness_score: number;
+  is_publish_ready: boolean;
+  blueprint?: Record<string, string | null>;
 }
 
 export interface AdminAnalyticsSummary {
@@ -926,20 +951,25 @@ export interface AdminMutationResponse {
   status?: string;
   version_id?: number;
   version_number?: number;
-  quality?: {
-    blocking_issues: string[];
-    warnings: string[];
-    field_status: Record<string, string>;
-    completeness_score: number;
-    is_publish_ready: boolean;
-    blueprint?: Record<string, string | null>;
-  } | null;
+  quality?: AdminQuestionQuality | null;
 }
 
+/** POST /admin/ingest (backend services/ingest.py ingest_questions_from_dir). */
 export interface AdminIngestResponse {
+  /** Source files imported / skipped (unchanged hash). */
   imported: number;
   skipped: number;
-  errors?: string[];
+  errors: string[];
+  questions_imported: number;
+  /** Deleted by an editor: never resurrected by the import. */
+  skipped_deleted: number;
+  /** Editorially published version kept; imported content not applied. */
+  skipped_editorial: number;
+  reactivated: number;
+  /** Removed from the source file (soft deactivated). */
+  deactivated: number;
+  domain_weights_updated: number;
+  study_modules: number;
 }
 
 export interface AdminCreateExamInput {
@@ -973,6 +1003,10 @@ export interface AdminQuestionSummary {
   draft_version_number?: number | null;
   published_version_number?: number | null;
   loaded_from?: string | null;
+  is_active: boolean;
+  deactivated_reason: AdminQuestionDeactivatedReason | null;
+  needs_review: boolean;
+  explanation_missing: boolean;
 }
 
 export interface AdminQuestion {
@@ -1007,14 +1041,12 @@ export interface AdminQuestion {
   version_number?: number | null;
   published_version_number?: number | null;
   draft_version_number?: number | null;
-  quality?: {
-    blocking_issues: string[];
-    warnings: string[];
-    field_status: Record<string, string>;
-    completeness_score: number;
-    is_publish_ready: boolean;
-    blueprint?: Record<string, string | null>;
-  } | null;
+  quality?: AdminQuestionQuality | null;
+  is_active: boolean;
+  deactivated_reason: AdminQuestionDeactivatedReason | null;
+  deactivated_at: string | null;
+  needs_review: boolean;
+  explanation_missing: boolean;
 }
 
 export interface AdminQuestionInput {
