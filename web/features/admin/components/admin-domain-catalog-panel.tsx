@@ -1,17 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useDeferredValue, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { useI18n } from "@/lib/i18n";
 import { useAdminDomainCatalogQuery } from "@/lib/query/admin-hooks";
 
-export function AdminDomainCatalogPanel() {
+export function AdminDomainCatalogPanel({ enabled }: { enabled: boolean }) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [certification, setCertification] = useState("");
-  const query = useAdminDomainCatalogQuery({ search, certification, page: 1 });
+  const deferredSearch = useDeferredValue(search.trim());
+  const deferredCertification = useDeferredValue(certification.trim());
+  const query = useAdminDomainCatalogQuery(
+    { search: deferredSearch, certification: deferredCertification, page: 1 },
+    { enabled }
+  );
 
   return (
     <Card title={t("admin.domainCatalog.title")} subtitle={t("admin.domainCatalog.subtitle")}>
@@ -28,16 +34,24 @@ export function AdminDomainCatalogPanel() {
           <input
             id="admin-domain-search"
             className="sq-input"
+            type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
         </Field>
       </div>
 
-      {query.isLoading ? (
-        <div className="sq-empty">{t("common.status.loading")}</div>
+      {query.isPending && enabled ? (
+        <div className="sq-empty" role="status">
+          {t("common.status.loading")}
+        </div>
       ) : query.isError ? (
-        <div className="sq-empty">{t("admin.domainCatalog.loadError")}</div>
+        <QueryErrorBanner
+          error={query.error}
+          title={t("admin.domainCatalog.loadError")}
+          onRetry={() => void query.refetch()}
+          retrying={query.isFetching}
+        />
       ) : query.data?.items.length ? (
         <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
           {query.data.items.map((item) => (
