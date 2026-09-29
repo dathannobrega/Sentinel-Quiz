@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 import { t } from "./i18n";
 
 test("admin: login → question list is visible", async ({ page }) => {
-  // The middleware guard sends anonymous visitors to /login?next=/admin.
+  // The proxy (proxy.ts) guard sends anonymous visitors to /login?next=/admin.
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
 
