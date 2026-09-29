@@ -8,6 +8,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Field } from "@/components/ui/field";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { clampPbqCount } from "@/features/session-runner/lib/pbq-utils";
 import { apiClient, readErrorMessage } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
 import { useI18n } from "@/lib/i18n";
@@ -38,7 +39,8 @@ const DEFAULT_LAUNCH_FORM: LaunchFormValues = {
   experienceMode: "standard",
   studyStrategy: "standard",
   totalQuestions: 30,
-  timeLimitMinutes: 45
+  timeLimitMinutes: 45,
+  pbqCount: 0
 };
 
 const START_LAUNCH_STORAGE_KEY = "sentinel.start.launch_filters";
@@ -175,6 +177,7 @@ function sanitizeStoredLaunch(value: Partial<LaunchFormValues> | null): Partial<
   if (next.mode !== "exam" && next.mode !== "study") {
     delete next.mode;
   }
+  next.pbqCount = clampPbqCount(next.pbqCount);
   return next;
 }
 
@@ -305,7 +308,8 @@ export function StartSessionShell() {
           unseen_only: values.unseenOnly,
           low_confidence_only: values.lowConfidenceOnly,
           strategy: values.studyStrategy,
-          queue_only: selectedPresetKey === "daily_review"
+          queue_only: selectedPresetKey === "daily_review",
+          pbq_count: clampPbqCount(values.pbqCount)
         };
         const session = await apiClient.post<StudySessionResponse>(
           selectedPresetKey === "daily_review" ? "/study/review/sessions" : "/study/sessions",
@@ -326,7 +330,8 @@ export function StartSessionShell() {
         low_confidence_only: values.lowConfidenceOnly,
         time_limit_minutes: values.timeLimitMinutes,
         strategy: values.examStrategy,
-        experience_mode: values.experienceMode
+        experience_mode: values.experienceMode,
+        pbq_count: clampPbqCount(values.pbqCount)
       };
       const session = await apiClient.post<SessionResponse>("/sessions", payload);
       return { mode: "exam", id: session.id };
