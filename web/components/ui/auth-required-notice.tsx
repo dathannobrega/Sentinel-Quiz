@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Alert } from "@/components/ui/alert";
+import { buttonClassName } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 
 interface AuthRequiredNoticeProps {
@@ -19,13 +20,13 @@ export function AuthRequiredNotice({ title, message, nextPath }: AuthRequiredNot
   const next = nextPath ?? pathname ?? "/dashboard";
 
   return (
-    <StatusBanner
+    <Alert
       tone="warning"
       role="alert"
       title={title ?? t("system.authRequired.title")}
       message={message ?? t("system.authRequired.message")}
       action={
-        <Link href={`/login?next=${encodeURIComponent(next)}`} className="sq-button sq-button--sm sq-button--primary">
+        <Link href={`/login?next=${encodeURIComponent(next)}`} className={buttonClassName("primary", "sm")}>
           {t("system.authRequired.signIn")}
         </Link>
       }

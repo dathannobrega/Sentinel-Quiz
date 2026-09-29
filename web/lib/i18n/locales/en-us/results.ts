@@ -26,8 +26,8 @@ export const results = {
     noMetadata: "No metadata",
     correct: "Correct",
     wrong: "Wrong",
-    correctSuffix: " (correct)",
-    selectedSuffix: " (your choice)"
+    explanation: "Explanation",
+    references: "Study material"
   },
   header: {
     title: "Session result",
@@ -51,6 +51,8 @@ export const results = {
     passThresholdNotes: {
       CEH: "The official CEH cut score ranges from 60% to 85% depending on the exam form; 70% is used as a reference."
     },
+    passed: "Above the passing score ({threshold})",
+    failed: "Below the passing score ({threshold})",
     timedOutTitle: "Simulation ended by time",
     timedOutMessage:
       "The backend applied auto-submit when the timer reset. Review the incorrect and unanswered items first."

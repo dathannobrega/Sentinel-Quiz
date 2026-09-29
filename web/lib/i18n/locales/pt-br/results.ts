@@ -26,8 +26,8 @@ export const results = {
     noMetadata: "Sem metadados",
     correct: "Correta",
     wrong: "Errada",
-    correctSuffix: " (correta)",
-    selectedSuffix: " (sua escolha)"
+    explanation: "Explicação",
+    references: "Material de apoio"
   },
   header: {
     title: "Resultado da sessão",
@@ -51,6 +51,8 @@ export const results = {
     passThresholdNotes: {
       CEH: "A nota de corte oficial do CEH varia de 60% a 85% conforme a forma do exame; usamos 70% como referência."
     },
+    passed: "Acima da nota de aprovação ({threshold})",
+    failed: "Abaixo da nota de aprovação ({threshold})",
     timedOutTitle: "Simulado encerrado por tempo",
     timedOutMessage:
       "O backend aplicou auto-submit quando o cronômetro zerou. Revise primeiro os itens errados e os que ficaram sem resposta."

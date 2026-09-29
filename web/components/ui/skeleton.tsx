@@ -1,20 +1,17 @@
+import { cn } from "@/lib/utils/cn";
+
 interface SkeletonProps {
   height?: number;
+  className?: string;
 }
 
-export function Skeleton({ height = 20 }: SkeletonProps) {
+/** Loading placeholder with the shape of the content it stands in for. */
+export function Skeleton({ height = 20, className }: SkeletonProps) {
   return (
     <div
       aria-hidden="true"
-      style={{
-        width: "100%",
-        height,
-        borderRadius: 10,
-        background:
-          "linear-gradient(90deg, rgba(228,216,198,0.45) 25%, rgba(255,255,255,0.92) 50%, rgba(228,216,198,0.45) 75%)",
-        backgroundSize: "200% 100%",
-        animation: "sq-shimmer 1.4s linear infinite"
-      }}
+      style={{ height }}
+      className={cn("w-full rounded-md bg-surface-muted motion-safe:animate-[pulse-soft_1.6s_ease-in-out_infinite]", className)}
     />
   );
 }

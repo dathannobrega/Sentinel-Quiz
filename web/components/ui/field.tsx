@@ -52,15 +52,15 @@ export function Field({ label, htmlFor, hint, error, hintMode = "tooltip", child
       : children;
 
   return (
-    <div className="sq-field">
-      <div className="sq-field-label-row">
-        <label className="sq-field-label" htmlFor={htmlFor}>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <label className="text-[0.8125rem] font-medium text-fg" htmlFor={htmlFor}>
           {label}
         </label>
         {hasHint && hintMode === "tooltip" ? (
           <button
             type="button"
-            className="sq-field-hint-button"
+            className="focus-ring inline-grid size-5 place-items-center rounded-full border border-line-strong text-[0.6875rem] font-semibold text-fg-muted hover:border-fg-subtle hover:text-fg aria-expanded:border-primary aria-expanded:bg-primary-soft aria-expanded:text-primary"
             aria-label={i18n ? i18n.t("system.field.hintLabel", { label }) : label}
             aria-expanded={isHintOpen}
             aria-controls={hintId || undefined}
@@ -73,12 +73,16 @@ export function Field({ label, htmlFor, hint, error, hintMode = "tooltip", child
       </div>
       {control}
       {error ? (
-        <span id={errorId || undefined} className="sq-field-error" role="alert">
+        <span id={errorId || undefined} className="text-[0.8125rem] font-medium text-danger" role="alert">
           {error}
         </span>
       ) : null}
       {hasHint ? (
-        <span id={hintId || undefined} className={cn(hintVisible ? "sq-field-hint" : "sq-visually-hidden")}>
+        <span
+          id={hintId || undefined}
+          data-visible={hintVisible || undefined}
+          className={cn(hintVisible ? "text-[0.8125rem] leading-snug text-fg-muted" : "sr-only")}
+        >
           {hint}
         </span>
       ) : null}

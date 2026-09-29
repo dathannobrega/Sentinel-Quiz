@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { LocaleSwitch, ThemeSwitch } from "@/components/navigation/app-shell";
 
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
+import { Divider, Page, PageHeader, Section } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
@@ -47,12 +48,14 @@ export function SettingsShell() {
 
   if (overviewQuery.isPending || currentUserQuery.isPending) {
     return (
-      <main className="sq-app-shell" aria-busy="true">
-        <div className="sq-page-stack">
-          <Skeleton height={180} />
-          <Skeleton height={360} />
+      <Page aria-busy="true">
+        <div role="status" className="flex flex-col gap-8">
+          <span className="sr-only">{t("system.loading")}</span>
+          <Skeleton height={56} className="max-w-sm" />
+          <Skeleton height={96} />
+          <Skeleton height={240} />
         </div>
-      </main>
+      </Page>
     );
   }
 
@@ -65,43 +68,45 @@ export function SettingsShell() {
     : null;
 
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <h1 className="sq-page-title">{t("settings.header.title")}</h1>
-              <p className="sq-page-subtitle">{t("settings.header.subtitle")}</p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
-            <Link href="/start">{t("common.labels.start")}</Link>
-            <Link href="/review">{t("common.labels.review")}</Link>
-          </div>
-        </header>
+    <Page>
+      <PageHeader title={t("settings.header.title")} description={t("settings.header.subtitle")} />
 
-        {overviewQuery.isError ? (
-          <QueryErrorBanner
-            tone="warning"
-            title={t("common.errors.attention")}
-            error={overviewQuery.error}
-            onRetry={() => void overviewQuery.refetch()}
-            retrying={overviewQuery.isFetching}
-          />
-        ) : null}
-
-        <AccountPanel
-          user={currentUserQuery.data ?? null}
-          overview={overviewQuery.data ?? DEFAULT_STUDY_OVERVIEW}
-          notice={authNotice ?? sessionNotice}
-          pendingAction={logoutMutation.isPending ? "logout" : null}
-          onLogout={handleLogout}
+      {overviewQuery.isError ? (
+        <QueryErrorBanner
+          tone="warning"
+          title={t("common.errors.attention")}
+          error={overviewQuery.error}
+          onRetry={() => void overviewQuery.refetch()}
+          retrying={overviewQuery.isFetching}
         />
-      </div>
-    </main>
+      ) : null}
+
+      <AccountPanel
+        user={currentUserQuery.data ?? null}
+        overview={overviewQuery.data ?? DEFAULT_STUDY_OVERVIEW}
+        notice={authNotice ?? sessionNotice}
+        pendingAction={logoutMutation.isPending ? "logout" : null}
+        onLogout={handleLogout}
+      />
+
+      <Divider />
+
+      <Section title={t("settings.preferences.title")} description={t("settings.preferences.description")}>
+        <dl className="flex flex-col divide-y divide-line border-y border-line">
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <dt className="text-sm text-fg">{t("navigation.theme.label")}</dt>
+            <dd>
+              <ThemeSwitch />
+            </dd>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <dt className="text-sm text-fg">{t("navigation.locale.label")}</dt>
+            <dd>
+              <LocaleSwitch />
+            </dd>
+          </div>
+        </dl>
+      </Section>
+    </Page>
   );
 }

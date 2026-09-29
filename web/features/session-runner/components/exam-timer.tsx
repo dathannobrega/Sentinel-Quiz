@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 
+import { ClockIcon, PauseIcon } from "@/components/ui/icons";
 import { useExamCountdown, type CountdownInput } from "@/features/session-runner/hooks/use-exam-countdown";
 import { formatRemainingTime, type Translate } from "@/features/session-runner/lib/runner-utils";
 import { cn } from "@/lib/utils/cn";
@@ -19,8 +20,9 @@ const ANNOUNCE_THRESHOLDS: Array<{ seconds: number; key: string }> = [
 ];
 
 /**
- * Self-contained countdown: only this chip re-renders every second. The visible time is not a live
- * region (it would spam screen readers); a separate polite region announces 5 min / 1 min / 0.
+ * Self-contained countdown: only this element re-renders every second. The visible time is not a
+ * live region (it would spam screen readers); a separate polite region announces 5 min / 1 min / 0.
+ * The last five minutes switch to the warning tone (icon + color + the announcement).
  */
 export const ExamTimer = memo(function ExamTimer({ emphasized = false, onExpire, t, ...countdown }: ExamTimerProps) {
   const remaining = useExamCountdown(countdown, onExpire);
@@ -42,20 +44,23 @@ export const ExamTimer = memo(function ExamTimer({ emphasized = false, onExpire,
 
   const time = formatRemainingTime(remaining);
   const label = countdown.paused ? t("runner.timer.pausedLabel", { time }) : t("runner.timer.label", { time });
+  const low = !countdown.paused && remaining !== null && remaining <= 300;
 
   return (
     <>
       <span
-        className={cn("sq-chip", emphasized && "sq-runner-timer--emphasized")}
+        className={cn(
+          "nums inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 font-mono text-sm font-medium",
+          low ? "bg-warning-soft text-warning" : emphasized ? "bg-surface-muted text-fg" : "text-fg-muted"
+        )}
         role="timer"
         aria-live="off"
         aria-label={label}
       >
-        <span aria-hidden="true">
-          {countdown.paused ? t("runner.questionCard.paused") : t("runner.questionCard.time")} {time}
-        </span>
+        {countdown.paused ? <PauseIcon /> : <ClockIcon />}
+        <span aria-hidden="true">{time}</span>
       </span>
-      <span className="sq-visually-hidden" role="status" aria-live="polite">
+      <span className="sr-only" role="status" aria-live="polite">
         {announcement}
       </span>
     </>

@@ -5,17 +5,21 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { XIcon } from "@/components/ui/icons";
+import { Checkbox, Select } from "@/components/ui/input";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
+import { Page, PageHeader, Panel, Section } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Stat, StatList } from "@/components/ui/stat";
+import { ReviewQueueList } from "@/features/review/components/review-queue-list";
 import { apiClient, readErrorMessage } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
 import { useI18n } from "@/lib/i18n";
 import { useExamsQuery, useReviewQueueQuery } from "@/lib/query/hooks";
-import { formatDateTime } from "@/lib/utils/format";
 import type { ReviewQueueSnapshot, StudySessionRequest, StudySessionResponse } from "@/types/api";
 
 const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
@@ -39,27 +43,6 @@ const DEFAULT_REVIEW_QUEUE: ReviewQueueSnapshot = {
   applied_filters: {},
   items: []
 };
-
-function describeQueueState(
-  item: ReviewQueueSnapshot["items"][number],
-  t: (key: string, values?: Record<string, string | number>) => string
-): string {
-  if (item.is_overdue) {
-    return t("review.queueState.overdue", { days: item.overdue_days });
-  }
-  if (item.state === "due_now") {
-    return t("review.queueState.dueToday");
-  }
-  if (item.state === "at_risk") {
-    return t("review.queueState.atRisk");
-  }
-  if (item.state === "mastered") {
-    return t("review.queueState.mastered");
-  }
-  return item.due_at
-    ? t("review.queueState.scheduledFor", { date: formatDateTime(item.due_at) })
-    : t("review.queueState.scheduled");
-}
 
 function buildReviewQueueParams(
   examId: string,
@@ -183,182 +166,124 @@ export function ReviewShell() {
 
   if (isInitialLoading) {
     return (
-      <main className="sq-app-shell" aria-busy="true">
-        <div className="sq-page-stack">
-          <Skeleton height={180} />
-          <Skeleton height={320} />
-        </div>
-      </main>
+      <Page aria-busy="true">
+        <Skeleton height={56} className="max-w-md" />
+        <Skeleton height={160} />
+        <Skeleton height={320} />
+      </Page>
     );
   }
 
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <h1 className="sq-page-title">{t("review.header.title")}</h1>
-              <p className="sq-page-subtitle">{t("review.header.subtitle")}</p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
-            <Link href="/start">{t("common.labels.start")}</Link>
-            <Link href="/history">{t("common.labels.history")}</Link>
-          </div>
-        </header>
+    <Page>
+      <PageHeader title={t("review.header.title")} description={t("review.header.subtitle")} />
 
-        {pageNotice ? (
-          <StatusBanner tone="warning" role="alert" title={t("common.errors.attention")} message={pageNotice} />
-        ) : null}
-        {examsQuery.isError ? (
-          <QueryErrorBanner
-            tone="warning"
-            error={examsQuery.error}
-            onRetry={() => void examsQuery.refetch()}
-            retrying={examsQuery.isFetching}
-          />
-        ) : null}
-        {reviewQueueQuery.isError ? (
-          <QueryErrorBanner
-            title={t("review.errors.loadQueue")}
-            error={reviewQueueQuery.error}
-            onRetry={() => void reviewQueueQuery.refetch()}
-            retrying={reviewQueueQuery.isFetching}
-          />
-        ) : null}
+      {pageNotice ? <Alert tone="warning" role="alert" title={t("common.errors.attention")} message={pageNotice} /> : null}
+      {examsQuery.isError ? (
+        <QueryErrorBanner tone="warning" error={examsQuery.error} onRetry={() => void examsQuery.refetch()} retrying={examsQuery.isFetching} />
+      ) : null}
+      {reviewQueueQuery.isError ? (
+        <QueryErrorBanner
+          title={t("review.errors.loadQueue")}
+          error={reviewQueueQuery.error}
+          onRetry={() => void reviewQueueQuery.refetch()}
+          retrying={reviewQueueQuery.isFetching}
+        />
+      ) : null}
 
+      <Panel padding="lg" aria-labelledby="review-today-title">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div className="flex flex-col gap-1">
+            <h2 id="review-today-title" className="text-sm font-medium text-fg-muted">
+              {t("review.todayCard.title")}
+            </h2>
+            <p className="flex items-baseline gap-2">
+              <span className="nums text-5xl font-semibold tracking-tight text-fg">{reviewQueue.due_count}</span>
+              <span className="text-[0.9375rem] text-fg-muted">{t("review.todayCard.due").toLowerCase()}</span>
+            </p>
+            <p className="max-w-prose text-[0.8125rem] text-fg-muted">{t("review.todayCard.subtitle")}</p>
+          </div>
+          <Button size="lg" busy={isStartingReview} disabled={!hasQueueItems} onClick={startRecommendedReview}>
+            {t("common.actions.reviewNow")}
+          </Button>
+        </div>
+        <StatList>
+          <Stat label={t("review.todayCard.total")} value={reviewQueue.total_count} />
+          <Stat label={t("review.todayCard.suggestedBatch")} value={reviewQueue.recommended_batch_size || 0} />
+        </StatList>
         {reviewDomainFilters.length ? (
-          <Card title={t("review.activeFilters.title")} subtitle={t("review.activeFilters.subtitle")}>
-            <div className="sq-chip-row">
-              {reviewDomainFilters.map((domain) => (
-                <button
-                  key={domain}
-                  type="button"
-                  className="sq-chip"
-                  aria-label={t("review.activeFilters.removeDomain", { domain })}
-                  onClick={() => setReviewDomainFilters((current) => current.filter((item) => item !== domain))}
-                >
-                  {domain} <span aria-hidden="true">×</span>
-                </button>
-              ))}
-            </div>
-          </Card>
+          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4" role="group" aria-label={t("review.activeFilters.title")}>
+            <span className="text-[0.8125rem] text-fg-muted" title={t("review.activeFilters.subtitle")}>
+              {t("review.activeFilters.title")}
+            </span>
+            {reviewDomainFilters.map((domain) => (
+              <button
+                key={domain}
+                type="button"
+                className="focus-ring inline-flex h-7 items-center gap-1.5 rounded-sm bg-primary-soft px-2 text-xs font-medium text-primary hover:bg-primary-soft/70"
+                aria-label={t("review.activeFilters.removeDomain", { domain })}
+                onClick={() => setReviewDomainFilters((current) => current.filter((item) => item !== domain))}
+              >
+                {domain}
+                <XIcon size={12} />
+              </button>
+            ))}
+          </div>
         ) : null}
+      </Panel>
 
-        <Card
-          title={t("review.todayCard.title")}
-          subtitle={t("review.todayCard.subtitle")}
-          actions={
-            <Button
-              variant="secondary"
-              size="sm"
-              busy={isStartingReview}
-              disabled={!hasQueueItems}
-              onClick={startRecommendedReview}
-            >
-              {t("common.actions.reviewNow")}
-            </Button>
-          }
-        >
-          <div className="sq-metric-grid">
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("review.todayCard.due")}</span>
-              <strong>{reviewQueue.due_count}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("review.todayCard.total")}</span>
-              <strong>{reviewQueue.total_count}</strong>
-            </div>
-            <div className="sq-metric-card">
-              <span className="sq-muted">{t("review.todayCard.suggestedBatch")}</span>
-              <strong>{reviewQueue.recommended_batch_size || 0}</strong>
-            </div>
-          </div>
-        </Card>
+      <Section title={t("review.priorityCard.title")} description={t("review.priorityCard.subtitle")}>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,14rem)_minmax(0,14rem)_1fr] lg:items-end">
+          <Field label={t("review.filters.certification")} htmlFor="review-exam-filter">
+            <Select id="review-exam-filter" value={selectedExamId} onChange={(event) => setSelectedExamId(event.target.value)}>
+              <option value="">{t("common.filters.all")}</option>
+              {exams.map((exam) => (
+                <option key={exam.id} value={exam.id}>
+                  {exam.title}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={t("review.filters.state")} htmlFor="review-state-filter">
+            <Select id="review-state-filter" value={reviewStateFilter} onChange={(event) => setReviewStateFilter(event.target.value)}>
+              <option value="">{t("common.filters.everything")}</option>
+              <option value="due_today">{t("common.reviewStates.dueToday")}</option>
+              <option value="overdue">{t("common.reviewStates.overdue")}</option>
+              <option value="at_risk">{t("common.reviewStates.atRisk")}</option>
+              <option value="scheduled">{t("common.reviewStates.scheduled")}</option>
+              <option value="mastered">{t("common.reviewStates.mastered")}</option>
+            </Select>
+          </Field>
+          <fieldset className="flex flex-wrap gap-x-5 sm:col-span-2 lg:col-span-1">
+            <legend className="sr-only">{t("review.filters.refine")}</legend>
+            <Checkbox
+              id="review-bookmarks-only"
+              checked={reviewBookmarksOnly}
+              onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
+              label={t("review.filters.bookmarksOnly")}
+            />
+            <Checkbox
+              id="review-notes-only"
+              checked={reviewNotesOnly}
+              onChange={(event) => setReviewNotesOnly(event.target.checked)}
+              label={t("review.filters.notesOnly")}
+            />
+          </fieldset>
+        </div>
 
-        <Card title={t("review.filters.title")} subtitle={t("review.filters.subtitle")}>
-          <div className="sq-stack-md">
-            <div className="sq-form-grid">
-              <Field label={t("review.filters.certification")} htmlFor="review-exam-filter">
-                <select
-                  id="review-exam-filter"
-                  className="sq-select"
-                  value={selectedExamId}
-                  onChange={(event) => setSelectedExamId(event.target.value)}
-                >
-                  <option value="">{t("common.filters.all")}</option>
-                  {exams.map((exam) => (
-                    <option key={exam.id} value={exam.id}>
-                      {exam.title}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label={t("review.filters.state")} htmlFor="review-state-filter">
-                <select
-                  id="review-state-filter"
-                  className="sq-select"
-                  value={reviewStateFilter}
-                  onChange={(event) => setReviewStateFilter(event.target.value)}
-                >
-                  <option value="">{t("common.filters.everything")}</option>
-                  <option value="due_today">{t("common.reviewStates.dueToday")}</option>
-                  <option value="overdue">{t("common.reviewStates.overdue")}</option>
-                  <option value="at_risk">{t("common.reviewStates.atRisk")}</option>
-                  <option value="scheduled">{t("common.reviewStates.scheduled")}</option>
-                  <option value="mastered">{t("common.reviewStates.mastered")}</option>
-                </select>
-              </Field>
-            </div>
-
-            <div className="sq-checkbox-grid">
-              <label className="sq-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={reviewBookmarksOnly}
-                  onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
-                />
-                {t("review.filters.bookmarksOnly")}
-              </label>
-              <label className="sq-checkbox-row">
-                <input type="checkbox" checked={reviewNotesOnly} onChange={(event) => setReviewNotesOnly(event.target.checked)} />
-                {t("review.filters.notesOnly")}
-              </label>
-            </div>
-          </div>
-        </Card>
-
-        <Card title={t("review.priorityCard.title")} subtitle={t("review.priorityCard.subtitle")}>
-          <div aria-busy={reviewQueueQuery.isFetching || undefined}>
-            {hasQueueItems ? (
-              <div className="sq-list">
-                {reviewQueue.items.map((item) => (
-                  <div key={item.question_id} className="sq-list-item">
-                    <div className="sq-list-title">{item.prompt}</div>
-                    <div className="sq-list-meta">
-                      {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item, t)}
-                    </div>
-                    {item.bookmarked || item.has_note ? (
-                      <div className="sq-chip-row sq-gap-top-sm">
-                        {item.bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
-                        {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="sq-empty">{t("review.empty")}</div>
-            )}
-          </div>
-        </Card>
-      </div>
-    </main>
+        {hasQueueItems ? (
+          <ReviewQueueList items={reviewQueue.items} t={t} busy={reviewQueueQuery.isFetching} />
+        ) : (
+          <EmptyState
+            description={t("review.empty")}
+            action={
+              <Link href="/start" className={buttonClassName("secondary", "sm")}>
+                {t("common.actions.newSession")}
+              </Link>
+            }
+          />
+        )}
+      </Section>
+    </Page>
   );
 }

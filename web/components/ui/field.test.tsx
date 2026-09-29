@@ -54,6 +54,6 @@ describe("Field", () => {
     expect(toggle.getAttribute("aria-controls")).toBe("password-hint");
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(document.getElementById("password-hint")?.className).toContain("sq-field-hint");
+    expect(document.getElementById("password-hint")?.hasAttribute("data-visible")).toBe(true);
   });
 });

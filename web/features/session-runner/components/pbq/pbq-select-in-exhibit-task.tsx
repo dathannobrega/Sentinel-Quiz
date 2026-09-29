@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 
-import { PbqItemExplanation, PbqMark, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
 import { selectableExhibitLines, type NormalizedExhibit } from "@/features/session-runner/lib/pbq-utils";
 import { cn } from "@/lib/utils/cn";
 import type { PbqSelectInExhibitResponse, PbqSelectInExhibitTask } from "@/types/api";
@@ -24,7 +24,7 @@ export function PbqSelectInExhibitTask({ task, value, onChange, disabled, soluti
   const title = exhibit?.title || task.exhibit_id;
 
   if (!exhibit || !lines.length) {
-    return <p className="sq-list-meta">{t("pbq.selectInExhibit.exhibitMissing")}</p>;
+    return <p className={pbq.hint}>{t("pbq.selectInExhibit.exhibitMissing")}</p>;
   }
 
   function toggle(lineId: string, checked: boolean) {
@@ -40,11 +40,11 @@ export function PbqSelectInExhibitTask({ task, value, onChange, disabled, soluti
   }
 
   return (
-    <fieldset className="sq-pbq-task-body sq-pbq-fieldset" aria-describedby={labelledBy}>
-      <legend className="sq-list-title">
+    <fieldset className={pbq.fieldset} aria-describedby={labelledBy}>
+      <legend className="mb-1 text-sm font-medium text-fg-muted">
         {single ? t("pbq.selectInExhibit.legendSingle", { title }) : t("pbq.selectInExhibit.legendMultiple", { title })}
       </legend>
-      <ul className={cn("sq-pbq-lines", exhibit.type === "log" && "sq-pbq-lines--mono")}>
+      <ul className={cn(pbq.lines, exhibit.type === "log" && pbq.linesMono)}>
         {lines.map((line) => {
           const inputId = `${baseId}-${line.id}`;
           const checked = value.includes(line.id);
@@ -66,7 +66,7 @@ export function PbqSelectInExhibitTask({ task, value, onChange, disabled, soluti
             }
           }
           return (
-            <li key={line.id} className={cn("sq-pbq-line", checked && "sq-pbq-line--selected")}>
+            <li key={line.id} className={cn(pbq.line, checked && pbq.lineSelected)}>
               <input
                 id={inputId}
                 type={single ? "radio" : "checkbox"}
@@ -74,8 +74,9 @@ export function PbqSelectInExhibitTask({ task, value, onChange, disabled, soluti
                 checked={checked}
                 disabled={disabled}
                 onChange={(event) => toggle(line.id, event.target.checked)}
+                className={pbq.lineInput}
               />
-              <label htmlFor={inputId} className="sq-pbq-line__text">
+              <label htmlFor={inputId} className={pbq.lineText}>
                 {line.text}
               </label>
               {mark ? <PbqMark ok={mark.ok}>{mark.text}</PbqMark> : null}

@@ -14,37 +14,6 @@ export const auth = {
     resendFailed: "Failed to resend",
     logoutFailed: "Failed to exit"
   },
-  hero: {
-    loginEyebrow: "Secure session",
-    registerEyebrow: "Account creation",
-    loginTitle: "Sign in to sync your progress.",
-    registerTitle: "Create your account and continue from any device.",
-    lead:
-      "Authentication uses HttpOnly cookie on the backend. When you sign in, the system associates local history, bookmarks, notes, and pending reviews with your account without exposing the session in localStorage.",
-    benefitsAriaLabel: "Account benefits"
-  },
-  stats: [
-    {
-      label: "Synchronization",
-      value: "Account",
-      meta: "Unified history, review and progress."
-    },
-    {
-      label: "Security",
-      value: "HttpOnly",
-      meta: "Session protected via cookie and typed backend."
-    },
-    {
-      label: "Continuity",
-      value: "Auto-merge",
-      meta: "The current device is committed when applicable."
-    },
-    {
-      label: "Access",
-      value: "Web",
-      meta: "Ready for study, simulations and guided review."
-    }
-  ],
   form: {
     loginTitle: "Sign in",
     registerTitle: "Create account",

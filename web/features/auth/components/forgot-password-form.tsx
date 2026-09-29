@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Input } from "@/components/ui/input";
+import { AuthLayout, authLinkClassName } from "@/features/auth/components/auth-layout";
 import { readErrorMessage } from "@/lib/api/client";
 import { requestPasswordReset } from "@/lib/auth/session";
 import { useI18n } from "@/lib/i18n";
@@ -47,47 +48,28 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <Card title={t("password.forgot.title")} subtitle={t("password.forgot.subtitle")}>
-          <form
-            className="sq-surface-block"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleSubmit();
-            }}
-          >
-            {notice ? (
-              <StatusBanner
-                tone={notice.tone}
-                title={notice.title}
-                message={notice.message}
-                role={notice.tone === "danger" ? "alert" : "status"}
-              />
-            ) : null}
-            <Field label={t("password.forgot.emailLabel")} htmlFor="forgot-email">
-              <input
-                id="forgot-email"
-                className="sq-input"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </Field>
-            <div className="sq-actions">
-              <Button type="submit" busy={isSubmitting}>
-                {t("password.forgot.submit")}
-              </Button>
-              <Link href="/login" className="sq-button sq-button--md sq-button--ghost">
-                {t("password.forgot.backToLogin")}
-              </Link>
-            </div>
-          </form>
-        </Card>
-      </div>
-    </main>
+    <AuthLayout title={t("password.forgot.title")} description={t("password.forgot.subtitle")}>
+      <form
+        className="flex flex-col gap-5"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        {notice ? (
+          <Alert tone={notice.tone} title={notice.title} message={notice.message} role={notice.tone === "danger" ? "alert" : "status"} />
+        ) : null}
+        <Field label={t("password.forgot.emailLabel")} htmlFor="forgot-email">
+          <Input id="forgot-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+        </Field>
+        <Button type="submit" size="lg" busy={isSubmitting} className="w-full">
+          {t("password.forgot.submit")}
+        </Button>
+        <Link href="/login" className={`${authLinkClassName} self-start`}>
+          {t("password.forgot.backToLogin")}
+        </Link>
+      </form>
+    </AuthLayout>
   );
 }

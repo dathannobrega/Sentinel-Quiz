@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { buttonClassName } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { useCurrentUser } from "@/lib/query/hooks";
 
@@ -16,11 +17,11 @@ export function LandingAuthCta({ variant }: { variant: "hero" | "footer" }) {
 
   if (user) {
     return (
-      <div className="sq-actions">
-        <Link href="/dashboard" className="sq-button sq-button--md sq-button--primary">
+      <div className="flex flex-wrap gap-2">
+        <Link href="/dashboard" className={buttonClassName("primary", "lg")}>
           {t("common.actions.goToDashboard")}
         </Link>
-        <Link href="/start" className="sq-button sq-button--md sq-button--ghost">
+        <Link href="/start" className={buttonClassName("secondary", "lg")}>
           {t("common.actions.newSession")}
         </Link>
       </div>
@@ -28,16 +29,16 @@ export function LandingAuthCta({ variant }: { variant: "hero" | "footer" }) {
   }
 
   return (
-    <div className="sq-actions">
-      <Link href="/register" className="sq-button sq-button--md sq-button--primary">
+    <div className="flex flex-wrap gap-2">
+      <Link href="/register" className={buttonClassName("primary", "lg")}>
         {t("common.actions.startFree")}
       </Link>
       {variant === "hero" ? (
-        <a href="#como-funciona" className="sq-button sq-button--md sq-button--ghost">
+        <a href="#como-funciona" className={buttonClassName("secondary", "lg")}>
           {t("common.actions.seeDemo")}
         </a>
       ) : (
-        <Link href="/login" className="sq-button sq-button--md sq-button--ghost">
+        <Link href="/login" className={buttonClassName("secondary", "lg")}>
           {t("common.actions.alreadyHaveAccount")}
         </Link>
       )}

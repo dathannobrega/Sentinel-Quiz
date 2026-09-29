@@ -5,12 +5,15 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
 import { AuthRequiredNotice } from "@/components/ui/auth-required-notice";
-import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { BookIcon } from "@/components/ui/icons";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
+import { Page, PageHeader } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiClient } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { useCurrentUser } from "@/lib/query/hooks";
+import { useTheme } from "@/lib/theme/theme";
 import { buildMaterialPreviewPath, sanitizeMaterialPreviewHtml } from "@/lib/utils/materials";
 import type { CitationItem } from "@/types/api";
 
@@ -32,6 +35,32 @@ function buildPageLabel(t: (key: string, values?: Record<string, string | number
     return t("theory.page", { start: from });
   }
   return null;
+}
+
+/**
+ * The preview HTML comes from the backend with its own (legacy, light-only) stylesheet. Append a
+ * reading stylesheet built from the resolved design tokens so the excerpt follows the product's
+ * typography and the active theme, and hide the header the page already shows.
+ * `_preference` only keys the memo; the values come from the computed tokens.
+ */
+function withReaderStyles(html: string, _preference: string): string {
+  if (typeof window === "undefined") {
+    return html;
+  }
+  const tokens = getComputedStyle(document.documentElement);
+  const read = (name: string, fallback: string) => tokens.getPropertyValue(name).trim() || fallback;
+  const fg = read("--sq-fg", "#161a22");
+  const css = [
+    `html, body { background: ${read("--sq-canvas", "#f4f5f7")} !important; color: ${fg} !important; }`,
+    `body { font-family: "Source Serif 4", Georgia, "Times New Roman", serif !important; -webkit-font-smoothing: antialiased; }`,
+    "main { max-width: 44rem !important; margin: 0 !important; padding: 0 0 48px !important; }",
+    "main > .eyebrow, main > h1, main > .meta { display: none !important; }",
+    ".card { background: transparent !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; margin: 0 !important; border-radius: 0 !important; }",
+    `.body p, .body li { font-size: 18px !important; line-height: 1.7 !important; color: ${fg} !important; }`,
+    `a { color: ${read("--sq-primary", "#2544c4")} !important; }`
+  ].join("\n");
+  const style = `<style>${css}</style>`;
+  return html.includes("</head>") ? html.replace("</head>", `${style}</head>`) : `${style}${html}`;
 }
 
 export function TheoryReader({ materialPath, locator, pageStart, pageEnd, label }: TheoryReaderProps) {
@@ -59,6 +88,10 @@ export function TheoryReader({ materialPath, locator, pageStart, pageEnd, label 
   });
 
   const title = label || t("theory.title");
+  const { preference } = useTheme();
+  const previewHtml = previewQuery.data;
+  // Rebuilt when the theme preference changes: colors are read from the resolved tokens.
+  const themedDocument = useMemo(() => (previewHtml ? withReaderStyles(previewHtml, preference) : ""), [previewHtml, preference]);
   const pageLabel = buildPageLabel(t, pageStart, pageEnd);
   const previewError = previewQuery.error;
   const needsLogin =
@@ -67,92 +100,71 @@ export function TheoryReader({ materialPath, locator, pageStart, pageEnd, label 
 
   let body: React.ReactNode;
   if (!previewPath) {
-    body = <div className="sq-empty" style={{ padding: "var(--sq-space-6)" }}>{t("theory.noMaterial")}</div>;
+    body = <EmptyState description={t("theory.noMaterial")} />;
   } else if (currentUserQuery.isPending || (previewQuery.isPending && previewQuery.isFetching)) {
     body = (
-      <div role="status" aria-busy="true" style={{ padding: "var(--sq-space-4)" }}>
-        <span className="sq-visually-hidden">{t("theory.loading")}</span>
-        <Skeleton height={420} />
+      <div role="status" aria-busy="true" className="flex flex-col gap-3">
+        <span className="sr-only">{t("theory.loading")}</span>
+        <Skeleton height={24} className="max-w-md" />
+        <Skeleton height={18} />
+        <Skeleton height={18} />
+        <Skeleton height={18} className="max-w-lg" />
+        <Skeleton height={320} />
       </div>
     );
   } else if (needsLogin) {
-    body = (
-      <div style={{ padding: "var(--sq-space-4)" }}>
-        <AuthRequiredNotice title={t("theory.loginRequiredTitle")} message={t("theory.loginRequiredMessage")} />
-      </div>
-    );
+    body = <AuthRequiredNotice title={t("theory.loginRequiredTitle")} message={t("theory.loginRequiredMessage")} />;
   } else if (isNotFound) {
-    body = <div className="sq-empty" style={{ padding: "var(--sq-space-6)" }}>{t("theory.notFound")}</div>;
+    body = <EmptyState description={t("theory.notFound")} />;
   } else if (previewQuery.isError) {
     body = (
-      <div style={{ padding: "var(--sq-space-4)" }}>
-        <QueryErrorBanner
-          title={t("theory.loadFailed")}
-          error={previewQuery.error}
-          onRetry={() => void previewQuery.refetch()}
-          retrying={previewQuery.isFetching}
-        />
-      </div>
+      <QueryErrorBanner
+        title={t("theory.loadFailed")}
+        error={previewQuery.error}
+        onRetry={() => void previewQuery.refetch()}
+        retrying={previewQuery.isFetching}
+      />
     );
   } else {
     body = (
       <iframe
-        srcDoc={previewQuery.data ?? ""}
+        srcDoc={themedDocument}
         sandbox=""
         referrerPolicy="no-referrer"
         title={t("theory.frameTitle", { label: title })}
-        style={{
-          display: "block",
-          width: "100%",
-          minHeight: "72vh",
-          border: 0,
-          background: "rgba(255,255,255,0.92)"
-        }}
+        className="block min-h-[72vh] w-full border-0 bg-canvas"
       />
     );
   }
 
+  const meta = [materialPath ? materialPath.split("/").pop() : null, pageLabel, locator].filter(Boolean).join(" · ");
+
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <h1 className="sq-page-title">{t("theory.title")}</h1>
-              <p className="sq-page-subtitle">{t("theory.subtitle")}</p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/review">{t("theory.reviewQueue")}</Link>
-            <Link href="/dashboard">{t("theory.dashboard")}</Link>
-          </div>
-        </header>
-
-        <Card title={title} subtitle={t("theory.cardSubtitle")}>
-          <div className="sq-surface-block">
-            <div className="sq-chip-row">
-              {materialPath ? <span className="sq-chip">{materialPath.split("/").pop()}</span> : null}
-              {pageLabel ? <span className="sq-chip">{pageLabel}</span> : null}
-              {locator ? <span className="sq-chip">{locator}</span> : null}
-            </div>
-          </div>
-
-          <div
-            className="sq-surface-block"
-            style={{
-              marginTop: "var(--sq-space-4)",
-              padding: 0,
-              overflow: "hidden",
-              minHeight: "72vh"
-            }}
-          >
-            {body}
-          </div>
-        </Card>
+    <Page>
+      <div className="flex w-full max-w-[52rem] flex-col gap-8">
+      <PageHeader
+        context={t("theory.title")}
+        title={title}
+        description={t("theory.cardSubtitle")}
+        actions={
+          <nav aria-label={t("theory.title")} className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            <Link href="/review" className="focus-ring rounded-sm font-medium text-primary underline-offset-2 hover:underline">
+              {t("theory.reviewQueue")}
+            </Link>
+            <Link href="/dashboard" className="focus-ring rounded-sm font-medium text-primary underline-offset-2 hover:underline">
+              {t("theory.dashboard")}
+            </Link>
+          </nav>
+        }
+      />
+      {meta ? (
+        <p className="-mt-4 flex items-center gap-2 font-mono text-xs text-fg-subtle [overflow-wrap:anywhere]">
+          <BookIcon className="shrink-0" />
+          {meta}
+        </p>
+      ) : null}
+      <div className="border-t border-line pt-6">{body}</div>
       </div>
-    </main>
+    </Page>
   );
 }

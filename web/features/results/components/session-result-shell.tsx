@@ -4,15 +4,21 @@ import { useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { Accordion, AccordionItem } from "@/components/ui/accordion";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { Disclosure } from "@/components/ui/disclosure";
 import { EmptyState } from "@/components/ui/empty-state";
-import { MetricCard } from "@/components/ui/metric-card";
+import { Field } from "@/components/ui/field";
+import { BookIcon, CircleCheckIcon, CircleXIcon, SparkIcon, SpinnerIcon } from "@/components/ui/icons";
+import { Select, Textarea } from "@/components/ui/input";
+import { Meter } from "@/components/ui/meter";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
+import { Page, PageHeader, Panel, Section } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Stat, StatList } from "@/components/ui/stat";
 import { PbqQuestion } from "@/features/session-runner/components/pbq/pbq-question";
+import { OptionFace, optionRowClassName, resolveOptionState } from "@/features/session-runner/components/question-options";
 import { extractPbqResponse, isPbqQuestion, pbqCreditLabel, scoreToPercent } from "@/features/session-runner/lib/pbq-utils";
 import { ApiError, apiClient, getTutorTimeoutMs, readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
@@ -47,6 +53,8 @@ interface SessionResultShellProps {
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
+const sectionLabel = "text-xs font-semibold tracking-[0.08em] text-fg-muted uppercase";
+
 /** Maps tutor failures (contract §3) to user-facing copy. */
 export function describeTutorError(error: unknown, t: Translate): { message: string; needsLogin: boolean } {
   if (error instanceof ApiError) {
@@ -71,10 +79,7 @@ export function describeTutorError(error: unknown, t: Translate): { message: str
   return { message: readErrorMessage(error, t("results.tutor.unavailable")), needsLogin: false };
 }
 
-function renderInsightLines(
-  result: ExamResult | StudyResult,
-  t: (key: string, values?: Record<string, string | number>) => string
-): string[] {
+function renderInsightLines(result: ExamResult | StudyResult, t: Translate): string[] {
   const summary = result.insight?.summary || {};
   const lines: string[] = [];
 
@@ -140,7 +145,20 @@ function formatSecondsMetric(value: number | null | undefined): string {
   return `${Math.round(value)}s`;
 }
 
-function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undefined }) {
+function resolveReadiness(scorePercent: number, t: Translate): { label: string } {
+  if (scorePercent >= 90) {
+    return { label: t("results.readiness.excellent") };
+  }
+  if (scorePercent >= 80) {
+    return { label: t("results.readiness.good") };
+  }
+  if (scorePercent >= 70) {
+    return { label: t("results.readiness.ok") };
+  }
+  return { label: t("results.readiness.tuning") };
+}
+
+function ReadinessSection({ readiness }: { readiness: ReadinessScore | null | undefined }) {
   const { t } = useI18n();
   if (!readiness) {
     return null;
@@ -158,175 +176,114 @@ function ReadinessCard({ readiness }: { readiness: ReadinessScore | null | undef
     .slice(0, 5);
 
   return (
-    <Card
+    <Section
       title={t("results.readinessCard.title")}
-      subtitle={t("results.readinessCard.subtitle", {
+      description={t("results.readinessCard.subtitle", {
         current: formatScore(readiness.score_percent),
-        projected: formatScore(readiness.projected_score_percent),
+        projected: formatScore(readiness.projected_score_percent)
       })}
     >
-      <div className="sq-surface-block">
-        <div className="sq-metric-grid">
-          <MetricCard label={t("results.readinessCard.band")} value={translateReadinessBand(t, readiness.band)} />
-          <MetricCard label={t("results.readinessCard.suggestedSession")} value={t("results.summary.minutes", { value: readiness.recommended_minutes })} />
-          <MetricCard label={t("results.readinessCard.trackedBase")} value={readiness.tracked_questions} />
-        </div>
-        {factorTexts.length ? (
-          <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
-            {factorTexts.map((factor) => (
-              <div key={factor} className="sq-list-item">
-                <div className="sq-list-meta">{factor}</div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {rankedDomains.length ? (
-          <div className="sq-page-stack" style={{ marginTop: "var(--sq-space-4)" }}>
-            <div className="sq-list-title">{t("results.readinessCard.byDomain")}</div>
+      <StatList>
+        <Stat label={t("results.readinessCard.band")} value={translateReadinessBand(t, readiness.band)} />
+        <Stat label={t("results.readinessCard.suggestedSession")} value={t("results.summary.minutes", { value: readiness.recommended_minutes })} />
+        <Stat label={t("results.readinessCard.trackedBase")} value={readiness.tracked_questions} />
+      </StatList>
+      {factorTexts.length ? (
+        <ul className="flex flex-col gap-1.5 text-sm text-fg-muted">
+          {factorTexts.map((factor) => (
+            <li key={factor} className="flex gap-2">
+              <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-fg-subtle" />
+              {factor}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {rankedDomains.length ? (
+        <div className="flex flex-col gap-2">
+          <h3 className={sectionLabel}>{t("results.readinessCard.byDomain")}</h3>
+          <ul className="divide-y divide-line border-y border-line">
             {rankedDomains.map((domain) => (
-              <div key={`${domain.certification ?? ""}-${domain.domain}`} className="sq-surface-block">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "var(--sq-space-3)",
-                    alignItems: "center"
-                  }}
-                >
-                  <div className="sq-list-title">{domain.domain}</div>
-                  <div className="sq-list-meta">{formatScore(domain.score_percent)}</div>
+              <li key={`${domain.certification ?? ""}-${domain.domain}`} className="flex flex-col gap-2 py-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 truncate font-medium text-fg">{domain.domain}</span>
+                  <span className="nums text-sm font-semibold text-fg">{formatScore(domain.score_percent)}</span>
                 </div>
-                <div
-                  role="meter"
-                  aria-label={domain.domain}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(domain.score_percent)}
-                  style={{
-                    marginTop: "var(--sq-space-3)",
-                    height: 8,
-                    borderRadius: 999,
-                    background: "rgba(148, 163, 184, 0.18)",
-                    overflow: "hidden"
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${Math.max(4, Math.min(domain.score_percent, 100))}%`,
-                      height: "100%",
-                      borderRadius: 999,
-                      background:
-                        domain.score_percent >= 80
-                          ? "linear-gradient(90deg, rgba(21,128,61,0.82), rgba(74,222,128,0.76))"
-                          : domain.score_percent >= 65
-                            ? "linear-gradient(90deg, rgba(180,83,9,0.82), rgba(251,191,36,0.76))"
-                            : "linear-gradient(90deg, rgba(185,28,28,0.82), rgba(248,113,113,0.76))"
-                    }}
-                  />
-                </div>
-                <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
-                  <span className="sq-chip">{t("results.readinessCard.accuracy", { value: formatScore(domain.accuracy_percent) })}</span>
-                  <span className="sq-chip">{t("results.readinessCard.attempts", { count: domain.attempts })}</span>
-                  <span className="sq-chip">{t("results.readinessCard.pace", { value: formatSecondsMetric(domain.avg_elapsed_seconds) })}</span>
-                  <span className="sq-chip">{t("results.readinessCard.lowConfidence", { count: domain.low_confidence_count })}</span>
-                </div>
-              </div>
+                <Meter value={domain.score_percent} kind="score" label={domain.domain} />
+                <p className="text-xs text-fg-muted">
+                  {[
+                    t("results.readinessCard.accuracy", { value: formatScore(domain.accuracy_percent) }),
+                    t("results.readinessCard.attempts", { count: domain.attempts }),
+                    t("results.readinessCard.pace", { value: formatSecondsMetric(domain.avg_elapsed_seconds) }),
+                    t("results.readinessCard.lowConfidence", { count: domain.low_confidence_count })
+                  ].join(" · ")}
+                </p>
+              </li>
             ))}
-          </div>
-        ) : null}
-      </div>
-    </Card>
+          </ul>
+        </div>
+      ) : null}
+    </Section>
   );
 }
 
-function TimingCard({ timing }: { timing: TimingBreakdown | null | undefined }) {
+function TimingSection({ timing }: { timing: TimingBreakdown | null | undefined }) {
   const { t } = useI18n();
   if (!timing) {
     return null;
   }
 
   return (
-    <Card title={t("results.timingCard.title")} subtitle={t("results.timingCard.subtitle")}>
-      <div className="sq-surface-block">
-        <div className="sq-metric-grid">
-          <MetricCard label={t("results.timingCard.duration")} value={formatSecondsMetric(timing.duration_seconds)} />
-          <MetricCard label={t("results.timingCard.averagePerQuestion")} value={formatSecondsMetric(timing.avg_seconds_per_question)} />
-          <MetricCard label={t("results.timingCard.fastest")} value={formatSecondsMetric(timing.fastest_seconds)} />
-          <MetricCard label={t("results.timingCard.slowest")} value={formatSecondsMetric(timing.slowest_seconds)} />
-        </div>
-      </div>
-    </Card>
+    <Section title={t("results.timingCard.title")} description={t("results.timingCard.subtitle")}>
+      <StatList>
+        <Stat label={t("results.timingCard.duration")} value={formatSecondsMetric(timing.duration_seconds)} />
+        <Stat label={t("results.timingCard.averagePerQuestion")} value={formatSecondsMetric(timing.avg_seconds_per_question)} />
+        <Stat label={t("results.timingCard.fastest")} value={formatSecondsMetric(timing.fastest_seconds)} />
+        <Stat label={t("results.timingCard.slowest")} value={formatSecondsMetric(timing.slowest_seconds)} />
+      </StatList>
+    </Section>
   );
 }
 
-function StudyPlanCard({ items }: { items: StudyPlanItem[] }) {
+function StudyPlanSection({ items }: { items: StudyPlanItem[] }) {
   const { t } = useI18n();
   if (!items.length) {
     return null;
   }
 
   return (
-    <Card title={t("results.studyPlanCard.title")} subtitle={t("results.studyPlanCard.subtitle")}>
-      <div className="sq-page-stack">
+    <Section title={t("results.studyPlanCard.title")} description={t("results.studyPlanCard.subtitle")}>
+      <ol className="divide-y divide-line border-y border-line">
         {items.slice(0, 3).map((item) => (
-          <div key={`${item.domain}-${item.action}`} className="sq-surface-block">
-            <div className="sq-list-title">
-              {t("results.studyPlanCard.itemTitle", {
-                domain: item.domain,
-                wrong: item.wrong,
-                total: item.total,
-                score: formatScore(item.score_percent)
-              })}
+          <li key={`${item.domain}-${item.action}`} className="flex flex-col gap-2 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+            <div className="flex min-w-0 flex-col gap-1">
+              <p className="font-medium text-fg">
+                {t("results.studyPlanCard.itemTitle", {
+                  domain: item.domain,
+                  wrong: item.wrong,
+                  total: item.total,
+                  score: formatScore(item.score_percent)
+                })}
+              </p>
+              <p className="text-sm text-fg-muted">{item.reason}</p>
+              {item.topics?.length ? <p className="text-[0.8125rem] text-fg-subtle">{item.topics.join(" · ")}</p> : null}
+              <p className="text-sm text-fg">{item.action}</p>
             </div>
-            <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-2)" }}>
-              {item.reason}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Link href={buildReviewDomainHref(item.domain)} className={buttonClassName("secondary", "sm")}>
+                {t("results.studyPlanCard.openReview")}
+              </Link>
+              <a href="#review-card" className="focus-ring rounded-sm px-1 text-sm font-medium text-primary underline-offset-2 hover:underline">
+                {t("results.studyPlanCard.openReferences")}
+              </a>
             </div>
-            {item.topics?.length ? (
-              <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
-                {item.topics.map((topic) => (
-                  <span key={topic} className="sq-chip">
-                    {topic}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>
-              {item.action}
-            </div>
-            <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
-              <Link href={buildReviewDomainHref(item.domain)}>{t("results.studyPlanCard.openReview")}</Link>
-              <a href="#review-card">{t("results.studyPlanCard.openReferences")}</a>
-            </div>
-          </div>
+          </li>
         ))}
-      </div>
-    </Card>
+      </ol>
+    </Section>
   );
 }
 
-function resolveReadiness(
-  scorePercent: number,
-  t: (key: string, values?: Record<string, string | number>) => string
-): { label: string } {
-  if (scorePercent >= 90) {
-    return { label: t("results.readiness.excellent") };
-  }
-  if (scorePercent >= 80) {
-    return { label: t("results.readiness.good") };
-  }
-  if (scorePercent >= 70) {
-    return { label: t("results.readiness.ok") };
-  }
-  return { label: t("results.readiness.tuning") };
-}
-
-function CitationLinks({
-  citations,
-  openMaterialLabel
-}: {
-  citations?: CitationItem[] | null;
-  openMaterialLabel: string;
-}) {
+function CitationLinks({ citations, openMaterialLabel, title }: { citations?: CitationItem[] | null; openMaterialLabel: string; title: string }) {
   if (!citations?.length) {
     return null;
   }
@@ -343,16 +300,18 @@ function CitationLinks({
   }
 
   return (
-    <div className="sq-chip-row">
-      {previewLinks.slice(0, 3).map((item) => (
-        <Link
-          key={`${item.label}-${item.href}`}
-          className="sq-chip"
-          href={item.href || "#"}
-        >
-          {item.label}
-        </Link>
-      ))}
+    <div className="flex flex-col gap-2">
+      <h4 className={sectionLabel}>{title}</h4>
+      <ul className="flex flex-col gap-1.5">
+        {previewLinks.slice(0, 3).map((item) => (
+          <li key={`${item.label}-${item.href}`} className="flex items-start gap-2 text-[0.8125rem]">
+            <BookIcon className="mt-0.5 shrink-0 text-fg-subtle" />
+            <Link href={item.href || "#"} className="focus-ring rounded-sm font-medium text-primary underline-offset-2 hover:underline">
+              {item.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -369,7 +328,7 @@ function ReviewBlock({
   enableTutor: boolean;
   index: number;
   question: ReviewQuestion | StudyReviewQuestion;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: Translate;
   openMaterialLabel: string;
 }) {
   const { t: localT } = useI18n();
@@ -387,6 +346,7 @@ function ReviewBlock({
   const [issueCategory, setIssueCategory] = useState<QuestionIssueRequest["category"]>("clareza");
   const [issueMessage, setIssueMessage] = useState("");
   const [issueNotice, setIssueNotice] = useState<string | null>(null);
+  const loginHref = `/login?next=${encodeURIComponent(pathname || "/")}`;
 
   async function runTutor(mode: TutorMode) {
     setIsTutorLoading(true);
@@ -428,109 +388,116 @@ function ReviewBlock({
     }
   }
 
+  const gradedFeedback = { is_correct: question.is_correct, correct_keys: question.correct_keys };
+  const correctnessTone = question.is_correct ? "success" : isPbq && (question.score ?? 0) > 0 ? "warning" : "danger";
+
   return (
-    <AccordionItem
-      title={t("results.reviewBlock.question", { number: questionNumber })}
-      subtitle={[question.certification, question.domain, question.difficulty].filter(Boolean).join(" · ") || t("results.reviewBlock.noMetadata")}
+    <Disclosure
+      variant="plain"
+      defaultOpen={index === 0}
+      summary={t("results.reviewBlock.question", { number: questionNumber })}
+      hint={[question.certification, question.domain, question.difficulty].filter(Boolean).join(" · ") || t("results.reviewBlock.noMetadata")}
       meta={
         <>
-          {isPbq ? <span className="sq-chip">{t("pbq.badge")}</span> : null}
-          <span className={cn("sq-chip", question.is_correct ? "sq-chip--success" : "sq-chip--danger")}>
+          {isPbq ? <Badge tone="primary">{t("pbq.badge")}</Badge> : null}
+          <Badge tone={correctnessTone}>
             <span aria-hidden="true">{question.is_correct ? "✓ " : "✗ "}</span>
             {isPbq && pbqPercent !== null
               ? `${pbqCreditLabel(question.score, t)} · ${pbqPercent}%`
               : question.is_correct
                 ? t("results.reviewBlock.correct")
                 : t("results.reviewBlock.wrong")}
-          </span>
+          </Badge>
         </>
       }
-      defaultOpen={index === 0}
+      contentClassName="flex flex-col gap-6"
     >
       {isPbq ? (
-        <div className="sq-stack-md">
-          <div className="sq-list-title">{t("pbq.review.title")}</div>
-          {!pbqResponse || !Object.keys(pbqResponse).length ? (
-            <p className="sq-list-meta">{t("pbq.review.noResponse")}</p>
-          ) : null}
+        <div className="flex flex-col gap-3">
+          <h3 className={sectionLabel}>{t("pbq.review.title")}</h3>
+          {!pbqResponse || !Object.keys(pbqResponse).length ? <p className="text-sm text-fg-muted">{t("pbq.review.noResponse")}</p> : null}
           <PbqQuestion payload={question.pbq} response={pbqResponse} disabled result={question} headingLevel={3} t={t} />
         </div>
       ) : (
-        <div className="sq-result-prompt">{question.prompt}</div>
+        <p className="font-serif text-[1.0625rem] leading-[1.65] whitespace-pre-line text-fg">{question.prompt}</p>
       )}
 
-      <div className="sq-list">
-        {question.options.map((option) => {
-          const isCorrect = question.correct_keys.includes(option.key);
-          const isSelected = question.selected_keys.includes(option.key);
+      {question.options.length ? (
+        <ul className="flex flex-col gap-2">
+          {question.options.map((option) => {
+            const isSelected = question.selected_keys.includes(option.key);
+            const state = resolveOptionState(option.key, isSelected, gradedFeedback);
+            return (
+              <li key={`${question.id}-${option.key}`} className={optionRowClassName(state, isSelected, false, true)}>
+                <OptionFace
+                  optionKey={option.key}
+                  text={option.text}
+                  multiSelect={question.multi_select}
+                  selected={isSelected}
+                  state={state}
+                  locked
+                  receded={!state && !isSelected}
+                  t={t}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
 
-          return (
-            <div
-              key={`${question.id}-${option.key}`}
-              className={cn(
-                "sq-list-item sq-choice-card",
-                isCorrect && "sq-choice-card--correct",
-                !isCorrect && isSelected && "sq-choice-card--wrong"
-              )}
-            >
-              <div className="sq-choice-card__body">
-                <span className="sq-chip">{option.key}</span>
-                <span>
-                  {option.text}
-                  {isCorrect ? t("results.reviewBlock.correctSuffix") : ""}
-                  {!isCorrect && isSelected ? t("results.reviewBlock.selectedSuffix") : ""}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {question.justification ? <EmptyState size="compact" description={question.justification} /> : null}
-      <CitationLinks citations={question.citations} openMaterialLabel={openMaterialLabel} />
+      {question.justification ? (
+        <div className="flex flex-col gap-2">
+          <h4 className={sectionLabel}>{t("results.reviewBlock.explanation")}</h4>
+          <p className="font-serif text-[1.0625rem] leading-[1.7] whitespace-pre-line text-fg">{question.justification}</p>
+        </div>
+      ) : null}
+      <CitationLinks citations={question.citations} openMaterialLabel={openMaterialLabel} title={t("results.reviewBlock.references")} />
 
       {enableTutor ? (
-        <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
-          <div className="sq-list-title">{t("results.tutor.title")}</div>
+        <div className="flex flex-col gap-3 border-t border-line pt-5">
+          <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-fg">
+            <SparkIcon className="text-primary" />
+            {t("results.tutor.title")}
+          </h4>
           {isAuthenticated ? (
-            <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
-              <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("help")}>
-                {t("results.tutor.explain")}
-              </button>
-              <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("why_wrong")}>
-                {t("results.tutor.whyWrong")}
-              </button>
-              <button type="button" className="sq-chip" disabled={isTutorLoading} onClick={() => void runTutor("review")}>
-                {t("results.tutor.reviewTopic")}
-              </button>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["help", "results.tutor.explain"],
+                  ["why_wrong", "results.tutor.whyWrong"],
+                  ["review", "results.tutor.reviewTopic"]
+                ] as const
+              ).map(([tutorMode, labelKey]) => (
+                <Button key={tutorMode} variant="secondary" size="sm" disabled={isTutorLoading} onClick={() => void runTutor(tutorMode)}>
+                  {t(labelKey)}
+                </Button>
+              ))}
             </div>
           ) : (
-            <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
-              <span className="sq-list-meta">{t("results.tutor.authRequired")}</span>
-              <Link href={`/login?next=${encodeURIComponent(pathname || "/")}`} className="sq-button sq-button--sm sq-button--primary">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-fg-muted">{t("results.tutor.authRequired")}</span>
+              <Link href={loginHref} className={buttonClassName("primary", "sm")}>
                 {t("results.tutor.signIn")}
               </Link>
             </div>
           )}
           <div aria-live="polite">
             {isTutorLoading ? (
-              <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>
+              <p className="inline-flex items-center gap-2 text-[0.8125rem] text-fg-muted">
+                <SpinnerIcon />
                 {t("results.tutor.loading")}
-              </div>
+              </p>
             ) : null}
           </div>
           {tutorError ? (
-            <StatusBanner
+            <Alert
               tone="warning"
               role="alert"
               title={t("results.tutor.unavailable")}
               message={tutorError.message}
               action={
                 tutorError.needsLogin ? (
-                  <Link
-                    href={`/login?next=${encodeURIComponent(pathname || "/")}`}
-                    className="sq-button sq-button--sm sq-button--primary"
-                  >
+                  <Link href={loginHref} className={buttonClassName("primary", "sm")}>
                     {t("results.tutor.signIn")}
                   </Link>
                 ) : undefined
@@ -538,67 +505,64 @@ function ReviewBlock({
             />
           ) : null}
           {tutorReply ? (
-            <StatusBanner
-              tone={tutorReply.blocked ? "warning" : "neutral"}
-              title={tutorReply.blocked ? t("results.tutor.blocked") : t("results.tutor.answered")}
-              message={tutorReply.message}
-            />
+            tutorReply.blocked ? (
+              <Alert tone="warning" title={t("results.tutor.blocked")} message={tutorReply.message} />
+            ) : (
+              <div className="flex flex-col gap-1.5 rounded-md bg-surface-muted px-4 py-3" role="status">
+                <p className="text-xs font-semibold text-fg-muted">{t("results.tutor.answered")}</p>
+                <p className="font-serif text-[0.9375rem] leading-relaxed whitespace-pre-line text-fg">{tutorReply.message}</p>
+              </div>
+            )
           ) : null}
         </div>
       ) : null}
 
-      <div className="sq-surface-block" style={{ marginTop: "var(--sq-space-4)" }}>
-        <div className="sq-list-title">{t("results.issueReport.title")}</div>
-        <div className="sq-field" style={{ marginTop: "var(--sq-space-3)" }}>
-          <label className="sq-field-label" htmlFor={`${fieldId}-issue-category`}>
-            {t("results.issueReport.categoryLabel")}
-          </label>
-          <select
-            id={`${fieldId}-issue-category`}
-            className="sq-select"
-            value={issueCategory}
-            onChange={(event) => setIssueCategory(event.target.value as QuestionIssueRequest["category"])}
-          >
-            <option value="clareza">{t("results.issueReport.clarity")}</option>
-            <option value="gabarito">{t("results.issueReport.answerKey")}</option>
-            <option value="explicacao">{t("results.issueReport.explanation")}</option>
-            <option value="referencia">{t("results.issueReport.reference")}</option>
-          </select>
-        </div>
-        <div className="sq-field" style={{ marginTop: "var(--sq-space-3)" }}>
-          <label className="sq-field-label" htmlFor={`${fieldId}-issue-message`}>
-            {t("results.issueReport.messageLabel")}
-          </label>
-          <textarea
-            id={`${fieldId}-issue-message`}
-            className="sq-textarea"
-            rows={3}
-            minLength={8}
-            maxLength={2000}
-            value={issueMessage}
-            onChange={(event) => setIssueMessage(event.target.value)}
-          />
-        </div>
-        <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
-          <button type="button" className="sq-chip" disabled={isIssueSubmitting || issueMessage.trim().length < 8} onClick={() => void runIssueReport()}>
-            {t("results.issueReport.send")}
-          </button>
-        </div>
-        <div aria-live="polite">
-          {issueNotice ? (
-            <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-3)" }}>
-              {issueNotice}
+      <div className="rounded-md border border-line px-4">
+        <Disclosure variant="plain" summary={t("results.issueReport.title")}>
+          <div className="flex flex-col gap-3">
+            <Field label={t("results.issueReport.categoryLabel")} htmlFor={`${fieldId}-issue-category`}>
+              <Select
+                id={`${fieldId}-issue-category`}
+                value={issueCategory}
+                onChange={(event) => setIssueCategory(event.target.value as QuestionIssueRequest["category"])}
+              >
+                <option value="clareza">{t("results.issueReport.clarity")}</option>
+                <option value="gabarito">{t("results.issueReport.answerKey")}</option>
+                <option value="explicacao">{t("results.issueReport.explanation")}</option>
+                <option value="referencia">{t("results.issueReport.reference")}</option>
+              </Select>
+            </Field>
+            <Field label={t("results.issueReport.messageLabel")} htmlFor={`${fieldId}-issue-message`}>
+              <Textarea
+                id={`${fieldId}-issue-message`}
+                rows={3}
+                minLength={8}
+                maxLength={2000}
+                value={issueMessage}
+                onChange={(event) => setIssueMessage(event.target.value)}
+              />
+            </Field>
+            <div>
+              <Button
+                variant="secondary"
+                size="sm"
+                busy={isIssueSubmitting}
+                disabled={issueMessage.trim().length < 8}
+                onClick={() => void runIssueReport()}
+              >
+                {t("results.issueReport.send")}
+              </Button>
             </div>
-          ) : null}
-        </div>
+            <div aria-live="polite">{issueNotice ? <p className="text-[0.8125rem] text-fg-muted">{issueNotice}</p> : null}</div>
+          </div>
+        </Disclosure>
       </div>
-    </AccordionItem>
+    </Disclosure>
   );
 }
 
 export function SessionResultShell({ sessionId, mode }: SessionResultShellProps) {
   const { t } = useI18n();
-  const { isStaff } = useSessionRole();
   const reviewQuery = useSessionReviewQuery(mode, sessionId);
   const review: SessionReview | StudySessionReview | null = reviewQuery.data ?? null;
   const isLoading = reviewQuery.isPending;
@@ -613,165 +577,168 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
 
   if (isLoading) {
     return (
-      <main className="sq-app-shell" aria-busy="true">
-        <div className="sq-page-stack">
-          <Skeleton height={180} />
-          <Skeleton height={440} />
-        </div>
-      </main>
+      <Page aria-busy="true">
+        <Skeleton height={56} className="max-w-md" />
+        <Skeleton height={200} />
+        <Skeleton height={420} />
+      </Page>
     );
   }
 
   if (loadError || !review || !result) {
     return (
-      <main className="sq-app-shell">
-        <div className="sq-page-stack">
-          {reviewQuery.isError ? (
-            <QueryErrorBanner
-              title={t("results.errors.bannerTitle")}
-              error={reviewQuery.error}
-              onRetry={() => void reviewQuery.refetch()}
-              retrying={reviewQuery.isFetching}
-            />
-          ) : (
-            <StatusBanner
-              tone="danger"
-              title={t("results.errors.bannerTitle")}
-              message={loadError || t("results.errors.missingReview")}
-              role="alert"
-              action={
-                <>
-                  <Button variant="ghost" size="sm" busy={reviewQuery.isFetching} onClick={() => void reviewQuery.refetch()}>
-                    {t("common.actions.retry")}
-                  </Button>
-                  <Link href="/dashboard">{t("common.actions.goToDashboard")}</Link>
-                </>
-              }
-            />
-          )}
-        </div>
-      </main>
+      <Page width="narrow">
+        {reviewQuery.isError ? (
+          <QueryErrorBanner
+            title={t("results.errors.bannerTitle")}
+            error={reviewQuery.error}
+            onRetry={() => void reviewQuery.refetch()}
+            retrying={reviewQuery.isFetching}
+          />
+        ) : (
+          <Alert
+            tone="danger"
+            title={t("results.errors.bannerTitle")}
+            message={loadError || t("results.errors.missingReview")}
+            role="alert"
+            action={
+              <>
+                <Button variant="secondary" size="sm" busy={reviewQuery.isFetching} onClick={() => void reviewQuery.refetch()}>
+                  {t("common.actions.retry")}
+                </Button>
+                <Link href="/dashboard" className={buttonClassName("ghost", "sm")}>
+                  {t("common.actions.goToDashboard")}
+                </Link>
+              </>
+            }
+          />
+        )}
+      </Page>
     );
   }
 
   const sessionMeta = review.session;
   const examResult = mode === "exam" ? (result as ExamResult) : null;
   const readinessLabel = resolveReadiness(result.score_percent, t);
-  const headerCopy =
-    mode === "study"
-      ? t("results.summary.studyTitle", { score: formatScore(result.score_percent) })
-      : t("results.summary.examTitle", {
-          score: formatScore(result.score_percent),
-          readiness: readinessLabel.label.toLowerCase()
-        });
+  const threshold = examResult ? formatScore(examResult.pass_threshold_percent) : "";
+  const thresholdNote = examResult ? passThresholdNote(examResult.pass_threshold_certification, t) : null;
 
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <h1 className="sq-page-title">{t("results.header.title")}</h1>
-              <p className="sq-page-subtitle">
-                {sessionMeta.exam_title || sessionMeta.exam_id || t("results.header.mixedSession")} ·{" "}
-                {t("results.header.completedAt", { date: formatDateTime(sessionMeta.completed_at) })}
+    <Page>
+      <PageHeader
+        context={`${sessionMeta.exam_title || sessionMeta.exam_id || t("results.header.mixedSession")} · ${t("results.header.completedAt", {
+          date: formatDateTime(sessionMeta.completed_at)
+        })}`}
+        title={t("results.header.title")}
+        actions={
+          <>
+            <Link href="/history" className={buttonClassName("ghost")}>
+              {t("common.labels.history")}
+            </Link>
+            <Link href="/start" className={buttonClassName("secondary")}>
+              {t("common.actions.goToStart")}
+            </Link>
+          </>
+        }
+      />
+
+      <Panel padding="lg" aria-label={t("results.summary.score")}>
+        <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
+          <dl data-testid="result-score">
+            <Stat emphasis label={t("results.summary.score")} value={formatScore(result.score_percent)} className="[&_dd:first-of-type]:text-5xl" />
+          </dl>
+          <div className="flex min-w-0 flex-col gap-1.5 pb-1.5">
+            {examResult ? (
+              <p className={cn("inline-flex items-center gap-2 text-[0.9375rem] font-semibold", examResult.passed ? "text-success" : "text-danger")}>
+                {examResult.passed ? <CircleCheckIcon size={18} /> : <CircleXIcon size={18} />}
+                {examResult.passed ? t("results.summary.passed", { threshold }) : t("results.summary.failed", { threshold })}
               </p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
-            <Link href="/history">{t("common.labels.history")}</Link>
-            {isStaff ? <Link href="/admin">{t("common.labels.admin")}</Link> : null}
-            <Link href="/start">{t("common.actions.goToStart")}</Link>
-          </div>
-        </header>
-
-        <Card title={headerCopy} subtitle={t("results.summary.strategySubtitle", { strategy: result.strategy })}>
-          <div className="sq-surface-block">
-            <div className="sq-metric-grid">
-              <MetricCard label={t("results.summary.score")} value={formatScore(result.score_percent)} />
-              <MetricCard label={t("results.summary.readiness")} value={readinessLabel.label} />
-              <MetricCard label={t("results.summary.correct")} value={result.correct_count} />
-              <MetricCard label={t("results.summary.wrong")} value={result.wrong_count} />
-              <MetricCard
-                label={mode === "study" ? t("results.summary.answered") : t("results.summary.questions")}
-                value={"answered_count" in result ? result.answered_count : result.total_questions}
-              />
-              {examResult?.time_spent_seconds !== undefined && examResult?.time_spent_seconds !== null ? (
-                <MetricCard
-                  label={t("results.summary.timeUsed")}
-                  value={t("results.summary.minutes", { value: Math.max(Math.round(examResult.time_spent_seconds / 60), 1) })}
-                />
-              ) : null}
-              {examResult ? (
-                <MetricCard
-                  label={t("results.summary.passThreshold")}
-                  value={`${formatScore(examResult.pass_threshold_percent)}${
-                    examResult.pass_threshold_certification ? ` · ${examResult.pass_threshold_certification}` : ""
-                  }`}
-                  meta={passThresholdNote(examResult.pass_threshold_certification, t) ?? undefined}
-                />
-              ) : null}
-              {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (
-                <MetricCard
-                  label={t("results.summary.timeLimit")}
-                  value={t("results.summary.minutes", { value: Math.max(Math.round(examResult.time_limit_seconds / 60), 1) })}
-                />
-              ) : null}
-            </div>
-
-            {examResult?.timed_out ? (
-              <StatusBanner
-                tone="warning"
-                title={t("results.summary.timedOutTitle")}
-                message={t("results.summary.timedOutMessage")}
-              />
             ) : null}
-
-            {insightLines.length ? (
-              <div className="sq-chip-row">
-                {insightLines.map((line) => (
-                  <span key={line} className="sq-chip">
-                    {line}
-                  </span>
-                ))}
-              </div>
-            ) : null}
+            <p className="text-sm text-fg-muted">
+              {t("results.summary.readiness")}: <span className="font-medium text-fg">{readinessLabel.label}</span> ·{" "}
+              {t("results.summary.strategySubtitle", { strategy: result.strategy })}
+            </p>
+            {thresholdNote ? <p className="max-w-prose text-xs text-fg-muted">{thresholdNote}</p> : null}
           </div>
-        </Card>
+        </div>
 
-        <ReadinessCard readiness={readinessScore} />
-        <TimingCard timing={resultInsight?.timing} />
-        <StudyPlanCard items={studyPlan} />
+        <StatList>
+          <Stat label={t("results.summary.correct")} value={result.correct_count} />
+          <Stat label={t("results.summary.wrong")} value={result.wrong_count} />
+          <Stat
+            label={mode === "study" ? t("results.summary.answered") : t("results.summary.questions")}
+            value={"answered_count" in result ? result.answered_count : result.total_questions}
+          />
+          {examResult?.time_spent_seconds !== undefined && examResult?.time_spent_seconds !== null ? (
+            <Stat
+              label={t("results.summary.timeUsed")}
+              value={t("results.summary.minutes", { value: Math.max(Math.round(examResult.time_spent_seconds / 60), 1) })}
+            />
+          ) : null}
+          {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (
+            <Stat
+              label={t("results.summary.timeLimit")}
+              value={t("results.summary.minutes", { value: Math.max(Math.round(examResult.time_limit_seconds / 60), 1) })}
+            />
+          ) : null}
+          {examResult ? (
+            <Stat
+              label={t("results.summary.passThreshold")}
+              value={`${threshold}${examResult.pass_threshold_certification ? ` · ${examResult.pass_threshold_certification}` : ""}`}
+            />
+          ) : null}
+        </StatList>
 
-        <Card
-          id="review-card"
-          title={t("results.reviewCard.title")}
-          subtitle={t("results.reviewCard.subtitle")}
-          actions={<span className="sq-chip">{t("results.reviewCard.questionCount", { count: reviewQuestions.length })}</span>}
-        >
-          {reviewQuestions.length ? (
-            <Accordion>
-              {reviewQuestions.map((question, index) => (
-                <ReviewBlock
-                  key={`${question.id}-${index}`}
-                  sessionId={sessionId}
-                  enableTutor={mode === "exam"}
-                  index={index}
-                  question={question}
-                  t={t}
-                  openMaterialLabel={t("results.citations.openMaterial")}
-                />
-              ))}
-            </Accordion>
-          ) : (
-            <EmptyState description={t("results.reviewCard.empty")} />
-          )}
-        </Card>
-      </div>
-    </main>
+        {examResult?.timed_out ? (
+          <Alert tone="warning" title={t("results.summary.timedOutTitle")} message={t("results.summary.timedOutMessage")} />
+        ) : null}
+
+        {insightLines.length ? (
+          <ul className="flex flex-col gap-1 text-sm text-fg-muted">
+            {insightLines.map((line) => (
+              <li key={line} className="flex gap-2">
+                <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-fg-subtle" />
+                {line}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Panel>
+
+      <StudyPlanSection items={studyPlan} />
+
+      <Section
+        id="review-card"
+        className="scroll-mt-20"
+        title={t("results.reviewCard.title")}
+        description={t("results.reviewCard.subtitle")}
+        actions={<span className="nums text-sm text-fg-muted">{t("results.reviewCard.questionCount", { count: reviewQuestions.length })}</span>}
+      >
+        {reviewQuestions.length ? (
+          <div className="border-y border-line">
+            {reviewQuestions.map((question, index) => (
+              <ReviewBlock
+                key={`${question.id}-${index}`}
+                sessionId={sessionId}
+                enableTutor={mode === "exam"}
+                index={index}
+                question={question}
+                t={t}
+                openMaterialLabel={t("results.citations.openMaterial")}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState description={t("results.reviewCard.empty")} />
+        )}
+      </Section>
+
+      {readinessScore || resultInsight?.timing ? (
+        <div className="grid gap-10 lg:grid-cols-2 lg:gap-12">
+          <ReadinessSection readiness={readinessScore} />
+          <TimingSection timing={resultInsight?.timing} />
+        </div>
+      ) : null}
+    </Page>
   );
 }

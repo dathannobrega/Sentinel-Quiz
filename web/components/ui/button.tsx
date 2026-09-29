@@ -2,20 +2,12 @@
 
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 
+import { buttonClassName, type ButtonSize, type ButtonVariant } from "@/components/ui/button-styles";
+import { SpinnerIcon } from "@/components/ui/icons";
 import { useOptionalI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils/cn";
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
-type ButtonSize = "md" | "sm";
-
-const sizeClasses: Record<ButtonSize, string> = {
-  md: "sq-button--md",
-  sm: "sq-button--sm"
-};
-
-export function buttonClassName(variant: ButtonVariant = "primary", size: ButtonSize = "md"): string {
-  return cn("sq-button", `sq-button--${variant}`, sizeClasses[size]);
-}
+export { buttonClassName, type ButtonSize, type ButtonVariant };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -41,7 +33,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       aria-busy={busy || undefined}
       className={cn(buttonClassName(variant, size), className)}
     >
-      {busy ? resolvedBusyLabel : children}
+      {busy ? (
+        <>
+          <SpinnerIcon />
+          {resolvedBusyLabel}
+        </>
+      ) : (
+        children
+      )}
     </button>
   );
 });

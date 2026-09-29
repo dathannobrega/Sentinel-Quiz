@@ -1,79 +1,103 @@
-@import "../styles/tokens.css";
-@import "../styles/legacy-theme.css";
-@import "../styles/a11y.css";
-@import "../styles/runner.css";
-@import "../styles/pbq.css";
+@import "tailwindcss";
+@import "../styles/theme.css";
 
-body {
-  padding-top: 0;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  ::selection {
+    background-color: var(--color-primary-soft);
+    color: var(--color-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+
+  dialog::backdrop {
+    background-color: var(--color-overlay);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-::selection {
-  background: rgba(21, 122, 110, 0.18);
+/* Visible focus for custom interactive elements (buttons, options, links styled as controls). */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
 }
 
-/* Study track (dashboard, contract r4 §2). Status = icon + text; colors meet AA on white. */
-.sq-track-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--sq-space-3);
+/* Native <select> affordance (the arrow uses currentColor-like neutral gray that works in both themes). */
+@utility select-chevron {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23808896' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 6l4.5 4.5L12.5 6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 14px;
+  padding-right: 2.25rem;
 }
 
-.sq-track-item {
-  display: grid;
-  gap: var(--sq-space-2);
-  padding: var(--sq-space-3);
-  border: 1px solid var(--sq-border);
-  border-radius: var(--sq-radius-md);
+/*
+ * Numerals for counters and scores: lining figures. (Tabular figures would widen Schibsted's period
+ * and render "0 . 0%"; column-aligned values such as timers use the mono face instead.)
+ */
+@utility nums {
+  font-variant-numeric: lining-nums;
 }
 
-.sq-track-item--recommended {
-  border: 2px solid var(--sq-accent-strong);
-  background: rgba(21, 122, 110, 0.06);
+@keyframes pulse-soft {
+  50% {
+    opacity: 0.55;
+  }
 }
 
-.sq-track-item__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sq-space-2);
+/* Transform-only entrance: text is never semi-transparent (legibility + measurable contrast). */
+@keyframes rise-in {
+  from {
+    transform: translateY(6px);
+  }
 }
 
-.sq-track-badge,
-.sq-track-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 0.76rem;
-  font-weight: 700;
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
 }
 
-.sq-track-badge--recommended {
-  background: var(--sq-accent-strong);
-  color: #ffffff;
-}
-
-.sq-track-status--completed {
-  background: rgba(22, 101, 52, 0.1);
-  color: #166534;
-}
-
-.sq-track-status--in_progress {
-  background: rgba(29, 78, 216, 0.1);
-  color: #1e40af;
-}
-
-.sq-track-status--available {
-  background: rgba(17, 94, 85, 0.1);
-  color: #115e55;
-}
-
-.sq-track-status--locked {
-  background: rgba(71, 85, 105, 0.12);
-  color: #374151;
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
 }

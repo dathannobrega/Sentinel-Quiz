@@ -2,9 +2,11 @@
 
 import { useDeferredValue, useState } from "react";
 
-import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
+import { Section } from "@/components/ui/section";
 import { useI18n } from "@/lib/i18n";
 import { useAdminDomainCatalogQuery } from "@/lib/query/admin-hooks";
 
@@ -14,37 +16,23 @@ export function AdminDomainCatalogPanel({ enabled }: { enabled: boolean }) {
   const [certification, setCertification] = useState("");
   const deferredSearch = useDeferredValue(search.trim());
   const deferredCertification = useDeferredValue(certification.trim());
-  const query = useAdminDomainCatalogQuery(
-    { search: deferredSearch, certification: deferredCertification, page: 1 },
-    { enabled }
-  );
+  const query = useAdminDomainCatalogQuery({ search: deferredSearch, certification: deferredCertification, page: 1 }, { enabled });
 
   return (
-    <Card title={t("admin.domainCatalog.title")} subtitle={t("admin.domainCatalog.subtitle")}>
-      <div className="sq-form-grid">
+    <Section title={t("admin.domainCatalog.title")} description={t("admin.domainCatalog.subtitle")}>
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t("admin.domainCatalog.certification")} htmlFor="admin-domain-certification">
-          <input
-            id="admin-domain-certification"
-            className="sq-input"
-            value={certification}
-            onChange={(event) => setCertification(event.target.value)}
-          />
+          <Input id="admin-domain-certification" value={certification} onChange={(event) => setCertification(event.target.value)} />
         </Field>
         <Field label={t("admin.domainCatalog.search")} htmlFor="admin-domain-search">
-          <input
-            id="admin-domain-search"
-            className="sq-input"
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+          <Input id="admin-domain-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} />
         </Field>
       </div>
 
       {query.isPending && enabled ? (
-        <div className="sq-empty" role="status">
+        <p className="text-sm text-fg-muted" role="status">
           {t("common.status.loading")}
-        </div>
+        </p>
       ) : query.isError ? (
         <QueryErrorBanner
           error={query.error}
@@ -53,22 +41,23 @@ export function AdminDomainCatalogPanel({ enabled }: { enabled: boolean }) {
           retrying={query.isFetching}
         />
       ) : query.data?.items.length ? (
-        <div className="sq-list" style={{ marginTop: "var(--sq-space-4)" }}>
+        <ul className="flex flex-col divide-y divide-line border-y border-line">
           {query.data.items.map((item) => (
-            <div key={item.id} className="sq-list-item">
-              <div className="sq-list-title">
+            <li key={item.id} className="flex flex-col gap-0.5 py-2.5">
+              <span className="text-sm text-fg">
                 {item.certification} · {item.domain}
                 {item.subdomain ? ` · ${item.subdomain}` : ""}
-              </div>
-              <div className="sq-list-meta">
-                {item.objective_code || "-"} · {item.blueprint_code || "-"} · {item.blueprint_title || item.title || "-"}
-              </div>
-            </div>
+              </span>
+              <span className="text-xs text-fg-subtle">
+                <span className="font-mono">{item.objective_code || "-"}</span> · <span className="font-mono">{item.blueprint_code || "-"}</span> ·{" "}
+                {item.blueprint_title || item.title || "-"}
+              </span>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
-        <div className="sq-empty">{t("admin.domainCatalog.empty")}</div>
+        <EmptyState size="compact" description={t("admin.domainCatalog.empty")} />
       )}
-    </Card>
+    </Section>
   );
 }

@@ -3,12 +3,16 @@
 import { useState } from "react";
 import Link from "next/link";
 
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { Select, Textarea } from "@/components/ui/input";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Panel, Section } from "@/components/ui/section";
 import { useI18n } from "@/lib/i18n";
+import { cn } from "@/lib/utils/cn";
 import {
   useAdminAssignIssueVersionMutation,
   useAdminIssuesQuery,
@@ -89,30 +93,30 @@ export function AdminIssuesPanel({ canView, canTriage }: { canView: boolean; can
   }
 
   return (
-    <Card title={t("admin.issues.title")} subtitle={t("admin.issues.subtitle")}>
-      {!canTriage ? <StatusBanner tone="warning" title={t("admin.issues.title")} message={t("admin.issues.accessDenied")} /> : null}
-      <div className="sq-actions">
-        <Field label={t("admin.issues.statusFilter")} htmlFor="admin-issue-status-filter" hintMode="none">
-          <select
-            id="admin-issue-status-filter"
-            className="sq-select"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option value="">{t("common.filters.all")}</option>
-            {ISSUE_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {issueStatusLabel(t, status)}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
+    <Section
+      title={t("admin.issues.title")}
+      description={t("admin.issues.subtitle")}
+      actions={
+        <div className="w-48">
+          <Field label={t("admin.issues.statusFilter")} htmlFor="admin-issue-status-filter" hintMode="none">
+            <Select id="admin-issue-status-filter" className="h-9" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="">{t("common.filters.all")}</option>
+              {ISSUE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {issueStatusLabel(t, status)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      }
+    >
+      {!canTriage ? <Alert tone="warning" title={t("admin.issues.title")} message={t("admin.issues.accessDenied")} /> : null}
 
       {!canView ? null : issuesQuery.isPending ? (
-        <div className="sq-empty" role="status">
+        <p className="text-sm text-fg-muted" role="status">
           {t("common.status.loading")}
-        </div>
+        </p>
       ) : issuesQuery.isError ? (
         <QueryErrorBanner
           error={issuesQuery.error}
@@ -121,40 +125,40 @@ export function AdminIssuesPanel({ canView, canTriage }: { canView: boolean; can
           retrying={issuesQuery.isFetching}
         />
       ) : issuesQuery.data.length ? (
-        <div className="sq-page-stack" style={{ marginTop: "var(--sq-space-4)" }}>
-          <div className="sq-list" role="list" aria-label={t("admin.issues.listAriaLabel")}>
-            {issuesQuery.data.map((issue) => (
-              <div key={issue.id} role="listitem">
-                <button
-                  type="button"
-                  className="sq-list-item"
-                  aria-pressed={selectedIssueId === issue.id}
-                  onClick={() => selectIssue(issue.id)}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    border:
-                      selectedIssueId === issue.id
-                        ? "1px solid rgba(14, 116, 144, 0.55)"
-                        : "1px solid rgba(148, 163, 184, 0.18)"
-                  }}
-                >
-                  <div className="sq-list-title">
-                    #{issue.id} · {issue.category} · {issueStatusLabel(t, issue.status)}
-                  </div>
-                  <div className="sq-list-meta">
-                    {issue.certification || "-"} · {issue.domain || "-"} · {issue.question_id}
-                  </div>
-                  {issue.prompt_excerpt ? <div className="sq-list-meta">{issue.prompt_excerpt}</div> : null}
-                </button>
-              </div>
-            ))}
-          </div>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)]">
+          <ul className="flex flex-col gap-1" aria-label={t("admin.issues.listAriaLabel")}>
+            {issuesQuery.data.map((issue) => {
+              const selected = selectedIssueId === issue.id;
+              return (
+                <li key={issue.id}>
+                  <button
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => selectIssue(issue.id)}
+                    className={cn(
+                      "focus-ring flex w-full flex-col gap-1 rounded-md border px-3 py-2.5 text-left transition-colors",
+                      selected ? "border-primary bg-primary-soft" : "border-transparent hover:bg-surface-muted"
+                    )}
+                  >
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="nums font-mono text-xs text-fg-muted">#{issue.id}</span>
+                      <span className="text-sm font-medium text-fg">{issue.category}</span>
+                      <Badge>{issueStatusLabel(t, issue.status)}</Badge>
+                    </span>
+                    {issue.prompt_excerpt ? <span className="line-clamp-2 text-sm text-fg-muted">{issue.prompt_excerpt}</span> : null}
+                    <span className="text-xs text-fg-subtle">
+                      {issue.certification || "-"} · {issue.domain || "-"} · <span className="font-mono">{issue.question_id}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
           {selectedIssue ? (
-            <div className="sq-surface-block">
+            <Panel className="lg:sticky lg:top-6">
               {panelNotice ? (
-                <StatusBanner
+                <Alert
                   tone={panelNotice.tone}
                   title={t("admin.issues.detailTitle")}
                   message={panelNotice.message}
@@ -162,26 +166,26 @@ export function AdminIssuesPanel({ canView, canTriage }: { canView: boolean; can
                 />
               ) : null}
 
-              <div className="sq-list-title">
-                #{selectedIssue.id} · {selectedIssue.question_id}
-              </div>
-              <div className="sq-list-meta" style={{ marginTop: "var(--sq-space-2)" }}>
-                {selectedIssue.message}
-              </div>
-              <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
-                {selectedIssue.resolved_version_id ? (
-                  <span className="sq-chip">{t("admin.issues.versionTag", { id: selectedIssue.resolved_version_id })}</span>
-                ) : (
-                  <span className="sq-chip">{t("admin.issues.unassignedVersion")}</span>
-                )}
-                {selectedIssue.triaged_at ? <span className="sq-chip">{t("admin.issues.triagedTag")}</span> : null}
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-fg-muted">
+                  <span className="nums font-mono">#{selectedIssue.id}</span> · <span className="font-mono">{selectedIssue.question_id}</span>
+                </p>
+                <p className="font-serif text-[0.9375rem] leading-relaxed text-fg">{selectedIssue.message}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge>
+                    {selectedIssue.resolved_version_id
+                      ? t("admin.issues.versionTag", { id: selectedIssue.resolved_version_id })
+                      : t("admin.issues.unassignedVersion")}
+                  </Badge>
+                  {selectedIssue.triaged_at ? <Badge tone="primary">{t("admin.issues.triagedTag")}</Badge> : null}
+                </div>
               </div>
 
-              <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+              <div className="flex flex-wrap gap-1.5 border-t border-line pt-4">
                 {STATUS_ACTIONS.map(([status, labelKey]) => (
                   <Button
                     key={status}
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     disabled={!canTriage || updateIssueMutation.isPending}
                     busy={updateIssueMutation.isPending && updateIssueMutation.variables?.payload.status === status}
@@ -192,35 +196,23 @@ export function AdminIssuesPanel({ canView, canTriage }: { canView: boolean; can
                 ))}
               </div>
 
-              <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={!canTriage}
-                  busy={assignVersionMutation.isPending}
-                  onClick={linkCurrentVersion}
-                >
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="secondary" size="sm" disabled={!canTriage} busy={assignVersionMutation.isPending} onClick={linkCurrentVersion}>
                   {t("admin.issues.assignVersion")}
                 </Button>
-                <Link href={`/admin/questions/${encodeURIComponent(selectedIssue.question_id)}`}>
+                <Link
+                  href={`/admin/questions/${encodeURIComponent(selectedIssue.question_id)}`}
+                  className="focus-ring rounded-sm text-sm font-medium text-primary underline-offset-2 hover:underline"
+                >
                   {t("admin.issues.openQuestion")}
                 </Link>
               </div>
 
-              <div className="sq-gap-top-sm">
-                <Field label={t("admin.issues.internalNote")} htmlFor="admin-issue-note">
-                  <textarea
-                    id="admin-issue-note"
-                    className="sq-textarea"
-                    rows={4}
-                    value={draftNote}
-                    disabled={!canTriage}
-                    onChange={(event) => setDraftNote(event.target.value)}
-                  />
-                </Field>
-              </div>
+              <Field label={t("admin.issues.internalNote")} htmlFor="admin-issue-note">
+                <Textarea id="admin-issue-note" rows={4} value={draftNote} disabled={!canTriage} onChange={(event) => setDraftNote(event.target.value)} />
+              </Field>
 
-              <div className="sq-actions" style={{ marginTop: "var(--sq-space-3)" }}>
+              <div>
                 <Button
                   size="sm"
                   disabled={!canTriage}
@@ -230,14 +222,14 @@ export function AdminIssuesPanel({ canView, canTriage }: { canView: boolean; can
                   {t("admin.issues.saveNote")}
                 </Button>
               </div>
-            </div>
+            </Panel>
           ) : (
-            <div className="sq-empty">{t("admin.issues.selectPrompt")}</div>
+            <EmptyState description={t("admin.issues.selectPrompt")} />
           )}
         </div>
       ) : (
-        <div className="sq-empty">{t("admin.issues.empty")}</div>
+        <EmptyState size="compact" description={t("admin.issues.empty")} />
       )}
-    </Card>
+    </Section>
   );
 }

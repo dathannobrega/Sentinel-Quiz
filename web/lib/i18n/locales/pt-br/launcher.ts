@@ -72,6 +72,12 @@ export const launcher = {
     unseen: "Novas",
     lowConfidence: "Baixa confiança"
   },
+  summary: {
+    title: "Sua sessão",
+    settings: "Configuração",
+    minutes: "{count} min",
+    noTimer: "Sem cronômetro"
+  },
   actions: {
     createStudyBlock: "Criar bloco de estudo",
     createExam: "Criar simulado"

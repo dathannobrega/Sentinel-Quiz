@@ -1,13 +1,17 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 
+import { Disclosure } from "@/components/ui/disclosure";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { BookmarkIcon, NoteIcon } from "@/components/ui/icons";
+import { Checkbox, Input, Select } from "@/components/ui/input";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Page, PageHeader } from "@/components/ui/section";
 import { clampPbqCount } from "@/features/session-runner/lib/pbq-utils";
 import { apiClient, readErrorMessage } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
@@ -377,9 +381,8 @@ export function StartSessionShell() {
     launchMutation.mutate(launchValues);
   }
 
-  const shouldExpandDiscovery =
-    isDiscoveryLoading ||
-    Boolean(
+  // Open automatically only when discovery filters are in use (not merely while results load).
+  const shouldExpandDiscovery = Boolean(
       discoveryFilters.query.trim() ||
         discoveryFilters.domain ||
         discoveryFilters.tag.trim() ||
@@ -388,179 +391,152 @@ export function StartSessionShell() {
     );
 
   if (examsQuery.isPending) {
-    return (
-      <main className="sq-app-shell" aria-busy="true">
-        <div className="sq-page-stack">
-          <Skeleton height={180} />
-          <Skeleton height={320} />
-        </div>
-      </main>
-    );
+    return <PageSkeleton blocks={[72, 180, 320]} />;
   }
 
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <div className="sq-page-title">{t("start.header.title")}</div>
-              <p className="sq-page-subtitle">{t("start.header.subtitle")}</p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
-            <Link href="/review">{t("common.labels.review")}</Link>
-            <Link href="/history">{t("common.labels.history")}</Link>
-          </div>
-        </header>
+    <Page>
+      <PageHeader title={t("start.header.title")} description={t("start.header.subtitle")} />
 
-        {examsQuery.isError ? (
-          <QueryErrorBanner
-            tone="warning"
-            title={t("common.errors.attention")}
-            error={examsQuery.error}
-            onRetry={() => void examsQuery.refetch()}
-            retrying={examsQuery.isFetching}
-          />
-        ) : null}
-        {domainsQuery.isError ? (
-          <QueryErrorBanner
-            tone="warning"
-            title={t("common.errors.attention")}
-            error={domainsQuery.error}
-            onRetry={() => void domainsQuery.refetch()}
-            retrying={domainsQuery.isFetching}
-          />
-        ) : null}
-        {questionSearchQuery.isError ? (
-          <QueryErrorBanner
-            tone="warning"
-            title={t("common.errors.attention")}
-            error={questionSearchQuery.error}
-            onRetry={() => void questionSearchQuery.refetch()}
-            retrying={questionSearchQuery.isFetching}
-          />
-        ) : null}
-
-        <ExamLauncher
-          exams={exams}
-          domains={domains}
-          values={launchValues}
-          notice={
-            domainsQuery.isFetching && !launchNotice
-              ? toNotice("neutral", t("start.notices.loadingDomainsTitle"), t("start.notices.loadingDomainsMessage"))
-              : launchNotice
-          }
-          pending={launchMutation.isPending}
-          selectedPresetKey={selectedPresetKey}
-          presetSummary={presetSummary}
-          onChange={updateLaunchValue}
-          onApplyPreset={applyPreset}
-          onSubmit={handleLaunch}
+      {examsQuery.isError ? (
+        <QueryErrorBanner
+          tone="warning"
+          title={t("common.errors.attention")}
+          error={examsQuery.error}
+          onRetry={() => void examsQuery.refetch()}
+          retrying={examsQuery.isFetching}
         />
+      ) : null}
+      {domainsQuery.isError ? (
+        <QueryErrorBanner
+          tone="warning"
+          title={t("common.errors.attention")}
+          error={domainsQuery.error}
+          onRetry={() => void domainsQuery.refetch()}
+          retrying={domainsQuery.isFetching}
+        />
+      ) : null}
 
-        <details className="sq-card sq-disclosure" open={shouldExpandDiscovery ? true : undefined}>
-          <summary className="sq-disclosure__summary">
-            {t("start.discovery.summary")}
-            <span className="sq-chip">{t("start.discovery.foundCount", { count: questionSearch.total })}</span>
-          </summary>
+      <ExamLauncher
+        exams={exams}
+        domains={domains}
+        values={launchValues}
+        notice={
+          domainsQuery.isFetching && !launchNotice
+            ? toNotice("neutral", t("start.notices.loadingDomainsTitle"), t("start.notices.loadingDomainsMessage"))
+            : launchNotice
+        }
+        pending={launchMutation.isPending}
+        selectedPresetKey={selectedPresetKey}
+        presetSummary={presetSummary}
+        onChange={updateLaunchValue}
+        onApplyPreset={applyPreset}
+        onSubmit={handleLaunch}
+      />
 
-          <div className="sq-stack-md">
-            <div className="sq-form-grid">
-              <Field label={t("start.discovery.query")} htmlFor="question-search-query">
-                <input
-                  id="question-search-query"
-                  className="sq-input"
-                  value={discoveryFilters.query}
-                  onChange={(event) => setDiscoveryFilters((current) => ({ ...current, query: event.target.value }))}
-                  placeholder={t("start.discovery.queryPlaceholder")}
-                />
-              </Field>
+      <Disclosure
+        summary={t("start.discovery.summary")}
+        hint={t("start.discovery.subtitle")}
+        meta={<span className="nums text-[0.8125rem] text-fg-muted">{t("start.discovery.foundCount", { count: questionSearch.total })}</span>}
+        open={shouldExpandDiscovery ? true : undefined}
+      >
+        <div className="flex flex-col gap-5">
+          {questionSearchQuery.isError ? (
+            <QueryErrorBanner
+              tone="warning"
+              title={t("common.errors.attention")}
+              error={questionSearchQuery.error}
+              onRetry={() => void questionSearchQuery.refetch()}
+              retrying={questionSearchQuery.isFetching}
+            />
+          ) : null}
+          <div className="grid gap-x-4 gap-y-5 sm:grid-cols-3">
+            <Field label={t("start.discovery.query")} htmlFor="question-search-query">
+              <Input
+                id="question-search-query"
+                type="search"
+                value={discoveryFilters.query}
+                onChange={(event) => setDiscoveryFilters((current) => ({ ...current, query: event.target.value }))}
+                placeholder={t("start.discovery.queryPlaceholder")}
+              />
+            </Field>
+            <Field label={t("start.discovery.tag")} htmlFor="question-search-tag">
+              <Input
+                id="question-search-tag"
+                value={discoveryFilters.tag}
+                onChange={(event) => setDiscoveryFilters((current) => ({ ...current, tag: event.target.value }))}
+                placeholder={t("start.discovery.tagPlaceholder")}
+              />
+            </Field>
+            <Field label={t("start.discovery.domain")} htmlFor="question-search-domain">
+              <Select
+                id="question-search-domain"
+                value={discoveryFilters.domain}
+                onChange={(event) => setDiscoveryFilters((current) => ({ ...current, domain: event.target.value }))}
+              >
+                <option value="">{t("common.filters.allDomains")}</option>
+                {domains.map((domainItem) => (
+                  <option key={domainItem.value} value={domainItem.value}>
+                    {domainItem.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="flex flex-wrap gap-x-6">
+            <Checkbox
+              id="question-search-bookmarked"
+              checked={discoveryFilters.bookmarkedOnly}
+              onChange={(event) => setDiscoveryFilters((current) => ({ ...current, bookmarkedOnly: event.target.checked }))}
+              label={t("start.discovery.bookmarkedOnly")}
+            />
+            <Checkbox
+              id="question-search-notes"
+              checked={discoveryFilters.notesOnly}
+              onChange={(event) => setDiscoveryFilters((current) => ({ ...current, notesOnly: event.target.checked }))}
+              label={t("start.discovery.notesOnly")}
+            />
+          </div>
 
-              <Field label={t("start.discovery.tag")} htmlFor="question-search-tag">
-                <input
-                  id="question-search-tag"
-                  className="sq-input"
-                  value={discoveryFilters.tag}
-                  onChange={(event) => setDiscoveryFilters((current) => ({ ...current, tag: event.target.value }))}
-                  placeholder={t("start.discovery.tagPlaceholder")}
-                />
-              </Field>
-
-              <Field label={t("start.discovery.domain")} htmlFor="question-search-domain">
-                <select
-                  id="question-search-domain"
-                  className="sq-select"
-                  value={discoveryFilters.domain}
-                  onChange={(event) => setDiscoveryFilters((current) => ({ ...current, domain: event.target.value }))}
-                >
-                  <option value="">{t("common.filters.allDomains")}</option>
-                  {domains.map((domainItem) => (
-                    <option key={domainItem.value} value={domainItem.value}>
-                      {domainItem.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <div className="sq-runner-utility">
-                <div className="sq-checkbox-grid">
-                  <label className="sq-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={discoveryFilters.bookmarkedOnly}
-                      onChange={(event) =>
-                        setDiscoveryFilters((current) => ({ ...current, bookmarkedOnly: event.target.checked }))
-                      }
-                    />
-                    {t("start.discovery.bookmarkedOnly")}
-                  </label>
-                  <label className="sq-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={discoveryFilters.notesOnly}
-                      onChange={(event) => setDiscoveryFilters((current) => ({ ...current, notesOnly: event.target.checked }))}
-                    />
-                    {t("start.discovery.notesOnly")}
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="sq-list" role="list" aria-label={t("start.discovery.resultsAriaLabel")}>
-              {isDiscoveryLoading ? (
-                <div className="sq-empty sq-empty--compact">{t("start.discovery.loading")}</div>
-              ) : questionSearch.items.length ? (
-                questionSearch.items.map((item) => (
-                  <div key={item.id} className="sq-list-item">
-                    <div className="sq-list-title">{item.prompt_excerpt}</div>
-                    <div className="sq-list-meta">
-                      {item.exam_title || item.exam_id}
-                      {item.domain ? ` · ${item.domain}` : ""}
-                      {item.certification ? ` · ${item.certification}` : ""}
-                    </div>
-                    <div className="sq-chip-row">
+          <div aria-busy={isDiscoveryLoading || undefined}>
+            {isDiscoveryLoading && !questionSearch.items.length ? (
+              <p className="text-sm text-fg-muted" role="status">
+                {t("start.discovery.loading")}
+              </p>
+            ) : questionSearch.items.length ? (
+              <ul className="divide-y divide-line border-y border-line" aria-label={t("start.discovery.resultsAriaLabel")}>
+                {questionSearch.items.map((item) => (
+                  <li key={item.id} className="flex flex-col gap-1 py-3">
+                    <p className="font-serif text-[0.9375rem] leading-relaxed text-fg">{item.prompt_excerpt}</p>
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+                      <span>{[item.exam_title || item.exam_id, item.domain, item.certification].filter(Boolean).join(" · ")}</span>
                       {item.tags.slice(0, 3).map((tag) => (
-                        <span key={`${item.id}-${tag}`} className="sq-chip">
+                        <span key={`${item.id}-${tag}`} className="rounded-sm bg-surface-muted px-1.5 py-0.5">
                           {tag}
                         </span>
                       ))}
-                      {item.is_bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
-                      {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="sq-empty">{t("start.discovery.empty")}</div>
-              )}
-            </div>
+                      {item.is_bookmarked ? (
+                        <span className="inline-flex items-center gap-1 text-fg">
+                          <BookmarkIcon size={12} />
+                          {t("common.status.marked")}
+                        </span>
+                      ) : null}
+                      {item.has_note ? (
+                        <span className="inline-flex items-center gap-1 text-fg">
+                          <NoteIcon size={12} />
+                          {t("common.status.withNote")}
+                        </span>
+                      ) : null}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyState size="compact" description={t("start.discovery.empty")} />
+            )}
           </div>
-        </details>
-      </div>
-    </main>
+        </div>
+      </Disclosure>
+    </Page>
   );
 }

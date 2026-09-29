@@ -59,7 +59,7 @@ function orderedTexts(): string[] {
   const list = screen.getByRole("list", { name: new RegExp(t("pbq.taskHeading", { current: 1, total: 1 })) });
   return within(list)
     .getAllByRole("listitem")
-    .map((item) => item.querySelector(".sq-pbq-order__text span")?.textContent ?? "");
+    .map((item) => item.querySelector("[data-pbq-item-text]")?.textContent ?? "");
 }
 
 describe("PbqQuestion: scenario and exhibits", () => {

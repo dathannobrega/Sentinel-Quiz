@@ -1,8 +1,14 @@
 export const admin = {
   header: {
-    title: "Sentinel Quiz Admin",
-    subtitle:
-      "Painel editorial migrado para Next.js com CRUD real, preview de payload e acesso seguro por sessão."
+    title: "Administração",
+    subtitle: "Mantenha o banco de questões, conduza o fluxo editorial e trate os reportes dos estudantes."
+  },
+  tabs: {
+    label: "Áreas da administração",
+    questions: "Questões",
+    operations: "Operação",
+    issues: "Reportes",
+    people: "Usuários e catálogo"
   },
   guard: {
     checking: "Verificando sua sessão...",
@@ -148,6 +154,7 @@ export const admin = {
     title: "Explorar questões",
     subtitle: "Filtre, navegue e carregue uma questão sem sair da mesma tela.",
     newQuestion: "Nova questão",
+    moreFilters: "Mais filtros",
     exam: "Prova",
     search: "Buscar",
     searchHint: "Procure por ID, domínio, certificação ou trecho do enunciado.",

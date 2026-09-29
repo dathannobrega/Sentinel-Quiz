@@ -4,10 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Input } from "@/components/ui/input";
+import { AuthLayout, authLinkClassName } from "@/features/auth/components/auth-layout";
 import { readErrorMessage } from "@/lib/api/client";
 import { resetPassword } from "@/lib/auth/session";
 import { useI18n } from "@/lib/i18n";
@@ -62,54 +63,37 @@ export function ResetPasswordForm() {
   }
 
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <Card title={t("password.reset.title")} subtitle={t("password.reset.subtitle")}>
-          <form
-            className="sq-surface-block"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleSubmit();
-            }}
-          >
-            {notice ? (
-              <StatusBanner
-                tone={notice.tone}
-                title={notice.title}
-                message={notice.message}
-                role={notice.tone === "danger" ? "alert" : "status"}
-              />
-            ) : null}
-            <Field
-              label={t("password.reset.passwordLabel")}
-              htmlFor="reset-password-field"
-              hint={t("password.reset.passwordHint")}
-              hintMode="inline"
-            >
-              <input
-                id="reset-password-field"
-                className="sq-input"
-                type="password"
-                autoComplete="new-password"
-                minLength={8}
-                required
-                disabled={isDone}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </Field>
-            <div className="sq-actions">
-              <Button type="submit" busy={isSubmitting} disabled={isDone}>
-                {t("password.reset.submit")}
-              </Button>
-              <Link href="/login" className="sq-button sq-button--md sq-button--ghost">
-                {t("password.forgot.backToLogin")}
-              </Link>
-            </div>
-          </form>
-        </Card>
-      </div>
-    </main>
+    <AuthLayout title={t("password.reset.title")} description={t("password.reset.subtitle")}>
+      <form
+        className="flex flex-col gap-5"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        {notice ? (
+          <Alert tone={notice.tone} title={notice.title} message={notice.message} role={notice.tone === "danger" ? "alert" : "status"} />
+        ) : null}
+        <Field label={t("password.reset.passwordLabel")} htmlFor="reset-password-field" hint={t("password.reset.passwordHint")} hintMode="inline">
+          <Input
+            id="reset-password-field"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            required
+            disabled={isDone}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </Field>
+        <Button type="submit" size="lg" busy={isSubmitting} disabled={isDone} className="w-full">
+          {t("password.reset.submit")}
+        </Button>
+        <Link href="/login" className={`${authLinkClassName} self-start`}>
+          {t("password.forgot.backToLogin")}
+        </Link>
+      </form>
+    </AuthLayout>
   );
 }

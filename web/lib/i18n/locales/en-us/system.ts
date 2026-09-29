@@ -14,6 +14,9 @@ export const system = {
     home: "Go to home",
     dashboard: "Open dashboard"
   },
+  dialog: {
+    close: "Close"
+  },
   confirm: {
     confirm: "Confirm",
     cancel: "Cancel"

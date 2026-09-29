@@ -3,7 +3,9 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Disclosure } from "@/components/ui/disclosure";
 import { Field } from "@/components/ui/field";
+import { Select, Textarea } from "@/components/ui/input";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
 import { apiClient, readErrorMessage } from "@/lib/api/client";
 import type { QuestionIssueMode, QuestionIssueRequest } from "@/types/api";
@@ -17,7 +19,7 @@ interface IssueReportPanelProps {
   t: Translate;
 }
 
-/** Mount with `key={questionId}` so the draft resets per question. */
+/** Collapsed by default: reporting is a rare, secondary action. Mount with `key={questionId}`. */
 export function IssueReportPanel({ sessionId, questionId, mode, t }: IssueReportPanelProps) {
   const [category, setCategory] = useState<QuestionIssueRequest["category"]>("clareza");
   const [message, setMessage] = useState("");
@@ -50,69 +52,47 @@ export function IssueReportPanel({ sessionId, questionId, mode, t }: IssueReport
   const fieldPrefix = `${mode}-issue`;
 
   return (
-    <div className="sq-runner-utility">
-      <div className="sq-runner-utility__head">
-        <div>
-          <div className="sq-list-title">{t("runner.issueReport.title")}</div>
-          <div className="sq-list-meta">{t("runner.issueReport.subtitle")}</div>
-        </div>
-      </div>
+    <Disclosure variant="plain" summary={t("runner.issueReport.title")} hint={t("runner.issueReport.subtitle")}>
       <form
+        className="flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
         }}
       >
-        <div className="sq-gap-top-sm">
-          <Field label={t("runner.issueReport.category")} htmlFor={`${fieldPrefix}-category`}>
-            <select
-              id={`${fieldPrefix}-category`}
-              className="sq-select"
-              value={category}
-              onChange={(event) => setCategory(event.target.value as QuestionIssueRequest["category"])}
-            >
-              <option value="clareza">{t("runner.issueReport.clarity")}</option>
-              <option value="gabarito">{t("runner.issueReport.answerKey")}</option>
-              <option value="explicacao">{t("runner.issueReport.explanation")}</option>
-              <option value="referencia">{t("runner.issueReport.reference")}</option>
-            </select>
-          </Field>
-        </div>
-        <div className="sq-gap-top-sm">
-          <Field
-            label={t("runner.issueReport.detail")}
-            htmlFor={`${fieldPrefix}-message`}
-            hint={t("runner.issueReport.detailHint")}
-            hintMode="inline"
+        <Field label={t("runner.issueReport.category")} htmlFor={`${fieldPrefix}-category`}>
+          <Select
+            id={`${fieldPrefix}-category`}
+            value={category}
+            onChange={(event) => setCategory(event.target.value as QuestionIssueRequest["category"])}
           >
-            <textarea
-              id={`${fieldPrefix}-message`}
-              className="sq-textarea"
-              rows={4}
-              minLength={MIN_MESSAGE_LENGTH}
-              maxLength={2000}
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-            />
-          </Field>
-        </div>
-        <div className="sq-actions sq-gap-top-sm">
-          <Button
-            type="submit"
-            variant="ghost"
-            size="sm"
-            busy={isSubmitting}
-            disabled={message.trim().length < MIN_MESSAGE_LENGTH}
-          >
+            <option value="clareza">{t("runner.issueReport.clarity")}</option>
+            <option value="gabarito">{t("runner.issueReport.answerKey")}</option>
+            <option value="explicacao">{t("runner.issueReport.explanation")}</option>
+            <option value="referencia">{t("runner.issueReport.reference")}</option>
+          </Select>
+        </Field>
+        <Field label={t("runner.issueReport.detail")} htmlFor={`${fieldPrefix}-message`} hint={t("runner.issueReport.detailHint")} hintMode="inline">
+          <Textarea
+            id={`${fieldPrefix}-message`}
+            rows={4}
+            minLength={MIN_MESSAGE_LENGTH}
+            maxLength={2000}
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+          />
+        </Field>
+        <div>
+          <Button type="submit" variant="secondary" size="sm" busy={isSubmitting} disabled={message.trim().length < MIN_MESSAGE_LENGTH}>
             {t("runner.issueReport.send")}
           </Button>
         </div>
+        {notice ? (
+          <p className={notice.tone === "error" ? "text-xs text-danger" : "text-xs text-success"} role={notice.tone === "error" ? "alert" : "status"}>
+            {notice.text}
+          </p>
+        ) : null}
       </form>
-      {notice ? (
-        <div className="sq-list-meta sq-gap-top-sm" role={notice.tone === "error" ? "alert" : "status"}>
-          {notice.text}
-        </div>
-      ) : null}
-    </div>
+    </Disclosure>
   );
 }

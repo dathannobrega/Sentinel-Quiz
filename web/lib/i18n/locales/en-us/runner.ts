@@ -159,6 +159,47 @@ export const runner = {
   hints: {
     hintButton: "Hint {level}"
   },
+  layout: {
+    exit: "Leave session",
+    progress: "Progress: {answered} of {total} answered",
+    focusOn: "Focus mode",
+    focusOff: "Exit focus mode",
+    panelOpen: "Open panel",
+    panelClose: "Close panel",
+    panelStudy: "Notes and reports",
+    panelExam: "Answer sheet",
+    shortcuts: "Keyboard shortcuts",
+    instructionShortcuts: "Shortcuts",
+    legendSelect: "pick",
+    legendEliminate: "eliminate",
+    legendConfirm: "confirm"
+  },
+  shortcuts: {
+    select: "Pick an option",
+    move: "Move between options",
+    eliminate: "Eliminate or restore the focused option",
+    confirm: "Confirm answer (Ctrl+Enter on multiple-choice questions)",
+    next: "Next question (after answering)",
+    mark: "Flag for review (exam)",
+    focus: "Toggle focus mode",
+    close: "Close panel or dialog"
+  },
+  elimination: {
+    eliminate: "Eliminate option {key}",
+    restore: "Restore option {key}",
+    eliminated: "eliminated",
+    hint: "Eliminate options you have ruled out: they are struck through for you only and never submitted."
+  },
+  resolution: {
+    explanation: "Explanation",
+    readMore: "Read the full explanation",
+    readLess: "Show less",
+    details: "Your progress",
+    references: "Go deeper"
+  },
+  hintsInline: {
+    prompt: "Stuck? Ask for a hint, one level at a time."
+  },
   liveFeedback: {
     remaining: "Remaining: {count}",
     currentStreak: "Current streak: {count}",

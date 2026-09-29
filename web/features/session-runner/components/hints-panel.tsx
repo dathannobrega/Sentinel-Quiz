@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { LightbulbIcon } from "@/components/ui/icons";
 import { ReferencesList } from "@/features/session-runner/components/references-list";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
 import { apiClient, readErrorMessage } from "@/lib/api/client";
@@ -16,7 +17,10 @@ interface HintsPanelProps {
   t: Translate;
 }
 
-/** Study-mode progressive hints. Mount with `key={questionId}` so state resets per question. */
+/**
+ * Study-mode progressive hints, inline under the options (the "think" step). Mount with
+ * `key={questionId}` so state resets per question.
+ */
 export function HintsPanel({ sessionId, questionId, locked, t }: HintsPanelProps) {
   const [activeHint, setActiveHint] = useState<QuestionHint | null>(null);
   const [loadingLevel, setLoadingLevel] = useState<number | null>(null);
@@ -42,49 +46,54 @@ export function HintsPanel({ sessionId, questionId, locked, t }: HintsPanelProps
     }
   }
 
-  return (
-    <div className="sq-runner-utility">
-      <div className="sq-runner-utility__head">
-        <div>
-          <div className="sq-list-title">{t("runner.labels.hints")}</div>
-          <div className="sq-list-meta">{t("runner.labels.hintsSubtitle")}</div>
-        </div>
-        <span className="sq-chip">
-          {activeHint ? t("runner.labels.level", { level: activeHint.level }) : t("common.status.closed")}
-        </span>
-      </div>
+  if (locked && !activeHint) {
+    return null;
+  }
 
-      <div className="sq-actions sq-gap-top-sm">
-        {([1, 2, 3] as const).map((level) => (
-          <Button
-            key={level}
-            variant="ghost"
-            size="sm"
-            busy={loadingLevel === level}
-            disabled={locked || (loadingLevel !== null && loadingLevel !== level)}
-            onClick={() => void loadHint(level)}
-          >
-            {t("runner.hints.hintButton", { level })}
-          </Button>
-        ))}
-      </div>
+  return (
+    <section aria-label={t("runner.labels.hints")} className="flex flex-col gap-3">
+      {!locked ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className="inline-flex items-center gap-2 text-[0.8125rem] text-fg-muted">
+            <LightbulbIcon className="text-fg-subtle" />
+            {t("runner.hintsInline.prompt")}
+          </p>
+          <div className="flex gap-1">
+            {([1, 2, 3] as const).map((level) => (
+              <Button
+                key={level}
+                variant="ghost"
+                size="sm"
+                aria-pressed={activeHint?.level === level}
+                busy={loadingLevel === level}
+                disabled={loadingLevel !== null && loadingLevel !== level}
+                onClick={() => void loadHint(level)}
+                className="aria-pressed:bg-surface-muted aria-pressed:text-fg"
+              >
+                {t("runner.hints.hintButton", { level })}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {error ? (
-        <div className="sq-list-meta sq-gap-top-sm" role="alert">
+        <p className="text-[0.8125rem] text-danger" role="alert">
           {error}
-        </div>
+        </p>
       ) : null}
 
       <div aria-live="polite">
         {activeHint ? (
-          <div className="sq-stack-sm sq-gap-top-sm">
-            <div className="sq-list-title">{activeHint.title}</div>
-            <div className="sq-list-meta">{activeHint.message}</div>
-            <div className="sq-list-meta">{activeHint.caution}</div>
+          <div className="flex flex-col gap-2 border-l-2 border-warning/60 py-1 pl-4">
+            <p className="text-xs font-semibold tracking-wide text-warning uppercase">{t("runner.labels.level", { level: activeHint.level })}</p>
+            <p className="font-medium text-fg">{activeHint.title}</p>
+            <p className="font-serif text-[0.9375rem] leading-relaxed text-fg">{activeHint.message}</p>
+            {activeHint.caution ? <p className="text-[0.8125rem] text-fg-muted">{activeHint.caution}</p> : null}
             <ReferencesList references={activeHint.references} ariaLabel={t("runner.labels.referencesHintAria")} t={t} />
           </div>
         ) : null}
       </div>
-    </div>
+    </section>
   );
 }

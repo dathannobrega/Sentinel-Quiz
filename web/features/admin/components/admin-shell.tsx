@@ -4,9 +4,11 @@ import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { Alert } from "@/components/ui/alert";
+import { buttonClassName } from "@/components/ui/button";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
+import { Page } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBanner } from "@/components/ui/status-banner";
 import { useI18n } from "@/lib/i18n";
 import { useSessionRole } from "@/lib/query/hooks";
 
@@ -46,49 +48,48 @@ export function AdminShell({ initialQuestionId = null, editorOnly = false }: Adm
 
   if (query.isError && !user) {
     return (
-      <main className="sq-app-shell">
-        <div className="sq-page-stack">
-          <QueryErrorBanner
-            error={query.error}
-            title={t("admin.guard.loadUserFailedTitle")}
-            onRetry={() => void query.refetch()}
-            retrying={query.isFetching}
-          />
-        </div>
-      </main>
+      <Page width="narrow">
+        <QueryErrorBanner
+          error={query.error}
+          title={t("admin.guard.loadUserFailedTitle")}
+          onRetry={() => void query.refetch()}
+          retrying={query.isFetching}
+        />
+      </Page>
     );
   }
 
   if (query.isPending || isAnonymous || !user) {
     return (
-      <main className="sq-app-shell" aria-busy="true">
-        <div className="sq-page-stack" role="status">
-          <span className="sq-visually-hidden">{t("admin.guard.checking")}</span>
-          <Skeleton height={180} />
-          <Skeleton height={320} />
-          <Skeleton height={620} />
+      <Page width="wide" aria-busy="true">
+        <div role="status" className="flex flex-col gap-6">
+          <span className="sr-only">{t("admin.guard.checking")}</span>
+          <Skeleton height={56} className="max-w-md" />
+          <Skeleton height={40} />
+          <div className="grid gap-6 lg:grid-cols-[24rem_minmax(0,1fr)]">
+            <Skeleton height={520} />
+            <Skeleton height={520} />
+          </div>
         </div>
-      </main>
+      </Page>
     );
   }
 
   if (!isStaff) {
     return (
-      <main className="sq-app-shell">
-        <div className="sq-page-stack">
-          <StatusBanner
-            tone="danger"
-            role="alert"
-            title={t("admin.guard.forbiddenTitle")}
-            message={t("admin.guard.forbiddenMessage")}
-            action={
-              <Link href="/dashboard" className="sq-button sq-button--sm sq-button--ghost">
-                {t("admin.guard.backToDashboard")}
-              </Link>
-            }
-          />
-        </div>
-      </main>
+      <Page width="narrow">
+        <Alert
+          tone="danger"
+          role="alert"
+          title={t("admin.guard.forbiddenTitle")}
+          message={t("admin.guard.forbiddenMessage")}
+          action={
+            <Link href="/dashboard" className={buttonClassName("secondary", "sm")}>
+              {t("admin.guard.backToDashboard")}
+            </Link>
+          }
+        />
+      </Page>
     );
   }
 

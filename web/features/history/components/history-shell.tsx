@@ -5,15 +5,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
-import { MetricCard } from "@/components/ui/metric-card";
-import { ProgressBar } from "@/components/ui/progress-bar";
+import { AlertIcon, CircleCheckIcon } from "@/components/ui/icons";
+import { Checkbox, Input, Select } from "@/components/ui/input";
+import { Meter } from "@/components/ui/meter";
+import { Page, PageHeader, Section } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Stat, StatList } from "@/components/ui/stat";
 import { Tabs } from "@/components/ui/tabs";
+import { ReviewQueueList } from "@/features/review/components/review-queue-list";
 import { apiClient, readErrorMessage } from "@/lib/api/client";
 import { persistSessionId } from "@/lib/auth/storage";
 import { useI18n } from "@/lib/i18n";
@@ -21,7 +24,6 @@ import {
   useExamHistoryQuery,
   useExamsQuery,
   useReviewQueueQuery,
-  useSessionRole,
   useStudyHistoryQuery,
   useStudyWeeklyQuery
 } from "@/lib/query/hooks";
@@ -95,27 +97,6 @@ function resolveStudyResultHref(item: StudyHistoryItem): string {
   return `/study/${encodeURIComponent(item.id)}/result`;
 }
 
-function describeQueueState(
-  item: ReviewQueueSnapshot["items"][number],
-  t: (key: string, values?: Record<string, string | number>) => string
-): string {
-  if (item.is_overdue) {
-    return t("review.queueState.overdue", { days: item.overdue_days });
-  }
-  if (item.state === "due_now") {
-    return t("review.queueState.dueToday");
-  }
-  if (item.state === "at_risk") {
-    return t("review.queueState.atRisk");
-  }
-  if (item.state === "mastered") {
-    return t("review.queueState.mastered");
-  }
-  return item.due_at
-    ? t("review.queueState.scheduledFor", { date: formatDateTime(item.due_at) })
-    : t("review.queueState.scheduled");
-}
-
 function buildReviewQueueParams(
   examId: string,
   reviewState: string,
@@ -142,7 +123,6 @@ function buildReviewQueueParams(
 export function HistoryShell() {
   const { t } = useI18n();
   const router = useRouter();
-  const { isStaff } = useSessionRole();
   const [pageNotice, setPageNotice] = useState<string | null>(null);
 
   const [selectedExamId, setSelectedExamId] = useState("");
@@ -264,370 +244,300 @@ export function HistoryShell() {
 
   if (isLoading) {
     return (
-      <main className="sq-app-shell" aria-busy="true">
-        <div className="sq-page-stack">
-          <Skeleton height={180} />
-          <Skeleton height={320} />
-          <Skeleton height={420} />
-        </div>
-      </main>
+      <Page aria-busy="true">
+        <Skeleton height={56} className="max-w-md" />
+        <Skeleton height={64} />
+        <Skeleton height={420} />
+      </Page>
     );
   }
 
   const sessionTab = (
-    <div className="sq-page-stack">
-      <Card title={t("history.sessions.title")} subtitle={t("history.sessions.subtitle")}>
-        <div className="sq-metric-grid">
-          <MetricCard label={t("history.sessions.filteredExams")} value={filteredExamHistory.length} />
-          <MetricCard label={t("history.sessions.examAverage")} value={examAverage === null ? "-" : formatScore(examAverage)} />
-          <MetricCard label={t("history.sessions.studyAverage")} value={studyAverage === null ? "-" : formatScore(studyAverage)} />
-          <MetricCard label={t("history.sessions.dueQueue")} value={reviewQueue.due_count} />
-          <MetricCard label={t("history.sessions.totalQueue")} value={reviewQueue.total_count} />
-          <MetricCard
-            label={t("history.sessions.nextReview")}
-            value={reviewQueue.next_due_at ? formatDateTime(reviewQueue.next_due_at) : "-"}
-          />
-        </div>
+    <div className="flex flex-col gap-10">
+      <StatList className="border-t-0 pt-0">
+        <Stat label={t("history.sessions.filteredExams")} value={filteredExamHistory.length} />
+        <Stat label={t("history.sessions.examAverage")} value={examAverage === null ? "-" : formatScore(examAverage)} />
+        <Stat label={t("history.sessions.studyAverage")} value={studyAverage === null ? "-" : formatScore(studyAverage)} />
+      </StatList>
 
-        {recommendation ? (
-          <EmptyState className="sq-gap-top-md" size="compact" description={recommendation} />
-        ) : null}
-      </Card>
+      {recommendation ? <Alert tone="neutral" message={recommendation} /> : null}
 
-      <div className="sq-grid-2">
-        <Card title={t("history.sessions.examsTitle")} subtitle={t("history.sessions.examsSubtitle")}>
+      <div className="grid gap-10 lg:grid-cols-2 lg:gap-12">
+        <Section title={t("history.sessions.examsTitle")} description={t("history.sessions.examsSubtitle")}>
           {filteredExamHistory.length ? (
-            <div className="sq-list">
+            <ul className="divide-y divide-line border-y border-line">
               {filteredExamHistory.map((item) => (
-                <Link
+                <SessionRow
                   key={item.id}
                   href={resolveExamResultHref(item)}
-                  className="sq-list-item sq-list-link"
-                >
-                  <div className="sq-list-title">{item.exam_title || item.exam_id || t("history.labels.mixedSession")}</div>
-                  <div className="sq-list-meta">
-                    {t("history.labels.examMeta", {
-                      score: formatScore(item.score_percent),
-                      correct: item.correct_count,
-                      total: item.total_questions,
-                      date: formatDateTime(item.completed_at)
-                    })}
-                  </div>
-                </Link>
+                  title={item.exam_title || item.exam_id || t("history.labels.mixedSession")}
+                  meta={t("history.labels.examRowMeta", {
+                    correct: item.correct_count,
+                    total: item.total_questions,
+                    date: formatDateTime(item.completed_at)
+                  })}
+                  score={item.score_percent}
+                />
               ))}
-            </div>
+            </ul>
           ) : (
             <EmptyState description={t("history.labels.noExams")} />
           )}
-        </Card>
+        </Section>
 
-        <Card title={t("history.sessions.studiesTitle")} subtitle={t("history.sessions.studiesSubtitle")}>
+        <Section title={t("history.sessions.studiesTitle")} description={t("history.sessions.studiesSubtitle")}>
           {filteredStudyHistory.length ? (
-            <div className="sq-list">
+            <ul className="divide-y divide-line border-y border-line">
               {filteredStudyHistory.map((item) => (
-                <Link
+                <SessionRow
                   key={item.id}
                   href={resolveStudyResultHref(item)}
-                  className="sq-list-item sq-list-link"
-                >
-                  <div className="sq-list-title">{item.exam_title || item.exam_id || t("history.labels.mixedBlock")}</div>
-                  <div className="sq-list-meta">
-                    {t("history.labels.studyMeta", {
-                      score: formatScore(item.score_percent),
-                      strategy: item.selection_strategy,
-                      date: formatDateTime(item.completed_at)
-                    })}
-                  </div>
-                  {item.weakest_domains.length ? (
-                    <div className="sq-chip-row sq-gap-top-sm">
-                      {item.weakest_domains.slice(0, 3).map((label) => (
-                        <span key={`${item.id}-${label}`} className="sq-chip">
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </Link>
+                  title={item.exam_title || item.exam_id || t("history.labels.mixedBlock")}
+                  meta={t("history.labels.studyRowMeta", {
+                    strategy: item.selection_strategy,
+                    date: formatDateTime(item.completed_at)
+                  })}
+                  detail={item.weakest_domains.length ? item.weakest_domains.slice(0, 3).join(" · ") : undefined}
+                  score={item.score_percent}
+                />
               ))}
-            </div>
+            </ul>
           ) : (
             <EmptyState description={t("history.labels.noStudies")} />
           )}
-        </Card>
+        </Section>
       </div>
     </div>
   );
 
   const reviewTab = (
-    <div className="sq-page-stack">
-      <div className="sq-grid-2">
-        <Card title={t("history.reviewPanel.weeklyGoalTitle")} subtitle={t("history.reviewPanel.weeklyGoalSubtitle")}>
-          <div className="sq-metric-grid">
-            <MetricCard label={t("history.reviewPanel.questionGoal")} value={weeklyGoal.weekly_question_target || 0} />
-            <MetricCard label={t("history.reviewPanel.reviewGoal")} value={weeklyGoal.weekly_review_target || 0} />
-            <MetricCard
-              label={t("history.reviewPanel.newSuggested")}
-              value={weeklyGoal.weekly_new_question_target ?? weeklyGoal.new_question_budget}
-            />
-            <MetricCard
-              label={t("history.reviewPanel.completion")}
-              value={
-                weeklyGoal.completion_ratio_percent === undefined ? "-" : `${weeklyGoal.completion_ratio_percent}%`
-              }
-            />
-          </div>
+    <div className="flex flex-col gap-10">
+      <StatList className="border-t-0 pt-0">
+        <Stat label={t("history.sessions.dueQueue")} value={reviewQueue.due_count} />
+        <Stat label={t("history.sessions.totalQueue")} value={reviewQueue.total_count} />
+        <Stat label={t("history.sessions.nextReview")} value={reviewQueue.next_due_at ? formatDateTime(reviewQueue.next_due_at) : "-"} />
+      </StatList>
 
-          <div className="sq-list sq-gap-top-md">
-            <div className="sq-list-item">
-              <div className="sq-list-title">
-                {weeklyGoal.on_track === false ? t("history.labels.belowGoal") : t("history.labels.onTrack")}
-              </div>
-              <div className="sq-list-meta">
+      <div className="grid gap-10 lg:grid-cols-2 lg:gap-12">
+        <Section title={t("history.reviewPanel.weeklyGoalTitle")} description={t("history.reviewPanel.weeklyGoalSubtitle")}>
+          <StatList>
+            <Stat label={t("history.reviewPanel.questionGoal")} value={weeklyGoal.weekly_question_target || 0} />
+            <Stat label={t("history.reviewPanel.reviewGoal")} value={weeklyGoal.weekly_review_target || 0} />
+            <Stat label={t("history.reviewPanel.newSuggested")} value={weeklyGoal.weekly_new_question_target ?? weeklyGoal.new_question_budget} />
+            <Stat
+              label={t("history.reviewPanel.completion")}
+              value={weeklyGoal.completion_ratio_percent === undefined ? "-" : `${weeklyGoal.completion_ratio_percent}%`}
+            />
+          </StatList>
+          <div className="flex items-start gap-2.5 text-sm">
+            {weeklyGoal.on_track === false ? (
+              <AlertIcon size={16} className="mt-0.5 shrink-0 text-warning" />
+            ) : (
+              <CircleCheckIcon size={16} className="mt-0.5 shrink-0 text-success" />
+            )}
+            <div>
+              <p className="font-medium text-fg">{weeklyGoal.on_track === false ? t("history.labels.belowGoal") : t("history.labels.onTrack")}</p>
+              <p className="text-fg-muted">
                 {t("history.labels.nextStepDaily", {
                   newCount: weeklyGoal.suggested_daily_question_target || 0,
                   reviewCount: weeklyGoal.suggested_daily_review_target || weeklyGoal.daily_review_target || 0
                 })}
-              </div>
+              </p>
             </div>
           </div>
-        </Card>
+        </Section>
 
-        <Card title={t("history.reviewPanel.forecastTitle")} subtitle={t("history.reviewPanel.forecastSubtitle")}>
-          <div className="sq-metric-grid">
-            <MetricCard label={t("history.reviewPanel.dueInSevenDays")} value={reviewForecast?.projected_due_next_7_days || 0} />
-            <MetricCard label={t("history.reviewPanel.enteringRisk")} value={reviewForecast?.projected_at_risk_next_7_days || 0} />
-            <MetricCard label={t("history.reviewPanel.peakDay")} value={reviewForecast?.peak_load_day || 0} />
-            <MetricCard label={t("history.reviewPanel.pressure")} value={String(reviewForecast?.pressure || t("history.labels.pressureDefault"))} />
-          </div>
-
+        <Section title={t("history.reviewPanel.forecastTitle")} description={t("history.reviewPanel.forecastSubtitle")}>
+          <StatList>
+            <Stat label={t("history.reviewPanel.dueInSevenDays")} value={reviewForecast?.projected_due_next_7_days || 0} />
+            <Stat label={t("history.reviewPanel.enteringRisk")} value={reviewForecast?.projected_at_risk_next_7_days || 0} />
+            <Stat label={t("history.reviewPanel.peakDay")} value={reviewForecast?.peak_load_day || 0} />
+            <Stat label={t("history.reviewPanel.pressure")} value={String(reviewForecast?.pressure || t("history.labels.pressureDefault"))} />
+          </StatList>
           {reviewQueue.upcoming_load.length ? (
-            <div className="sq-list sq-gap-top-md">
+            <ul className="divide-y divide-line text-sm">
               {reviewQueue.upcoming_load.map((day) => (
-                <div key={day.date} className="sq-list-item">
-                  <div className="sq-list-title">{day.label}</div>
-                  <div className="sq-list-meta">
-                    {t("history.labels.forecastDay", { due: day.due_count, risk: day.at_risk_count })}
-                  </div>
-                </div>
+                <li key={day.date} className="flex flex-wrap items-baseline justify-between gap-x-4 py-2">
+                  <span className="font-medium text-fg">{day.label}</span>
+                  <span className="nums text-fg-muted">{t("history.labels.forecastDay", { due: day.due_count, risk: day.at_risk_count })}</span>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : (
-            <EmptyState className="sq-gap-top-md" size="compact" description={t("history.labels.noUpcoming")} />
+            <EmptyState size="compact" description={t("history.labels.noUpcoming")} />
           )}
-        </Card>
+        </Section>
       </div>
 
-      <Card
+      <Section
         title={t("history.reviewPanel.queueTitle")}
-        subtitle={t("history.reviewPanel.queueSubtitle")}
+        description={t("history.reviewPanel.queueSubtitle")}
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            busy={isStartingReview}
-            disabled={!reviewQueue.items.length}
-            onClick={startRecommendedReview}
-          >
+          <Button size="sm" busy={isStartingReview} disabled={!reviewQueue.items.length} onClick={startRecommendedReview}>
             {t("common.actions.reviewNow")}
           </Button>
         }
       >
-        <div className="sq-form-grid sq-gap-bottom-md">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,14rem)_1fr] sm:items-end">
           <Field label={t("review.filters.state")} htmlFor="review-state-filter">
-            <select
-              id="review-state-filter"
-              className="sq-select"
-              value={reviewStateFilter}
-              onChange={(event) => setReviewStateFilter(event.target.value)}
-            >
+            <Select id="review-state-filter" value={reviewStateFilter} onChange={(event) => setReviewStateFilter(event.target.value)}>
               <option value="">{t("common.filters.everything")}</option>
               <option value="due_today">{t("common.reviewStates.dueToday")}</option>
               <option value="overdue">{t("common.reviewStates.overdue")}</option>
               <option value="at_risk">{t("common.reviewStates.atRisk")}</option>
               <option value="scheduled">{t("common.reviewStates.scheduled")}</option>
               <option value="mastered">{t("common.reviewStates.mastered")}</option>
-            </select>
+            </Select>
           </Field>
-
-          <fieldset className="sq-field" style={{ border: 0, padding: 0, margin: 0 }}>
-            <legend className="sq-field-label">{t("review.filters.refine")}</legend>
-            <div className="sq-checkbox-grid">
-              <label className="sq-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={reviewBookmarksOnly}
-                  onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
-                />
-                {t("review.filters.bookmarksOnly")}
-              </label>
-              <label className="sq-checkbox-row">
-                <input type="checkbox" checked={reviewNotesOnly} onChange={(event) => setReviewNotesOnly(event.target.checked)} />
-                {t("review.filters.notesOnly")}
-              </label>
-            </div>
+          <fieldset className="flex flex-wrap gap-x-5">
+            <legend className="sr-only">{t("review.filters.refine")}</legend>
+            <Checkbox
+              id="history-review-bookmarks"
+              checked={reviewBookmarksOnly}
+              onChange={(event) => setReviewBookmarksOnly(event.target.checked)}
+              label={t("review.filters.bookmarksOnly")}
+            />
+            <Checkbox
+              id="history-review-notes"
+              checked={reviewNotesOnly}
+              onChange={(event) => setReviewNotesOnly(event.target.checked)}
+              label={t("review.filters.notesOnly")}
+            />
           </fieldset>
         </div>
 
         {reviewQueue.items.length ? (
-          <div className="sq-list">
-            {reviewQueue.items.slice(0, 8).map((item) => (
-              <div key={item.question_id} className="sq-list-item">
-                <div className="sq-list-title">{item.prompt}</div>
-                <div className="sq-list-meta">
-                  {[item.certification, item.domain, item.state].filter(Boolean).join(" · ")} · {describeQueueState(item, t)}
-                </div>
-                {(item.bookmarked || item.has_note) ? (
-                  <div className="sq-chip-row sq-gap-top-sm">
-                    {item.bookmarked ? <span className="sq-chip">{t("common.status.marked")}</span> : null}
-                    {item.has_note ? <span className="sq-chip">{t("common.status.withNote")}</span> : null}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
+          <ReviewQueueList items={reviewQueue.items} t={t} limit={8} busy={reviewQueueQuery.isFetching} />
         ) : (
           <EmptyState description={t("review.empty")} />
         )}
-      </Card>
+      </Section>
     </div>
   );
 
   const weeksTab = (
-    <Card title={t("history.weeksPanel.title")} subtitle={t("history.weeksPanel.subtitle")}>
+    <Section title={t("history.weeksPanel.title")} description={t("history.weeksPanel.subtitle")}>
       {weeklyAnalytics.weeks.length ? (
-        <div className="sq-progress-list">
+        <ul className="divide-y divide-line border-y border-line">
           {weeklyAnalytics.weeks.map((week) => (
-            <div key={week.week_start} className="sq-surface-block">
-              <div className="sq-progress-head">
-                <div>
-                  <div className="sq-list-title">{week.label}</div>
-                  <div className="sq-progress-meta">
-                    {t("history.labels.weekMeta", {
-                      study: week.study_questions,
-                      review: week.review_questions,
-                      sessions: week.completed_sessions
-                    })}
-                  </div>
-                </div>
-                <div className="sq-progress-meta">{t("history.labels.weekAccuracy", { value: week.accuracy_percent })}</div>
+            <li key={week.week_start} className="grid gap-x-6 gap-y-2 py-3.5 sm:grid-cols-[minmax(0,1fr)_12rem] sm:items-center">
+              <div className="min-w-0">
+                <p className="font-medium text-fg">{week.label}</p>
+                <p className="text-[0.8125rem] text-fg-muted">
+                  {t("history.labels.weekMeta", {
+                    study: week.study_questions,
+                    review: week.review_questions,
+                    sessions: week.completed_sessions
+                  })}
+                </p>
               </div>
-              <ProgressBar value={week.accuracy_percent} />
-            </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="nums text-[0.8125rem] text-fg-muted">{t("history.labels.weekAccuracy", { value: week.accuracy_percent })}</span>
+                <Meter value={week.accuracy_percent} kind="score" />
+              </div>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
         <EmptyState description={t("history.labels.noWeeks")} />
       )}
-    </Card>
+    </Section>
   );
 
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <h1 className="sq-page-title">{t("history.header.title")}</h1>
-              <p className="sq-page-subtitle">{t("history.header.subtitle")}</p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/dashboard">{t("common.labels.dashboard")}</Link>
-            <Link href="/start">{t("common.actions.newSession")}</Link>
-            <Link href="/review">{t("common.labels.review")}</Link>
-            {isStaff ? <Link href="/admin">{t("common.labels.admin")}</Link> : null}
-          </div>
-        </header>
+    <Page>
+      <PageHeader
+        title={t("history.header.title")}
+        description={t("history.header.subtitle")}
+        actions={
+          <Link href="/start" className={buttonClassName("secondary")}>
+            {t("common.actions.newSession")}
+          </Link>
+        }
+      />
 
-        {loadError ? (
-          <StatusBanner
-            tone="warning"
-            role="alert"
-            title={t("common.errors.partialLoad")}
-            message={loadError}
-            action={
-              <Button variant="ghost" size="sm" onClick={retryFailed}>
-                {t("common.actions.retry")}
-              </Button>
-            }
-          />
-        ) : null}
-        {pageNotice ? (
-          <StatusBanner tone="warning" role="alert" title={t("common.errors.attention")} message={pageNotice} />
-        ) : null}
-
-        <Card title={t("history.filters.title")} subtitle={t("history.filters.subtitle")}>
-          <div className="sq-form-grid">
-            <Field label={t("history.filters.exam")} htmlFor="history-exam-filter">
-              <select
-                id="history-exam-filter"
-                className="sq-select"
-                value={selectedExamId}
-                onChange={(event) => setSelectedExamId(event.target.value)}
-              >
-                <option value="">{t("common.filters.all")}</option>
-                {exams.map((exam) => (
-                  <option key={exam.id} value={exam.id}>
-                    {exam.title}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label={t("history.filters.minimumScore")} htmlFor="history-score-filter">
-              <select
-                id="history-score-filter"
-                className="sq-select"
-                value={minimumScore}
-                onChange={(event) => setMinimumScore(event.target.value)}
-              >
-                <option value="0">{t("common.filters.all")}</option>
-                <option value="70">70%+</option>
-                <option value="80">80%+</option>
-                <option value="90">90%+</option>
-              </select>
-            </Field>
-
-            <Field label={t("history.filters.search")} htmlFor="history-search-filter">
-              <input
-                id="history-search-filter"
-                className="sq-input"
-                type="search"
-                value={searchValue}
-                onChange={(event) => setSearchValue(event.target.value)}
-              />
-            </Field>
-          </div>
-        </Card>
-
-        <Tabs
-          ariaLabel={t("history.header.title")}
-          defaultValue="sessions"
-          items={[
-            {
-              id: "sessions",
-              label: t("history.tabs.sessions"),
-              badge: filteredExamHistory.length + filteredStudyHistory.length,
-              content: sessionTab
-            },
-            {
-              id: "review",
-              label: t("history.tabs.review"),
-              badge: reviewQueue.due_count,
-              content: reviewTab
-            },
-            {
-              id: "weeks",
-              label: t("history.tabs.weeks"),
-              badge: weeklyAnalytics.weeks.length,
-              content: weeksTab
-            }
-          ]}
+      {loadError ? (
+        <Alert
+          tone="warning"
+          role="alert"
+          title={t("common.errors.partialLoad")}
+          message={loadError}
+          action={
+            <Button variant="secondary" size="sm" onClick={retryFailed}>
+              {t("common.actions.retry")}
+            </Button>
+          }
         />
-      </div>
-    </main>
+      ) : null}
+      {pageNotice ? <Alert tone="warning" role="alert" title={t("common.errors.attention")} message={pageNotice} /> : null}
+
+      <section aria-label={t("history.filters.title")} className="grid gap-3 sm:grid-cols-3">
+        <Field label={t("history.filters.exam")} htmlFor="history-exam-filter">
+          <Select id="history-exam-filter" value={selectedExamId} onChange={(event) => setSelectedExamId(event.target.value)}>
+            <option value="">{t("common.filters.all")}</option>
+            {exams.map((exam) => (
+              <option key={exam.id} value={exam.id}>
+                {exam.title}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t("history.filters.minimumScore")} htmlFor="history-score-filter">
+          <Select id="history-score-filter" value={minimumScore} onChange={(event) => setMinimumScore(event.target.value)}>
+            <option value="0">{t("common.filters.all")}</option>
+            <option value="70">70%+</option>
+            <option value="80">80%+</option>
+            <option value="90">90%+</option>
+          </Select>
+        </Field>
+        <Field label={t("history.filters.search")} htmlFor="history-search-filter">
+          <Input id="history-search-filter" type="search" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} />
+        </Field>
+      </section>
+
+      <Tabs
+        ariaLabel={t("history.header.title")}
+        defaultValue="sessions"
+        items={[
+          {
+            id: "sessions",
+            label: t("history.tabs.sessions"),
+            badge: filteredExamHistory.length + filteredStudyHistory.length,
+            content: sessionTab
+          },
+          {
+            id: "review",
+            label: t("history.tabs.review"),
+            badge: reviewQueue.due_count,
+            content: reviewTab
+          },
+          {
+            id: "weeks",
+            label: t("history.tabs.weeks"),
+            badge: weeklyAnalytics.weeks.length,
+            content: weeksTab
+          }
+        ]}
+      />
+    </Page>
+  );
+}
+
+function SessionRow({ href, title, meta, detail, score }: { href: string; title: string; meta: string; detail?: string; score: number }) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className="focus-ring group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 rounded-sm py-3.5"
+      >
+        <span className="truncate font-medium text-fg group-hover:text-primary">{title}</span>
+        <span className="nums text-sm font-semibold text-fg">{formatScore(score)}</span>
+        <span className="min-w-0 text-[0.8125rem] text-fg-muted">
+          {meta}
+          {detail ? <span className="block truncate text-fg-subtle">{detail}</span> : null}
+        </span>
+        <Meter value={score} kind="score" className="w-20 self-start sm:w-24" />
+      </Link>
+    </li>
   );
 }
