@@ -18,6 +18,20 @@ Every question has ALL of these keys (optional ones are null, never omitted):
     source_exam_id, source_exam_title, legacy_source_file, options,
     correct_options, justification, needs_review, review_notes
 
+Optional keys (may be omitted; not read by the ingest, editorial provenance only):
+
+    explanation_source = who wrote `justification`:
+                         "ai_draft" -> drafted by an AI content editor; the item MUST keep
+                                       needs_review=true (and a review_notes entry) until an
+                                       editor approves it, then becomes "editor".
+                         "editor"   -> written or approved by a human editor.
+                         "official" -> taken from the item's official source.
+                         Omitted for legacy explanations of unknown provenance.
+
+    Retiring an item: the ingest has no status/is_active field in the JSON. Removing a
+    question from the file soft-deactivates it on the next import
+    (deactivated_reason = removed_from_source; answer history is kept).
+
 question_type vocabulary (normalized in schema v3):
 
     question_type   = response type, derived from the answer key:
@@ -37,7 +51,8 @@ question_type vocabulary (normalized in schema v3):
 Errors: invalid JSON/schema, missing keys, duplicate ids, answers not in options,
 multi_select/question_type incoherence, invalid language/difficulty, domain outside
 the official outline, exact duplicate questions, duplicate option texts (downgraded
-to a warning when the item is flagged needs_review).
+to a warning when the item is flagged needs_review), invalid explanation_source or an
+"ai_draft" explanation not flagged needs_review.
 
 Warnings: missing written explanation, needs_review items, near-duplicate prompts
 (same prompt, different options), unknown extra keys, domain distribution far from
@@ -61,6 +76,8 @@ QUESTION_KEYS = [
     "source_materials", "question_set", "quality_score", "source_exam_id", "source_exam_title",
     "legacy_source_file", "options", "correct_options", "justification", "needs_review", "review_notes",
 ]
+OPTIONAL_QUESTION_KEYS = ["explanation_source"]
+EXPLANATION_SOURCES = {"ai_draft", "editor", "official"}
 EXAM_KEYS = ["id", "title", "source", "question_count", "certification", "language", "schema_version", "notes"]
 
 LANGUAGES = {"en", "pt-BR"}
@@ -127,7 +144,7 @@ def validate_question(report: Report, where: str, q: dict, certification: str | 
     missing = [key for key in QUESTION_KEYS if key not in q]
     if missing:
         report.error(where, f"missing keys {missing}")
-    extra = [key for key in q if key not in QUESTION_KEYS]
+    extra = [key for key in q if key not in QUESTION_KEYS and key not in OPTIONAL_QUESTION_KEYS]
     if extra:
         report.warn("unknown keys", where, str(extra))
 
@@ -203,6 +220,12 @@ def validate_question(report: Report, where: str, q: dict, certification: str | 
 
     if not str(q.get("justification") or "").strip():
         report.warn("missing explanation", where)
+    if "explanation_source" in q:
+        source = q["explanation_source"]
+        if source not in EXPLANATION_SOURCES:
+            report.error(where, f"explanation_source must be one of {sorted(EXPLANATION_SOURCES)} (got {source!r})")
+        elif source == "ai_draft" and not (q.get("needs_review") and str(q.get("review_notes") or "").strip()):
+            report.error(where, "explanation_source='ai_draft' requires needs_review=true and review_notes until an editor approves it")
     if q.get("needs_review"):
         report.warn("needs_review", where, str(q.get("review_notes") or ""))
 
