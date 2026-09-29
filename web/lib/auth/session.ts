@@ -5,8 +5,27 @@ import type {
   AuthUser,
   EmailChallengeConsumeRequest,
   EmailChallengeRequest,
-  PasswordResetRequest
+  PasswordResetRequest,
+  RegisterResponse,
+  RegisterResult,
+  VerifyEmailResponse,
+  VerifyEmailResult
 } from "@/types/api";
+
+/** Error code of POST /auth/login for a correct password on an unverified account (r4 §1). */
+export const EMAIL_NOT_VERIFIED_CODE = "email_not_verified";
+
+export function isEmailNotVerifiedError(error: unknown): boolean {
+  return error instanceof ApiError && error.code === EMAIL_NOT_VERIFIED_CODE;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function hasSessionUser(value: unknown): value is AuthTokenResponse {
+  return isRecord(value) && isRecord(value.user) && typeof value.user.email === "string";
+}
 
 /** Name of the HttpOnly session cookie issued by the backend (contract §2). */
 export const SESSION_COOKIE_NAME = "sentinel_session";
@@ -51,17 +70,27 @@ export async function loginUser(payload: { email: string; password: string }): P
   return response.user;
 }
 
+/**
+ * Registers an account. With e-mail verification on (r4 §1) the backend answers 202
+ * `{status: "verification_required"}` for every e-mail (new or taken) and sets no cookie;
+ * otherwise it signs the user in like /auth/login.
+ */
 export async function registerUser(payload: {
   email: string;
   password: string;
   display_name?: string | null;
-}): Promise<AuthUser> {
-  const response = await apiClient.post<AuthTokenResponse>("/auth/register", payload, {
+}): Promise<RegisterResult> {
+  const response = await apiClient.post<RegisterResponse | null>("/auth/register", payload, {
     retryOnUnauthorized: false,
     notifyUnauthorized: false
   });
-  rememberOptionalToken(response);
-  return response.user;
+  if (hasSessionUser(response)) {
+    rememberOptionalToken(response);
+    return { kind: "signed_in", user: response.user };
+  }
+  // 202 verification_required (or any body without a user): no session was opened.
+  clearStoredAuthToken();
+  return { kind: "verification_required", email: payload.email };
 }
 
 export async function logoutUser(): Promise<void> {
@@ -80,11 +109,20 @@ export async function requestEmailVerification(payload: EmailChallengeRequest): 
   });
 }
 
-export async function verifyEmailToken(payload: EmailChallengeConsumeRequest): Promise<AuthUser> {
-  return apiClient.post<AuthUser>("/auth/verify-email", payload, {
+/**
+ * Consumes a verification token. r4 backends sign the user in and return `{user, token}`;
+ * legacy backends return the bare user (no session) and `signedIn` is false.
+ */
+export async function verifyEmailToken(payload: EmailChallengeConsumeRequest): Promise<VerifyEmailResult> {
+  const response = await apiClient.post<VerifyEmailResponse>("/auth/verify-email", payload, {
     retryOnUnauthorized: false,
     notifyUnauthorized: false
   });
+  if (hasSessionUser(response)) {
+    rememberOptionalToken(response);
+    return { user: response.user, signedIn: true };
+  }
+  return { user: response as AuthUser, signedIn: false };
 }
 
 export async function requestPasswordReset(payload: EmailChallengeRequest): Promise<void> {

@@ -2,24 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { readErrorMessage } from "@/lib/api/client";
-import { verifyEmailToken } from "@/lib/auth/session";
+import { sanitizeNextPath } from "@/lib/auth/session";
 import { useI18n } from "@/lib/i18n";
-import { useSetCurrentUser } from "@/lib/query/hooks";
+import { useVerifyEmailMutation } from "@/lib/query/hooks";
 
 type Notice = { tone: "success" | "danger"; title: string; message: string };
 
 export function VerifyEmailPanel() {
   const { t } = useI18n();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
-  const setCurrentUser = useSetCurrentUser();
+  const nextPath = sanitizeNextPath(searchParams.get("next")) ?? "/dashboard";
+  const { mutate: verifyEmail } = useVerifyEmailMutation();
   const [isLoading, setIsLoading] = useState(Boolean(token));
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(
     token
       ? null
@@ -38,24 +41,29 @@ export function VerifyEmailPanel() {
     }
     consumedTokenRef.current = token;
     setIsLoading(true);
-    verifyEmailToken({ token })
-      .then((user) => {
-        setCurrentUser(user);
+    verifyEmail(token, {
+      onSuccess: ({ user, signedIn }) => {
         setNotice({
           tone: "success",
           title: t("password.verify.successTitle"),
           message: t("password.verify.successMessage", { email: user.email })
         });
-      })
-      .catch((error: unknown) => {
+        if (signedIn) {
+          // r4 §1: verification opens the session; the mutation already cached the user.
+          setIsRedirecting(true);
+          router.replace(nextPath);
+        }
+      },
+      onError: (error: unknown) => {
         setNotice({
           tone: "danger",
           title: t("password.verify.failedTitle"),
           message: readErrorMessage(error, t("password.verify.failedMessage"))
         });
-      })
-      .finally(() => setIsLoading(false));
-  }, [setCurrentUser, t, token]);
+      },
+      onSettled: () => setIsLoading(false)
+    });
+  }, [nextPath, router, t, token, verifyEmail]);
 
   if (isLoading) {
     return (
@@ -77,17 +85,25 @@ export function VerifyEmailPanel() {
               <StatusBanner
                 tone={notice.tone}
                 title={notice.title}
-                message={notice.message}
+                message={isRedirecting ? `${notice.message} ${t("password.verify.redirecting")}` : notice.message}
                 role={notice.tone === "danger" ? "alert" : "status"}
               />
             ) : null}
             <div className="sq-actions">
-              <Link href="/login" className="sq-button sq-button--md sq-button--primary">
-                {t("password.verify.goToLogin")}
-              </Link>
-              <Link href="/dashboard" className="sq-button sq-button--md sq-button--ghost">
-                {t("common.labels.dashboard")}
-              </Link>
+              {isRedirecting ? (
+                <Link href={nextPath} className="sq-button sq-button--md sq-button--primary">
+                  {t("common.labels.dashboard")}
+                </Link>
+              ) : (
+                <>
+                  <Link href="/login" className="sq-button sq-button--md sq-button--primary">
+                    {t("password.verify.goToLogin")}
+                  </Link>
+                  <Link href="/dashboard" className="sq-button sq-button--md sq-button--ghost">
+                    {t("common.labels.dashboard")}
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </Card>
