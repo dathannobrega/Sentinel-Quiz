@@ -232,7 +232,12 @@ def test_email_verification_generic_and_cooldown(client, make_user, captured_ema
     token = _token_from_email(captured_emails[0])
     verified = client.post("/api/auth/verify-email", json={"token": token})
     assert verified.status_code == 200
-    assert verified.json()["email_verified"] is True
+    body = verified.json()
+    assert body["user"]["email_verified"] is True
+    assert body["token"] is None
+    # verify-email signs the user in (session cookie).
+    assert settings.auth_cookie_name in verified.headers["set-cookie"]
+    assert client.get("/api/auth/me").json()["email"] == user.email
 
 
 def test_validate_email_address_rejects_header_injection():

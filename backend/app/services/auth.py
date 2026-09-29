@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.clock import utcnow
@@ -29,6 +30,8 @@ PASSWORD_MIN_LENGTH = 8
 EMAIL_MAX_LENGTH = 255
 EMAIL_VERIFICATION_CHALLENGE = "email_verification"
 PASSWORD_RESET_CHALLENGE = "password_reset"
+# Notice sent when someone tries to register an e-mail that already has a verified account.
+REGISTRATION_ATTEMPT_NOTICE = "registration_attempt"
 PRIVILEGED_ROLES = frozenset({"editor", "reviewer", "admin"})
 
 
@@ -176,7 +179,20 @@ def _dummy_password_hash() -> str:
     return hash_password(secrets.token_urlsafe(24))
 
 
+def _new_student(*, email: str, password_hash: str, display_name: str | None) -> User:
+    return User(
+        email=email,
+        display_name=(str(display_name or "").strip() or None),
+        password_hash=password_hash,
+        role="student",
+        is_active=True,
+        email_verified=False,
+        email_verified_at=None,
+    )
+
+
 def create_user(db: Session, *, email: str, password: str, display_name: str | None = None) -> User:
+    """Immediate sign-up (REGISTRATION_EMAIL_VERIFICATION=false)."""
     normalized_email = validate_email_address(email)
     password_hash = hash_password(password)
 
@@ -186,19 +202,85 @@ def create_user(db: Session, *, email: str, password: str, display_name: str | N
     if exists:
         raise RegistrationUnavailable("Email already registered.")
 
-    user = User(
-        email=normalized_email,
-        display_name=(str(display_name or "").strip() or None),
-        password_hash=password_hash,
-        role="student",
-        is_active=True,
-        email_verified=False,
-        email_verified_at=None,
-    )
+    user = _new_student(email=normalized_email, password_hash=password_hash, display_name=display_name)
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
+
+
+def prepare_registration_attempt_notice(user: User) -> OutgoingEmail:
+    """Tell the owner of a verified account that someone tried to register their e-mail."""
+    origin = _build_public_web_origin()
+    return OutgoingEmail(
+        to_email=user.email,
+        subject="Tentativa de cadastro no Sentinel Quiz",
+        body_lines=(
+            f"Ola {user.display_name or user.email},",
+            "Alguem tentou criar uma conta no Sentinel Quiz com o seu email, que ja possui uma conta.",
+            f"Se foi voce, entre em {origin}/login ou redefina sua senha em {origin}/forgot-password.",
+            "Se nao foi voce, nenhuma acao e necessaria: sua conta continua protegida.",
+        ),
+        challenge_type=REGISTRATION_ATTEMPT_NOTICE,
+        challenge_id=None,
+    )
+
+
+def register_pending_user(
+    db: Session,
+    *,
+    email: str,
+    password_hash: str,
+    display_name: str | None = None,
+) -> OutgoingEmail | None:
+    """Two-step sign-up (M-B2/L-B2): create an unverified account or notify the owner.
+
+    ``email`` must already be validated/normalised and ``password_hash`` computed by the
+    caller (the request hashes the password on every path so the response time does not
+    reveal whether the e-mail is registered).
+
+    - new e-mail: unverified user + verification link;
+    - existing unverified account: verification link again (resend cooldown applies;
+      the stored password is NOT replaced);
+    - existing verified account: "someone tried to register your e-mail" notice;
+    - inactive account: nothing.
+    """
+    existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if existing is None:
+        user = _new_student(email=email, password_hash=password_hash, display_name=display_name)
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            # Concurrent registration of the same e-mail: treat as existing.
+            db.rollback()
+            existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+        else:
+            db.refresh(user)
+            return prepare_email_verification(db, user=user, enforce_cooldown=False)
+    if existing is None or not existing.is_active:
+        return None
+    if not existing.email_verified:
+        return prepare_email_verification(db, user=existing)
+    return prepare_registration_attempt_notice(existing)
+
+
+def run_registration_request(*, email: str, password_hash: str, display_name: str | None = None) -> None:
+    """Background entry point of the two-step sign-up (own DB session, errors logged)."""
+    from app.db.session import session_scope
+
+    try:
+        with session_scope() as db:
+            outgoing = register_pending_user(
+                db, email=email, password_hash=password_hash, display_name=display_name
+            )
+    except Exception as exc:
+        logger.error(
+            "Registration request failed",
+            extra={"event": "auth_registration_request_failed", "error_type": type(exc).__name__},
+        )
+        return
+    deliver_email_safely(outgoing)
 
 
 def authenticate_user(db: Session, *, email: str, password: str) -> User | None:

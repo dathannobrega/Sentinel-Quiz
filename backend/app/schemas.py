@@ -860,6 +860,14 @@ class AuthUserOut(BaseModel):
     created_at: str
 
 
+class RegistrationPendingOut(BaseModel):
+    """202 body of POST /api/auth/register in the two-step sign-up (M-B2/L-B2)."""
+
+    status: str = "verification_required"
+    detail: str
+    code: str = "verification_required"
+
+
 class AuthTokenOut(BaseModel):
     # Null unless AUTH_RETURN_TOKEN_IN_BODY=true; the session travels in the HttpOnly
     # cookie. Bearer tokens remain accepted by the API for compatibility.
