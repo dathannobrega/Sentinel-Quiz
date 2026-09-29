@@ -119,9 +119,9 @@ docker build -t sentinel-quiz-web:local web                  # frontend (context
 docker build -t sentinel-quiz-proxy:local docker/nginx       # proxy nginx
 ```
 
-- **API:** multi-stage (`builder` com venv → runtime `python:3.12-slim`), usuário não-root `app`, código read-only, healthcheck em `/api/health`. As questões (`questions/`) vão na imagem; os EPUBs **não**.
+- **API:** multi-stage (`builder` com venv → runtime `python:3.12-slim`), usuário não-root `app`, código read-only, healthcheck em `/api/health`. As questões (`questions/`) vão na imagem; os EPUBs **não**. A trilha de estudo também vai na imagem: **somente** `material/Modulos_sec+.md` e `material/cissp_domain.json` (conteúdo próprio, não licenciado) são liberados na allowlist do `.dockerignore` e copiados para `/app/study-tracks` (`STUDY_TRACK_DIR=/app/study-tracks`; o backend cai para `MATERIAL_DIR` se o diretório não existir). Alterou esses arquivos? Rebuild da imagem.
 - **Web:** `node:22-alpine`, `npm ci` a partir do `package-lock.json` (o build falha sem lockfile), saída `standalone`, usuário não-root.
-- **Proxy:** `nginx:1.30-alpine` com TLS, `server_tokens off`, gzip, `limit_req` em `/api/auth/`.
+- **Proxy:** `nginx:1.30-alpine` com TLS, `server_tokens off`, gzip, `limit_req` em `/api/auth/`. Headers de segurança sem duplicação: HSTS em tudo; nas rotas `/api` o nginx aplica `docker/nginx/api-security-headers.conf` (oculta cópias do upstream); nas páginas do Next.js os headers e a CSP vêm do próprio app (`web/next.config.mjs` + `web/middleware.ts`).
 - Imagens base fixadas por digest (`@sha256:…`); o Dependabot abre PRs para atualizá-las.
 
 `docker run` direto da API (precisa de Postgres e Redis acessíveis):
@@ -178,15 +178,20 @@ docker run --rm -v <stack>_material_data:/dst -v /caminho/dos/epubs:/src:ro alpi
 - `INGEST_ON_STARTUP=true`: o entrypoint importa `questions/*.json` **uma vez** antes de subir os workers (os workers recebem `INGEST_ON_STARTUP=false`, evitando importações concorrentes). Default: `true` no compose local, `false` no Portainer e no backend.
 - Sob demanda: `POST /api/admin/ingest` (usuário `admin`) ou `docker compose run --rm api ingest`.
 - No Portainer as questões vêm da imagem (`/questions`); para atualizar o banco de questões publique uma nova imagem.
+- **Revisão editorial pendente:** `python scripts/validate_content.py` (job `content-validate` do CI) ainda emite *warnings* conhecidos — questões sem explicação real, enunciados quase duplicados e `sim1_q043` (alternativas equivalentes). Eles não bloqueiam o CI, mas exigem revisão editorial humana (corrigir no JSON ou pelo editor do `/admin`); não há correção automática.
+
+### Notas operacionais da API
+
+- `GET /api/sessions/{id}/questions/{position}` **persiste o cursor de navegação** do simulado (`current_position`) para retomar a sessão no mesmo ponto. É uma exceção documentada e intencional à regra de GETs somente leitura (M-B7); não trate essa rota como idempotente para cache ou prefetch.
 
 ## 📚 Materiais de referência (EPUB)
 
-Os EPUBs são material comercial licenciado: **não** são versionados (`material/*.epub` e `*.pdf` estão no `.gitignore`), **não** entram na imagem (`material/` fora do contexto via `.dockerignore`) e são montados em runtime, read-only, em `/app/material`:
+Os EPUBs são material comercial licenciado: **não** são versionados (`material/*.epub` e `*.pdf` estão no `.gitignore`), **não** entram na imagem (`material/` fica fora do contexto pela allowlist do `.dockerignore`, exceto os dois arquivos da trilha de estudo — `Modulos_sec+.md` e `cissp_domain.json` —, que vão para `/app/study-tracks`) e são montados em runtime, read-only, em `/app/material`:
 
 - local: `./material:/app/material:ro`;
 - Portainer: `APP_MATERIAL_HOST_DIR` (bind) ou volume `material_data`.
 
-O preview de referências (`/api/materials/preview`) exige usuário autenticado e não há rota de download do arquivo original. Sem os arquivos o app funciona normalmente, apenas sem o preview.
+O preview de referências (`/api/materials/preview`) exige usuário autenticado e não há rota de download do arquivo original. Sem os arquivos o app funciona normalmente, apenas sem o preview. A **trilha de estudo** não depende desse volume (vem de `/app/study-tracks` na imagem), então funciona também no Portainer sem EPUBs.
 
 > ⚠️ O histórico do git **ainda contém** os três EPUBs (commits anteriores a esta mudança) e imagens antigas no GHCR os incluem em `/app/material`. Veja [Limpeza do histórico](#limpeza-do-histórico-e-do-ghcr-epubs).
 
@@ -270,6 +275,8 @@ docker compose start api web proxy
 | `GEMINI_ENABLE` / `GEMINI_API_KEY` / `GEMINI_MODEL` | `true` / vazio / `gemini-2.5-flash` | — | Tutor IA (sem chave = tutor desligado). |
 | `GEMINI_TIMEOUT_SECONDS`, `_TEMPERATURE`, `_MAX_OUTPUT_TOKENS`, `_SYSTEM_PROMPT`, `_MIN_RESPONSE_CHARS`, `_RETRY_ON_SHORT`, `_CANDIDATE_COUNT` | `20`, `0.2`, `400`, vazio, `220`, `true`, `1` | — | Ajustes do tutor. |
 | `TUTOR_DAILY_QUOTA` | `40` | — | Pedidos ao tutor por usuário/dia. |
+| `AUTH_SLIDING_SESSION` | `true` | — | Renova a validade do token de sessão quando já passou metade do TTL. |
+| `STUDY_TRACK_DIR` | `/app/study-tracks` (imagem) | — | Pasta com `Modulos_sec+.md` e `cissp_domain.json` (trilha de estudo); cai para `MATERIAL_DIR`. |
 | `DB_POOL_PRE_PING` | `true` | — | Testa a conexão antes de usar (evita conexões mortas). |
 | `AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS` | `60` | — | Intervalo mínimo entre reenvios do e-mail de verificação. |
 | `SMTP_TIMEOUT_SECONDS` | `20` | — | Timeout do envio SMTP (roda em background). |
@@ -280,7 +287,14 @@ Somente da stack (não viram configuração da API): `APP_IMAGE_TAG`, `APP_IMAGE
 
 **Frontend:** `APP_PUBLIC_API_ORIGIN` → `NEXT_PUBLIC_API_ORIGIN` e `API_ORIGIN` no container `web`. Deixe **vazio** para usar a mesma origem do proxy (`https://<host>/api`); preencha só para apontar para outra API. O valor é lido em runtime pelo layout do servidor; em `npm run dev` use `web/.env.local`.
 
-**Frontend (dev/opcional):** `BACKEND_ORIGIN` (destino do rewrite `/api` no `next dev`, padrão `http://127.0.0.1:8000`), `AUTH_COOKIE_NAME` e `ADMIN_ROUTE_GUARD` (`auto`/`on`/`off`, guarda de rota do `/admin` no `middleware.ts`). Veja `web/.env.example`.
+**Frontend (runtime, container `web`):**
+
+| Variável do stack | Variável no `web` | Default | Descrição |
+| --- | --- | --- | --- |
+| `APP_AUTH_COOKIE_NAME` | `AUTH_COOKIE_NAME` | `sentinel_session` | Cookie de sessão verificado pela guarda do `/admin` no `middleware.ts` (lido a cada request, não no build). Deve ser igual ao `AUTH_COOKIE_NAME` da API — os composes usam a mesma variável para os dois. |
+| `APP_TUTOR_CLIENT_TIMEOUT_MS` | `TUTOR_CLIENT_TIMEOUT_MS` | `45000` | Timeout do navegador nas chamadas ao tutor de IA, injetado por request em `window.__SENTINEL_RUNTIME__`. Aceita 5000–300000; fora disso usa 45000. Mantenha acima de `GEMINI_TIMEOUT_SECONDS` (+ retry). |
+
+**Frontend (dev/opcional):** `BACKEND_ORIGIN` (destino do rewrite `/api` no `next dev`, padrão `http://127.0.0.1:8000`) e `ADMIN_ROUTE_GUARD` (`auto`/`on`/`off`, guarda de rota do `/admin` no `middleware.ts`). Veja `web/.env.example`.
 
 ---
 
@@ -304,7 +318,7 @@ Tags publicadas: `sha-<7 chars>` sempre; `X.Y.Z` e `X.Y` em tags `vX.Y.Z`; `late
 
 - **Credenciais:** `sentinel/sentinel` existe apenas como default de desenvolvimento no compose local; o stack do Portainer exige `APP_POSTGRES_PASSWORD` e o backend recusa essa senha em produção. Segredos (`APP_POSTGRES_PASSWORD`, `APP_SMTP_PASSWORD`, `APP_GEMINI_API_KEY`) devem ficar nas variáveis do stack, nunca no repositório.
 - **Superfície exposta:** só o proxy publica portas; Postgres/Redis ficam numa rede interna sem egress; imagens rodam como não-root; o nginx não expõe versão (`server_tokens off`).
-- **Headers:** o nginx envia HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` e `Permissions-Policy`. A **Content-Security-Policy** com nonce é emitida pelo Next.js (`web/middleware.ts`), não pelo nginx.
+- **Headers:** cada header aparece uma única vez. O nginx envia HSTS em todas as respostas; em `/api` também `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy` e `Permissions-Policy` (ocultando cópias do backend). Nas páginas, esses mesmos valores (+ `Cross-Origin-Opener-Policy`) e a **Content-Security-Policy** com nonce (`frame-ancestors 'none'`) são emitidos pelo Next.js (`web/next.config.mjs`, `web/middleware.ts`). Ao mudar um valor, altere os dois lugares.
 - **Sessões anônimas (`X-Client-Key`):** ao fazer login/cadastro enviando o mesmo `X-Client-Key`, as sessões anônimas daquele dispositivo são associadas à conta. Quem conhecer o `X-Client-Key` de outro dispositivo pode reivindicar o progresso anônimo dele — risco aceito porque sessões anônimas não contêm dados pessoais; o valor é aleatório, gerado e guardado apenas no navegador.
 - **Autenticação:** cookie HttpOnly `sentinel_session` (`Secure` atrás do proxy); o token não é devolvido no corpo por padrão (`AUTH_RETURN_TOKEN_IN_BODY=false`).
 

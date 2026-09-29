@@ -53,13 +53,17 @@ server {
   ssl_protocols TLSv1.2 TLSv1.3;
   ssl_prefer_server_ciphers off;
 
-  # Security headers. Content-Security-Policy is intentionally NOT set here:
-  # the Next.js app emits a per-request nonce-based CSP (web/middleware.ts).
+  # Security headers — single source per response, no duplicates:
+  #   * HSTS: always set here (server level, inherited by every location that
+  #     has no add_header of its own; the API locations re-add it via the
+  #     snippet because add_header in a location disables inheritance).
+  #   * Next.js pages (location /): nosniff, X-Frame-Options DENY,
+  #     Referrer-Policy, Permissions-Policy, COOP and the per-request nonce CSP
+  #     come from the app itself (web/next.config.mjs + web/middleware.ts).
+  #   * API (/api...): the same values are set here by
+  #     snippets/api-security-headers.conf, which also hides upstream copies.
+  # Keep the values in sync with web/next.config.mjs.
   add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-  add_header X-Content-Type-Options "nosniff" always;
-  add_header X-Frame-Options "SAMEORIGIN" always;
-  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-  add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 
   # The API only accepts small JSON bodies (no uploads).
   client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
@@ -81,18 +85,22 @@ server {
   proxy_set_header Connection $connection_upgrade;
 
   location = /api {
+    include /etc/nginx/snippets/api-security-headers.conf;
     proxy_pass http://${NGINX_API_HOST}:${NGINX_API_PORT}/api;
   }
 
   location /api/auth/ {
     limit_req zone=sentinel_auth burst=${NGINX_AUTH_BURST} nodelay;
+    include /etc/nginx/snippets/api-security-headers.conf;
     proxy_pass http://${NGINX_API_HOST}:${NGINX_API_PORT};
   }
 
   location /api/ {
+    include /etc/nginx/snippets/api-security-headers.conf;
     proxy_pass http://${NGINX_API_HOST}:${NGINX_API_PORT};
   }
 
+  # Next.js: security headers + CSP are emitted by the app (see above).
   location / {
     proxy_pass http://${NGINX_WEB_HOST}:${NGINX_WEB_PORT};
   }

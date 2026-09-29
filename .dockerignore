@@ -7,11 +7,16 @@
 !backend/alembic
 !backend/alembic.ini
 !backend/requirements.txt
+!backend/requirements.lock
 !questions
 !docker/entrypoint.sh
+# Study-track definitions (our own, non-licensed content) — exactly these two
+# files; they are baked into the image at /app/study-tracks (STUDY_TRACK_DIR).
+!material/Modulos_sec+.md
+!material/cissp_domain.json
 
-# Never ship these, even inside re-included directories.
-material/
+# Never ship these, even inside re-included directories. Everything else in
+# material/ (licensed EPUB/PDF) stays excluded by the leading "*".
 **/__pycache__
 **/*.pyc
 **/*.pyo

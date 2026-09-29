@@ -21,6 +21,7 @@ ENV NGINX_SERVER_NAME=localhost \
     NGINX_API_PORT=8000
 
 COPY default.conf.template /etc/nginx/templates/default.conf.template
+COPY api-security-headers.conf /etc/nginx/snippets/api-security-headers.conf
 COPY --chmod=755 40-generate-self-signed-cert.sh /docker-entrypoint.d/40-generate-self-signed-cert.sh
 
 RUN mkdir -p /etc/nginx/certs

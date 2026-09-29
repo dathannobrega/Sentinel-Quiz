@@ -82,6 +82,7 @@ services:
       APP_RUN_DB_MIGRATIONS: ${APP_RUN_DB_MIGRATIONS:-true}
       APP_BOOTSTRAP_SCHEMA: ${APP_BOOTSTRAP_SCHEMA:-false}
       APP_INGEST_ON_STARTUP: ${APP_INGEST_ON_STARTUP:-false}
+      APP_STUDY_TRACK_DIR: ${APP_STUDY_TRACK_DIR:-}
       APP_EXPOSE_API_DOCS: ${APP_EXPOSE_API_DOCS:-}
       APP_UVICORN_WORKERS: ${APP_UVICORN_WORKERS:-2}
       # The API is only reachable from the proxy on the internal network, so
@@ -116,6 +117,7 @@ services:
       APP_AUTH_COOKIE_DOMAIN: ${APP_AUTH_COOKIE_DOMAIN:-}
       APP_AUTH_RETURN_TOKEN_IN_BODY: ${APP_AUTH_RETURN_TOKEN_IN_BODY:-}
       APP_AUTH_LAST_USED_THROTTLE_SECONDS: ${APP_AUTH_LAST_USED_THROTTLE_SECONDS:-}
+      APP_AUTH_SLIDING_SESSION: ${APP_AUTH_SLIDING_SESSION:-}
       APP_AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS: ${APP_AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS:-}
       APP_AUTH_EMAIL_VERIFICATION_TTL_MINUTES: ${APP_AUTH_EMAIL_VERIFICATION_TTL_MINUTES:-}
       APP_AUTH_PASSWORD_RESET_TTL_MINUTES: ${APP_AUTH_PASSWORD_RESET_TTL_MINUTES:-}
@@ -195,6 +197,12 @@ services:
       # the server layout; API_ORIGIN is the server-side name of the same value.
       NEXT_PUBLIC_API_ORIGIN: ${APP_PUBLIC_API_ORIGIN:-}
       API_ORIGIN: ${APP_PUBLIC_API_ORIGIN:-}
+      # Session cookie checked by the /admin guard in web/middleware.ts (read
+      # at request time, not at build). Must match the API's AUTH_COOKIE_NAME.
+      AUTH_COOKIE_NAME: ${APP_AUTH_COOKIE_NAME:-sentinel_session}
+      # Browser-side timeout (ms) for AI tutor calls; injected at request time
+      # into window.__SENTINEL_RUNTIME__. Keep above APP_GEMINI_TIMEOUT_SECONDS.
+      TUTOR_CLIENT_TIMEOUT_MS: ${APP_TUTOR_CLIENT_TIMEOUT_MS:-45000}
     networks:
       - edge
     deploy:
