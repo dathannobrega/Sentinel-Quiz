@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "_doc": [
+    "Registry of external question sources evaluated for Sentinel-Quiz (see docs/question-sources.md).",
+    "status: approved (explicit license compatible with reuse, or written permission recorded in 'permission') |",
+    "permission_required (no usable license: needs the author's written permission) |",
+    "blocked (content copied from commercial material or exam dumps; never imported).",
+    "Only 'approved' sources can be imported (python -m scripts.question_sources import <id>).",
+    "review_stats are aggregate numbers of the SME/AI content review of 2026-09-29 (no content is stored here)."
+  ],
+  "sources": [
+    {
+      "id": "michaliskampouridis-security-plus-study",
+      "name": "MichalisKampouridis/security-plus-study",
+      "url": "https://github.com/MichalisKampouridis/security-plus-study",
+      "commit": "a65fd4378d2fad4db5c2fb183d3d0306160e403c",
+      "license": "NOASSERTION",
+      "status": "permission_required",
+      "reason": "No license (no LICENSE file, no license field; GitHub API license=null): all rights reserved. Best quality of the evaluated sources (sample: 96% correct, realism 4.2), so it is worth asking the author for written permission.",
+      "evidence": [
+        "https://github.com/MichalisKampouridis/security-plus-study (no LICENSE file at the pinned commit)",
+        "GitHub API /repos/MichalisKampouridis/security-plus-study: license = null"
+      ],
+      "adapter": "secplus_mk",
+      "certification": "Security+",
+      "exam_id": "securityplus",
+      "id_prefix": "mk",
+      "language": "en",
+      "review_stats": {
+        "reviewed": 25,
+        "scope": "random sample (random.Random(42))",
+        "correct_percent": 96.0,
+        "realism_avg": 4.16
+      },
+      "permission": null
+    },
+    {
+      "id": "iakhator-comptia-security-plus-701",
+      "name": "iakhator/comptia-security-plus-701",
+      "url": "https://github.com/iakhator/comptia-security-plus-701",
+      "commit": "66fd929f6f52e71032bee425ec562f092fece57e",
+      "license": "NOASSERTION",
+      "status": "permission_required",
+      "reason": "No license file (MIT is only mentioned in the README, without a LICENSE file or copyright line; GitHub API license=null), so reuse needs the author's written permission. Sample: 92% correct; 89 empty answer keys in finalExam.json were inferred from the explanations and 11 could not be inferred.",
+      "evidence": [
+        "https://github.com/iakhator/comptia-security-plus-701 (README 'License' section only; no LICENSE file at the pinned commit)",
+        "GitHub API /repos/iakhator/comptia-security-plus-701: license = null",
+        "src/data/finalExam.json: 100 items with an empty answer key (89 inferred, 11 not inferable)"
+      ],
+      "adapter": "secplus_ia",
+      "certification": "Security+",
+      "exam_id": "securityplus",
+      "id_prefix": "ia",
+      "language": "en",
+      "review_stats": {
+        "reviewed": 25,
+        "scope": "random sample (random.Random(42)); 10 items drawn from the inferred answer keys",
+        "correct_percent": 92.0,
+        "incorrect_key_percent": 4.0,
+        "realism_avg": 4.08,
+        "answer_keys_inferred": 89,
+        "answer_keys_not_inferable": 11
+      },
+      "permission": null
+    },
+    {
+      "id": "costajr007-security-plus-practice",
+      "name": "CostaJr007/security-plus-practice",
+      "url": "https://github.com/CostaJr007/security-plus-practice",
+      "commit": "7f58ef92f2aff0097c2135268bbc71ea79dfb0e4",
+      "license": "MIT",
+      "status": "blocked",
+      "reason": "The repository is MIT-licensed, but its content was copied from commercial ExamsDigest material: 'ExamsDigest Corp' appears in 7 question stems and PDF page numbers up to 1331 are embedded in the text. The repository author cannot license content they do not own.",
+      "evidence": [
+        "LICENSE (MIT, (c) 2026 CostaJr007) at the pinned commit",
+        "questions_db_final.json: 'ExamsDigest Corp' in 7 stems; embedded PDF page numbers (1044-1331)",
+        "'Correct Answer: X. ... Option A is incorrect.' layout of commercial practice-test books"
+      ],
+      "adapter": "secplus_cj",
+      "certification": "Security+",
+      "exam_id": "securityplus",
+      "id_prefix": "cj",
+      "language": "en",
+      "review_stats": {
+        "reviewed": 600,
+        "scope": "full review",
+        "correct_percent": 80.2,
+        "incorrect_key_percent": 1.7,
+        "ambiguous_percent": 6.3
+      },
+      "permission": null
+    },
+    {
+      "id": "psybeast-ceh-v13-exam-simulator",
+      "name": "PSYBEAST-GIT/ceh-v13-exam-simulator-2.0",
+      "url": "https://github.com/PSYBEAST-GIT/ceh-v13-exam-simulator-2.0",
+      "commit": "2dc421fcdd2ac1b7c2e6542f9aa11f55184b29b8",
+      "license": "MIT",
+      "status": "blocked",
+      "reason": "Question stems are verbatim ExamTopics CEH v11 dumps (EC-Council exam content covered by the candidate NDA); the MIT license of the simulator cannot cover them.",
+      "evidence": [
+        "LICENSE (MIT, (c) 2026 PSYBEAST) at the pinned commit",
+        "index.html 'var POOL=' question pool: stems match ExamTopics CEH v11 (312-50v11) dump pages verbatim (web search screening, 2026-09-28)"
+      ],
+      "adapter": "ceh_psybeast",
+      "certification": "CEH",
+      "exam_id": "ceh",
+      "id_prefix": "psy",
+      "language": "en",
+      "review_stats": {
+        "reviewed": 25,
+        "scope": "random sample (random.Random(42))",
+        "correct_percent": 88.0,
+        "realism_avg": 3.44
+      },
+      "permission": null
+    },
+    {
+      "id": "therrpatil-ceh-v13-exam-mcq135",
+      "name": "TheRrpatil/ceh-v13-exam-mcq135",
+      "url": "https://github.com/TheRrpatil/ceh-v13-exam-mcq135",
+      "commit": "bb3e378c407b3b25e94033d409e430421cf09a48",
+      "license": "NOASSERTION",
+      "status": "blocked",
+      "reason": "No license, content only available as a PDF, and low quality (trivia-style items unlike the exam: realism 1.7 on a 25-item sample). Not worth a permission request.",
+      "evidence": [
+        "https://github.com/TheRrpatil/ceh-v13-exam-mcq135 (no LICENSE file at the pinned commit)",
+        "'ceh exam mcq135.pdf': 135 questions parsed from the PDF text"
+      ],
+      "adapter": "ceh_rrpatil",
+      "certification": "CEH",
+      "exam_id": "ceh",
+      "id_prefix": "rrp",
+      "language": "en",
+      "review_stats": {
+        "reviewed": 25,
+        "scope": "random sample (random.Random(42)) of 135 parsed items",
+        "correct_percent": 84.0,
+        "realism_avg": 1.68
+      },
+      "permission": null
+    },
+    {
+      "id": "siriusbkid-gideon-pbq-generator",
+      "name": "siriusbkid-commits/gideon-pbq-generator",
+      "url": "https://github.com/siriusbkid-commits/gideon-pbq-generator",
+      "commit": "322636c711f4185efc04cc384460ab9e3ec89733",
+      "license": "NOASSERTION",
+      "status": "blocked",
+      "reason": "No license; the repository ships SC300_Exam_BrainDump.pdf (an exam dump) and it is not a question bank: it generates IAM/IoT scenarios with a local LLM, not Security+ PBQs. The Sentinel-Quiz PBQs were written from scratch instead.",
+      "evidence": [
+        "https://github.com/siriusbkid-commits/gideon-pbq-generator (no LICENSE file at the pinned commit)",
+        "docs/SC300_Exam_BrainDump.pdf in the repository",
+        "crew.py / iot_questions_*.py: LLM-generated IAM and IoT scenarios"
+      ],
+      "adapter": "gideon",
+      "certification": null,
+      "exam_id": null,
+      "id_prefix": "gid",
+      "language": "en",
+      "review_stats": null,
+      "permission": null
+    }
+  ]
+}

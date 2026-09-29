@@ -180,6 +180,14 @@ docker run --rm -v <stack>_material_data:/dst -v /caminho/dos/epubs:/src:ro alpi
 - No Portainer as questões vêm da imagem (`/questions`); para atualizar o banco de questões publique uma nova imagem.
 - **Revisão editorial pendente:** `python scripts/validate_content.py` (job `content-validate` do CI) ainda emite *warnings* conhecidos — questões sem explicação real, enunciados quase duplicados e `sim1_q043` (alternativas equivalentes). Eles não bloqueiam o CI, mas exigem revisão editorial humana (corrigir no JSON ou pelo editor do `/admin`); não há correção automática.
 
+### Fontes externas (`questions/imports/`)
+
+Questões de terceiros só entram pelo pipeline `python -m scripts.question_sources` (registry com licença e status de cada fonte, gate de licença, adapters, dedupe, aplicação da revisão SME e import). Só fontes `approved` geram `questions/imports/<id>.json`, sempre com proveniência e `needs_review=true`; a ingestão carrega esses arquivos depois dos bancos principais. Política, decisões atuais e passo a passo: [docs/question-sources.md](docs/question-sources.md).
+
+### PBQs (performance-based questions)
+
+`questions/pbq_securityplus.json` traz PBQs originais do SY0-701 (ordenar, categorizar, associar, preencher tabela, selecionar linhas de um anexo). Elas estendem o exame `securityplus` (mesmo `exam.id`). Na ingestão, o payload público é separado do gabarito privado (`app/services/pbq_grading.py`, que também documenta o formato de autoria e a correção parcial). Sessões de simulado e de estudo aceitam `pbq_count` (0–5): as PBQs vêm primeiro e contam dentro de `total_questions`.
+
 ### Notas operacionais da API
 
 - `GET /api/sessions/{id}/questions/{position}` **persiste o cursor de navegação** do simulado (`current_position`) para retomar a sessão no mesmo ponto. É uma exceção documentada e intencional à regra de GETs somente leitura (M-B7); não trate essa rota como idempotente para cache ou prefetch.
