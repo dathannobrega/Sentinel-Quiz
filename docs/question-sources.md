@@ -47,10 +47,10 @@ resolve conteúdo que ele copiou de terceiros.
 
 | fonte | licença | status | motivo |
 |---|---|---|---|
-| michaliskampouridis-security-plus-study | nenhuma | permission_required | sem licença; amostra de 25: 96% corretas, realismo 4,16 |
-| iakhator-comptia-security-plus-701 | nenhuma (MIT só no README) | permission_required | sem licença; amostra: 92% corretas; 89 gabaritos ausentes inferidos, 11 não inferíveis |
-| costajr007-security-plus-practice | MIT | blocked | conteúdo copiado do material comercial ExamsDigest ("ExamsDigest Corp" em 7 enunciados, números de página de PDF até 1331) |
-| psybeast-ceh-v13-exam-simulator | MIT | blocked | enunciados copiados literalmente de dumps ExamTopics do CEH v11 (NDA da EC-Council) |
+| michaliskampouridis-security-plus-study | nenhuma | approved | o dono informou a permissão do autor; revisão completa de 535: 89% corretas, 0 gabaritos errados; 476 importadas em `questions/imports/` |
+| iakhator-comptia-security-plus-701 | nenhuma (MIT só no README) | approved | o dono informou a permissão do autor; revisão completa de 400: 81,8% corretas, 9 gabaritos corrigidos; 336 importadas em `questions/imports/` |
+| costajr007-security-plus-practice | MIT | personal_use | conteúdo copiado do material comercial ExamsDigest ("ExamsDigest Corp" em 7 enunciados, números de página de PDF até 1331); o dono autorizou uso privado de estudo; 481 revisadas e importadas em `questions/local/` |
+| psybeast-ceh-v13-exam-simulator | MIT | personal_use | enunciados copiados literalmente de dumps ExamTopics do CEH v11 (NDA da EC-Council); o dono autorizou uso privado de estudo e assumiu o risco; 353 revisadas e importadas em `questions/local/` |
 | therrpatil-ceh-v13-exam-mcq135 | nenhuma | blocked | sem licença; só em PDF; qualidade baixa (realismo 1,7) |
 | siriusbkid-gideon-pbq-generator | nenhuma | blocked | sem licença; inclui `SC300_Exam_BrainDump.pdf`; gera cenários de IAM/IoT com um LLM local e não tem PBQs de Security+ |
 
@@ -73,6 +73,22 @@ Os números agregados da revisão (sem conteúdo) ficam em `review_stats` no reg
    - grava o sha256 e a data em `permission` no registry;
    - muda o status para `approved`.
 4. Commite o registry e a evidência junto com `questions/imports/<id>.json`.
+
+## Uso pessoal de estudo (`personal_use`)
+
+Para fontes sem direito de redistribuição que o dono do sistema decidiu usar só no próprio
+estudo privado e não comercial:
+
+1. `import <id> --personal-use --authorization <arquivo> --note "..."` registra a
+   autorização (em `personal_use` no registry, preservando o motivo original do bloqueio
+   em `blocked_reason`) e muda o status para `personal_use`.
+2. O import vai para `questions/local/<id>.json`, pasta ignorada pelo git e pelo build
+   do Docker: o conteúdo nunca é commitado nem entra em imagens publicadas. Cada questão
+   leva `usage_restriction: "personal_use"`.
+3. O ingest lê `questions/local/*.json` depois de `imports/`. No compose local a pasta
+   já chega via `./questions`. No Portainer, aponte `APP_LOCAL_QUESTIONS_HOST_DIR` para a
+   pasta no host (ou preencha o volume `local_questions`).
+4. Mantenha uma cópia de `questions/local/` fora do repositório; ela não está no git.
 
 ## Como rodar
 
