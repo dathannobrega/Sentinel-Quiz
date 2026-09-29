@@ -76,7 +76,8 @@ def test_ingest_splits_public_payload_and_answer_key(db, seeded):
     assert "solution" not in question.pbq_payload_json
     assert public["title"].startswith("Configurar a ACL")
     assert set(answer["tasks"]) == {"t1", "t2"} and answer["points"] == 3.0
-    assert question.explanation_missing is False and question.needs_review is False
+    # AI-authored PBQs ship with explanations but stay flagged for SME review.
+    assert question.explanation_missing is False and question.needs_review is True
     version = db.get(QuestionVersion, db.get(QuestionBank, question.id).published_version_id)
     assert version.question_format == "pbq" and version.pbq_answer_json == question.pbq_answer_json
     assert db.get(Question, "mcq-0").question_format == "mcq"

@@ -146,7 +146,8 @@ export function cellChoices(column: PbqTableColumn, cell: PbqTableCell | null | 
 
 export function cellInputKind(column: PbqTableColumn, cell: PbqTableCell | null | undefined): CellInputKind {
   const raw = String(cell?.input_type || cell?.input || column.input_type || column.input || "").toLowerCase();
-  if (raw === "number") {
+  // The API serves numeric cells as `{input_type: "text", numeric: true}`.
+  if (raw === "number" || (cell as { numeric?: boolean } | null | undefined)?.numeric === true) {
     return "number";
   }
   if (raw === "text") {

@@ -158,7 +158,10 @@
         "author": "Sentinel-Quiz (original)",
         "created": "2026-09-28",
         "review_status": "draft"
-      }
+      },
+      "explanation_source": "ai_draft",
+      "needs_review": true,
+      "review_notes": "AI-authored original PBQ pending SME review."
     },
     {
       "id": "sq_pbq_701_0002",
@@ -516,7 +519,10 @@
         "author": "Sentinel-Quiz (original)",
         "created": "2026-09-28",
         "review_status": "draft"
-      }
+      },
+      "explanation_source": "ai_draft",
+      "needs_review": true,
+      "review_notes": "AI-authored original PBQ pending SME review."
     },
     {
       "id": "sq_pbq_701_0003",
@@ -731,7 +737,10 @@
         "author": "Sentinel-Quiz (original)",
         "created": "2026-09-28",
         "review_status": "draft"
-      }
+      },
+      "explanation_source": "ai_draft",
+      "needs_review": true,
+      "review_notes": "AI-authored original PBQ pending SME review."
     },
     {
       "id": "sq_pbq_701_0004",
@@ -865,7 +874,10 @@
         "author": "Sentinel-Quiz (original)",
         "created": "2026-09-28",
         "review_status": "draft"
-      }
+      },
+      "explanation_source": "ai_draft",
+      "needs_review": true,
+      "review_notes": "AI-authored original PBQ pending SME review."
     },
     {
       "id": "sq_pbq_701_0005",
@@ -1084,7 +1096,10 @@
         "author": "Sentinel-Quiz (original)",
         "created": "2026-09-28",
         "review_status": "draft"
-      }
+      },
+      "explanation_source": "ai_draft",
+      "needs_review": true,
+      "review_notes": "AI-authored original PBQ pending SME review."
     },
     {
       "id": "sq_pbq_701_0006",
@@ -1305,7 +1320,10 @@
         "author": "Sentinel-Quiz (original)",
         "created": "2026-09-28",
         "review_status": "draft"
-      }
+      },
+      "explanation_source": "ai_draft",
+      "needs_review": true,
+      "review_notes": "AI-authored original PBQ pending SME review."
     }
   ]
 }

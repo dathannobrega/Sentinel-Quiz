@@ -191,6 +191,8 @@ test("exam with 1 PBQ: keyboard answer → graded feedback → review shows the 
   await page.goto("/start");
 
   const examSelect = page.locator("#exam-id");
+  // The exam list loads asynchronously: wait for a fixture exam that always exists before probing.
+  await expect(examSelect.locator("option", { hasText: "E2E Security+" })).toBeAttached();
   const hasPbqBank = (await examSelect.locator("option", { hasText: "E2E PBQ" }).count()) > 0;
   test.skip(!hasPbqBank, "e2e PBQ bank not loaded by this backend");
   await examSelect.selectOption({ label: "E2E PBQ" });

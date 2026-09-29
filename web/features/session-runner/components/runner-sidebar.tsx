@@ -48,7 +48,8 @@ export function RunnerSidebar({ sessionId, runner, notes, t }: RunnerSidebarProp
                 onJump={runner.jumpTo}
                 t={t}
               />
-              {questionId && feedback ? (
+              {/* The AI tutor only supports multiple-choice items (the API answers 409 for PBQs). */}
+              {questionId && feedback && !runner.isPbq ? (
                 <TutorPanel
                   key={`tutor-${runner.questionKey}`}
                   sessionId={sessionId}
