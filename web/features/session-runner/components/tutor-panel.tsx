@@ -4,8 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Alert } from "@/components/ui/alert";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { SparkIcon, SpinnerIcon } from "@/components/ui/icons";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
 import { ApiError, apiClient, getTutorTimeoutMs, readErrorMessage } from "@/lib/api/client";
 import { useSessionRole } from "@/lib/query/hooks";
@@ -84,14 +85,14 @@ export function TutorPanel({ sessionId, questionId, lockedDuringExam, answered, 
 
   let body;
   if (isLocked) {
-    body = <StatusBanner tone="neutral" message={t("runner.tutor.lockedDuringExam")} />;
+    body = <p className="text-[0.8125rem] leading-relaxed text-fg-muted">{t("runner.tutor.lockedDuringExam")}</p>;
   } else if (needsLogin) {
     body = (
-      <StatusBanner
+      <Alert
         tone="warning"
         message={t("runner.tutor.authRequired")}
         action={
-          <Link href={loginHref} className="sq-button sq-button--sm sq-button--primary">
+          <Link href={loginHref} className={buttonClassName("primary", "sm")}>
             {t("runner.tutor.signIn")}
           </Link>
         }
@@ -100,7 +101,7 @@ export function TutorPanel({ sessionId, questionId, lockedDuringExam, answered, 
   } else if (answered) {
     body = (
       <>
-        <div className="sq-actions sq-gap-top-sm">
+        <div className="flex flex-wrap gap-1.5">
           {(
             [
               ["help", "runner.tutor.explain"],
@@ -110,7 +111,7 @@ export function TutorPanel({ sessionId, questionId, lockedDuringExam, answered, 
           ).map(([mode, labelKey]) => (
             <Button
               key={mode}
-              variant="ghost"
+              variant="secondary"
               size="sm"
               busy={pendingMode === mode}
               disabled={pendingMode !== null && pendingMode !== mode}
@@ -120,13 +121,20 @@ export function TutorPanel({ sessionId, questionId, lockedDuringExam, answered, 
             </Button>
           ))}
         </div>
-        <div aria-live="polite" className="sq-gap-top-sm">
-          {pendingMode ? <div className="sq-list-meta">{t("runner.tutor.thinking")}</div> : null}
-          {failure ? (
-            <StatusBanner tone={failure.kind === "quota" ? "warning" : "danger"} role="alert" message={failure.message} />
+        <div aria-live="polite" className="mt-3 flex flex-col gap-3">
+          {pendingMode ? (
+            <p className="inline-flex items-center gap-2 text-[0.8125rem] text-fg-muted">
+              <SpinnerIcon />
+              {t("runner.tutor.thinking")}
+            </p>
           ) : null}
+          {failure ? <Alert tone={failure.kind === "quota" ? "warning" : "danger"} role="alert" message={failure.message} /> : null}
           {reply ? (
-            <div className="sq-list-meta" aria-label={t("runner.tutor.replyLabel")} role="region">
+            <div
+              className="rounded-md bg-surface-muted px-4 py-3 font-serif text-[0.9375rem] leading-relaxed whitespace-pre-line text-fg"
+              aria-label={t("runner.tutor.replyLabel")}
+              role="region"
+            >
               {reply.message}
             </div>
           ) : null}
@@ -138,14 +146,15 @@ export function TutorPanel({ sessionId, questionId, lockedDuringExam, answered, 
   }
 
   return (
-    <div className="sq-runner-utility">
-      <div className="sq-runner-utility__head">
-        <div>
-          <div className="sq-list-title">{t("runner.tutor.title")}</div>
-          <div className="sq-list-meta">{t("runner.tutor.subtitle")}</div>
-        </div>
+    <section className="flex flex-col gap-3" aria-label={t("runner.tutor.title")}>
+      <div>
+        <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-fg">
+          <SparkIcon className="text-primary" />
+          {t("runner.tutor.title")}
+        </h2>
+        <p className="text-xs text-fg-muted">{t("runner.tutor.subtitle")}</p>
       </div>
-      <div className="sq-gap-top-sm">{body}</div>
-    </div>
+      {body}
+    </section>
   );
 }

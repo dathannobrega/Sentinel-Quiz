@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 
-import { PbqItemExplanation, PbqMark, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { buttonClassName } from "@/components/ui/button";
 import { moveItem } from "@/features/session-runner/lib/pbq-utils";
 import { cn } from "@/lib/utils/cn";
 import type { PbqOrderingResponse, PbqOrderingTask } from "@/types/api";
@@ -116,9 +117,9 @@ export function PbqOrderingTask({
   }
 
   return (
-    <div className="sq-pbq-task-body">
-      {!disabled ? <p className="sq-list-meta sq-pbq-hint">{t("pbq.ordering.dragHint")}</p> : null}
-      <ol className="sq-pbq-order" aria-labelledby={labelledBy}>
+    <div className={pbq.taskBody}>
+      {!disabled ? <p className={pbq.hint}>{t("pbq.ordering.dragHint")}</p> : null}
+      <ol className={pbq.order} aria-labelledby={labelledBy}>
         {order.map((id, index) => {
           const text = textById.get(id) ?? id;
           const expectedPosition = expectedOrder ? expectedOrder.indexOf(id) + 1 : 0;
@@ -127,9 +128,9 @@ export function PbqOrderingTask({
             <li
               key={id}
               className={cn(
-                "sq-pbq-order__item",
-                !disabled && "sq-pbq-draggable",
-                dropIndex === index && "sq-pbq-order__item--drop-target"
+                pbq.orderItem,
+                !disabled && pbq.draggable,
+                dropIndex === index && pbq.dropTarget
               )}
               draggable={!disabled}
               onDragStart={(event) => handleDragStart(event, id)}
@@ -138,11 +139,11 @@ export function PbqOrderingTask({
               onDragEnd={handleDragEnd}
               data-testid={`pbq-order-item-${id}`}
             >
-              <span className="sq-pbq-order__position" aria-hidden="true">
+              <span className={pbq.orderPosition} aria-hidden="true">
                 {index + 1}
               </span>
-              <div className="sq-pbq-order__text">
-                <span>{text}</span>
+              <div className={pbq.orderText}>
+                <span data-pbq-item-text>{text}</span>
                 {expectedOrder ? (
                   <PbqMark ok={isRightPlace}>
                     {isRightPlace
@@ -155,13 +156,13 @@ export function PbqOrderingTask({
                 {expectedOrder ? <PbqItemExplanation text={perItem[id]} /> : null}
               </div>
               {!disabled ? (
-                <div className="sq-pbq-order__controls">
+                <div className={pbq.orderControls}>
                   <button
                     type="button"
                     ref={(node) => {
                       buttonRefs.current.set(`${id}:up`, node);
                     }}
-                    className="sq-button sq-button--ghost sq-button--sm"
+                    className={buttonClassName("secondary", "sm")}
                     aria-label={t("pbq.ordering.moveUp", { item: text })}
                     disabled={index === 0}
                     onClick={() => move(id, "up")}
@@ -175,7 +176,7 @@ export function PbqOrderingTask({
                     ref={(node) => {
                       buttonRefs.current.set(`${id}:down`, node);
                     }}
-                    className="sq-button sq-button--ghost sq-button--sm"
+                    className={buttonClassName("secondary", "sm")}
                     aria-label={t("pbq.ordering.moveDown", { item: text })}
                     disabled={index === total - 1}
                     onClick={() => move(id, "down")}
@@ -191,9 +192,9 @@ export function PbqOrderingTask({
         })}
       </ol>
       {expectedOrder ? (
-        <div className="sq-pbq-solution">
-          <div className="sq-list-title">{t("pbq.ordering.correctOrder")}</div>
-          <ol className="sq-pbq-solution__list">
+        <div className={pbq.solution}>
+          <div className="text-sm font-semibold text-success">{t("pbq.ordering.correctOrder")}</div>
+          <ol className={pbq.solutionList}>
             {expectedOrder.map((id) => (
               <li key={id}>{textById.get(id) ?? id}</li>
             ))}

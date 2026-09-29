@@ -1,5 +1,6 @@
 "use client";
 
+import { pbqStyles as pbq } from "@/features/session-runner/components/pbq/pbq-shared";
 import type { NormalizedExhibit } from "@/features/session-runner/lib/pbq-utils";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
 
@@ -20,15 +21,15 @@ export function PbqExhibits({
   }
   const Heading = headingTag;
   return (
-    <div className="sq-pbq-exhibits">
+    <div className={pbq.exhibits}>
       {exhibits.map((exhibit, index) => {
         const title = exhibit.title || t("pbq.exhibitFallbackTitle", { number: index + 1 });
         return (
-          <section key={exhibit.id} className="sq-pbq-exhibit" aria-label={title} data-testid={`pbq-exhibit-${exhibit.id}`}>
-            <Heading className="sq-list-title sq-pbq-exhibit__title">{title}</Heading>
+          <section key={exhibit.id} className={pbq.exhibit} aria-label={title} data-testid={`pbq-exhibit-${exhibit.id}`}>
+            <Heading className={pbq.exhibitTitle}>{title}</Heading>
             {exhibit.type === "table" ? (
-              <div className="sq-pbq-table-wrap">
-                <table className="sq-pbq-table">
+              <div className={pbq.tableWrap}>
+                <table className={pbq.table}>
                   <thead>
                     <tr>
                       {exhibit.columns.map((column, columnIndex) => (
@@ -50,7 +51,7 @@ export function PbqExhibits({
                 </table>
               </div>
             ) : exhibit.type === "log" ? (
-              <ol className="sq-pbq-log">
+              <ol className={pbq.log}>
                 {exhibit.lines.map((line) => (
                   <li key={line.id}>
                     <code>{line.text}</code>
@@ -58,7 +59,7 @@ export function PbqExhibits({
                 ))}
               </ol>
             ) : (
-              <div className="sq-pbq-exhibit__text">{exhibit.content}</div>
+              <div className={pbq.exhibitText}>{exhibit.content}</div>
             )}
           </section>
         );

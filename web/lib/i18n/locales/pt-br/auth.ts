@@ -14,37 +14,6 @@ export const auth = {
     resendFailed: "Falha ao reenviar",
     logoutFailed: "Falha ao sair"
   },
-  hero: {
-    loginEyebrow: "Sessão segura",
-    registerEyebrow: "Criação de conta",
-    loginTitle: "Entre para sincronizar seu progresso.",
-    registerTitle: "Crie sua conta e continue de qualquer dispositivo.",
-    lead:
-      "A autenticação usa cookie HttpOnly no backend. Quando você entra, o sistema associa histórico local, marcadores, notas e revisões pendentes à sua conta sem expor a sessão em localStorage.",
-    benefitsAriaLabel: "Benefícios da conta"
-  },
-  stats: [
-    {
-      label: "Sincronização",
-      value: "Conta",
-      meta: "Histórico, revisão e progresso unificados."
-    },
-    {
-      label: "Segurança",
-      value: "HttpOnly",
-      meta: "Sessão protegida via cookie e backend tipado."
-    },
-    {
-      label: "Continuidade",
-      value: "Auto-merge",
-      meta: "O dispositivo atual é consolidado quando aplicável."
-    },
-    {
-      label: "Acesso",
-      value: "Web",
-      meta: "Pronto para estudo, simulados e revisão guiada."
-    }
-  ],
   form: {
     loginTitle: "Entrar",
     registerTitle: "Criar conta",

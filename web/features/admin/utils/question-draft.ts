@@ -160,12 +160,6 @@ export function qualityTone(value: string | undefined): "default" | "good" | "wa
   return "default";
 }
 
-/** Amber chip used for editorial warnings (inactive, needs review, placeholder...). */
-export const WARNING_CHIP_STYLE = {
-  background: "rgba(245, 158, 11, 0.14)",
-  borderColor: "rgba(245, 158, 11, 0.25)"
-} as const;
-
 /** Browser flag filter -> GET /admin/questions boolean param (undefined = no filter). */
 export function flagFilterValue(value: AdminFlagFilter): boolean | undefined {
   if (value === "yes") {

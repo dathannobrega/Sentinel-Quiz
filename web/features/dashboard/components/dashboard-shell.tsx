@@ -3,12 +3,15 @@
 import { useMemo } from "react";
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { MetricCard } from "@/components/ui/metric-card";
+import { AlertIcon, ChevronRightIcon, RepeatIcon, SpinnerIcon } from "@/components/ui/icons";
+import { Meter } from "@/components/ui/meter";
+import { Page, PageHeader, Section } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Stat, StatList } from "@/components/ui/stat";
 import { StudyTrackCard } from "@/features/dashboard/components/study-track-card";
 import { useI18n } from "@/lib/i18n";
 import { translateBackendMessage, translateReadinessBand } from "@/lib/i18n/backend-messages";
@@ -142,334 +145,300 @@ export function DashboardShell() {
 
   if (isLoading) {
     return (
-      <main className="sq-app-shell" aria-busy="true">
-        <div className="sq-page-stack" role="status">
-          <span className="sq-visually-hidden">{t("system.loading")}</span>
-          <Skeleton height={180} />
-          <div className="sq-grid-3">
-            <Skeleton height={240} />
-            <Skeleton height={240} />
-            <Skeleton height={240} />
-          </div>
-        </div>
-      </main>
+      <Page aria-busy="true">
+        <span className="sr-only" role="status">
+          {t("system.loading")}
+        </span>
+        <Skeleton height={56} className="max-w-sm" />
+        <Skeleton height={200} />
+        <Skeleton height={96} />
+      </Page>
     );
   }
 
+  const [continueSession, ...otherSessions] = activeSessions;
+  const primaryTask = studyPlan?.primary_task ?? null;
+  const masteryRows = readiness?.domain_scores?.length
+    ? [...readiness.domain_scores]
+        .sort((left, right) => left.score_percent - right.score_percent || left.domain.localeCompare(right.domain))
+        .slice(0, 5)
+    : [];
+  const sessionTitle = (session: (typeof activeSessions)[number]) =>
+    session.exam_title || (session.kind === "exam" ? t("dashboard.modes.examMixed") : t("dashboard.modes.studyMixed"));
+
   return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className="sq-topbar">
-          <div className="sq-brand">
-            <div className="sq-logo" aria-hidden="true">
-              SQ
-            </div>
-            <div className="sq-brand-copy">
-              <h1 className="sq-page-title">{t("dashboard.header.title")}</h1>
-              <p className="sq-page-subtitle">{t("dashboard.header.subtitle")}</p>
-            </div>
-          </div>
-          <div className="sq-inline-actions">
-            <Link href="/start">{t("common.labels.start")}</Link>
-            <Link href="/review">{t("common.labels.review")}</Link>
-            <Link href="/settings">{t("common.labels.settings")}</Link>
-          </div>
-        </header>
+    <Page>
+      <PageHeader
+        title={t("dashboard.header.title")}
+        description={t("dashboard.header.subtitle")}
+        actions={
+          <>
+            {isRefreshing ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-fg-subtle" role="status">
+                <SpinnerIcon size={12} />
+                {t("common.status.updating")}
+              </span>
+            ) : null}
+            <Link href="/start" className={buttonClassName("secondary")}>
+              {t("common.actions.newSession")}
+            </Link>
+          </>
+        }
+      />
 
-        {failedSections.length ? (
-          <StatusBanner
-            tone="warning"
-            role="alert"
-            title={t("common.errors.partialLoad")}
-            message={t("dashboard.loadError", { items: failedSections.map((section) => section.label).join(", ") })}
-            action={
-              <Button variant="ghost" size="sm" busy={isRefreshing} onClick={retryFailed}>
-                {t("common.actions.retry")}
-              </Button>
-            }
-          />
-        ) : null}
+      {failedSections.length ? (
+        <Alert
+          tone="warning"
+          role="alert"
+          title={t("common.errors.partialLoad")}
+          message={t("dashboard.loadError", { items: failedSections.map((section) => section.label).join(", ") })}
+          action={
+            <Button variant="secondary" size="sm" busy={isRefreshing} onClick={retryFailed}>
+              {t("common.actions.retry")}
+            </Button>
+          }
+        />
+      ) : null}
 
-        {studyPlan?.primary_task ? (
-          <div className="sq-grid-2">
-            <Card
-              title={t("dashboard.planCard.title")}
-              subtitle={t("dashboard.planCard.subtitle")}
-              actions={
-                <Link href={studyPlan.primary_task.cta_href} className="sq-button sq-button--sm sq-button--primary">
-                  {taskText(studyPlan.primary_task, "cta")}
+      {/* Next action: resume what is open, otherwise the plan's primary task. */}
+      <section aria-labelledby="dashboard-next" className="grid overflow-hidden rounded-lg border border-line bg-surface lg:grid-cols-2">
+        <h2 id="dashboard-next" className="sr-only">
+          {t("dashboard.todayCard.nextStep")}
+        </h2>
+        <div className="flex flex-col gap-4 p-5 sm:p-7">
+          <p className="text-xs font-semibold tracking-[0.08em] text-fg-muted uppercase">{t("dashboard.continueCard.title")}</p>
+          {continueSession ? (
+            <>
+              <div>
+                <p className="text-lg font-semibold text-fg">{sessionTitle(continueSession)}</p>
+                <p className="nums mt-1 text-sm text-fg-muted">
+                  {continueSession.kind === "exam" ? t("common.labels.exam") : t("common.labels.study")} · {continueSession.answered_count}/
+                  {continueSession.total_questions}
+                </p>
+              </div>
+              <Meter value={continueSession.progress_percent} label={sessionTitle(continueSession)} className="max-w-sm" />
+              <div className="flex flex-wrap items-center gap-3">
+                <Link href={continueSession.href} className={buttonClassName("primary", "lg")}>
+                  {t("common.actions.resume")}
+                  <ChevronRightIcon />
                 </Link>
-              }
-            >
-              <div className="sq-stack-md">
-                {studyPlan.placement_required ? (
-                  <div className="sq-chip-row">
-                    <span className="sq-chip">{t("dashboard.planCard.placementPending")}</span>
-                  </div>
-                ) : null}
-                <div className="sq-list-item">
-                  <div className="sq-list-title">{taskText(studyPlan.primary_task, "title")}</div>
-                  <div className="sq-list-meta">{taskText(studyPlan.primary_task, "description")}</div>
-                </div>
-                {recommendedModule ? (
-                  <div className="sq-list-item" data-testid="plan-next-module">
-                    <div className="sq-list-title">
-                      {t("dashboard.planCard.nextModule", { code: recommendedModule.code, title: recommendedModule.title })}
-                    </div>
-                    {recommendedModule.domain ? (
-                      <div className="sq-list-meta">
-                        {t("dashboard.planCard.nextModuleHint", { domain: recommendedModule.domain })}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                {studyPlan.secondary_tasks.length ? (
-                  <div className="sq-list">
-                    {studyPlan.secondary_tasks.map((task) => (
-                      <div key={`${task.kind}-${task.cta_href}`} className="sq-list-item">
-                        <div className="sq-list-title">{taskText(task, "title")}</div>
-                        <div className="sq-list-meta">{taskText(task, "description")}</div>
-                        <Link href={task.cta_href} className="sq-text-link">
-                          {taskText(task, "cta")}
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
               </div>
-            </Card>
-
-            <Card title={t("dashboard.weekCard.title")} subtitle={t("dashboard.weekCard.subtitle")}>
-              <div className="sq-metric-grid">
-                <MetricCard label={t("dashboard.weekCard.reviewBacklog")} value={studyPlan.review_backlog_due} />
-                <MetricCard
-                  label={t("dashboard.weekCard.weeklyProgress")}
-                  value={`${engagement.weekly_goal.completed}/${engagement.weekly_goal.target}`}
-                />
-                <MetricCard
-                  label={t("dashboard.weekCard.reviewGoal")}
-                  value={`${engagement.weekly_review_goal.completed}/${engagement.weekly_review_goal.target}`}
-                />
-              </div>
-              {studyPlan.risk_domains.length ? (
-                <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-4)" }}>
-                  {studyPlan.risk_domains.map((domain) => (
-                    <span key={domain} className="sq-chip">
-                      {domain}
-                    </span>
+              {otherSessions.length ? (
+                <ul className="flex flex-col divide-y divide-line border-t border-line">
+                  {otherSessions.map((session) => (
+                    <li key={session.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <span className="min-w-0 truncate text-fg">
+                        {sessionTitle(session)}
+                        <span className="nums ml-2 text-fg-muted">
+                          {session.answered_count}/{session.total_questions}
+                        </span>
+                      </span>
+                      <Link href={session.href} className="focus-ring shrink-0 rounded-sm font-medium text-primary hover:underline">
+                        {t("common.actions.resume")}
+                      </Link>
+                    </li>
                   ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-fg-muted">{t("dashboard.continueCard.empty")}</p>
+              {!primaryTask ? (
+                <div>
+                  <Link href="/start" className={buttonClassName("primary", "lg")}>
+                    {t("common.actions.goToStart")}
+                    <ChevronRightIcon />
+                  </Link>
                 </div>
               ) : null}
-            </Card>
-          </div>
-        ) : null}
-
-        {trackCertification && trackModules.length ? (
-          <StudyTrackCard certification={trackCertification} modules={trackModules} recommendedModule={recommendedModule} />
-        ) : null}
-
-        <div className="sq-grid-3">
-          <Card
-            title={t("dashboard.todayCard.title")}
-            subtitle={t("dashboard.todayCard.subtitle")}
-            actions={
-              <Link href="/review" className="sq-button sq-button--sm sq-button--primary">
-                {t("common.actions.reviewNow")}
-              </Link>
-            }
-          >
-            <div className="sq-stack-md">
-              <div className="sq-metric-grid">
-                <MetricCard label={t("dashboard.todayCard.dueReviews")} value={studyOverview.due_review_count} />
-                <MetricCard
-                  label={t("dashboard.todayCard.dailyProgress")}
-                  value={`${engagement.daily_goal.completed}/${engagement.daily_goal.target}`}
-                />
-                <MetricCard
-                  label={t("dashboard.todayCard.latestScore")}
-                  value={latestExam ? formatScore(latestExam.score_percent) : "-"}
-                />
-                <MetricCard
-                  label={t("dashboard.todayCard.readiness")}
-                  value={readinessValue}
-                />
-              </div>
-
-              <div className="sq-list-item">
-                <div className="sq-list-title">{t("dashboard.todayCard.nextStep")}</div>
-                <div className="sq-list-meta">
-                  {engagement.recommended_next_action}
-                  {readiness && readiness.projected_score_percent !== null
-                    ? ` · ${t("dashboard.todayCard.projection", { value: formatScore(readiness.projected_score_percent) })}`
-                    : ""}
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card
-            title={t("dashboard.continueCard.title")}
-            subtitle={t("dashboard.continueCard.subtitle")}
-            actions={
-              <Link href="/start" className="sq-text-link">
-                {t("common.actions.newSession")}
-              </Link>
-            }
-          >
-            {activeSessions.length ? (
-              <div className="sq-list">
-                {activeSessions.map((session) => (
-                  <div key={session.id} className="sq-list-item">
-                    <div className="sq-list-title">
-                      {session.exam_title ||
-                        (session.kind === "exam" ? t("dashboard.modes.examMixed") : t("dashboard.modes.studyMixed"))}
-                    </div>
-                    <div className="sq-list-meta">
-                      {session.kind === "exam" ? t("common.labels.exam") : t("common.labels.study")} ·{" "}
-                      {session.answered_count}/{session.total_questions} · {session.progress_percent}%
-                    </div>
-                    <Link href={session.href} className="sq-text-link">
-                      {t("common.actions.resume")}
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState description={t("dashboard.continueCard.empty")} />
-            )}
-          </Card>
-
-          <Card
-            title={t("dashboard.weakAreasCard.title")}
-            subtitle={t("dashboard.weakAreasCard.subtitle")}
-            actions={
-              <Link href="/history" className="sq-text-link">
-                {t("common.actions.seeDetails")}
-              </Link>
-            }
-          >
-            {weakFocus.length ? (
-              <div className="sq-list">
-                {weakFocus.map((item) => (
-                  <div key={item.id} className="sq-list-item">
-                    <div className="sq-list-title">{item.title}</div>
-                    <div className="sq-list-meta">{item.meta}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState description={t("dashboard.weakAreasCard.empty")} />
-            )}
-          </Card>
+            </>
+          )}
         </div>
 
-        <Card
-          title={t("dashboard.summaryCard.title")}
-          subtitle={t("dashboard.summaryCard.subtitle")}
+        <div className="flex flex-col gap-4 border-t border-line p-5 sm:p-7 lg:border-t-0 lg:border-l">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold tracking-[0.08em] text-fg-muted uppercase">{t("dashboard.planCard.title")}</p>
+            {studyPlan?.placement_required ? <Badge tone="warning">{t("dashboard.planCard.placementPending")}</Badge> : null}
+          </div>
+          {primaryTask ? (
+            <>
+              <div>
+                <p className="text-lg font-semibold text-fg">{taskText(primaryTask, "title")}</p>
+                <p className="mt-1 text-sm leading-relaxed text-fg-muted">{taskText(primaryTask, "description")}</p>
+              </div>
+              {recommendedModule ? (
+                <p className="text-sm text-fg" data-testid="plan-next-module">
+                  {t("dashboard.planCard.nextModule", { code: recommendedModule.code, title: recommendedModule.title })}
+                  {recommendedModule.domain ? (
+                    <span className="block text-[0.8125rem] text-fg-muted">
+                      {t("dashboard.planCard.nextModuleHint", { domain: recommendedModule.domain })}
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
+              <div>
+                <Link href={primaryTask.cta_href} className={buttonClassName(continueSession ? "secondary" : "primary", continueSession ? "md" : "lg")}>
+                  {taskText(primaryTask, "cta")}
+                </Link>
+              </div>
+              {studyPlan && studyPlan.secondary_tasks.length ? (
+                <ul className="flex flex-col divide-y divide-line border-t border-line">
+                  {studyPlan.secondary_tasks.map((task) => (
+                    <li key={`${task.kind}-${task.cta_href}`} className="flex flex-col gap-0.5 py-3">
+                      <span className="text-sm font-medium text-fg">{taskText(task, "title")}</span>
+                      <span className="text-[0.8125rem] text-fg-muted">{taskText(task, "description")}</span>
+                      <Link href={task.cta_href} className="focus-ring mt-1 self-start rounded-sm text-[0.8125rem] font-medium text-primary hover:underline">
+                        {taskText(task, "cta")}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm leading-relaxed text-fg">{engagement.recommended_next_action}</p>
+          )}
+        </div>
+      </section>
+
+      <Section
+        title={t("dashboard.todayCard.title")}
+        description={t("dashboard.todayCard.subtitle")}
+        actions={
+          <Link href="/review" className={buttonClassName("secondary", "sm")}>
+            <RepeatIcon />
+            {t("common.actions.reviewNow")}
+          </Link>
+        }
+      >
+        <StatList>
+          <Stat label={t("dashboard.todayCard.dueReviews")} value={studyOverview.due_review_count} />
+          <Stat
+            label={t("dashboard.todayCard.dailyProgress")}
+            value={`${engagement.daily_goal.completed}/${engagement.daily_goal.target}`}
+          />
+          <Stat label={t("dashboard.todayCard.latestScore")} value={latestExam ? formatScore(latestExam.score_percent) : "–"} />
+          <Stat
+            label={t("dashboard.todayCard.readiness")}
+            value={readinessValue}
+            meta={
+              readiness && readiness.projected_score_percent !== null
+                ? t("dashboard.todayCard.projection", { value: formatScore(readiness.projected_score_percent) })
+                : undefined
+            }
+          />
+        </StatList>
+        {primaryTask ? <p className="text-[0.8125rem] text-fg-muted">{engagement.recommended_next_action}</p> : null}
+      </Section>
+
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <Section
+          title={t("dashboard.masteryCard.title")}
+          description={t("dashboard.masteryCard.subtitle")}
           actions={
-            <Link href="/history" className="sq-button sq-button--sm sq-button--ghost">
-              {t("common.actions.openHistory")}
+            masteryRows.length ? (
+              <Link href="/review" className="focus-ring rounded-sm text-sm font-medium text-primary hover:underline">
+                {t("common.actions.reviewNow")}
+              </Link>
+            ) : null
+          }
+        >
+          {masteryRows.length ? (
+            <ul className="flex flex-col divide-y divide-line border-y border-line">
+              {masteryRows.map((item) => (
+                <li key={`${item.certification ?? ""}-${item.domain}`} className="flex flex-col gap-2 py-3.5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 text-sm font-medium text-fg">
+                      {item.domain}
+                      {item.certification ? <span className="font-normal text-fg-muted"> · {item.certification}</span> : null}
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold text-fg">{formatScore(item.score_percent)}</span>
+                  </div>
+                  <Meter value={item.score_percent} label={item.domain} kind="score" />
+                  <p className="text-xs text-fg-muted">
+                    {[
+                      t("dashboard.masteryCard.accuracy", { value: formatScore(item.accuracy_percent) }),
+                      t("dashboard.masteryCard.attempts", { count: item.attempts }),
+                      t("dashboard.masteryCard.pace", { value: formatSecondsMetric(item.avg_elapsed_seconds) }),
+                      t("dashboard.masteryCard.lowConfidence", { count: item.low_confidence_count })
+                    ].join(" · ")}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState size="compact" description={t("dashboard.weakAreasCard.empty")} />
+          )}
+        </Section>
+
+        <Section
+          title={t("dashboard.weakAreasCard.title")}
+          description={t("dashboard.weakAreasCard.subtitle")}
+          actions={
+            <Link href="/history" className="focus-ring rounded-sm text-sm font-medium text-primary hover:underline">
+              {t("common.actions.seeDetails")}
             </Link>
           }
         >
-          <div className="sq-metric-grid">
-            <MetricCard label={t("dashboard.summaryCard.currentStreak")} value={engagement.streak.current_days} />
-            <MetricCard label={t("dashboard.summaryCard.bestStreak")} value={engagement.streak.best_days} />
-            <MetricCard
-              label={t("dashboard.summaryCard.week")}
-              value={`${engagement.weekly_goal.completed}/${engagement.weekly_goal.target}`}
-            />
-            <MetricCard
-              label={t("dashboard.summaryCard.reviewGoal")}
-              value={`${engagement.daily_review_goal.completed}/${engagement.daily_review_goal.target}`}
-            />
-            <MetricCard
-              label={t("dashboard.summaryCard.nextReview")}
-              value={studyOverview.next_due_at ? formatDateTime(studyOverview.next_due_at) : "-"}
-            />
-            <MetricCard
-              label={t("dashboard.summaryCard.update")}
-              value={isRefreshing ? t("common.status.updating") : t("common.status.upToDate")}
-            />
-          </div>
-        </Card>
-
-        {readiness?.domain_scores?.length ? (
-          <Card
-            title={t("dashboard.masteryCard.title")}
-            subtitle={t("dashboard.masteryCard.subtitle")}
-            actions={
-              <Link href="/review" className="sq-text-link">
-                {t("common.actions.reviewNow")}
-              </Link>
-            }
-          >
-            <div className="sq-page-stack">
-              {[...readiness.domain_scores]
-                .sort((left, right) => left.score_percent - right.score_percent || left.domain.localeCompare(right.domain))
-                .slice(0, 5)
-                .map((item) => (
-                  <div key={`${item.certification ?? ""}-${item.domain}`} className="sq-surface-block">
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "var(--sq-space-3)",
-                        alignItems: "center"
-                      }}
-                    >
-                      <div className="sq-list-title">
-                        {item.domain}
-                        {item.certification ? <span className="sq-list-meta"> · {item.certification}</span> : null}
-                      </div>
-                      <div className="sq-list-meta">{formatScore(item.score_percent)}</div>
-                    </div>
-                    <div
-                      role="meter"
-                      aria-label={item.domain}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.round(item.score_percent)}
-                      style={{
-                        marginTop: "var(--sq-space-3)",
-                        height: 8,
-                        borderRadius: 999,
-                        background: "rgba(148, 163, 184, 0.18)",
-                        overflow: "hidden"
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${Math.max(4, Math.min(item.score_percent, 100))}%`,
-                          height: "100%",
-                          borderRadius: 999,
-                          background:
-                            item.score_percent >= 80
-                              ? "linear-gradient(90deg, rgba(21,128,61,0.82), rgba(74,222,128,0.76))"
-                              : item.score_percent >= 65
-                                ? "linear-gradient(90deg, rgba(180,83,9,0.82), rgba(251,191,36,0.76))"
-                                : "linear-gradient(90deg, rgba(185,28,28,0.82), rgba(248,113,113,0.76))"
-                        }}
-                      />
-                    </div>
-                    <div className="sq-chip-row" style={{ marginTop: "var(--sq-space-3)" }}>
-                      <span className="sq-chip">
-                        {t("dashboard.masteryCard.accuracy", { value: formatScore(item.accuracy_percent) })}
-                      </span>
-                      <span className="sq-chip">{t("dashboard.masteryCard.attempts", { count: item.attempts })}</span>
-                      <span className="sq-chip">
-                        {t("dashboard.masteryCard.pace", { value: formatSecondsMetric(item.avg_elapsed_seconds) })}
-                      </span>
-                      <span className="sq-chip">
-                        {t("dashboard.masteryCard.lowConfidence", { count: item.low_confidence_count })}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </Card>
-        ) : null}
+          {weakFocus.length ? (
+            <ul className="flex flex-col divide-y divide-line border-y border-line">
+              {weakFocus.map((item) => (
+                <li key={item.id} className="flex flex-col gap-0.5 py-3">
+                  <span className="text-sm font-medium text-fg">{item.title}</span>
+                  <span className="text-[0.8125rem] text-fg-muted">{item.meta}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState size="compact" description={t("dashboard.weakAreasCard.empty")} />
+          )}
+          {studyPlan?.risk_domains.length ? (
+            <p className="flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
+              <AlertIcon size={12} className="text-warning" />
+              {studyPlan.risk_domains.join(" · ")}
+            </p>
+          ) : null}
+        </Section>
       </div>
-    </main>
+
+      <Section
+        title={t("dashboard.weekCard.title")}
+        description={t("dashboard.summaryCard.subtitle")}
+        actions={
+          <Link href="/history" className="focus-ring rounded-sm text-sm font-medium text-primary hover:underline">
+            {t("common.actions.openHistory")}
+          </Link>
+        }
+      >
+        <StatList>
+          <Stat label={t("dashboard.weekCard.weeklyProgress")} value={`${engagement.weekly_goal.completed}/${engagement.weekly_goal.target}`} />
+          <Stat
+            label={t("dashboard.weekCard.reviewGoal")}
+            value={`${engagement.weekly_review_goal.completed}/${engagement.weekly_review_goal.target}`}
+            meta={t("dashboard.summaryCard.week")}
+          />
+          <Stat
+            label={t("dashboard.summaryCard.reviewGoal")}
+            value={`${engagement.daily_review_goal.completed}/${engagement.daily_review_goal.target}`}
+            meta={t("dashboard.todayCard.title")}
+          />
+          <Stat label={t("dashboard.weekCard.reviewBacklog")} value={studyPlan?.review_backlog_due ?? engagement.review_backlog_due} />
+          <Stat
+            label={t("dashboard.summaryCard.currentStreak")}
+            value={engagement.streak.current_days}
+            meta={`${t("dashboard.summaryCard.bestStreak")}: ${engagement.streak.best_days}`}
+          />
+          <Stat
+            label={t("dashboard.summaryCard.nextReview")}
+            value={<span className="text-base">{studyOverview.next_due_at ? formatDateTime(studyOverview.next_due_at) : "–"}</span>}
+          />
+        </StatList>
+      </Section>
+
+      {trackCertification && trackModules.length ? (
+        <StudyTrackCard certification={trackCertification} modules={trackModules} recommendedModule={recommendedModule} />
+      ) : null}
+    </Page>
   );
 }

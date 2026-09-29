@@ -159,6 +159,47 @@ export const runner = {
   hints: {
     hintButton: "Dica {level}"
   },
+  layout: {
+    exit: "Sair da sessão",
+    progress: "Progresso: {answered} de {total} respondidas",
+    focusOn: "Modo foco",
+    focusOff: "Sair do modo foco",
+    panelOpen: "Abrir painel",
+    panelClose: "Fechar painel",
+    panelStudy: "Anotações e reporte",
+    panelExam: "Folha de respostas",
+    shortcuts: "Atalhos de teclado",
+    instructionShortcuts: "Atalhos",
+    legendSelect: "escolher",
+    legendEliminate: "eliminar",
+    legendConfirm: "confirmar"
+  },
+  shortcuts: {
+    select: "Escolher alternativa",
+    move: "Mover entre alternativas",
+    eliminate: "Eliminar ou restaurar a alternativa em foco",
+    confirm: "Confirmar resposta (Ctrl+Enter em questões de múltipla escolha)",
+    next: "Próxima questão (após responder)",
+    mark: "Marcar para revisão (simulado)",
+    focus: "Ativar ou desativar o modo foco",
+    close: "Fechar painel ou janela"
+  },
+  elimination: {
+    eliminate: "Eliminar alternativa {key}",
+    restore: "Restaurar alternativa {key}",
+    eliminated: "eliminada",
+    hint: "Elimine alternativas que você descartou: elas ficam riscadas só para você e não são enviadas."
+  },
+  resolution: {
+    explanation: "Explicação",
+    readMore: "Ler explicação completa",
+    readLess: "Mostrar menos",
+    details: "Seu progresso",
+    references: "Para aprofundar"
+  },
+  hintsInline: {
+    prompt: "Travou? Peça uma dica em níveis."
+  },
   liveFeedback: {
     remaining: "Restantes: {count}",
     currentStreak: "Streak atual: {count}",

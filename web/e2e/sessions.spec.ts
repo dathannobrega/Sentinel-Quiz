@@ -41,9 +41,10 @@ test.describe("sessions", () => {
     await dialog.getByRole("button", { name: t("runner.submitConfirm.confirm") }).click();
 
     await page.waitForURL(`${sessionUrl}/result`);
-    const score = page.locator(".sq-metric-card", { hasText: t("results.summary.score") }).first();
+    const score = page.getByTestId("result-score");
     await expect(score).toBeVisible();
-    await expect(score.locator("strong")).toHaveText(/^\d+(\.\d)?%$/);
+    await expect(score.locator("dt")).toHaveText(t("results.summary.score"));
+    await expect(score.locator("dd").first()).toHaveText(/^\d+(\.\d)?%$/);
   });
 
   test("study mode: answer with confidence and request a hint", async ({ page }) => {

@@ -195,3 +195,37 @@ describe("QuestionOptions correctness indicators", () => {
     expect(screen.queryByText(t("runner.option.correct"), { exact: false })).toBeNull();
   });
 });
+
+describe("QuestionOptions elimination (local study aid)", () => {
+  it("toggles elimination with X on the focused option and restores it when chosen", () => {
+    const onToggle = vi.fn();
+    render(<Harness onToggle={onToggle} />);
+    const radios = screen.getAllByRole("radio");
+
+    fireEvent.keyDown(radios[2], { key: "x" });
+    expect(radios[2].textContent).toContain(t("runner.elimination.eliminated"));
+    expect(screen.getByRole("button", { name: t("runner.elimination.restore", { key: "C" }) }).getAttribute("aria-pressed")).toBe("true");
+    expect(onToggle).not.toHaveBeenCalled();
+
+    // Choosing an eliminated option un-eliminates it.
+    fireEvent.click(radios[2]);
+    expect(onToggle).toHaveBeenLastCalledWith("C");
+    expect(radios[2].textContent).not.toContain(t("runner.elimination.eliminated"));
+  });
+
+  it("hides elimination controls once graded", () => {
+    render(<Harness initial={["B"]} disabled feedback={feedbackFor({ is_correct: false, correct_keys: ["C"] })} />);
+    expect(screen.queryByRole("button", { name: t("runner.elimination.eliminate", { key: "A" }) })).toBeNull();
+  });
+});
+
+describe("QuestionOptions modified Enter", () => {
+  it("lets Ctrl/⌘+Enter bubble (runner confirm) instead of toggling a checkbox", () => {
+    const onToggle = vi.fn();
+    render(<Harness multiSelect onToggle={onToggle} />);
+    const boxes = screen.getAllByRole("checkbox");
+    const notPrevented = fireEvent.keyDown(boxes[0], { key: "Enter", ctrlKey: true });
+    expect(notPrevented).toBe(true);
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+});

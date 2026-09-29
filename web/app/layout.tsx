@@ -2,11 +2,13 @@ import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 
-import { AppNavbar } from "@/components/navigation/app-navbar";
+import { AppShell } from "@/components/navigation/app-shell";
 import { getServerRuntimeConfig, serializeRuntimeConfig } from "@/lib/config/server-runtime";
+import { fontVariables } from "@/lib/fonts";
 import { getMessages, I18nProvider } from "@/lib/i18n";
 import { getRequestLocale } from "@/lib/i18n/server";
 import { AppQueryProvider } from "@/lib/query/provider";
+import { themeBootScript } from "@/lib/theme/boot";
 
 import "./globals.css";
 
@@ -32,22 +34,26 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const messages = getMessages(locale);
 
   return (
-    <html lang={locale}>
+    // data-theme is set by the boot script before hydration, hence suppressHydrationWarning.
+    <html lang={locale} className={fontVariables} suppressHydrationWarning>
+      <head>
+        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
       <body>
         <script
           nonce={nonce}
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: serializeRuntimeConfig(getServerRuntimeConfig()) }}
         />
-        <a href="#main-content" className="sq-skip-link">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-surface-raised focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-fg focus:shadow-overlay"
+        >
           {messages.navigation.skipToContent}
         </a>
         <I18nProvider locale={locale} localeFromCookie={fromCookie}>
           <AppQueryProvider>
-            <AppNavbar />
-            <div id="main-content" tabIndex={-1}>
-              {children}
-            </div>
+            <AppShell>{children}</AppShell>
           </AppQueryProvider>
         </I18nProvider>
       </body>

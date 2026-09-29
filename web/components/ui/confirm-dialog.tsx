@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { useOptionalI18n } from "@/lib/i18n/provider";
 
 export interface ConfirmOptions {
@@ -20,10 +21,7 @@ interface ConfirmDialogProps extends ConfirmOptions {
   onCancel: () => void;
 }
 
-/**
- * Accessible, non-blocking confirmation built on the native <dialog> element
- * (focus trap, Esc to cancel, backdrop). Never use window.confirm.
- */
+/** Accessible, non-blocking confirmation (never window.confirm). The safe choice gets initial focus. */
 export function ConfirmDialog({
   open,
   title,
@@ -36,58 +34,25 @@ export function ConfirmDialog({
   onCancel
 }: ConfirmDialogProps) {
   const i18n = useOptionalI18n();
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  const messageId = useId();
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
-    if (open && !dialog.open) {
-      if (typeof dialog.showModal === "function") {
-        dialog.showModal();
-      } else {
-        dialog.setAttribute("open", "");
-      }
-    } else if (!open && dialog.open) {
-      if (typeof dialog.close === "function") {
-        dialog.close();
-      } else {
-        dialog.removeAttribute("open");
-      }
-    }
-  }, [open]);
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="sq-dialog"
-      aria-labelledby={titleId}
-      aria-describedby={messageId}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) {
-          onCancel();
-        }
-      }}
-    >
-      <h2 id={titleId} className="sq-dialog__title">
-        {title}
-      </h2>
-      <p id={messageId} className="sq-dialog__message">
-        {message}
-      </p>
-      <div className="sq-actions">
-        <Button variant="ghost" disabled={busy} onClick={onCancel} autoFocus>
-          {cancelLabel ?? i18n?.t("system.confirm.cancel") ?? "Cancel"}
-        </Button>
-        <Button variant={tone === "danger" ? "danger" : "primary"} busy={busy} onClick={onConfirm}>
-          {confirmLabel ?? i18n?.t("system.confirm.confirm") ?? "Confirm"}
-        </Button>
-      </div>
-    </dialog>
+    <Dialog
+      open={open}
+      onClose={onCancel}
+      dismissible={!busy}
+      title={title}
+      description={message}
+      footer={
+        <>
+          <Button variant="secondary" disabled={busy} onClick={onCancel} autoFocus>
+            {cancelLabel ?? i18n?.t("system.confirm.cancel") ?? "Cancel"}
+          </Button>
+          <Button variant={tone === "danger" ? "danger" : "primary"} busy={busy} onClick={onConfirm}>
+            {confirmLabel ?? i18n?.t("system.confirm.confirm") ?? "Confirm"}
+          </Button>
+        </>
+      }
+    />
   );
 }
 

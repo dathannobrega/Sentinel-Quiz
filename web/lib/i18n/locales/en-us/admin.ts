@@ -1,7 +1,14 @@
 export const admin = {
   header: {
-    title: "Sentinel Quiz Admin",
-    subtitle: "Editorial panel with real CRUD, payload preview and secure session-based access."
+    title: "Administration",
+    subtitle: "Maintain the question bank, run the editorial workflow and handle student reports."
+  },
+  tabs: {
+    label: "Administration areas",
+    questions: "Questions",
+    operations: "Operations",
+    issues: "Reports",
+    people: "Users and catalog"
   },
   guard: {
     checking: "Checking your session...",
@@ -147,6 +154,7 @@ export const admin = {
     title: "Browse questions",
     subtitle: "Filter, browse and load a question without leaving the screen.",
     newQuestion: "New question",
+    moreFilters: "More filters",
     exam: "Exam",
     search: "Search",
     searchHint: "Search by ID, domain, certification or part of the prompt.",

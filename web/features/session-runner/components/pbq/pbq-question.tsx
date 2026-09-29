@@ -2,11 +2,14 @@
 
 import { useId, useMemo, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
+import { buttonClassName } from "@/components/ui/button";
 import { PbqCategorizationTask } from "@/features/session-runner/components/pbq/pbq-categorization-task";
 import { PbqExhibits } from "@/features/session-runner/components/pbq/pbq-exhibits";
 import { PbqMatchingTask } from "@/features/session-runner/components/pbq/pbq-matching-task";
 import { PbqOrderingTask } from "@/features/session-runner/components/pbq/pbq-ordering-task";
 import { PbqSelectInExhibitTask } from "@/features/session-runner/components/pbq/pbq-select-in-exhibit-task";
+import { pbqStyles } from "@/features/session-runner/components/pbq/pbq-shared";
 import { PbqTableFormTask } from "@/features/session-runner/components/pbq/pbq-table-form-task";
 import {
   countCompleteTasks,
@@ -19,7 +22,6 @@ import {
   taskResponse
 } from "@/features/session-runner/lib/pbq-utils";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
-import { cn } from "@/lib/utils/cn";
 import type {
   PbqCategorizationResponse,
   PbqMatchingResponse,
@@ -150,13 +152,13 @@ export function PbqQuestion({ payload, response, onChange, disabled, result, hea
   }
 
   return (
-    <div className="sq-pbq" data-testid="pbq-question">
-      <div className="sq-pbq__head">
-        <TitleTag className="sq-section-title sq-pbq__title" id={`${baseId}-title`}>
-          <span className="sq-chip sq-pbq__badge">{t("pbq.badge")}</span> {payload.title}
+    <div className={pbqStyles.root} data-testid="pbq-question">
+      <div className={pbqStyles.head}>
+        <TitleTag className={pbqStyles.title} id={`${baseId}-title`}>
+          <span className={pbqStyles.badge}>{t("pbq.badge")}</span> {payload.title}
         </TitleTag>
         {!disabled ? (
-          <span className="sq-chip">
+          <span className={pbqStyles.counter}>
             {t("pbq.tasksComplete", {
               complete: completeCount,
               total: tasks.length
@@ -166,30 +168,30 @@ export function PbqQuestion({ payload, response, onChange, disabled, result, hea
       </div>
 
       {payload.scenario ? (
-        <section className="sq-pbq-scenario" aria-labelledby={`${baseId}-scenario`}>
-          <SectionTag className="sq-list-title" id={`${baseId}-scenario`}>
+        <section className={pbqStyles.scenario} aria-labelledby={`${baseId}-scenario`}>
+          <SectionTag className={pbqStyles.label} id={`${baseId}-scenario`}>
             {t("pbq.scenario")}
           </SectionTag>
-          <p className="sq-pbq-scenario__text">{payload.scenario}</p>
+          <p className={pbqStyles.scenarioText}>{payload.scenario}</p>
         </section>
       ) : null}
 
       {exhibits.length ? (
-        <section className="sq-pbq-exhibits-panel" aria-labelledby={`${baseId}-exhibits`}>
-          <SectionTag className="sq-list-title" id={`${baseId}-exhibits`}>
+        <section className={pbqStyles.exhibitsPanel} aria-labelledby={`${baseId}-exhibits`}>
+          <SectionTag className={pbqStyles.label} id={`${baseId}-exhibits`}>
             {t("pbq.exhibits")}
           </SectionTag>
           <PbqExhibits exhibits={exhibits} headingTag={headingTag(headingLevel + 2)} t={t} />
         </section>
       ) : null}
 
-      {!disabled ? <p className="sq-list-meta sq-pbq-hint">{t("pbq.keyboardHelp")}</p> : null}
+      {!disabled ? <p className={pbqStyles.hint}>{t("pbq.keyboardHelp")}</p> : null}
 
       {hasSolution ? (
-        <div className="sq-actions">
+        <div>
           <button
             type="button"
-            className="sq-button sq-button--secondary sq-button--sm"
+            className={buttonClassName("secondary", "sm")}
             aria-pressed={showSolution}
             onClick={() => setShowSolution((current) => !current)}
           >
@@ -208,47 +210,40 @@ export function PbqQuestion({ payload, response, onChange, disabled, result, hea
             ? normalizeExplanation(result?.pbq_explanations?.[task.id])
             : null;
         return (
-          <section
-            key={task.id}
-            className={cn("sq-pbq-task", taskResult && (taskResult.is_correct ? "sq-pbq-task--correct" : "sq-pbq-task--wrong"))}
-            aria-labelledby={headingId}
-            data-testid={`pbq-task-${task.id}`}
-          >
-            <div className="sq-pbq-task__head">
-              <SectionTag className="sq-list-title" id={headingId}>
+          <section key={task.id} className={pbqStyles.task} aria-labelledby={headingId} data-testid={`pbq-task-${task.id}`}>
+            <div className={pbqStyles.taskHead}>
+              <SectionTag className={pbqStyles.taskHeading} id={headingId}>
                 {t("pbq.taskHeading", {
                   current: index + 1,
                   total: tasks.length
                 })}
               </SectionTag>
-              <div className="sq-chip-row">
-                {typeof task.weight === "number" ? (
-                  <span className="sq-chip">{t("pbq.taskWeight", { weight: task.weight })}</span>
-                ) : null}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {typeof task.weight === "number" ? <Badge>{t("pbq.taskWeight", { weight: task.weight })}</Badge> : null}
                 {taskResult ? (
-                  <span className={cn("sq-chip sq-pbq-result", taskResult.is_correct ? "sq-pbq-result--ok" : "sq-pbq-result--bad")}>
+                  <Badge tone={taskResult.is_correct ? "success" : (taskResult.score ?? 0) > 0 ? "warning" : "danger"}>
                     <span aria-hidden="true">{taskResult.is_correct ? "✓ " : "✗ "}</span>
                     {taskResultLabel(taskResult, t)}
                     {percent !== null ? ` · ${percent}%` : ""}
-                  </span>
+                  </Badge>
                 ) : null}
               </div>
             </div>
-            <p className="sq-pbq-task__prompt" id={promptId}>
+            <p className={pbqStyles.taskPrompt} id={promptId}>
               {task.prompt}
             </p>
             {renderTask(task, `${headingId} ${promptId}`)}
             {explanation?.summary ? (
-              <div className="sq-pbq-explanation">
-                <div className="sq-list-title">{t("pbq.feedback.explanation")}</div>
-                <p>{explanation.summary}</p>
+              <div className={pbqStyles.explanation}>
+                <div className={pbqStyles.label}>{t("pbq.feedback.explanation")}</div>
+                <p className={pbqStyles.explanationText}>{explanation.summary}</p>
               </div>
             ) : null}
           </section>
         );
       })}
 
-      <div className="sq-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
     </div>

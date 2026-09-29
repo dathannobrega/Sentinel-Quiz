@@ -3,8 +3,12 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
 
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { ArrowLeftIcon } from "@/components/ui/icons";
+import { Page, PageHeader } from "@/components/ui/section";
+import { Tabs } from "@/components/ui/tabs";
 import { useI18n } from "@/lib/i18n";
 import {
   useAdminAnalyticsQuery,
@@ -95,121 +99,133 @@ export function AdminWorkspace({ editorOnly, initialQuestionId, role, permission
     }
   }
 
-  return (
-    <main className="sq-app-shell">
-      <div className="sq-page-stack">
-        <header className={`sq-page-head${editorOnly ? " sq-page-head--focused" : ""}`}>
-          <div className="sq-page-head__copy">
-            <span className="sq-eyebrow">{editorOnly ? t("admin.form.standaloneTitle") : t("admin.header.title")}</span>
-            <div className="sq-brand">
-              <div className="sq-logo" aria-hidden="true">
-                SQ
-              </div>
-              <div className="sq-brand-copy">
-                <h1 className="sq-page-title">{editorOnly ? t("admin.form.standaloneTitle") : t("admin.header.title")}</h1>
-                <p className="sq-page-subtitle">{editorOnly ? t("admin.form.standaloneSubtitle") : t("admin.header.subtitle")}</p>
-              </div>
-            </div>
-          </div>
-          <div className="sq-page-head__meta">
-            {editorOnly ? (
-              <Link className="sq-text-link" href="/admin">
-                {t("admin.form.backToAdmin")}
-              </Link>
-            ) : null}
-            <span className="sq-chip">
-              {t("admin.guard.roleLabel")}: {role ? userRoleLabel(t, role) : t("admin.guard.guestRole")}
-            </span>
-            {draftId ? (
-              <span className="sq-chip">
-                {t("admin.form.draftIdentifier")}: {draftId}
-              </span>
-            ) : null}
-            {editorOnly || draftId ? <span className="sq-chip">{editor.currentWorkflowStatus}</span> : null}
-          </div>
-        </header>
+  const roleLabel = role ? userRoleLabel(t, role) : t("admin.guard.guestRole");
 
-        {failedBlocks.length ? (
-          <StatusBanner
-            tone="warning"
-            title={t("admin.notices.editorialAccess")}
-            role="alert"
-            message={t("admin.misc.affectedBlocks", {
-              message: readAdminError(failedBlocks[0].query.error, t, "admin.misc.panelLoadFailed"),
-              items: failedBlocks.map((item) => t(item.labelKey)).join(", ")
-            })}
-            action={
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => failedBlocks.forEach((item) => void item.query.refetch())}
-              >
-                {t("common.actions.retry")}
-              </Button>
-            }
-          />
-        ) : null}
-
-        {!editorOnly ? (
-          <>
-            <AdminMaintenanceCard
-              overview={overviewQuery.data}
-              canAdmin={permissions.canAdmin}
-              activeTask={maintenance.activeTask}
-              notice={maintenance.notice}
-              onRefresh={() => void maintenance.refresh()}
-              onIngest={() => void maintenance.ingest()}
-              onExport={() => void maintenance.exportDatabase()}
-            />
-
-            <div className="sq-grid-3">
-              <AdminUsersPanel canManageUsers={permissions.canAdmin} />
-              <AdminDomainCatalogPanel enabled={permissions.canEdit} />
-              <AdminIssuesPanel canView={permissions.canEdit} canTriage={permissions.canReview} />
-            </div>
-
-            <AdminInsightsCard
-              analytics={analyticsQuery.data}
-              canCapture={permissions.canEdit}
-              isCapturing={maintenance.activeTask === "captureSnapshot"}
-              onCaptureSnapshot={() => void maintenance.captureSnapshot()}
-            />
-
-            <AdminRecentIssuesCard issues={recentIssuesQuery.data ?? []} />
-          </>
-        ) : null}
-
-        <div className={`sq-admin-layout${editorOnly ? " sq-admin-layout--editor-focus" : ""}`}>
-          {!editorOnly ? (
-            <div className="sq-page-stack">
-              <AdminQuestionBrowser
-                exams={exams}
-                filters={questionFilters}
-                items={questionListQuery.data ?? []}
-                isFetching={questionListQuery.isFetching}
-                error={questionListQuery.error}
-                onRetry={() => void questionListQuery.refetch()}
-                selectedQuestionId={editor.selectedQuestionId}
-                canEdit={permissions.canEdit}
-                onFiltersChange={(patch) => setQuestionFilters((current) => ({ ...current, ...patch }))}
-                onSelect={(questionId) => void editor.loadQuestion(questionId)}
-                onNewQuestion={editor.startNewQuestion}
-              />
-
-              <AdminExamManager
-                exams={exams}
-                examDraft={examDraft}
-                canEdit={permissions.canEdit}
-                onExamDraftChange={setExamDraft}
-                onExamChosen={handleExamChosen}
-              />
-            </div>
-          ) : null}
-
-          <QuestionEditorCard editor={editor} exams={exams} editorOnly={editorOnly} permissions={permissions} />
-        </div>
+  const questionsArea = (
+    <div className="grid items-start gap-8 lg:grid-cols-[minmax(20rem,24rem)_minmax(0,1fr)]">
+      <div className="flex min-w-0 flex-col gap-6 lg:sticky lg:top-6">
+        <AdminQuestionBrowser
+          exams={exams}
+          filters={questionFilters}
+          items={questionListQuery.data ?? []}
+          isFetching={questionListQuery.isFetching}
+          error={questionListQuery.error}
+          onRetry={() => void questionListQuery.refetch()}
+          selectedQuestionId={editor.selectedQuestionId}
+          canEdit={permissions.canEdit}
+          onFiltersChange={(patch) => setQuestionFilters((current) => ({ ...current, ...patch }))}
+          onSelect={(questionId) => void editor.loadQuestion(questionId)}
+          onNewQuestion={editor.startNewQuestion}
+        />
+        <AdminExamManager
+          exams={exams}
+          examDraft={examDraft}
+          canEdit={permissions.canEdit}
+          onExamDraftChange={setExamDraft}
+          onExamChosen={handleExamChosen}
+        />
       </div>
+      <QuestionEditorCard editor={editor} exams={exams} editorOnly={false} permissions={permissions} />
+    </div>
+  );
+
+  return (
+    <Page width="wide">
+      <PageHeader
+        context={
+          editorOnly ? (
+            <Link className="focus-ring inline-flex items-center gap-1.5 rounded-sm hover:text-fg" href="/admin">
+              <ArrowLeftIcon />
+              {t("admin.form.backToAdmin")}
+            </Link>
+          ) : undefined
+        }
+        title={editorOnly ? t("admin.form.standaloneTitle") : t("admin.header.title")}
+        description={editorOnly ? t("admin.form.standaloneSubtitle") : t("admin.header.subtitle")}
+        actions={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge>
+              {t("admin.guard.roleLabel")}: {roleLabel}
+            </Badge>
+            {draftId ? (
+              <Badge className="max-w-full">
+                <span className="truncate">
+                  {t("admin.form.draftIdentifier")}: {draftId}
+                </span>
+              </Badge>
+            ) : null}
+            {editorOnly || draftId ? <Badge tone="primary">{editor.currentWorkflowStatus}</Badge> : null}
+          </div>
+        }
+      />
+
+      {failedBlocks.length ? (
+        <Alert
+          tone="warning"
+          title={t("admin.notices.editorialAccess")}
+          role="alert"
+          message={t("admin.misc.affectedBlocks", {
+            message: readAdminError(failedBlocks[0].query.error, t, "admin.misc.panelLoadFailed"),
+            items: failedBlocks.map((item) => t(item.labelKey)).join(", ")
+          })}
+          action={
+            <Button variant="secondary" size="sm" onClick={() => failedBlocks.forEach((item) => void item.query.refetch())}>
+              {t("common.actions.retry")}
+            </Button>
+          }
+        />
+      ) : null}
+
+      {editorOnly ? (
+        <QuestionEditorCard editor={editor} exams={exams} editorOnly permissions={permissions} />
+      ) : (
+        <Tabs
+          ariaLabel={t("admin.tabs.label")}
+          items={[
+            { id: "questions", label: t("admin.tabs.questions"), content: questionsArea },
+            {
+              id: "operations",
+              label: t("admin.tabs.operations"),
+              content: (
+                <div className="flex flex-col gap-10">
+                  <AdminMaintenanceCard
+                    overview={overviewQuery.data}
+                    canAdmin={permissions.canAdmin}
+                    activeTask={maintenance.activeTask}
+                    notice={maintenance.notice}
+                    onRefresh={() => void maintenance.refresh()}
+                    onIngest={() => void maintenance.ingest()}
+                    onExport={() => void maintenance.exportDatabase()}
+                  />
+                  <AdminInsightsCard
+                    analytics={analyticsQuery.data}
+                    canCapture={permissions.canEdit}
+                    isCapturing={maintenance.activeTask === "captureSnapshot"}
+                    onCaptureSnapshot={() => void maintenance.captureSnapshot()}
+                  />
+                  <AdminRecentIssuesCard issues={recentIssuesQuery.data ?? []} />
+                </div>
+              )
+            },
+            {
+              id: "issues",
+              label: t("admin.tabs.issues"),
+              content: <AdminIssuesPanel canView={permissions.canEdit} canTriage={permissions.canReview} />
+            },
+            {
+              id: "people",
+              label: t("admin.tabs.people"),
+              content: (
+                <div className="grid items-start gap-10 xl:grid-cols-2">
+                  <AdminUsersPanel canManageUsers={permissions.canAdmin} />
+                  <AdminDomainCatalogPanel enabled={permissions.canEdit} />
+                </div>
+              )
+            }
+          ]}
+        />
+      )}
       {maintenance.confirmDialog}
-    </main>
+    </Page>
   );
 }

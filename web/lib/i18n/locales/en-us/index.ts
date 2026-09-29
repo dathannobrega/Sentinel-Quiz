@@ -7,7 +7,6 @@ import { start } from "./start";
 import { review } from "./review";
 import { settings } from "./settings";
 import { account } from "./account";
-import { insights } from "./insights";
 import { history } from "./history";
 import { auth } from "./auth";
 import { marketing } from "./marketing";
@@ -31,7 +30,6 @@ export const enUSMessages = {
   review,
   settings,
   account,
-  insights,
   history,
   auth,
   marketing,

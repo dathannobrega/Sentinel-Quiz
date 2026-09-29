@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 import { ApiError, readErrorMessage } from "@/lib/api/errors";
 import { useI18n } from "@/lib/i18n";
 
@@ -24,7 +24,7 @@ export function QueryErrorBanner({ error, title, onRetry, retrying = false, tone
   const isUnauthorized = error instanceof ApiError && error.status === 401;
 
   return (
-    <StatusBanner
+    <Alert
       tone={tone}
       role="alert"
       className={className}
@@ -33,12 +33,12 @@ export function QueryErrorBanner({ error, title, onRetry, retrying = false, tone
       action={
         <>
           {onRetry ? (
-            <Button variant="ghost" size="sm" busy={retrying} onClick={() => onRetry()}>
+            <Button variant="secondary" size="sm" busy={retrying} onClick={() => onRetry()}>
               {t("system.loadFailed.retry")}
             </Button>
           ) : null}
           {isUnauthorized ? (
-            <Link href="/login" className="sq-button sq-button--sm sq-button--primary">
+            <Link href="/login" className={buttonClassName("primary", "sm")}>
               {t("system.authRequired.signIn")}
             </Link>
           ) : null}

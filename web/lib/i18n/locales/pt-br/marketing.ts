@@ -43,6 +43,11 @@ export const marketing = {
   preview: {
     title: "Preview do produto",
     subtitle: "Tudo que você precisa, sem distração.",
+    sample: {
+      caption: "Como uma questão aparece depois de respondida",
+      yes: "Sim",
+      no: "Não"
+    },
     cards: [
       {
         title: "Dashboard",

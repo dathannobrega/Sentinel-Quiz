@@ -1,5 +1,8 @@
 "use client";
 
+import { useId } from "react";
+
+import { FlagIcon } from "@/components/ui/icons";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
 import { cn } from "@/lib/utils/cn";
 import type { ExamReviewScreen } from "@/types/api";
@@ -16,6 +19,10 @@ interface ExamNavigatorProps {
   t: Translate;
 }
 
+/**
+ * The answer sheet: one bubble per question. Filled = answered, outline = pending, flag = marked,
+ * ring = current. Every state is also in the button's accessible name.
+ */
 export function ExamNavigator({
   reviewScreen,
   answeredCount,
@@ -29,27 +36,34 @@ export function ExamNavigator({
 }: ExamNavigatorProps) {
   const answered = reviewScreen?.answered_count ?? answeredCount;
   const total = reviewScreen?.total_questions ?? totalQuestions;
+  const titleId = useId();
 
   return (
-    <div className="sq-runner-utility">
-      <div className="sq-runner-utility__head">
+    <section className="flex flex-col gap-4" aria-labelledby={titleId}>
+      <div className="flex items-baseline justify-between gap-3">
         <div>
-          <div className="sq-list-title">{minimal ? t("runner.navigator.title") : t("runner.navigator.examTitle")}</div>
-          <div className="sq-list-meta">
-            {minimal ? t("runner.navigator.minimalSubtitle") : t("runner.navigator.examSubtitle")}
-          </div>
+          <h2 id={titleId} className="text-sm font-semibold text-fg">
+            {minimal ? t("runner.navigator.title") : t("runner.navigator.examTitle")}
+          </h2>
+          <p className="text-xs text-fg-muted">{minimal ? t("runner.navigator.minimalSubtitle") : t("runner.navigator.examSubtitle")}</p>
         </div>
-        <span className="sq-chip">{`${answered}/${total}`}</span>
+        <span className="nums font-mono text-sm text-fg-muted">{`${answered}/${total}`}</span>
       </div>
 
       {reviewScreen ? (
         <>
-          <div className="sq-chip-row sq-gap-top-sm">
-            <span className="sq-chip">{t("runner.navigator.pending", { count: reviewScreen.unanswered_count })}</span>
-            <span className="sq-chip">{t("runner.navigator.flagged", { count: reviewScreen.marked_for_review_count })}</span>
-          </div>
+          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted">
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden="true" className="size-2.5 rounded-full border-[1.5px] border-line-strong" />
+              {t("runner.navigator.pending", { count: reviewScreen.unanswered_count })}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <FlagIcon size={12} className="text-warning" />
+              {t("runner.navigator.flagged", { count: reviewScreen.marked_for_review_count })}
+            </span>
+          </p>
           <nav aria-label={t("runner.navigator.listLabel")}>
-            <ul className="sq-chip-row sq-gap-top-sm sq-runner-navigator__list">
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] gap-1.5">
               {reviewScreen.items.map((item) => {
                 const isCurrent = item.position === currentPosition;
                 const isPbq = item.format === "pbq";
@@ -65,24 +79,33 @@ export function ExamNavigator({
                   labelParts.push(t("runner.navigator.itemCurrent"));
                 }
                 return (
-                  <li key={`${item.question_id}-${item.position}`}>
+                  <li key={`${item.question_id}-${item.position}`} className="flex justify-center">
                     <button
                       type="button"
-                      className={cn(
-                        "sq-chip sq-navigator-item",
-                        isCurrent && "sq-navigator-item--current",
-                        item.answered && "sq-navigator-item--answered",
-                        item.marked_for_review && "sq-navigator-item--marked"
-                      )}
                       aria-current={isCurrent ? "true" : undefined}
                       aria-label={labelParts.join(", ")}
                       disabled={disabled}
                       onClick={() => onJump(item.position)}
+                      className={cn(
+                        "focus-ring nums relative grid size-10 place-items-center rounded-full border-2 font-mono text-[0.8125rem] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                        item.answered ? "border-fg bg-fg text-canvas" : "border-line-strong text-fg-muted hover:border-fg-subtle hover:text-fg",
+                        isCurrent && "ring-2 ring-primary ring-offset-2 ring-offset-surface"
+                      )}
                     >
-                      {item.position + 1}
-                      {isPbq ? <span aria-hidden="true"> {t("pbq.badge")}</span> : null}
-                      {item.marked_for_review ? <span aria-hidden="true"> ⚑</span> : null}
-                      {item.answered ? <span aria-hidden="true"> ✓</span> : null}
+                      <span aria-hidden="true">{item.position + 1}</span>
+                      {item.marked_for_review ? (
+                        <span aria-hidden="true" className="absolute -top-1 -right-1 grid size-4 place-items-center rounded-full bg-warning text-surface">
+                          <FlagIcon size={9} strokeWidth={2.4} />
+                        </span>
+                      ) : null}
+                      {isPbq ? (
+                        <span
+                          aria-hidden="true"
+                          className="absolute -bottom-1.5 rounded-sm bg-surface-raised px-1 font-sans text-[0.5625rem] leading-3 font-semibold text-fg-muted shadow-raised"
+                        >
+                          {t("pbq.badge")}
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 );
@@ -91,10 +114,8 @@ export function ExamNavigator({
           </nav>
         </>
       ) : (
-        <div className="sq-list-meta sq-gap-top-sm">
-          {isLoading ? t("runner.navigator.loading") : t("runner.navigator.empty")}
-        </div>
+        <p className="text-sm text-fg-muted">{isLoading ? t("runner.navigator.loading") : t("runner.navigator.empty")}</p>
       )}
-    </div>
+    </section>
   );
 }

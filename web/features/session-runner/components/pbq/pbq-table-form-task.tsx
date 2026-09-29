@@ -2,7 +2,9 @@
 
 import { useId } from "react";
 
-import { PbqItemExplanation, PbqMark, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { inputClassName, selectClassName } from "@/components/ui/input";
+import { cn } from "@/lib/utils/cn";
+import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
 import {
   cellChoices,
   cellInputKind,
@@ -42,9 +44,9 @@ export function PbqTableFormTask({
   }
 
   return (
-    <div className="sq-pbq-task-body">
-      <div className="sq-pbq-table-wrap">
-        <table className="sq-pbq-table" aria-labelledby={labelledBy}>
+    <div className={pbq.taskBody}>
+      <div className={pbq.tableWrap}>
+        <table className={pbq.table} aria-labelledby={labelledBy}>
           <thead>
             <tr>
               <th scope="col">{t("pbq.tableForm.rowHeader")}</th>
@@ -85,7 +87,7 @@ export function PbqTableFormTask({
                           <select
                             id={controlId}
                             aria-label={label}
-                            className="sq-select sq-pbq-table__control"
+                            className={cn(selectClassName, "h-9 min-w-40")}
                             value={currentText}
                             disabled={disabled}
                             onChange={(event) => setCell(row.id, column.id, event.target.value)}
@@ -101,7 +103,7 @@ export function PbqTableFormTask({
                           <input
                             id={controlId}
                             aria-label={label}
-                            className="sq-input sq-pbq-table__control"
+                            className={cn(inputClassName, "h-9 min-w-40")}
                             type="text"
                             inputMode={kind === "number" ? "decimal" : undefined}
                             placeholder={kind === "number" ? t("pbq.tableForm.numberPlaceholder") : undefined}

@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 
-import { PbqItemExplanation, PbqMark, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { selectClassName } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 import type { PbqCategorizationResponse, PbqCategorizationTask, PbqTextItem } from "@/types/api";
 
@@ -102,7 +103,7 @@ export function PbqCategorizationTask({
     return (
       <li
         key={item.id}
-        className={cn("sq-pbq-card", !disabled && "sq-pbq-draggable")}
+        className={cn(pbq.card, !disabled && pbq.draggable)}
         draggable={!disabled}
         onDragStart={(event) => {
           if (disabled) {
@@ -118,8 +119,8 @@ export function PbqCategorizationTask({
         }}
         data-testid={`pbq-cat-item-${item.id}`}
       >
-        <span className="sq-pbq-card__text">{item.text}</span>
-        <label className="sq-visually-hidden" htmlFor={selectId}>
+        <span className={pbq.cardText}>{item.text}</span>
+        <label className="sr-only" htmlFor={selectId}>
           {t("pbq.categorization.selectLabel", { item: item.text })}
         </label>
         <select
@@ -127,7 +128,7 @@ export function PbqCategorizationTask({
           ref={(node) => {
             selectRefs.current.set(item.id, node);
           }}
-          className="sq-select sq-pbq-card__select"
+          className={cn(selectClassName, pbq.cardSelect)}
           value={assigned}
           disabled={disabled}
           onChange={(event) => assign(item, event.target.value || POOL, true)}
@@ -156,49 +157,49 @@ export function PbqCategorizationTask({
   const unassigned = items.filter((item) => !value[item.id] || !bucketLabel.has(value[item.id] as string));
 
   return (
-    <div className="sq-pbq-task-body" role="group" aria-labelledby={labelledBy}>
-      {!disabled ? <p className="sq-list-meta sq-pbq-hint">{t("pbq.categorization.dragHint")}</p> : null}
+    <div className={pbq.taskBody} role="group" aria-labelledby={labelledBy}>
+      {!disabled ? <p className={pbq.hint}>{t("pbq.categorization.dragHint")}</p> : null}
       <div
-        className={cn("sq-pbq-bucket sq-pbq-bucket--pool", dropTarget === POOL && "sq-pbq-bucket--drop-target")}
+        className={cn(pbq.bucket, pbq.bucketPool, dropTarget === POOL && pbq.dropTarget)}
         {...dropZoneProps(POOL)}
       >
-        <div className="sq-pbq-bucket__head" id={`${baseId}-pool`}>
-          <span className="sq-list-title">{t("pbq.categorization.pool")}</span>
-          <span className="sq-chip">{t("pbq.categorization.bucketCount", { count: unassigned.length })}</span>
+        <div className={pbq.bucketHead} id={`${baseId}-pool`}>
+          <span className={pbq.bucketTitle}>{t("pbq.categorization.pool")}</span>
+          <span className={pbq.counter}>{t("pbq.categorization.bucketCount", { count: unassigned.length })}</span>
         </div>
         {unassigned.length ? (
-          <ul className="sq-pbq-card-list" aria-labelledby={`${baseId}-pool`}>
+          <ul className={pbq.itemList} aria-labelledby={`${baseId}-pool`}>
             {unassigned.map(renderItem)}
           </ul>
         ) : (
-          <p className="sq-list-meta">{t("pbq.categorization.poolEmpty")}</p>
+          <p className={pbq.hint}>{t("pbq.categorization.poolEmpty")}</p>
         )}
       </div>
-      <div className="sq-pbq-buckets">
+      <div className={pbq.bucketGrid}>
         {buckets.map((bucket) => {
           const assignedItems = items.filter((item) => value[item.id] === bucket.id);
           const headingId = `${baseId}-bucket-${bucket.id}`;
           return (
             <div
               key={bucket.id}
-              className={cn("sq-pbq-bucket", dropTarget === bucket.id && "sq-pbq-bucket--drop-target")}
+              className={cn(pbq.bucket, dropTarget === bucket.id && pbq.dropTarget)}
               data-testid={`pbq-bucket-${bucket.id}`}
               {...dropZoneProps(bucket.id)}
             >
-              <div className="sq-pbq-bucket__head" id={headingId}>
-                <span className="sq-list-title">{bucket.label}</span>
-                <span className="sq-chip">
+              <div className={pbq.bucketHead} id={headingId}>
+                <span className={pbq.bucketTitle}>{bucket.label}</span>
+                <span className={pbq.counter}>
                   {t("pbq.categorization.bucketCount", {
                     count: assignedItems.length
                   })}
                 </span>
               </div>
               {assignedItems.length ? (
-                <ul className="sq-pbq-card-list" aria-labelledby={headingId}>
+                <ul className={pbq.itemList} aria-labelledby={headingId}>
                   {assignedItems.map(renderItem)}
                 </ul>
               ) : (
-                <p className="sq-list-meta">{t("pbq.categorization.bucketEmpty")}</p>
+                <p className={pbq.hint}>{t("pbq.categorization.bucketEmpty")}</p>
               )}
             </div>
           );

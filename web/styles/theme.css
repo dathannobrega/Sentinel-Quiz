@@ -1,0 +1,134 @@
+/*
+ * Sentinel Quiz design tokens — the single visual source of truth.
+ *
+ * Raw values live here as CSS variables (one ladder per theme). Tailwind's @theme maps them to
+ * semantic utilities (bg-surface, text-fg-muted, border-line, bg-primary ...). The default Tailwind
+ * palette, radii, shadows and fonts are cleared on purpose: components can only use these tokens.
+ */
+
+:root {
+  color-scheme: light;
+
+  --sq-canvas: #f4f5f7;
+  --sq-surface: #ffffff;
+  --sq-surface-muted: #eceef2;
+  --sq-surface-raised: #ffffff;
+  --sq-overlay: rgb(14 17 23 / 0.48);
+
+  --sq-fg: #161a22;
+  --sq-fg-muted: #4a5261;
+  --sq-fg-subtle: #5f6776;
+
+  --sq-line: #dce0e6;
+  --sq-line-strong: #b6bdc9;
+
+  --sq-primary: #2544c4;
+  --sq-primary-hover: #1e39a8;
+  --sq-primary-active: #182e8a;
+  --sq-primary-soft: #e8ecfb;
+  --sq-on-primary: #ffffff;
+
+  --sq-success: #17703f;
+  --sq-success-soft: #e2f3e8;
+  --sq-danger: #b3261e;
+  --sq-danger-soft: #fbe6e4;
+  --sq-warning: #8f4e00;
+  --sq-warning-soft: #fcefd9;
+
+  --sq-focus: #2544c4;
+
+  --sq-shadow-raised: 0 1px 2px rgb(14 17 23 / 0.06), 0 4px 12px rgb(14 17 23 / 0.06);
+  --sq-shadow-overlay: 0 12px 40px rgb(14 17 23 / 0.18), 0 2px 6px rgb(14 17 23 / 0.08);
+}
+
+/* Dark: its own ladder (not an inversion). Set by the blocking theme script in app/layout.tsx. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --sq-canvas: #0f1115;
+  --sq-surface: #161920;
+  --sq-surface-muted: #1d2129;
+  --sq-surface-raised: #21252e;
+  --sq-overlay: rgb(0 0 0 / 0.62);
+
+  --sq-fg: #e8eaef;
+  --sq-fg-muted: #b4bac6;
+  --sq-fg-subtle: #979fad;
+
+  --sq-line: #2b303b;
+  --sq-line-strong: #434a58;
+
+  --sq-primary: #8ea2ff;
+  --sq-primary-hover: #a6b5ff;
+  --sq-primary-active: #bcc8ff;
+  --sq-primary-soft: #1f2748;
+  --sq-on-primary: #0f1115;
+
+  --sq-success: #5cc98c;
+  --sq-success-soft: #14291d;
+  --sq-danger: #ff8a80;
+  --sq-danger-soft: #331816;
+  --sq-warning: #f0b35a;
+  --sq-warning-soft: #30230f;
+
+  --sq-focus: #8ea2ff;
+
+  --sq-shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.3);
+  --sq-shadow-overlay: 0 16px 48px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
+}
+
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-canvas: var(--sq-canvas);
+  --color-surface: var(--sq-surface);
+  --color-surface-muted: var(--sq-surface-muted);
+  --color-surface-raised: var(--sq-surface-raised);
+  --color-overlay: var(--sq-overlay);
+
+  --color-fg: var(--sq-fg);
+  --color-fg-muted: var(--sq-fg-muted);
+  --color-fg-subtle: var(--sq-fg-subtle);
+
+  --color-line: var(--sq-line);
+  --color-line-strong: var(--sq-line-strong);
+
+  --color-primary: var(--sq-primary);
+  --color-primary-hover: var(--sq-primary-hover);
+  --color-primary-active: var(--sq-primary-active);
+  --color-primary-soft: var(--sq-primary-soft);
+  --color-on-primary: var(--sq-on-primary);
+
+  --color-success: var(--sq-success);
+  --color-success-soft: var(--sq-success-soft);
+  --color-danger: var(--sq-danger);
+  --color-danger-soft: var(--sq-danger-soft);
+  --color-warning: var(--sq-warning);
+  --color-warning-soft: var(--sq-warning-soft);
+
+  --color-focus: var(--sq-focus);
+
+  --font-*: initial;
+  --font-sans: var(--font-ui), "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-reading), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-code), ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --radius-*: initial;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  --shadow-*: initial;
+  --shadow-raised: var(--sq-shadow-raised);
+  --shadow-overlay: var(--sq-shadow-overlay);
+
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Reading measure for prompts and long explanations. */
+  --container-reading: 44rem;
+  --container-page: 72rem;
+}

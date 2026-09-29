@@ -64,8 +64,8 @@ export function Tabs({ items, defaultValue, ariaLabel, className }: TabsProps) {
   const panelId = (id: string) => `${baseId}-panel-${id}`;
 
   return (
-    <div className={cn("sq-tabs", className)}>
-      <div className="sq-tabs__list" role="tablist" aria-label={ariaLabel}>
+    <div className={cn("flex flex-col gap-5", className)}>
+      <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-line px-1" role="tablist" aria-label={ariaLabel}>
         {items.map((item, index) => {
           const isActive = item.id === activeTab;
           return (
@@ -80,12 +80,17 @@ export function Tabs({ items, defaultValue, ariaLabel, className }: TabsProps) {
               aria-selected={isActive}
               aria-controls={panelId(item.id)}
               tabIndex={isActive ? 0 : -1}
-              className={cn("sq-tabs__trigger", isActive && "sq-tabs__trigger--active")}
+              className={cn(
+                "focus-ring relative -mb-px inline-flex h-10 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors",
+                isActive ? "border-primary text-fg" : "border-transparent text-fg-muted hover:text-fg"
+              )}
               onClick={() => setSelectedTab(item.id)}
               onKeyDown={(event) => handleKeyDown(event, index)}
             >
               <span>{item.label}</span>
-              {item.badge ? <span className="sq-chip">{item.badge}</span> : null}
+              {item.badge ? (
+                <span className="nums rounded-sm bg-surface-muted px-1.5 text-xs text-fg-muted">{item.badge}</span>
+              ) : null}
             </button>
           );
         })}
@@ -101,7 +106,7 @@ export function Tabs({ items, defaultValue, ariaLabel, className }: TabsProps) {
             aria-labelledby={tabId(item.id)}
             hidden={!isActive}
             tabIndex={0}
-            className="sq-tabs__panel"
+            className="focus-ring rounded-sm"
           >
             {isActive ? item.content : null}
           </div>

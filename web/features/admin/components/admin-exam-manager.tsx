@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Disclosure } from "@/components/ui/disclosure";
 import { Field } from "@/components/ui/field";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Input, Select } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
 import { useAdminSaveExamMutation } from "@/lib/query/admin-hooks";
 import type { AdminCreateExamInput, Exam } from "@/types/api";
@@ -76,86 +77,72 @@ export function AdminExamManager({ exams, examDraft, canEdit, onExamDraftChange,
   }
 
   return (
-    <Card title={t("admin.examsManager.title")} subtitle={t("admin.examsManager.subtitle")}>
-      <div className="sq-surface-block">
-        <Field label={t("admin.examsManager.registeredExams")} htmlFor="admin-exam-select">
-          <select id="admin-exam-select" className="sq-select" value={examDraft.id} onChange={(event) => applyExam(event.target.value)}>
-            <option value="">{t("common.filters.selectExam")}</option>
-            {exams.map((exam) => (
-              <option key={exam.id} value={exam.id}>
-                {exam.title} ({exam.id})
-              </option>
-            ))}
-          </select>
+    <Disclosure
+      variant="plain"
+      className="border-t border-b border-line"
+      summary={t("admin.examsManager.title")}
+      hint={t("admin.examsManager.subtitle")}
+      defaultOpen={!!notice}
+      contentClassName="flex flex-col gap-3"
+    >
+      <Field label={t("admin.examsManager.registeredExams")} htmlFor="admin-exam-select">
+        <Select id="admin-exam-select" value={examDraft.id} onChange={(event) => applyExam(event.target.value)}>
+          <option value="">{t("common.filters.selectExam")}</option>
+          {exams.map((exam) => (
+            <option key={exam.id} value={exam.id}>
+              {exam.title} ({exam.id})
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+        <Field label={t("admin.examsManager.examId")} htmlFor="admin-exam-id">
+          <Input id="admin-exam-id" type="text" value={examDraft.id} onChange={(event) => patchDraft({ id: event.target.value })} />
         </Field>
-
-        <div className="sq-form-grid">
-          <Field label={t("admin.examsManager.examId")} htmlFor="admin-exam-id">
-            <input
-              id="admin-exam-id"
-              className="sq-input"
-              type="text"
-              value={examDraft.id}
-              onChange={(event) => patchDraft({ id: event.target.value })}
-            />
-          </Field>
-
-          <Field label={t("admin.examsManager.questionCount")} htmlFor="admin-exam-count">
-            <input
-              id="admin-exam-count"
-              className="sq-input"
-              type="number"
-              min="0"
-              value={examDraft.questionCount}
-              onChange={(event) => patchDraft({ questionCount: event.target.value })}
-            />
-          </Field>
-        </div>
-
-        <Field label={t("admin.examsManager.titleLabel")} htmlFor="admin-exam-title">
-          <input
-            id="admin-exam-title"
-            className="sq-input"
-            type="text"
-            value={examDraft.title}
-            onChange={(event) => patchDraft({ title: event.target.value })}
+        <Field label={t("admin.examsManager.questionCount")} htmlFor="admin-exam-count">
+          <Input
+            id="admin-exam-count"
+            type="number"
+            min="0"
+            value={examDraft.questionCount}
+            onChange={(event) => patchDraft({ questionCount: event.target.value })}
           />
         </Field>
-
-        <Field label={t("admin.examsManager.source")} htmlFor="admin-exam-source" hint={t("admin.examsManager.sourceHint")}>
-          <input
-            id="admin-exam-source"
-            className="sq-input"
-            type="text"
-            value={examDraft.source}
-            onChange={(event) => patchDraft({ source: event.target.value })}
-          />
-        </Field>
-
-        {notice ? (
-          <StatusBanner
-            tone={notice.tone}
-            title={t("admin.examsManager.noticeTitle")}
-            message={notice.message}
-            role={notice.tone === "danger" ? "alert" : "status"}
-          />
-        ) : null}
-
-        <div className="sq-actions">
-          <Button disabled={!canEdit} busy={saveExamMutation.isPending} onClick={handleSave}>
-            {t("admin.examsManager.saveExam")}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              onExamDraftChange(createEmptyExamDraft());
-              setNotice(null);
-            }}
-          >
-            {t("admin.examsManager.clear")}
-          </Button>
-        </div>
       </div>
-    </Card>
+
+      <Field label={t("admin.examsManager.titleLabel")} htmlFor="admin-exam-title">
+        <Input id="admin-exam-title" type="text" value={examDraft.title} onChange={(event) => patchDraft({ title: event.target.value })} />
+      </Field>
+
+      <Field label={t("admin.examsManager.source")} htmlFor="admin-exam-source" hint={t("admin.examsManager.sourceHint")}>
+        <Input id="admin-exam-source" type="text" value={examDraft.source} onChange={(event) => patchDraft({ source: event.target.value })} />
+      </Field>
+
+      {notice ? (
+        <Alert
+          tone={notice.tone}
+          title={t("admin.examsManager.noticeTitle")}
+          message={notice.message}
+          role={notice.tone === "danger" ? "alert" : "status"}
+        />
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" disabled={!canEdit} busy={saveExamMutation.isPending} onClick={handleSave}>
+          {t("admin.examsManager.saveExam")}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            onExamDraftChange(createEmptyExamDraft());
+            setNotice(null);
+          }}
+        >
+          {t("admin.examsManager.clear")}
+        </Button>
+      </div>
+    </Disclosure>
   );
 }

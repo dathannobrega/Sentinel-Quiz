@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
+import { Checkbox, Textarea } from "@/components/ui/input";
 import type { StudyNotesState } from "@/features/session-runner/hooks/use-study-notes";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
 
@@ -11,49 +12,40 @@ interface NotesPanelProps {
   t: Translate;
 }
 
+/** Bookmark + personal note for the current question (the error notebook entry). */
 export function NotesPanel({ notes, canReload, t }: NotesPanelProps) {
   return (
-    <div className="sq-runner-utility">
-      <div className="sq-runner-utility__head">
+    <section className="flex flex-col gap-3" aria-labelledby="study-notes-title">
+      <div className="flex items-baseline justify-between gap-3">
         <div>
-          <div className="sq-list-title">{t("runner.labels.notes")}</div>
-          <div className="sq-list-meta">{t("runner.labels.notesSubtitle")}</div>
+          <h2 id="study-notes-title" className="text-sm font-semibold text-fg">
+            {t("runner.labels.notes")}
+          </h2>
+          <p className="text-xs text-fg-muted">{t("runner.labels.notesSubtitle")}</p>
         </div>
-        <span className="sq-chip">{notes.scope}</span>
+        <span className="text-xs text-fg-subtle">{notes.scope}</span>
       </div>
 
-      <label htmlFor="study-bookmark" className="sq-checkbox-row sq-gap-top-sm">
-        <input
-          id="study-bookmark"
-          type="checkbox"
-          checked={notes.bookmarked}
+      <Checkbox
+        id="study-bookmark"
+        checked={notes.bookmarked}
+        disabled={notes.loading}
+        onChange={(event) => notes.setBookmarked(event.target.checked)}
+        label={t("runner.labels.reviewLater")}
+      />
+
+      <Field label={t("runner.labels.note")} htmlFor="study-note">
+        <Textarea
+          id="study-note"
+          rows={5}
+          value={notes.noteText}
           disabled={notes.loading}
-          onChange={(event) => notes.setBookmarked(event.target.checked)}
+          onChange={(event) => notes.setNoteText(event.target.value)}
         />
-        {t("runner.labels.reviewLater")}
-      </label>
+      </Field>
 
-      <div className="sq-gap-top-sm">
-        <Field label={t("runner.labels.note")} htmlFor="study-note">
-          <textarea
-            id="study-note"
-            className="sq-textarea"
-            rows={5}
-            value={notes.noteText}
-            disabled={notes.loading}
-            onChange={(event) => notes.setNoteText(event.target.value)}
-          />
-        </Field>
-      </div>
-
-      <div className="sq-actions sq-gap-top-sm">
-        <Button
-          variant="ghost"
-          size="sm"
-          busy={notes.saving}
-          disabled={!notes.dirty || notes.loading}
-          onClick={() => void notes.save()}
-        >
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" size="sm" busy={notes.saving} disabled={!notes.dirty || notes.loading} onClick={() => void notes.save()}>
           {t("runner.labels.save")}
         </Button>
         <Button variant="ghost" size="sm" disabled={notes.loading || !canReload} onClick={notes.reload}>
@@ -62,10 +54,10 @@ export function NotesPanel({ notes, canReload, t }: NotesPanelProps) {
       </div>
 
       {notes.notice ? (
-        <div className="sq-list-meta sq-gap-top-sm" role="status" aria-live="polite">
+        <p className="text-xs text-fg-muted" role="status" aria-live="polite">
           {notes.notice}
-        </div>
+        </p>
       ) : null}
-    </div>
+    </section>
   );
 }

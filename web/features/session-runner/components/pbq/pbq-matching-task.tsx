@@ -2,7 +2,9 @@
 
 import { useId } from "react";
 
-import { PbqItemExplanation, PbqMark, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import { selectClassName } from "@/components/ui/input";
+import { cn } from "@/lib/utils/cn";
 import type { PbqMatchingResponse, PbqMatchingTask, PbqTextItem } from "@/types/api";
 
 /**
@@ -62,9 +64,9 @@ export function PbqMatchingTask({
   }
 
   return (
-    <div className="sq-pbq-task-body" role="group" aria-labelledby={labelledBy}>
-      <p className="sq-list-meta sq-pbq-hint">{allowReuse ? t("pbq.matching.reuseHint") : t("pbq.matching.noReuseHint")}</p>
-      <ul className="sq-pbq-card-list">
+    <div className={pbq.taskBody} role="group" aria-labelledby={labelledBy}>
+      <p className={pbq.hint}>{allowReuse ? t("pbq.matching.reuseHint") : t("pbq.matching.noReuseHint")}</p>
+      <ul className={pbq.itemList}>
         {left.map((item) => {
           const selectId = `${baseId}-${item.id}`;
           const chosen = value[item.id] ?? "";
@@ -75,14 +77,14 @@ export function PbqMatchingTask({
               .map(([, rightId]) => rightId)
           );
           return (
-            <li key={item.id} className="sq-pbq-card sq-pbq-match" data-testid={`pbq-match-${item.id}`}>
-              <span className="sq-pbq-card__text">{item.text}</span>
-              <label className="sq-visually-hidden" htmlFor={selectId}>
+            <li key={item.id} className={pbq.card} data-testid={`pbq-match-${item.id}`}>
+              <span className={pbq.cardText}>{item.text}</span>
+              <label className="sr-only" htmlFor={selectId}>
                 {t("pbq.matching.selectLabel", { item: item.text })}
               </label>
               <select
                 id={selectId}
-                className="sq-select sq-pbq-card__select"
+                className={cn(selectClassName, pbq.cardSelect)}
                 value={chosen}
                 disabled={disabled}
                 onChange={(event) => choose(item, event.target.value)}

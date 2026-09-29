@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Select } from "@/components/ui/input";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
-import { StatusBanner } from "@/components/ui/status-banner";
+import { Section } from "@/components/ui/section";
 import { useI18n } from "@/lib/i18n";
 import { ADMIN_USERS_PAGE_SIZE, useAdminUpdateUserMutation, useAdminUsersQuery } from "@/lib/query/admin-hooks";
 import type { AdminUser, AdminUserUpdateInput } from "@/types/api";
@@ -89,13 +91,13 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
   }
 
   return (
-    <Card title={t("admin.users.title")} subtitle={t("admin.users.subtitle")}>
+    <Section title={t("admin.users.title")} description={t("admin.users.subtitle")}>
       {!canManageUsers ? (
-        <StatusBanner tone="warning" title={t("admin.users.title")} message={t("admin.users.accessDenied")} />
+        <Alert tone="warning" title={t("admin.users.title")} message={t("admin.users.accessDenied")} />
       ) : usersQuery.isPending ? (
-        <div className="sq-empty" role="status">
+        <p className="text-sm text-fg-muted" role="status">
           {t("common.status.loading")}
-        </div>
+        </p>
       ) : usersQuery.isError ? (
         <QueryErrorBanner
           error={usersQuery.error}
@@ -104,37 +106,39 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
           retrying={usersQuery.isFetching}
         />
       ) : users.length || page > 0 ? (
-        <div className="sq-page-stack">
+        <div className="flex flex-col gap-4">
           {notice ? (
-            <StatusBanner
+            <Alert
               tone={notice.tone}
               title={t("admin.users.noticeTitle")}
               message={notice.message}
               role={notice.tone === "danger" ? "alert" : "status"}
             />
           ) : null}
-          <div className="sq-list">
+          <ul className="flex flex-col divide-y divide-line border-y border-line">
             {users.map((user) => {
               const name = user.display_name || user.email;
               const roleSelectId = `admin-user-role-${user.id}`;
               const isBusy = pendingUserId === user.id;
               return (
-                <div key={user.id} className="sq-list-item" aria-busy={isBusy || undefined}>
-                  <div className="sq-list-title">{name}</div>
-                  <div className="sq-list-meta">
-                    {t("admin.users.sessionsMeta", {
-                      email: user.email,
-                      exam: user.exam_session_count,
-                      study: user.study_session_count
-                    })}
+                <li key={user.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3" aria-busy={isBusy || undefined}>
+                  <div className="min-w-0 flex-1 basis-56">
+                    <p className="truncate text-sm font-medium text-fg">{name}</p>
+                    <p className="text-xs text-fg-muted [overflow-wrap:anywhere]">
+                      {t("admin.users.sessionsMeta", {
+                        email: user.email,
+                        exam: user.exam_session_count,
+                        study: user.study_session_count
+                      })}
+                    </p>
                   </div>
-                  <div className="sq-actions">
-                    <label htmlFor={roleSelectId} className="sq-visually-hidden">
+                  <div className="flex items-center gap-3">
+                    <label htmlFor={roleSelectId} className="sr-only">
                       {t("admin.users.roleSelectLabel", { user: name })}
                     </label>
-                    <select
+                    <Select
                       id={roleSelectId}
-                      className="sq-select"
+                      className="h-9 w-36"
                       value={user.role}
                       disabled={isBusy}
                       onChange={(event) => void handleRoleChange(user, event.target.value)}
@@ -144,10 +148,11 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
                           {userRoleLabel(t, role)}
                         </option>
                       ))}
-                    </select>
-                    <label className="sq-checkbox-row">
+                    </Select>
+                    <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-fg has-disabled:cursor-not-allowed has-disabled:text-fg-subtle">
                       <input
                         type="checkbox"
+                        className="size-4 accent-primary"
                         checked={user.is_active}
                         disabled={isBusy}
                         aria-label={t("admin.users.activeToggleLabel", { user: name })}
@@ -156,27 +161,27 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
                       {t("admin.users.active")}
                     </label>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
-          <nav className="sq-actions" aria-label={t("admin.users.pagination.label")}>
+          </ul>
+          <nav className="flex flex-wrap items-center justify-between gap-2" aria-label={t("admin.users.pagination.label")}>
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               disabled={!hasPreviousPage || usersQuery.isFetching}
               onClick={() => setPage((current) => Math.max(0, current - 1))}
             >
               {t("admin.users.pagination.previous")}
             </Button>
-            <span className="sq-list-meta" role="status" aria-live="polite">
+            <span className="nums text-xs text-fg-muted" role="status" aria-live="polite">
               {total !== null
                 ? t("admin.users.pagination.rangeWithTotal", { start: rangeStart, end: rangeEnd, total })
                 : t("admin.users.pagination.range", { start: rangeStart, end: rangeEnd })}
               {pageCount !== null ? ` · ${t("admin.users.pagination.page", { page: page + 1, pages: pageCount })}` : null}
             </span>
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               disabled={!hasNextPage || usersQuery.isFetching}
               onClick={() => setPage((current) => current + 1)}
@@ -186,9 +191,9 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
           </nav>
         </div>
       ) : (
-        <div className="sq-empty">{t("admin.users.empty")}</div>
+        <EmptyState size="compact" description={t("admin.users.empty")} />
       )}
       {dialog}
-    </Card>
+    </Section>
   );
 }

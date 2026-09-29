@@ -213,7 +213,7 @@ test("exam with 1 PBQ: keyboard answer → graded feedback → review shows the 
   test.skip(!(await pbq.isVisible()), "backend does not serve PBQs yet (first question is an MCQ)");
 
   // Ordering via the keyboard alternative: move the first item down with the button.
-  const firstItemText = (await pbq.locator(".sq-pbq-order__item").first().locator(".sq-pbq-order__text span").first().innerText()).trim();
+  const firstItemText = (await pbq.locator("[data-testid^=pbq-order-item-]").first().locator("[data-pbq-item-text]").innerText()).trim();
   const moveDown = pbq.getByRole("button", { name: t("pbq.ordering.moveDown", { item: firstItemText }) });
   await moveDown.focus();
   await page.keyboard.press("Enter");

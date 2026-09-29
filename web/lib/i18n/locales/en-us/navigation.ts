@@ -14,6 +14,25 @@ export const navigation = {
     howItWorks: "How it works",
     faq: "FAQ"
   },
+  menu: {
+    open: "Open menu",
+    title: "Menu"
+  },
+  theme: {
+    label: "Theme",
+    light: "Light",
+    dark: "Dark",
+    system: "System"
+  },
+  account: {
+    label: "Account",
+    guest: "Guest mode",
+    guestHint: "Your progress stays on this device."
+  },
+  sections: {
+    study: "Study",
+    manage: "Account and admin"
+  },
   errors: {
     sessionRefresh: "Unable to update session."
   }

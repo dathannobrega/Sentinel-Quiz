@@ -1,7 +1,8 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/section";
 import { useI18n } from "@/lib/i18n";
+import { cn } from "@/lib/utils/cn";
 import { formatScore } from "@/lib/utils/format";
 import type { StudyModule, StudyModuleStatus } from "@/types/api";
 
@@ -20,49 +21,35 @@ export function pendingPrerequisiteTitles(module: StudyModule, modules: StudyMod
     .map(({ code, prerequisite }) => prerequisite?.title || code);
 }
 
-/** Status glyphs are decorative: the status is always spelled out next to them (not color only). */
-function StatusIcon({ status }: { status: StudyModuleStatus }) {
-  const common = {
-    width: 14,
-    height: 14,
-    viewBox: "0 0 16 16",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.8,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-    focusable: false
-  };
-  switch (status) {
-    case "completed":
-      return (
-        <svg {...common}>
-          <circle cx="8" cy="8" r="6.5" />
-          <path d="M5 8.2l2 2 4-4.4" />
-        </svg>
-      );
-    case "in_progress":
-      return (
-        <svg {...common}>
-          <circle cx="8" cy="8" r="6.5" />
-          <path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor" />
-        </svg>
-      );
-    case "locked":
-      return (
-        <svg {...common}>
-          <rect x="3.5" y="7" width="9" height="7" rx="1.5" />
-          <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
-        </svg>
-      );
-    default:
-      return (
-        <svg {...common}>
-          <circle cx="8" cy="8" r="6.5" />
-        </svg>
-      );
+/**
+ * Position marker in the product's answer-sheet language: filled = completed, half = in progress,
+ * lock = locked, outline = available. Decorative: the status is always written next to it.
+ */
+function ModuleMarker({ status }: { status: StudyModuleStatus | null }) {
+  const common = { width: 28, height: 28, viewBox: "0 0 28 28", "aria-hidden": true, focusable: false } as const;
+  if (status === "completed") {
+    return (
+      <svg {...common} className="shrink-0 text-success">
+        <circle cx="14" cy="14" r="12.5" fill="currentColor" />
+        <path d="M9 14.4l3.4 3.4 6.6-7.3" fill="none" stroke="var(--color-surface)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
   }
+  if (status === "locked") {
+    return (
+      <svg {...common} className="shrink-0 text-fg-subtle">
+        <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3" />
+        <rect x="9.5" y="13" width="9" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M11.5 13v-2a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common} className={cn("shrink-0", status === "in_progress" ? "text-primary" : "text-line-strong")}>
+      <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" strokeWidth="2" />
+      {status === "in_progress" ? <path d="M14 1.5a12.5 12.5 0 0 1 0 25z" fill="currentColor" /> : null}
+    </svg>
+  );
 }
 
 interface StudyTrackCardProps {
@@ -85,66 +72,83 @@ export function StudyTrackCard({ certification, modules, recommendedModule }: St
   }
 
   return (
-    <Card
+    <Section
       title={t("dashboard.trackCard.title", { certification })}
-      subtitle={t("dashboard.trackCard.subtitle")}
+      description={t("dashboard.trackCard.subtitle")}
+      actions={
+        hasStatus ? (
+          <p className="nums text-[0.8125rem] text-fg-muted">{t("dashboard.trackCard.summary", { completed: completedCount, total: sorted.length })}</p>
+        ) : null
+      }
       data-testid="study-track-card"
     >
-      {hasStatus ? (
-        <p className="sq-list-meta" style={{ marginBottom: "var(--sq-space-3)" }}>
-          {t("dashboard.trackCard.summary", { completed: completedCount, total: sorted.length })}
-        </p>
-      ) : null}
-      <ol className="sq-track-list" aria-label={t("dashboard.trackCard.listLabel", { certification })}>
+      <ol className="grid gap-x-8 lg:grid-cols-2" aria-label={t("dashboard.trackCard.listLabel", { certification })}>
         {sorted.map((module) => {
           const status = normalizeModuleStatus(module.status);
           const recommended = isRecommended(module);
           const pending = status === "completed" ? [] : pendingPrerequisiteTitles(module, sorted);
           const mastery = module.mastery_percent;
+          const details = [
+            mastery !== undefined
+              ? typeof mastery === "number"
+                ? t("dashboard.trackCard.mastery", { value: formatScore(mastery) })
+                : t("dashboard.trackCard.masteryUnknown")
+              : null,
+            typeof module.attempted === "number" && module.attempted > 0 ? t("dashboard.trackCard.attempts", { count: module.attempted }) : null,
+            module.domain
+          ].filter(Boolean) as string[];
           return (
             <li
               key={module.id}
-              className={`sq-track-item${recommended ? " sq-track-item--recommended" : ""}`}
               aria-current={recommended ? "step" : undefined}
               data-testid={`track-module-${module.code}`}
               data-status={status ?? undefined}
+              className={cn(
+                "flex items-start gap-3 border-b border-line py-3",
+                recommended && "-mx-3 rounded-md border-transparent bg-primary-soft px-3"
+              )}
             >
-              <div className="sq-track-item__head">
-                <span className="sq-list-title">
-                  {t("dashboard.planCard.trackItem", { position: module.position, title: module.title })}
-                </span>
-                {recommended ? (
-                  <span className="sq-track-badge sq-track-badge--recommended">{t("dashboard.trackCard.recommended")}</span>
-                ) : null}
-              </div>
-              <div className="sq-chip-row">
-                {status ? (
-                  <span className={`sq-track-status sq-track-status--${status}`}>
-                    <StatusIcon status={status} />
-                    {t(`dashboard.trackCard.status.${status}`)}
+              <ModuleMarker status={status} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className={cn("text-sm font-medium", status === "locked" ? "text-fg-muted" : "text-fg")}>{t("dashboard.planCard.trackItem", { position: module.position, title: module.title })}
                   </span>
-                ) : null}
-                {mastery !== undefined ? (
-                  <span className="sq-chip">
-                    {typeof mastery === "number"
-                      ? t("dashboard.trackCard.mastery", { value: formatScore(mastery) })
-                      : t("dashboard.trackCard.masteryUnknown")}
-                  </span>
-                ) : null}
-                {typeof module.attempted === "number" && module.attempted > 0 ? (
-                  <span className="sq-chip">{t("dashboard.trackCard.attempts", { count: module.attempted })}</span>
-                ) : null}
-                {module.domain ? <span className="sq-chip">{module.domain}</span> : null}
-              </div>
-              {pending.length ? (
-                <p className="sq-list-meta">
-                  {t("dashboard.trackCard.pendingPrerequisites", { items: pending.join(", ") })}
+                  {recommended ? (
+                    <span className="rounded-sm bg-primary px-1.5 py-0.5 text-[0.6875rem] font-semibold text-on-primary">
+                      {t("dashboard.trackCard.recommended")}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-fg-muted">
+                  {status ? (
+                    <span
+                      className={cn(
+                        "font-medium",
+                        status === "completed" && "text-success",
+                        status === "in_progress" && "text-primary",
+                        status === "locked" && "text-fg-subtle"
+                      )}
+                    >
+                      {t(`dashboard.trackCard.status.${status}`)}
+                    </span>
+                  ) : null}
+                  {details.map((detail) => (
+                    <span key={detail} className="inline-flex gap-2">
+                      <span aria-hidden="true" className="text-fg-subtle">
+                        ·
+                      </span>
+                      <span>{detail}</span>
+                    </span>
+                  ))}
                 </p>
-              ) : null}
+                {pending.length ? (
+                  <p className="mt-1 text-xs text-fg-subtle">{t("dashboard.trackCard.pendingPrerequisites", { items: pending.join(", ") })}</p>
+                ) : null}
+              </div>
             </li>
           );
         })}
       </ol>
-    </Card>
+    </Section>
   );
 }

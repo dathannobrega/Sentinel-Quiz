@@ -1,6 +1,8 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Section } from "@/components/ui/section";
 import { useI18n } from "@/lib/i18n";
 import type { QuestionIssue } from "@/types/api";
 
@@ -10,26 +12,28 @@ export function AdminRecentIssuesCard({ issues }: { issues: QuestionIssue[] }) {
   const { t } = useI18n();
 
   return (
-    <Card title={t("admin.issues.recentTitle")} subtitle={t("admin.issues.recentSubtitle")}>
+    <Section title={t("admin.issues.recentTitle")} description={t("admin.issues.recentSubtitle")}>
       {issues.length ? (
-        <div className="sq-list">
+        <ul className="flex flex-col divide-y divide-line border-y border-line">
           {issues.map((item) => (
-            <div key={item.id} className="sq-list-item">
-              <div className="sq-list-title">
-                #{item.id} · {item.category} · {issueStatusLabel(t, item.status)}
+            <li key={item.id} className="flex flex-col gap-1 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="nums font-mono text-xs text-fg-muted">#{item.id}</span>
+                <span className="text-sm font-medium text-fg">{item.category}</span>
+                <Badge>{issueStatusLabel(t, item.status)}</Badge>
               </div>
-              <div className="sq-list-meta">
+              <p className="text-sm leading-relaxed text-fg">{item.message}</p>
+              {item.prompt_excerpt ? <p className="line-clamp-1 text-xs text-fg-muted">{item.prompt_excerpt}</p> : null}
+              <p className="text-xs text-fg-subtle">
                 {item.certification || t("admin.insights.noDomain")} · {item.domain || t("admin.insights.noDomain")} ·{" "}
-                {item.question_id}
-              </div>
-              {item.prompt_excerpt ? <div className="sq-list-meta">{item.prompt_excerpt}</div> : null}
-              <div className="sq-list-meta">{item.message}</div>
-            </div>
+                <span className="font-mono">{item.question_id}</span>
+              </p>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
-        <div className="sq-empty">{t("admin.issues.empty")}</div>
+        <EmptyState size="compact" description={t("admin.issues.empty")} />
       )}
-    </Card>
+    </Section>
   );
 }
