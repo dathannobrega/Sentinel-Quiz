@@ -19,6 +19,7 @@ import { api } from "./api";
 import { system } from "./system";
 import { theory } from "./theory";
 import { backend } from "./backend";
+import { pbq } from "./pbq";
 
 export const ptBRMessages = {
   metadata,
@@ -41,5 +42,6 @@ export const ptBRMessages = {
   api,
   system,
   theory,
-  backend
+  backend,
+  pbq
 } as const;

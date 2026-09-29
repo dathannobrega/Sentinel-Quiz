@@ -112,12 +112,7 @@ export interface PbqSelectInExhibitTask extends PbqTaskBase {
   select_mode?: "single" | "multiple" | null;
 }
 
-export type PbqTask =
-  | PbqOrderingTask
-  | PbqCategorizationTask
-  | PbqMatchingTask
-  | PbqTableFormTask
-  | PbqSelectInExhibitTask;
+export type PbqTask = PbqOrderingTask | PbqCategorizationTask | PbqMatchingTask | PbqTableFormTask | PbqSelectInExhibitTask;
 
 /** `question.pbq` when `question.format === "pbq"` (then `options` is empty). */
 export interface PbqPayload {
@@ -141,11 +136,7 @@ export type PbqTableFormResponse = Record<string, Record<string, string | number
 export type PbqSelectInExhibitResponse = string[];
 
 export type PbqTaskResponse =
-  | PbqOrderingResponse
-  | PbqCategorizationResponse
-  | PbqMatchingResponse
-  | PbqTableFormResponse
-  | PbqSelectInExhibitResponse;
+  PbqOrderingResponse | PbqCategorizationResponse | PbqMatchingResponse | PbqTableFormResponse | PbqSelectInExhibitResponse;
 
 /** Body field `pbq_response` of the existing answer routes: {<task_id>: response}. */
 export type PbqResponse = Record<string, PbqTaskResponse>;
@@ -168,7 +159,13 @@ export type PbqCellSolution = { accepted?: string[] | null; number?: number | nu
  * {selected}); a response-shaped value is accepted too.
  */
 export type PbqTaskSolution =
-  | { order?: string[]; assignment?: Record<string, string>; pairs?: Record<string, string>; selected?: string[]; cells?: Record<string, Record<string, PbqCellSolution>> }
+  | {
+      order?: string[];
+      assignment?: Record<string, string>;
+      pairs?: Record<string, string>;
+      selected?: string[];
+      cells?: Record<string, Record<string, PbqCellSolution>>;
+    }
   | string[]
   | Record<string, unknown>;
 
