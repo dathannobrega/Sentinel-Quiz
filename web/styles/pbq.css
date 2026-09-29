@@ -360,3 +360,20 @@
 .sq-pbq-explanation p {
   margin: var(--sq-space-1) 0 0;
 }
+
+/* Task result chips: dark text on a light tint (AA), plus the glyph and the label. */
+.sq-pbq-result {
+  font-weight: 700;
+}
+
+.sq-pbq-result--ok {
+  color: #166534;
+  background: #ecfdf3;
+  border-color: rgba(22, 101, 52, 0.35);
+}
+
+.sq-pbq-result--bad {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: rgba(153, 27, 27, 0.35);
+}

@@ -226,7 +226,7 @@ export function PbqQuestion({ payload, response, onChange, disabled, result, hea
                   <span className="sq-chip">{t("pbq.taskWeight", { weight: task.weight })}</span>
                 ) : null}
                 {taskResult ? (
-                  <span className={cn("sq-chip", taskResult.is_correct ? "sq-chip--success" : "sq-chip--danger")}>
+                  <span className={cn("sq-chip sq-pbq-result", taskResult.is_correct ? "sq-pbq-result--ok" : "sq-pbq-result--bad")}>
                     <span aria-hidden="true">{taskResult.is_correct ? "✓ " : "✗ "}</span>
                     {taskResultLabel(taskResult, t)}
                     {percent !== null ? ` · ${percent}%` : ""}
