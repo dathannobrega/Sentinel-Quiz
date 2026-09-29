@@ -201,6 +201,29 @@ class _MigrationMixin:
             self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM exam_sessions")).scalar(), 0)
             self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM session_answers")).scalar(), 0)
 
+    def test_frozen_baseline_does_not_depend_on_models(self) -> None:
+        # C2: 0008 is an explicit, frozen schema (no create_all with current models).
+        source = (BACKEND / "alembic" / "versions" / "0008_consolidated_baseline.py").read_text()
+        import re
+
+        self.assertIsNone(re.search(r"^\s*(from|import) app\b", source, re.MULTILINE))
+        self.assertIsNone(re.search(r"\.create_all\(", source))
+        command.upgrade(self.cfg, REV_0008)
+        tables = set(inspect(self.engine).get_table_names()) - {"alembic_version"}
+        self.assertEqual(len(tables), 23)
+        self.assertNotIn("study_modules", tables)
+        self.assertNotIn("is_active", {c["name"] for c in inspect(self.engine).get_columns("questions")})
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+
+    def test_database_from_old_create_all_baseline_is_unaffected(self) -> None:
+        # Databases created by the previous baseline (create_all of the models, stamped
+        # at head) must keep working: upgrade head is a no-op and the schema matches.
+        Base.metadata.create_all(self.engine)
+        command.stamp(self.cfg, "head")
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+
 
 class SqliteMigrationTests(_MigrationMixin, unittest.TestCase):
     def make_url(self) -> str:
