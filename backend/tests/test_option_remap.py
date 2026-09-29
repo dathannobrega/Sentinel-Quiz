@@ -43,3 +43,28 @@ def test_identity_when_not_shuffled():
     text = "Correct Answer: B"
     assert mapping.remap_text(text) == text
     assert mapping.remap_text(None) is None
+
+
+def test_single_prose_line_starting_with_letter_is_untouched():
+    # "A. The ..." at the start of a line is prose (article), not an option enumeration.
+    mapping = _mapping(["B", "A", "C", "D"])
+    prose = "A. The firewall blocks inbound traffic.\nIt does not inspect payloads."
+    assert mapping.remap_text(prose) == prose
+    single = "B) is mentioned once only in this note."
+    assert mapping.remap_text(single) == single
+
+
+def test_line_letters_outside_option_keys_are_ignored():
+    # Only A-D are options: "E." / "F:" lines belong to something else.
+    mapping = _mapping(["D", "C", "B", "A"])
+    text = "E. Extra note\nF: another\nA) first choice text.\nB) second choice text."
+    assert mapping.remap_text(text) == "E. Extra note\nF: another\nD) first choice text.\nC) second choice text."
+
+
+def test_enumeration_needs_two_distinct_valid_letters():
+    mapping = _mapping(["D", "C", "B", "A"])
+    # Two lines with the same letter are not an enumeration either.
+    same = "A. The first sentence.\nA. The second sentence."
+    assert mapping.remap_text(same) == same
+    enumeration = "A. Wrong because of X.\nC. Wrong because of Y."
+    assert mapping.remap_text(enumeration) == "D. Wrong because of X.\nB. Wrong because of Y."

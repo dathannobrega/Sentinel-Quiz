@@ -59,6 +59,7 @@ from app.services.quiz import (
     build_weak_area_snapshot_for_owner,
     pause_exam_session,
     resume_exam_session,
+    exam_answers_are_hidden,
     expire_exam_session_if_due,
     serialize_exam_session,
 )
@@ -455,6 +456,12 @@ def get_result(
 ):
     session = _get_session(db, session_id, current_user, client_key)
     expire_exam_session_if_due(db, session)
+    if exam_answers_are_hidden(session):
+        # Exam-day mode: no score before the session is submitted.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "exam_day_result_unavailable", "message": "The result is available after submitting the exam."},
+        )
     return ResultOut(**compute_result(db, session))
 
 

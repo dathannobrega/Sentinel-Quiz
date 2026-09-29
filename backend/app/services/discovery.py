@@ -16,7 +16,7 @@ from app.models import (
     UserBookmark,
     UserNote,
 )
-from app.services.auth import normalize_client_key
+from app.services.owner_scope import apply_owner_filters, normalize_owner_scope
 
 
 def _parse_json_list(value: str | None) -> list[str]:
@@ -36,23 +36,6 @@ def _parse_json_list(value: str | None) -> list[str]:
     return items
 
 
-def _owner_scope(
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-) -> tuple[Optional[str], Optional[str]]:
-    normalized_user_id = str(owner_user_id or "").strip() or None
-    normalized_client_key = None if normalized_user_id else normalize_client_key(owner_client_key)
-    return normalized_user_id, normalized_client_key
-
-
-def _apply_owner_filter(stmt, model, owner_user_id: Optional[str], owner_client_key: Optional[str]):
-    if owner_user_id:
-        return stmt.where(model.user_id == owner_user_id)
-    if owner_client_key:
-        return stmt.where(model.user_id.is_(None), model.client_key == owner_client_key)
-    return stmt.where(False)
-
-
 def search_questions(
     db: Session,
     *,
@@ -67,7 +50,7 @@ def search_questions(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    owner_user_id, owner_client_key = _owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = normalize_owner_scope(owner_user_id, owner_client_key)
     if (bookmarked_only or notes_only) and not (owner_user_id or owner_client_key):
         raise ValueError("Bookmark and note filters require authentication or X-Client-Key.")
 
@@ -208,7 +191,7 @@ def list_active_exam_sessions(
     owner_client_key: Optional[str],
     limit: int = 6,
 ) -> list[dict[str, Any]]:
-    owner_user_id, owner_client_key = _owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = normalize_owner_scope(owner_user_id, owner_client_key)
     if not owner_user_id and not owner_client_key:
         return []
 
@@ -219,7 +202,7 @@ def list_active_exam_sessions(
         .order_by(ExamSession.created_at.desc())
         .limit(min(max(int(limit), 1), 12))
     )
-    stmt = _apply_owner_filter(stmt, ExamSession, owner_user_id, owner_client_key)
+    stmt = apply_owner_filters(stmt, ExamSession, owner_user_id, owner_client_key)
     rows = db.execute(stmt).all()
 
     items: list[dict[str, Any]] = []
@@ -249,7 +232,7 @@ def list_active_study_sessions(
     owner_client_key: Optional[str],
     limit: int = 6,
 ) -> list[dict[str, Any]]:
-    owner_user_id, owner_client_key = _owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = normalize_owner_scope(owner_user_id, owner_client_key)
     if not owner_user_id and not owner_client_key:
         return []
 
@@ -260,7 +243,7 @@ def list_active_study_sessions(
         .order_by(StudySession.created_at.desc())
         .limit(min(max(int(limit), 1), 12))
     )
-    stmt = _apply_owner_filter(stmt, StudySession, owner_user_id, owner_client_key)
+    stmt = apply_owner_filters(stmt, StudySession, owner_user_id, owner_client_key)
     rows = db.execute(stmt).all()
 
     items: list[dict[str, Any]] = []

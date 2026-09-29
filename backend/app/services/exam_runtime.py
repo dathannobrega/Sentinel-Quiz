@@ -13,16 +13,18 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ExamSession, Option, Question, QuestionBank, SessionAnswer, SessionQuestion
+from app.models import ExamSession, Option, Question, SessionAnswer, SessionQuestion
 from app.services.option_order import OptionMapping, option_keys_by_question, split_keys
+from app.services.question_data import correct_option_keys, published_version_id
 from app.services.quiz import (
     _analyze_session,
-    _get_correct_keys,
     _get_session_rows,
     complete_exam_session,
     compute_result,
+    exam_answers_are_hidden,
     expire_exam_session_if_due,
     get_question_for_session,
+    lock_exam_session,
     sync_exam_session_state,
 )
 from app.services.reference_resolver import build_feedback_summary, build_official_reference_summaries
@@ -119,11 +121,6 @@ def get_exam_question_state(
     }
 
 
-def _published_version_id(db: Session, question_id: str) -> int | None:
-    bank = db.get(QuestionBank, question_id)
-    return bank.published_version_id if bank else None
-
-
 def save_exam_response(
     db: Session,
     session: ExamSession,
@@ -134,6 +131,7 @@ def save_exam_response(
     auto_advance: bool = False,
     auto_submit_when_complete: bool = False,
 ) -> dict[str, Any]:
+    lock_exam_session(db, session)
     timing = sync_exam_session_state(db, session)
     if session.completed_at is not None:
         # Persist a timer auto-submission detected just now before refusing the answer.
@@ -161,9 +159,9 @@ def save_exam_response(
     original_selected = mapping.to_original(selected_keys)
     stored_keys = ",".join(original_selected)
 
-    correct_keys = _get_correct_keys(db, question_id)
+    correct_keys = correct_option_keys(db, question_id)
     is_correct = set(original_selected) == set(correct_keys)
-    question_version_id = _published_version_id(db, question_id)
+    question_version_id = published_version_id(db, question_id)
     existing = db.execute(
         select(SessionAnswer).where(
             SessionAnswer.session_id == session.id,
@@ -210,14 +208,37 @@ def save_exam_response(
     if auto_submit_when_complete and answered_count >= session.total_questions:
         complete_exam_session(db, session)
 
+    db.flush()
+    hidden = exam_answers_are_hidden(session)
+    if hidden:
+        # Exam-day mode (M-B4/audit): nothing that reveals correctness before the
+        # session is completed - no verdict, key, justification, score or accuracy.
+        db.commit()
+        db.refresh(session)
+        return {
+            "is_correct": None,
+            "justification": None,
+            "feedback_summary": None,
+            "progress_index": session.current_position,
+            "current_position": session.current_position,
+            "total_questions": session.total_questions,
+            "answered_count": answered_count,
+            "correct_count": None,
+            "wrong_count": None,
+            "finished": False,
+            "official_references": [],
+            "insight": None,
+            "marked_for_review_count": _marked_for_review_count(session),
+            "correct_keys": None,
+            "selected_keys": mapping.to_display(original_selected),
+        }
+
     official_references = build_official_reference_summaries(db, question_id, limit=4)
     feedback_summary = mapping.remap_text(build_feedback_summary(db, question_id, is_correct=is_correct))
-    db.flush()
     result_snapshot = _analyze_session(session, _get_session_rows(db, session.id))
     db.commit()
     db.refresh(session)
 
-    exam_day = (session.experience_mode or "standard") == "exam_day"
     return {
         "is_correct": is_correct,
         "justification": feedback_summary,
@@ -232,8 +253,8 @@ def save_exam_response(
         "official_references": official_references,
         "insight": result_snapshot["insight"]["live"],
         "marked_for_review_count": _marked_for_review_count(session),
-        # Answer key in this session's display keys; withheld in exam-day mode.
-        "correct_keys": None if exam_day else mapping.to_display(correct_keys),
+        # Answer key in this session's display keys.
+        "correct_keys": mapping.to_display(correct_keys),
         "selected_keys": mapping.to_display(original_selected),
     }
 
@@ -315,7 +336,13 @@ def submit_exam_session(
     db: Session,
     session: ExamSession,
 ) -> dict[str, Any]:
-    """Complete the exam (once): records progress/metrics/SRS, then returns the result."""
+    """Complete the exam (once): records progress/metrics/SRS, then returns the result.
+
+    Concurrent submits are serialized by the row lock and the conditional
+    ``completed_at`` update (see :func:`app.services.quiz.complete_exam_session`): only
+    one of them finalizes; the others return the same result.
+    """
+    lock_exam_session(db, session)
     sync_exam_session_state(db, session)
     if session.completed_at is None:
         complete_exam_session(db, session)

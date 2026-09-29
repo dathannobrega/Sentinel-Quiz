@@ -375,5 +375,123 @@ class ReferenceDataTests(IngestTestCase):
         )
 
 
+class StudyTrackDirTests(IngestTestCase):
+    """Item 4: the study track files are found in STUDY_TRACK_DIR when material/ is empty."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.track_dir = self.tmp / "study-tracks"
+        self.track_dir.mkdir()
+        self.write_bank(_bank([_question("q1", "What is the first sample prompt here?")]))
+
+    def _copy_tracks(self, target: Path, *names: str) -> None:
+        for name in names or ("Modulos_sec+.md", "cissp_domain.json"):
+            shutil.copy(REPO / "material" / name, target / name)
+
+    def _module_counts(self) -> dict[str, int]:
+        rows = self.db.execute(
+            select(StudyModule.certification, func.count(StudyModule.id)).group_by(StudyModule.certification)
+        ).all()
+        return {certification: count for certification, count in rows}
+
+    def test_empty_material_dir_falls_back_to_study_track_dir_setting(self) -> None:
+        from unittest import mock
+
+        from app.core.config import settings
+
+        self._copy_tracks(self.track_dir)
+        with mock.patch.object(settings, "study_track_dir", str(self.track_dir)):
+            result = self.ingest()  # self.material exists but is empty (unpopulated volume)
+        self.assertEqual(result["study_modules"], 26 + 8)
+        self.assertEqual(self._module_counts(), {"CISSP": 8, "Security+": 26})
+        sources = set(self.db.execute(select(StudyModule.source_file)).scalars())
+        self.assertEqual(sources, {"material/Modulos_sec+.md", "material/cissp_domain.json"})
+
+    def test_study_track_dir_wins_and_material_dir_fills_missing_files(self) -> None:
+        from app.services.ingest import sync_study_modules
+
+        self._copy_tracks(self.track_dir, "cissp_domain.json")
+        self._copy_tracks(self.material, "Modulos_sec+.md")
+        total = sync_study_modules(self.db, str(self.material), study_track_dir=str(self.track_dir))
+        self.assertEqual(total, 26 + 8)
+        self.assertEqual(self._module_counts(), {"CISSP": 8, "Security+": 26})
+
+    def test_missing_material_dir_still_uses_study_track_dir(self) -> None:
+        from app.services.ingest import sync_study_modules
+
+        self._copy_tracks(self.track_dir)
+        total = sync_study_modules(self.db, str(self.tmp / "does-not-exist"), study_track_dir=str(self.track_dir))
+        self.assertEqual(total, 34)
+
+    def test_without_any_track_file_nothing_is_synced(self) -> None:
+        from unittest import mock
+
+        from app.core.config import settings
+
+        with mock.patch.object(settings, "study_track_dir", ""):
+            result = self.ingest()
+        self.assertEqual(result["study_modules"], 0)
+
+
+class UnchangedReingestTests(IngestTestCase):
+    """Item 6: an unchanged re-ingest checks metadata in bulk (no per-question queries)."""
+
+    QUESTIONS = 150
+
+    def _bank_payload(self) -> dict:
+        questions = [
+            _question(f"bulk-{index:04d}", f"Bulk prompt number {index} for the batched refresh check?")
+            for index in range(self.QUESTIONS)
+        ]
+        return _bank(questions, declared_count=self.QUESTIONS)
+
+    def _count_queries(self, fn):
+        engine = self.db.get_bind()
+        statements: list[str] = []
+
+        def _before(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", _before)
+        try:
+            result = fn()
+        finally:
+            event.remove(engine, "before_cursor_execute", _before)
+        return result, statements
+
+    def test_unchanged_reingest_is_skipped_with_constant_query_count(self) -> None:
+        self.write_bank(self._bank_payload())
+        self.assertEqual(self.ingest()["imported"], 1)
+
+        result, statements = self._count_queries(self.ingest)
+        self.assertEqual((result["imported"], result["skipped"]), (0, 1))
+        # Was ~4 queries per question (600+ here); now a handful per file + reference data.
+        self.assertLess(len(statements), 60, f"{len(statements)} queries for an unchanged re-ingest")
+
+    def test_metadata_drift_is_still_detected_with_same_file_hash(self) -> None:
+        self.write_bank(self._bank_payload())
+        self.ingest()
+        question = self.db.get(Question, "bulk-0042")
+        question.domain = "Security Operations"
+        self.db.commit()
+
+        result = self.ingest()
+        self.assertEqual((result["imported"], result["skipped"]), (1, 0))
+        self.db.expire_all()
+        self.assertEqual(self.db.get(Question, "bulk-0042").domain, "General Security Concepts")
+
+    def test_missing_published_version_forces_refresh(self) -> None:
+        self.write_bank(self._bank_payload())
+        self.ingest()
+        bank = self.db.get(QuestionBank, "bulk-0007")
+        bank.published_version_id = None
+        self.db.commit()
+
+        result = self.ingest()
+        self.assertEqual(result["imported"], 1)
+        self.db.expire_all()
+        self.assertIsNotNone(self.db.get(QuestionBank, "bulk-0007").published_version_id)
+
+
 if __name__ == "__main__":
     unittest.main()

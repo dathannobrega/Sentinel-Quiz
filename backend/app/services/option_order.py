@@ -136,7 +136,8 @@ class OptionMapping:
 
         Official justifications cite letters ("Correct Answer: B", "alternativa C", "(D)", per-option
         lines "A) ..."). Each match is translated in a single pass so swaps (B<->C) never chain.
-        Bare letters outside those reference forms are left untouched to avoid rewriting prose.
+        Bare letters outside those reference forms are left untouched to avoid rewriting prose;
+        per-option line references additionally require an enumeration of >= 2 valid option letters.
         """
         if not text or not self.shuffled:
             return text
@@ -163,7 +164,20 @@ class OptionMapping:
 
         out = _KEYWORD_REFERENCE.sub(lambda m: protect(keyword(m)), text)
         out = _PAREN_REFERENCE.sub(lambda m: protect(paren(m)), out)
-        out = _LINE_REFERENCE.sub(lambda m: protect(line(m)), out)
+        # Per-option lines ("A) ...", "- **B:** ...") are only treated as references when
+        # the text really enumerates options: the letter must be an option key of this
+        # question and at least two distinct option letters must open lines. A lone
+        # sentence such as "A. The firewall..." is prose and stays untouched.
+        line_letters = {
+            match.group("letters")
+            for match in _LINE_REFERENCE.finditer(out)
+            if match.group("letters") in self.original_to_display
+        }
+        if len(line_letters) >= 2:
+            out = _LINE_REFERENCE.sub(
+                lambda m: protect(line(m)) if m.group("letters") in self.original_to_display else m.group(0),
+                out,
+            )
         return re.sub(f"{sentinel}(\\d+){sentinel}", lambda m: protected[int(m.group(1))], out)
 
 

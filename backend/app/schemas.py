@@ -64,8 +64,9 @@ class SessionOut(BaseModel):
     current_index: int
     current_position: int = 0
     answered_count: int = 0
-    correct_count: int
-    wrong_count: int
+    # null in exam_day mode until the session is completed (score withheld).
+    correct_count: Optional[int]
+    wrong_count: Optional[int]
     marked_for_review_count: int = 0
     experience_mode: str = "standard"
     time_limit_seconds: Optional[int] = None
@@ -86,8 +87,9 @@ class SessionStateOut(BaseModel):
     current_index: int
     current_position: int = 0
     answered_count: int = 0
-    correct_count: int
-    wrong_count: int
+    # null in exam_day mode until the session is completed (score withheld).
+    correct_count: Optional[int]
+    wrong_count: Optional[int]
     marked_for_review_count: int = 0
     experience_mode: str = "standard"
     time_limit_seconds: Optional[int] = None
@@ -208,6 +210,10 @@ class LiveInsightOut(BaseModel):
     current_correct_streak: int = 0
     weakest_area: Optional[Dict[str, Any]] = None
     message: str = ""
+    # i18n code/params of ``message`` when available (study answers:
+    # "study_feedback.<snake_case>"); ``message`` stays the pt-BR fallback.
+    message_code: Optional[str] = None
+    message_params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ResultInsightOut(BaseModel):
@@ -310,15 +316,18 @@ class QuestionIssueOut(BaseModel):
 
 
 class AnswerFeedbackOut(BaseModel):
-    is_correct: bool
+    # In exam_day mode (until the session is completed) every correctness signal is
+    # withheld: is_correct, justification, feedback_summary, correct_count, wrong_count,
+    # insight and correct_keys are null and official_references is empty.
+    is_correct: Optional[bool] = None
     justification: Optional[str] = None
     feedback_summary: Optional[str] = None
     progress_index: int
     current_position: Optional[int] = None
     total_questions: int
     answered_count: int = 0
-    correct_count: int
-    wrong_count: int
+    correct_count: Optional[int] = None
+    wrong_count: Optional[int] = None
     marked_for_review_count: int = 0
     finished: bool
     official_references: List[PedagogicalReferenceOut] = Field(default_factory=list)
@@ -773,13 +782,29 @@ class DomainCatalogOut(PassthroughModel):
     domains: List[DomainCatalogEntryOut] = Field(default_factory=list)
 
 
+class WeakAreaDomainOut(PassthroughModel):
+    label: str
+    total: int = 0
+    correct: int = 0
+    wrong: int = 0
+    pedagogical_signal: int = 0
+    # correct / total * 100 rounded to 1 decimal; null when total == 0.
+    score_percent: Optional[float] = None
+    # i18n: "weak_area.<snake_case>" + params; ``message`` is the pt-BR fallback.
+    code: Optional[str] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+    message: Optional[str] = None
+
+
 class WeakAreaCertificationOut(PassthroughModel):
     certification: str
     attempted: int
     wrong: int
-    focus_domain: Optional[Dict[str, Any]] = None
-    domains: List[Dict[str, Any]] = Field(default_factory=list)
+    focus_domain: Optional[WeakAreaDomainOut] = None
+    domains: List[WeakAreaDomainOut] = Field(default_factory=list)
     message: str
+    code: Optional[str] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WeakAreaSnapshotOut(PassthroughModel):

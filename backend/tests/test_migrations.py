@@ -122,6 +122,39 @@ class _MigrationMixin:
         command.upgrade(self.cfg, "head")
         self.assert_models_match()
 
+    def test_0014_downgrade_warns_about_soft_deleted_and_removes_seeded_weights(self) -> None:
+        import contextlib
+        import io
+
+        command.upgrade(self.cfg, "head")
+        with self.engine.begin() as conn:
+            self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM domain_blueprint WHERE weight IS NOT NULL")).scalar(), 13)
+            # A pre-existing (non-seeded) blueprint row must survive the downgrade.
+            conn.execute(text(
+                "INSERT INTO domain_blueprint (certification, blueprint_code, objective_code, domain, title, "
+                "created_at, updated_at) VALUES ('CISSP', 'CISSP-D1', 'CISSP-1.1', 'Security and Risk Management', "
+                "'Objective', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ))
+            conn.execute(text("INSERT INTO exams (id, title) VALUES ('ex', 'Exam')"))
+            conn.execute(text(
+                "INSERT INTO questions (id, exam_id, prompt, multi_select, is_active, deactivated_reason) VALUES "
+                "('q-deleted', 'ex', 'p1', false, false, 'deleted'), "
+                "('q-removed', 'ex', 'p2', false, false, 'removed_from_source'), "
+                "('q-live', 'ex', 'p3', false, true, NULL)"
+            ))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            command.downgrade(self.cfg, REV_0013)
+        log = output.getvalue()
+        self.assertIn("WARNING: 2 soft-deleted question(s) (1 deleted by editors, 1 removed from the source JSON)", log)
+        self.assertIn("removed 13 seeded domain weight row(s)", log)
+        with self.engine.begin() as conn:
+            rows = conn.execute(text("SELECT blueprint_code, objective_code FROM domain_blueprint")).all()
+            self.assertEqual([tuple(row) for row in rows], [("CISSP-D1", "CISSP-1.1")])
+            self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM questions")).scalar(), 3)
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+
     def test_0014_data_migration_on_populated_database(self) -> None:
         command.upgrade(self.cfg, "head")
         command.downgrade(self.cfg, REV_0013)

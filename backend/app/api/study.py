@@ -29,7 +29,7 @@ from app.schemas import (
 )
 from app.services.discovery import list_active_study_sessions
 from app.services.owner_scope import session_belongs_to
-from app.services.pedagogy import build_question_hint
+from app.services.pedagogy import build_question_hint, study_question_option_mapping
 from app.services.study import (
     answer_study_question,
     build_study_overview,
@@ -209,7 +209,9 @@ def study_question_hint(
             detail="Hints are only available for the current active study question.",
         )
     try:
-        payload = build_question_hint(db, question_id, level=level)
+        # Hint texts may cite option letters: translate them to this session's display keys.
+        mapping = study_question_option_mapping(db, session_id=session.id, question_id=question_id)
+        payload = build_question_hint(db, question_id, level=level, option_mapping=mapping)
     except ValueError as exc:
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400

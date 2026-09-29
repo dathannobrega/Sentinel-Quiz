@@ -12,8 +12,12 @@ from app.models import (
     QuestionHint,
     QuestionVersion,
     ReferenceCatalog,
+    StudySessionQuestion,
 )
-from app.services.reference_resolver import build_official_reference_summaries as resolve_official_reference_summaries
+from app.services.option_order import OptionMapping, option_keys_by_question
+# Single implementation lives in reference_resolver (M-C6); re-exported for callers
+# that historically imported it from here.
+from app.services.reference_resolver import build_official_reference_summaries  # noqa: F401
 
 
 CONFIDENCE_SIGNAL_TO_LEVEL = {
@@ -120,15 +124,6 @@ def _is_official_reference(source_kind: str, label: str, reference_text: str | N
     if source_kind in {"blueprint", "objective", "domain_map"}:
         return True
     return "nist" in haystack or "iso" in haystack or "official" in haystack
-
-
-def build_official_reference_summaries(
-    db: Session,
-    question_id: str,
-    *,
-    limit: int = 4,
-) -> list[dict[str, Any]]:
-    return resolve_official_reference_summaries(db, question_id, limit=limit)
 
 
 def _build_hint_rows(
@@ -308,13 +303,33 @@ def _persisted_hints(db: Session, version: QuestionVersion | None) -> list[Quest
     return [] if stale else list(rows)
 
 
+def study_question_option_mapping(db: Session, *, session_id: str, question_id: str) -> OptionMapping | None:
+    """Display/original option-key mapping of ``question_id`` inside a study session."""
+    row = db.execute(
+        select(StudySessionQuestion).where(
+            StudySessionQuestion.session_id == session_id,
+            StudySessionQuestion.question_id == question_id,
+        )
+    ).scalars().first()
+    if row is None:
+        return None
+    keys = option_keys_by_question(db, [question_id]).get(question_id, [])
+    return OptionMapping.build(row.option_order_json, keys)
+
+
 def build_question_hint(
     db: Session,
     question_id: str,
     *,
     level: int,
+    option_mapping: OptionMapping | None = None,
 ) -> dict[str, Any]:
-    """Hint for a question (read-only: GET /study/.../hint never writes, M-B7)."""
+    """Hint for a question (read-only: GET /study/.../hint never writes, M-B7).
+
+    Hint texts may quote editorial content that cites option letters (trap patterns,
+    incorrect rationales). With ``option_mapping`` (the session's per-question shuffle)
+    those letters are rewritten into the display keys the learner sees.
+    """
     if level not in {1, 2, 3}:
         raise ValueError("Hint level must be between 1 and 3.")
 
@@ -336,6 +351,10 @@ def build_question_hint(
         title = row["title"]
         message = row["hint_text"]
         hint_kind = row["hint_kind"]
+
+    if option_mapping is not None:
+        title = option_mapping.remap_text(title)
+        message = option_mapping.remap_text(message)
 
     return {
         "question_id": question_id,

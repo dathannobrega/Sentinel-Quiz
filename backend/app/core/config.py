@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     question_json_dir: str = Field(default="../questions", alias="QUESTION_JSON_DIR")
     material_dir: str = Field(default="../material", alias="MATERIAL_DIR")
+    # Non-licensed study-track sources (Modulos_sec+.md, cissp_domain.json) shipped in
+    # the image; empty falls back to MATERIAL_DIR.
+    study_track_dir: str = Field(default="", alias="STUDY_TRACK_DIR")
     database_url: str = Field(
         default="postgresql+psycopg://sentinel:sentinel@127.0.0.1:5432/sentinel_quiz",
         alias="DATABASE_URL",
@@ -43,6 +46,9 @@ class Settings(BaseSettings):
     auth_token_bytes: int = Field(default=32, alias="AUTH_TOKEN_BYTES")
     auth_return_token_in_body: bool = Field(default=False, alias="AUTH_RETURN_TOKEN_IN_BODY")
     auth_last_used_throttle_seconds: int = Field(default=300, alias="AUTH_LAST_USED_THROTTLE_SECONDS")
+    # Sliding session: a token used after half of its TTL elapsed is extended by a full
+    # TTL (writes throttled together with last_used_at).
+    auth_sliding_session: bool = Field(default=True, alias="AUTH_SLIDING_SESSION")
     auth_verification_resend_cooldown_seconds: int = Field(
         default=60, alias="AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS"
     )

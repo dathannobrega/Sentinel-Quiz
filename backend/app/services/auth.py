@@ -266,9 +266,22 @@ def claim_client_sessions(db: Session, *, user: User, client_key: str | None) ->
 
 
 def get_user_for_token(db: Session, raw_token: str) -> User | None:
+    user, _renewed_expires_at = resolve_auth_token(db, raw_token)
+    return user
+
+
+def resolve_auth_token(db: Session, raw_token: str) -> tuple[User | None, datetime | None]:
+    """User owning ``raw_token`` plus the new expiry when the session was renewed (L-B1).
+
+    ``last_used_at`` is written at most once every AUTH_LAST_USED_THROTTLE_SECONDS. In
+    that same throttled write, when AUTH_SLIDING_SESSION is on and less than half of
+    AUTH_TOKEN_TTL_HOURS remains (i.e. more than half elapsed since it was issued or
+    last renewed), ``expires_at`` slides to ``now + TTL``. The second element is that
+    new expiry (``None`` when nothing was renewed) so callers can refresh the cookie.
+    """
     token = str(raw_token or "").strip()
     if not token:
-        return None
+        return None, None
     token_hash = _token_hash(token)
     now = datetime.utcnow()
     row = db.execute(
@@ -282,14 +295,20 @@ def get_user_for_token(db: Session, raw_token: str) -> User | None:
         )
     ).first()
     if not row:
-        return None
+        return None, None
     auth_token, user = row
+    renewed_expires_at: datetime | None = None
     throttle = timedelta(seconds=max(int(settings.auth_last_used_throttle_seconds or 0), 0))
     if auth_token.last_used_at is None or (now - auth_token.last_used_at) >= throttle:
         # At most one write per token every AUTH_LAST_USED_THROTTLE_SECONDS.
         auth_token.last_used_at = now
+        if settings.auth_sliding_session:
+            ttl = timedelta(hours=max(int(settings.auth_token_ttl_hours or 0), 1))
+            if auth_token.expires_at - now < ttl / 2:
+                auth_token.expires_at = now + ttl
+                renewed_expires_at = auth_token.expires_at
         db.commit()
-    return user
+    return user, renewed_expires_at
 
 
 def revoke_token(db: Session, raw_token: str) -> bool:

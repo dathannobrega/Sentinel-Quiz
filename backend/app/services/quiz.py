@@ -10,32 +10,32 @@ completed (submit, last answer with auto-submit, or timer expiry) - see
 """
 from __future__ import annotations
 
-import json
 import math
 import random
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
-from sqlalchemy import and_, false, select
+from sqlalchemy import and_, false, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.models import (
     Exam,
     ExamSession,
-    Option,
     Question,
-    QuestionBank,
     SessionAnswer,
     SessionQuestion,
 )
 from app.services.engagement import refresh_engagement_state
 from app.services.exam_policy import DEFAULT_PASS_THRESHOLD, resolve_pass_threshold
-from app.services.learning import upsert_question_progress
+from app.services.learning import record_question_progress_batch
 from app.services.metrics import (
     aggregate_domain_metrics_for_owner,
-    record_question_attempt_metrics,
+    record_question_attempt_metrics_batch,
     record_session_metrics,
+    refresh_weekly_backlog_counts,
+    week_start,
 )
 from app.services.option_order import OptionMapping, build_option_orders, option_keys_by_question
 from app.services.question_pool import (
@@ -57,13 +57,17 @@ from app.services.question_pool import (
     weighted_domain_sample,
 )
 from app.services.readiness import build_readiness_snapshot
-from app.services.review_queue import schedule_exam_answer_for_review
+from app.services.review_queue import schedule_exam_answers_for_review
+from app.services.question_data import option_rows
 from app.services.serialization import (
     format_citation,
     parse_citations,
     parse_tags,
     score_percent,
 )
+from app.services.serialization import parse_selection_mix as _parse_selection_mix
+from app.services.serialization import parse_session_payload as _parse_session_payload
+from app.services.serialization import serialize_session_payload as _serialize_session_payload
 
 # Kept for backwards compatibility; the real threshold depends on the certification
 # (see app.services.exam_policy, M-C3).
@@ -73,9 +77,6 @@ DEFAULT_EXAM_SECONDS_PER_QUESTION = 75
 MIN_EXAM_TIME_LIMIT_SECONDS = 300
 DEFAULT_EXAM_PAUSE_LIMIT = 2
 DEFAULT_EXAM_MAX_PAUSE_SECONDS = 300
-SELECTION_MIX_KEY = "_selection_mix"
-SESSION_CONFIG_KEY = "_session_config"
-ACTIVE_FILTERS_KEY = "_active_filters"
 
 
 def _bucket_template() -> dict:
@@ -138,19 +139,6 @@ def _normalize_strategy(value: str | None) -> str:
     return normalized
 
 
-def _sanitize_selection_mix(selection_mix: dict[str, int] | None) -> dict[str, int]:
-    cleaned: dict[str, int] = {}
-    for key, value in (selection_mix or {}).items():
-        label = str(key or "").strip()
-        if not label:
-            continue
-        try:
-            cleaned[label] = max(int(value), 0)
-        except (TypeError, ValueError):
-            continue
-    return cleaned
-
-
 def _normalize_active_filters(
     *,
     domains: Optional[list[str]] = None,
@@ -195,68 +183,6 @@ def _default_session_config(total_questions: int) -> dict[str, Any]:
         "pause_count": 0,
         "auto_submitted": False,
     }
-
-
-def _serialize_session_payload(
-    selection_mix: dict[str, int] | None,
-    *,
-    session_config: dict[str, Any] | None = None,
-    active_filters: dict[str, Any] | None = None,
-) -> str | None:
-    cleaned_mix = _sanitize_selection_mix(selection_mix)
-    cleaned_config = dict(session_config or {})
-    cleaned_filters = dict(active_filters or {})
-    if not cleaned_config and not cleaned_filters:
-        if not cleaned_mix:
-            return None
-        return json.dumps(cleaned_mix, ensure_ascii=True, sort_keys=True)
-
-    payload: dict[str, Any] = {
-        SELECTION_MIX_KEY: cleaned_mix,
-        SESSION_CONFIG_KEY: cleaned_config,
-        ACTIVE_FILTERS_KEY: cleaned_filters,
-    }
-    return json.dumps(payload, ensure_ascii=True, sort_keys=True)
-
-
-def _parse_session_payload(selection_mix_json: str | None) -> tuple[dict[str, int], dict[str, Any], dict[str, Any]]:
-    if not selection_mix_json:
-        return {}, {}, {}
-    try:
-        payload = json.loads(selection_mix_json)
-    except (TypeError, ValueError):
-        return {}, {}, {}
-    if not isinstance(payload, dict):
-        return {}, {}, {}
-
-    if SELECTION_MIX_KEY in payload or SESSION_CONFIG_KEY in payload or ACTIVE_FILTERS_KEY in payload:
-        raw_mix = payload.get(SELECTION_MIX_KEY)
-        raw_config = payload.get(SESSION_CONFIG_KEY)
-        raw_filters = payload.get(ACTIVE_FILTERS_KEY)
-    else:
-        raw_mix = payload
-        raw_config = {}
-        raw_filters = {}
-
-    parsed_mix: dict[str, int] = {}
-    if isinstance(raw_mix, dict):
-        for key, value in raw_mix.items():
-            label = str(key or "").strip()
-            if not label:
-                continue
-            try:
-                parsed_mix[label] = max(int(value), 0)
-            except (TypeError, ValueError):
-                continue
-
-    parsed_config = raw_config if isinstance(raw_config, dict) else {}
-    parsed_filters = raw_filters if isinstance(raw_filters, dict) else {}
-    return parsed_mix, parsed_config, parsed_filters
-
-
-def _parse_selection_mix(selection_mix_json: str | None) -> dict[str, int]:
-    parsed_mix, _parsed_config, _parsed_filters = _parse_session_payload(selection_mix_json)
-    return parsed_mix
 
 
 def _parse_session_config(selection_mix_json: str | None) -> dict[str, Any]:
@@ -967,11 +893,54 @@ def expire_exam_session_if_due(db: Session, session: ExamSession) -> bool:
     """
     if not exam_session_expired(session):
         return False
+    lock_exam_session(db, session)
+    if not exam_session_expired(session):
+        # A concurrent request auto-submitted it while we waited for the lock.
+        db.commit()
+        return False
     now = datetime.utcnow()
     complete_exam_session(db, session, completed_at=now, auto_submitted=True)
     db.commit()
     db.refresh(session)
     return True
+
+
+def lock_exam_session(db: Session, session: ExamSession) -> ExamSession:
+    """Serialize mutating flows on one exam session (answer, pause, submit, expiry).
+
+    Takes a row lock (``SELECT ... FOR UPDATE``; a no-op on SQLite, whose writers are
+    already serialized) and reloads the row so the caller sees the state committed by
+    a concurrent request that held the lock before it (e.g. ``completed_at`` and the
+    ``finalized_at`` marker of a parallel submit). Must be called before modifying the
+    session in the current transaction.
+    """
+    db.execute(
+        select(ExamSession)
+        .where(ExamSession.id == session.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    return session
+
+
+def _claim_completion(db: Session, session: ExamSession, completed_at: datetime) -> bool:
+    """Atomically mark the session completed; False when another request already did.
+
+    ``UPDATE ... WHERE completed_at IS NULL`` is the idempotency guard of the
+    finalization (M-C2): only the request whose update matched a row records progress,
+    metrics and SRS, even without the row lock of :func:`lock_exam_session`.
+    """
+    result = db.execute(
+        update(ExamSession)
+        .where(ExamSession.id == session.id, ExamSession.completed_at.is_(None))
+        .values(completed_at=completed_at)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 1:
+        set_committed_value(session, "completed_at", completed_at)
+        return True
+    db.refresh(session, attribute_names=["completed_at", "selection_mix_json"])
+    return False
 
 
 def complete_exam_session(
@@ -983,16 +952,18 @@ def complete_exam_session(
 ) -> None:
     """Mark the session completed and record its learning signals once (no commit)."""
     if session.completed_at is None:
-        session.completed_at = completed_at or datetime.utcnow()
-    if auto_submitted:
-        selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
-        config = _effective_session_config(session, raw_config)
-        config["auto_submitted"] = True
-        session.selection_mix_json = _serialize_session_payload(
-            selection_mix,
-            session_config=config,
-            active_filters=active_filters,
-        )
+        if not _claim_completion(db, session, completed_at or datetime.utcnow()):
+            # A concurrent request completed (and finalized) the session first.
+            return
+        if auto_submitted:
+            selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
+            config = _effective_session_config(session, raw_config)
+            config["auto_submitted"] = True
+            session.selection_mix_json = _serialize_session_payload(
+                selection_mix,
+                session_config=config,
+                active_filters=active_filters,
+            )
     finalize_exam_session(db, session)
 
 
@@ -1002,6 +973,9 @@ def finalize_exam_session(db: Session, session: ExamSession) -> bool:
     Runs once per session (guarded by ``finalized_at`` in the session config): each
     question counts as a single attempt with its final answer, however many times the
     learner changed it during the exam. Wrong answers enter the review queue.
+
+    All rows are loaded and written in bulk (a constant number of statements however
+    many questions the exam has).
     """
     selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
     if raw_config.get("finalized_at"):
@@ -1009,48 +983,67 @@ def finalize_exam_session(db: Session, session: ExamSession) -> bool:
     db.flush()
     owner_user_id, owner_client_key = session.user_id, None if session.user_id else session.client_key
     rows = db.execute(
-        select(SessionAnswer, Question)
+        select(
+            SessionAnswer.question_id,
+            SessionAnswer.is_correct,
+            SessionAnswer.answered_at,
+            SessionAnswer.elapsed_seconds,
+            Question.exam_id,
+            Question.certification,
+            Question.domain,
+        )
         .join(Question, Question.id == SessionAnswer.question_id)
         .where(SessionAnswer.session_id == session.id)
         .order_by(SessionAnswer.answered_at.asc(), SessionAnswer.id.asc())
     ).all()
-    for answer, question in rows:
-        attempted_at = answer.answered_at or session.completed_at or datetime.utcnow()
-        is_correct = bool(answer.is_correct)
-        upsert_question_progress(
+    fallback_time = session.completed_at or datetime.utcnow()
+    attempts = [
+        {
+            "question_id": question_id,
+            "is_correct": bool(is_correct),
+            "attempted_at": answered_at or fallback_time,
+            "elapsed_seconds": elapsed_seconds,
+            "exam_id": exam_id,
+            "certification": certification,
+            "domain": domain,
+            "confidence_level": None,
+        }
+        for question_id, is_correct, answered_at, elapsed_seconds, exam_id, certification, domain in rows
+    ]
+    if attempts:
+        record_question_progress_batch(
             db,
-            question_id=question.id,
+            attempts,
             mode="exam",
-            is_correct=is_correct,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
-            confidence_level=None,
-            attempted_at=attempted_at,
         )
-        record_question_attempt_metrics(
+        record_question_attempt_metrics_batch(
             db,
-            question_id=question.id,
+            attempts,
             mode="exam",
-            exam_id=question.exam_id,
-            certification=question.certification,
-            domain=question.domain,
-            is_correct=is_correct,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
-            confidence_level=None,
-            elapsed_seconds=answer.elapsed_seconds,
-            attempted_at=attempted_at,
             selection_strategy=session.selection_strategy,
+            refresh_backlog=False,
         )
-        schedule_exam_answer_for_review(
+        schedule_exam_answers_for_review(
             db,
-            question_id=question.id,
+            attempts,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
-            is_correct=is_correct,
-            attempted_at=attempted_at,
-            elapsed_seconds=answer.elapsed_seconds,
+            refresh_backlog=False,
         )
+        last_attempt_at = max(item["attempted_at"] for item in attempts)
+        if session.completed_at is None or week_start(last_attempt_at) != week_start(session.completed_at):
+            # record_session_metrics() below refreshes the backlog counters of the
+            # completion week; only an exam spanning two weeks needs this extra refresh.
+            refresh_weekly_backlog_counts(
+                db,
+                owner_user_id=owner_user_id,
+                owner_client_key=owner_client_key,
+                observed_at=last_attempt_at,
+            )
 
     rows_for_result = _get_session_rows(db, session.id)
     threshold, threshold_cert = _pass_threshold_from_rows(rows_for_result)
@@ -1086,6 +1079,7 @@ def finalize_exam_session(db: Session, session: ExamSession) -> bool:
 
 
 def pause_exam_session(db: Session, session: ExamSession) -> ExamSession:
+    lock_exam_session(db, session)
     timing = sync_exam_session_state(db, session)
     if session.completed_at is not None:
         db.commit()
@@ -1111,6 +1105,7 @@ def pause_exam_session(db: Session, session: ExamSession) -> ExamSession:
 
 
 def resume_exam_session(db: Session, session: ExamSession) -> ExamSession:
+    lock_exam_session(db, session)
     sync_exam_session_state(db, session)
     selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
     config = _effective_session_config(session, raw_config)
@@ -1137,8 +1132,14 @@ def resume_exam_session(db: Session, session: ExamSession) -> ExamSession:
     return session
 
 
+def exam_answers_are_hidden(session: ExamSession) -> bool:
+    """Exam-day sessions reveal no correctness (verdict, key, score) until completed."""
+    return (session.experience_mode or "standard") == "exam_day" and session.completed_at is None
+
+
 def serialize_exam_session(session: ExamSession) -> dict[str, Any]:
     timing = _build_exam_timing_metadata(session)
+    hidden = exam_answers_are_hidden(session)
     answered_count = len(session.answers)
     marked_for_review_count = sum(1 for item in session.questions if item.marked_for_review)
     return {
@@ -1151,8 +1152,8 @@ def serialize_exam_session(session: ExamSession) -> dict[str, Any]:
         "current_index": session.current_index,
         "current_position": session.current_position,
         "answered_count": answered_count,
-        "correct_count": session.correct_count,
-        "wrong_count": session.wrong_count,
+        "correct_count": None if hidden else session.correct_count,
+        "wrong_count": None if hidden else session.wrong_count,
         "marked_for_review_count": marked_for_review_count,
         "experience_mode": session.experience_mode or "standard",
         "time_limit_seconds": timing["time_limit_seconds"],
@@ -1198,6 +1199,75 @@ def build_domain_catalog(db: Session, exam_id: Optional[str] = None) -> dict:
     return {"exam_id": exam_id, "domains": domains}
 
 
+WEAK_AREA_LOW_ACCURACY_PERCENT = 70.0
+WEAK_AREA_ON_TRACK_PERCENT = 85.0
+
+
+def _weak_area_score(correct: int, total: int) -> float | None:
+    return round((correct / total) * 100.0, 1) if total else None
+
+
+def _describe_weak_area_domain(entry: dict[str, Any]) -> dict[str, Any]:
+    """Add ``score_percent`` plus an i18n ``code``/``params`` (and PT ``message`` fallback)."""
+    total = int(entry.get("total") or 0)
+    correct = int(entry.get("correct") or 0)
+    wrong = int(entry.get("wrong") or 0)
+    accuracy = _weak_area_score(correct, total)
+    label = entry.get("label") or ""
+    entry["score_percent"] = accuracy
+    params = {"domain": label, "accuracy": accuracy, "total": total, "correct": correct, "wrong": wrong}
+    if accuracy is None:
+        code, message = "weak_area.no_data", f"Sem respostas registradas em {label}."
+    elif accuracy < WEAK_AREA_LOW_ACCURACY_PERCENT:
+        code = "weak_area.low_accuracy"
+        message = f"Precisão baixa em {label}: {accuracy:g}% em {total} questões."
+    elif accuracy < WEAK_AREA_ON_TRACK_PERCENT:
+        code = "weak_area.needs_practice"
+        message = f"Precisão intermediária em {label}: {accuracy:g}% em {total} questões. Continue praticando."
+    else:
+        code = "weak_area.on_track"
+        message = f"Bom desempenho em {label}: {accuracy:g}% em {total} questões."
+    entry["code"] = code
+    entry["params"] = params
+    entry["message"] = message
+    return entry
+
+
+def _weak_area_track(certification: str, attempted: int, wrong: int, weakest_domains: list[dict[str, Any]]) -> dict[str, Any]:
+    for entry in weakest_domains:
+        _describe_weak_area_domain(entry)
+    focus_domain = weakest_domains[0] if weakest_domains else None
+    if attempted and focus_domain:
+        low_confidence = int(focus_domain.get("pedagogical_signal", 0) or 0)
+        code = "weak_area.focus_domain"
+        params: dict[str, Any] = {
+            "domain": focus_domain["label"],
+            "wrong": int(focus_domain["wrong"]),
+            "low_confidence": low_confidence,
+            "total": int(focus_domain["total"]),
+            "accuracy": focus_domain["score_percent"],
+        }
+        message = (
+            f"Maior necessidade de estudo em {focus_domain['label']} "
+            f"({focus_domain['wrong']} erro(s) e {low_confidence} sinal(is) de baixa segurança "
+            f"em {focus_domain['total']} questões)."
+        )
+    else:
+        code = "weak_area.no_data"
+        params = {"certification": certification}
+        message = "Sem histórico suficiente para este track."
+    return {
+        "certification": certification,
+        "attempted": attempted,
+        "wrong": wrong,
+        "focus_domain": focus_domain,
+        "domains": weakest_domains,
+        "message": message,
+        "code": code,
+        "params": params,
+    }
+
+
 def build_weak_area_snapshot(db: Session) -> dict:
     return build_weak_area_snapshot_for_owner(db)
 
@@ -1230,6 +1300,7 @@ def build_weak_area_snapshot_for_owner(
             bucket["wrong"] += wrong
             bucket["correct"] += correct
             bucket["pedagogical_signal"] += pedagogical_signal
+            bucket["score_percent"] = score_percent(bucket["correct"], bucket["total"])
 
         items = []
         for certification in sorted(buckets_by_cert):
@@ -1237,23 +1308,7 @@ def build_weak_area_snapshot_for_owner(
             weakest_domains = _top_bucket_entries(domain_buckets, limit=5)
             attempted = sum(bucket["total"] for bucket in domain_buckets.values())
             wrong = sum(bucket["wrong"] for bucket in domain_buckets.values())
-            focus_domain = weakest_domains[0] if weakest_domains else None
-            if attempted and focus_domain:
-                message = (
-                    f"Maior necessidade de estudo em {focus_domain['label']} "
-                    f"({focus_domain['wrong']} erro(s) e {focus_domain.get('pedagogical_signal', 0)} sinal(is) de baixa seguranca "
-                    f"em {focus_domain['total']} questoes)."
-                )
-            else:
-                message = "Sem historico suficiente para este track."
-            items.append({
-                "certification": certification,
-                "attempted": attempted,
-                "wrong": wrong,
-                "focus_domain": focus_domain,
-                "domains": weakest_domains,
-                "message": message,
-            })
+            items.append(_weak_area_track(certification, attempted, wrong, weakest_domains))
         return {"certifications": items}
 
     certification_rows = db.execute(
@@ -1304,49 +1359,9 @@ def build_weak_area_snapshot_for_owner(
         weakest_domains = _top_bucket_entries(domain_buckets, limit=5)
         attempted = sum(bucket["total"] for bucket in domain_buckets.values())
         wrong = sum(bucket["wrong"] for bucket in domain_buckets.values())
-        focus_domain = weakest_domains[0] if weakest_domains else None
-        if attempted and focus_domain:
-            message = (
-                f"Maior necessidade de estudo em {focus_domain['label']} "
-                f"({focus_domain['wrong']} erro(s) em {focus_domain['total']} questoes)."
-            )
-        else:
-            message = "Sem historico suficiente para este track."
-        items.append({
-            "certification": certification,
-            "attempted": attempted,
-            "wrong": wrong,
-            "focus_domain": focus_domain,
-            "domains": weakest_domains,
-            "message": message,
-        })
+        items.append(_weak_area_track(certification, attempted, wrong, weakest_domains))
 
     return {"certifications": items}
-
-
-def _get_correct_keys(db: Session, question_id: str) -> list[str]:
-    stmt = select(Option.key).where(Option.question_id == question_id, Option.is_correct == True)
-    return [r[0] for r in db.execute(stmt).all()]
-
-
-def _published_version_ids(db: Session, question_ids: list[str]) -> dict[str, int | None]:
-    if not question_ids:
-        return {}
-    return {
-        stable_id: version_id
-        for stable_id, version_id in db.execute(
-            select(QuestionBank.stable_question_id, QuestionBank.published_version_id).where(
-                QuestionBank.stable_question_id.in_(question_ids)
-            )
-        ).all()
-    }
-
-
-def _option_rows(db: Session, question_id: str) -> list[dict[str, Any]]:
-    rows = db.execute(
-        select(Option.key, Option.text, Option.is_correct).where(Option.question_id == question_id).order_by(Option.key.asc())
-    ).all()
-    return [{"key": key, "text": text, "is_correct": bool(is_correct)} for key, text, is_correct in rows]
 
 
 def session_option_mapping(db: Session, session_question: SessionQuestion, option_keys: list[str] | None = None) -> OptionMapping:
@@ -1371,7 +1386,7 @@ def get_question_for_session(db: Session, session: ExamSession, position: int) -
     if not q:
         return None
 
-    options = _option_rows(db, q.id)
+    options = option_rows(db, q.id)
     mapping = OptionMapping.build(row.option_order_json, [item["key"] for item in options])
     return {
         "id": q.id,

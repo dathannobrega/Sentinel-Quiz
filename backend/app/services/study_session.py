@@ -11,7 +11,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Exam, Explanation, Option, Question, QuestionBank, StudyAttempt, StudySession, StudySessionQuestion
+from app.models import Exam, Explanation, Option, Question, StudyAttempt, StudySession, StudySessionQuestion
 from app.services.auth import normalize_client_key
 from app.services.engagement import refresh_engagement_state
 from app.services.learning import upsert_question_progress
@@ -39,7 +39,8 @@ from app.services.review_queue import (
     _normalize_review_state_filters,
     _upsert_review_queue_item,
 )
-from app.services.serialization import parse_citation_dicts, parse_tags
+from app.services.question_data import option_rows, published_version_id
+from app.services.serialization import parse_citation_dicts, parse_selection_mix, parse_tags
 from app.services.study_plan import (
     PLACEMENT_MIN_QUESTION_COUNT,
     _mark_placement_complete,
@@ -92,45 +93,6 @@ def _serialize_selection_mix(selection_mix: dict[str, int] | None) -> str | None
     return json.dumps(cleaned, ensure_ascii=True, sort_keys=True)
 
 
-def _parse_selection_mix(selection_mix_json: str | None) -> dict[str, int]:
-    if not selection_mix_json:
-        return {}
-    try:
-        payload = json.loads(selection_mix_json)
-    except (TypeError, ValueError):
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    parsed: dict[str, int] = {}
-    for key, value in payload.items():
-        label = str(key or "").strip()
-        if not label:
-            continue
-        try:
-            amount = max(int(value), 0)
-        except (TypeError, ValueError):
-            continue
-        parsed[label] = amount
-    return parsed
-
-
-def _correct_keys_for_question(db: Session, question_id: str) -> list[str]:
-    rows = db.execute(
-        select(Option.key).where(
-            Option.question_id == question_id,
-            Option.is_correct.is_(True),
-        ).order_by(Option.key.asc())
-    ).all()
-    return [key for (key,) in rows]
-
-
-def _option_rows(db: Session, question_id: str) -> list[dict[str, Any]]:
-    rows = db.execute(
-        select(Option.key, Option.text, Option.is_correct).where(Option.question_id == question_id).order_by(Option.key.asc())
-    ).all()
-    return [{"key": key, "text": text, "is_correct": bool(is_correct)} for key, text, is_correct in rows]
-
-
 def _session_question_row(db: Session, session_id: str, question_id: str) -> StudySessionQuestion | None:
     return db.execute(
         select(StudySessionQuestion).where(
@@ -140,14 +102,9 @@ def _session_question_row(db: Session, session_id: str, question_id: str) -> Stu
     ).scalar_one_or_none()
 
 
-def _published_version_id(db: Session, question_id: str) -> int | None:
-    bank = db.get(QuestionBank, question_id)
-    return bank.published_version_id if bank else None
-
-
 def _serialize_question_payload(db: Session, question_id: str, option_order_json: str | None = None) -> dict[str, Any]:
     question = _question_or_error(db, question_id)
-    options = _option_rows(db, question_id)
+    options = option_rows(db, question_id)
     mapping = OptionMapping.build(option_order_json, [item["key"] for item in options])
     return {
         "id": question.id,
@@ -505,7 +462,7 @@ def serialize_study_session(session: StudySession) -> dict[str, Any]:
         "id": session.id,
         "exam_id": session.exam_id,
         "selection_strategy": session.selection_strategy or "standard",
-        "selection_mix": _parse_selection_mix(session.selection_mix_json),
+        "selection_mix": parse_selection_mix(session.selection_mix_json),
         "total_questions": session.total_questions,
         "current_index": session.current_index,
         "answered_count": session.answered_count,
@@ -545,7 +502,7 @@ def answer_study_question(
 
     question = db.get(Question, question_id)
 
-    options = _option_rows(db, question_id)
+    options = option_rows(db, question_id)
     if not options:
         raise ValueError("Question options not found.")
     mapping = OptionMapping.build(session_row.option_order_json, [item["key"] for item in options])
@@ -556,7 +513,7 @@ def answer_study_question(
     correct_keys = [item["key"] for item in options if item["is_correct"]]
     is_correct = (selected_set == set(correct_keys))
     now = datetime.utcnow()
-    question_version_id = _published_version_id(db, question_id)
+    question_version_id = published_version_id(db, question_id)
 
     existing_attempt = db.execute(
         select(StudyAttempt).where(
@@ -650,14 +607,13 @@ def answer_study_question(
     official_references = build_official_reference_summaries(db, question_id, limit=4)
     feedback_summary = mapping.remap_text(build_feedback_summary(db, question_id, is_correct=is_correct))
     remaining = max(session.total_questions - session.current_index, 0)
-    if not is_correct:
-        message = "Erro convertido em revisao. Esta questao voltara rapidamente para reforco."
-    elif confidence == "low":
-        message = "Acerto com baixa confianca. A revisao volta cedo para consolidar."
-    elif confidence == "medium":
-        message = "Bom progresso. A revisao volta em alguns dias."
-    else:
-        message = "Alta confianca registrada. Esta questao foi empurrada para uma revisao mais espaçada."
+    message_code, message = _study_feedback_message(is_correct=is_correct, confidence=confidence)
+    next_review_at = queue_item.due_at.isoformat() if queue_item.due_at else None
+    message_params = {
+        "confidence_level": confidence,
+        "interval_days": int(queue_item.interval_days or 0),
+        "next_review_at": next_review_at,
+    }
 
     return {
         "is_correct": is_correct,
@@ -672,16 +628,42 @@ def answer_study_question(
         "confidence_level": confidence,
         "confidence_signal": confidence_signal_from_level(confidence),
         "uncertain_correct": bool(is_correct and confidence != "high"),
-        "next_review_at": queue_item.due_at.isoformat() if queue_item.due_at else None,
+        "next_review_at": next_review_at,
         "review_due_count": due_count,
         "official_references": official_references,
         "insight": {
             "message": message,
+            # i18n (M-C7): "study_feedback.<snake_case>" + params; message is the pt-BR fallback.
+            "message_code": message_code,
+            "message_params": message_params,
             "remaining_questions": remaining,
         },
         "correct_keys": mapping.to_display(correct_keys),
         "selected_keys": mapping.to_display(original_selected),
     }
+
+
+STUDY_FEEDBACK_MESSAGES = {
+    "study_feedback.wrong_review_soon": "Erro convertido em revisão. Esta questão voltará rapidamente para reforço.",
+    "study_feedback.correct_low_confidence": "Acerto com baixa confiança. A revisão volta cedo para consolidar.",
+    "study_feedback.correct_medium_confidence": "Bom progresso. A revisão volta em alguns dias.",
+    "study_feedback.correct_high_confidence": (
+        "Alta confiança registrada. Esta questão foi empurrada para uma revisão mais espaçada."
+    ),
+}
+
+
+def _study_feedback_message(*, is_correct: bool, confidence: str) -> tuple[str, str]:
+    """``(code, pt-BR fallback)`` of the SRS feedback shown after a study answer."""
+    if not is_correct:
+        code = "study_feedback.wrong_review_soon"
+    elif confidence == "low":
+        code = "study_feedback.correct_low_confidence"
+    elif confidence == "medium":
+        code = "study_feedback.correct_medium_confidence"
+    else:
+        code = "study_feedback.correct_high_confidence"
+    return code, STUDY_FEEDBACK_MESSAGES[code]
 
 
 def _finalize_study_session(db: Session, session: StudySession) -> None:
@@ -842,7 +824,7 @@ def _build_study_result(db: Session, session: StudySession) -> dict[str, Any]:
 
     focus = []
     strategy = session.selection_strategy or "standard"
-    selection_mix = _parse_selection_mix(session.selection_mix_json)
+    selection_mix = parse_selection_mix(session.selection_mix_json)
     if strategy == "review":
         focus.append("Sessao diaria puxada diretamente da sua fila de revisao.")
     elif strategy == "adaptive":
@@ -1026,7 +1008,7 @@ def get_study_session_review(db: Session, session: StudySession) -> dict[str, An
         "created_at": session.created_at.isoformat() if session.created_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
         "selection_strategy": session.selection_strategy or "standard",
-        "selection_mix": _parse_selection_mix(session.selection_mix_json),
+        "selection_mix": parse_selection_mix(session.selection_mix_json),
         "total_questions": session.total_questions,
         "answered_count": session.answered_count,
         "correct_count": session.correct_count,

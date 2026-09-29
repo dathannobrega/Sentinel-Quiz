@@ -7,12 +7,14 @@ inactive questions are not affected: they are read through the session tables.
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -27,6 +29,8 @@ from app.models import (
 )
 from app.services.owner_scope import apply_owner_filters
 from app.services.serialization import UNKNOWN_DOMAIN_LABEL, domain_label, parse_tags
+
+logger = logging.getLogger(__name__)
 
 # Fallback exam outline weights, used only while the domain_blueprint table has no
 # weighted rows for a certification (M-A6). Keys are lower-cased certifications.
@@ -425,8 +429,17 @@ def blueprint_weights_for_certification(db: Session, certification: Optional[str
     from app.services.ingest import get_domain_blueprint_weights
 
     try:
-        weights = get_domain_blueprint_weights(db, normalized)
-    except Exception:  # pragma: no cover - defensive: never block session creation
+        if db.get_bind().dialect.name == "postgresql":
+            # A failed statement aborts the whole PostgreSQL transaction: run the
+            # lookup inside a SAVEPOINT so a failure only rolls back the savepoint and
+            # the request transaction stays usable.
+            with db.begin_nested():
+                weights = get_domain_blueprint_weights(db, normalized)
+        else:
+            weights = get_domain_blueprint_weights(db, normalized)
+    except SQLAlchemyError:
+        # Defensive (e.g. table not migrated yet): never block session creation.
+        logger.warning("domain_blueprint lookup failed; using built-in weights", exc_info=True)
         weights = {}
     if weights:
         return dict(weights)

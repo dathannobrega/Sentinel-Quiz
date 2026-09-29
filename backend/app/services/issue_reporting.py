@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Question, QuestionBank, QuestionIssue, QuestionVersion
-from app.services.auth import normalize_client_key
+from app.services.owner_scope import require_owner_scope
 
 
 ALLOWED_ISSUE_CATEGORIES = {"gabarito", "explicacao", "referencia", "clareza"}
@@ -22,15 +22,6 @@ ISSUE_STATUS_TRANSITIONS = {
 }
 
 
-def _owner_scope(owner_user_id: str | None, owner_client_key: str | None) -> tuple[str | None, str | None]:
-    if owner_user_id:
-        return owner_user_id, None
-    normalized_client_key = normalize_client_key(owner_client_key)
-    if normalized_client_key:
-        return None, normalized_client_key
-    raise ValueError("Issue reporting requires an authenticated owner scope.")
-
-
 def create_question_issue(
     db: Session,
     *,
@@ -43,7 +34,11 @@ def create_question_issue(
     owner_user_id: Optional[str],
     owner_client_key: Optional[str],
 ) -> dict[str, Any]:
-    owner_user_id, owner_client_key = _owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(
+        owner_user_id,
+        owner_client_key,
+        message="Issue reporting requires an authenticated owner scope.",
+    )
     question = db.get(Question, question_id)
     if not question:
         raise ValueError("Question not found.")

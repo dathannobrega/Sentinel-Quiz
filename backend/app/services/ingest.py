@@ -5,6 +5,7 @@ import os
 import hashlib
 import re
 from datetime import datetime, timezone
+from typing import Any
 from sqlalchemy.orm import Session
 from sqlalchemy import exists, func, select
 from app.models import (
@@ -511,7 +512,69 @@ def _imported_active_question_ids(db: Session, exam_id: str) -> set[str]:
     return set(rows)
 
 
+_REFRESH_LOOKUP_CHUNK = 500
+
+
+def _chunked(values: list, size: int = _REFRESH_LOOKUP_CHUNK):
+    for index in range(0, len(values), size):
+        yield values[index:index + size]
+
+
+def _refresh_lookup_rows(db: Session, question_ids: list[str]) -> tuple[dict, dict, dict]:
+    """Bulk-load the columns :func:`_needs_metadata_refresh` compares (3 queries per chunk).
+
+    Returns ``(questions, banks, versions)`` keyed by question id / version id. Plain
+    rows (no ORM identity map) keep an unchanged re-ingest cheap (L: ~4 queries per
+    question before).
+    """
+    questions: dict[str, Any] = {}
+    banks: dict[str, Any] = {}
+    versions: dict[int, Any] = {}
+    for chunk in _chunked(question_ids):
+        for row in db.execute(
+            select(
+                Question.id,
+                Question.is_active,
+                Question.deactivated_reason,
+                Question.language,
+                Question.needs_review,
+                Question.domain,
+                Question.difficulty,
+                Question.certification,
+                Question.tags_json,
+                Question.citations_json,
+            ).where(Question.id.in_(chunk))
+        ).all():
+            questions[row.id] = row
+        for row in db.execute(
+            select(
+                QuestionBank.stable_question_id,
+                QuestionBank.published_version_id,
+                QuestionBank.last_import_hash,
+            ).where(QuestionBank.stable_question_id.in_(chunk))
+        ).all():
+            banks[row.stable_question_id] = row
+    version_ids = sorted({row.published_version_id for row in banks.values() if row.published_version_id})
+    for chunk in _chunked(version_ids):
+        for row in db.execute(
+            select(
+                QuestionVersion.id,
+                QuestionVersion.question_format,
+                QuestionVersion.correct_rationale,
+                QuestionVersion.objective_code,
+                QuestionVersion.blueprint_code,
+            ).where(QuestionVersion.id.in_(chunk))
+        ).all():
+            versions[row.id] = row
+    return questions, banks, versions
+
+
 def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
+    """Whether an already-imported file (same hash) still needs a metadata backfill.
+
+    Loads everything it compares in bulk (a handful of queries per file instead of
+    ~4 per question).
+    """
     for bundle in bundles:
         exam = bundle.get("exam") or {}
         exam_id = str(exam.get("id") or "").strip()
@@ -525,24 +588,27 @@ def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
         if exam_id and _imported_active_question_ids(db, exam_id) - file_ids:
             return True
 
+        wanted_ids = sorted(qid for qid in file_ids if qid)
+        questions, banks, versions = _refresh_lookup_rows(db, wanted_ids)
+
         for q in bundle.get("questions") or []:
             qid = str(q.get("id") or "").strip()
             if not qid:
                 continue
-            existing = db.get(Question, qid)
-            if not existing:
+            existing = questions.get(qid)
+            if existing is None:
                 return True
-            if _is_deleted(existing):
-                continue
+            if not existing.is_active and existing.deactivated_reason != QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE:
+                continue  # deleted by an editor (see _is_deleted): never resurrected
             if not existing.is_active:
                 return True
-            bank = db.get(QuestionBank, qid)
-            if not bank or not bank.published_version_id or not bank.last_import_hash:
+            bank = banks.get(qid)
+            if bank is None or not bank.published_version_id or not bank.last_import_hash:
                 return True
             if bank.last_import_hash in LEGACY_IMPORT_MARKERS:
                 return True
-            published_version = db.get(QuestionVersion, bank.published_version_id)
-            if not published_version:
+            published_version = versions.get(bank.published_version_id)
+            if published_version is None:
                 return True
             if not published_version.question_format or not published_version.correct_rationale:
                 return True
@@ -771,12 +837,34 @@ def parse_domain_json_modules(payload: dict) -> list[dict]:
     return modules
 
 
-def load_study_modules(material_dir: str) -> dict[str, dict]:
-    """{certification: {"source_file": ..., "modules": [...]}} for the known material files."""
+def _study_track_dirs(*dirs: str | None) -> list[str]:
+    """Existing, de-duplicated directories in lookup order."""
+    resolved: list[str] = []
+    for candidate in dirs:
+        if not candidate or not os.path.isdir(candidate):
+            continue
+        absolute = os.path.abspath(candidate)
+        if absolute not in resolved:
+            resolved.append(absolute)
+    return resolved
+
+
+def load_study_modules(*search_dirs: str | None) -> dict[str, dict]:
+    """{certification: {"source_file": ..., "modules": [...]}} for the known study-track files.
+
+    Each file is looked up in ``search_dirs`` in order (first hit wins), so the
+    non-licensed track files shipped in the image (``STUDY_TRACK_DIR``) are found even
+    when the ``material/`` volume is empty. ``source_file`` keeps the stable
+    ``material/<file>`` label whatever directory the file came from.
+    """
     loaded: dict[str, dict] = {}
+    directories = _study_track_dirs(*search_dirs)
     for file_name, certification, parser in STUDY_MODULE_SOURCES:
-        path = os.path.join(material_dir, file_name)
-        if not os.path.isfile(path):
+        path = next(
+            (os.path.join(directory, file_name) for directory in directories if os.path.isfile(os.path.join(directory, file_name))),
+            None,
+        )
+        if path is None:
             continue
         with open(path, "r", encoding="utf-8") as handle:
             if parser == "markdown_modules":
@@ -789,11 +877,32 @@ def load_study_modules(material_dir: str) -> dict[str, dict]:
     return loaded
 
 
-def sync_study_modules(db: Session, material_dir: str | None) -> int:
-    if not material_dir or not os.path.isdir(material_dir):
+def _configured_study_track_dir() -> str | None:
+    try:
+        from app.core.config import settings
+
+        return str(getattr(settings, "study_track_dir", "") or "").strip() or None
+    except Exception:  # pragma: no cover - settings unavailable
+        return None
+
+
+def sync_study_modules(
+    db: Session,
+    material_dir: str | None,
+    *,
+    study_track_dir: str | None = None,
+) -> int:
+    """Upsert the study track modules.
+
+    Source files are looked up first in ``study_track_dir`` (default: the
+    ``STUDY_TRACK_DIR`` setting) and then in ``material_dir`` (MATERIAL_DIR).
+    """
+    track_dir = study_track_dir if study_track_dir is not None else _configured_study_track_dir()
+    search_dirs = _study_track_dirs(track_dir, material_dir)
+    if not search_dirs:
         return 0
     total = 0
-    for certification, spec in load_study_modules(material_dir).items():
+    for certification, spec in load_study_modules(*search_dirs).items():
         source_file = spec["source_file"]
         wanted = {module["code"]: module for module in spec["modules"]}
         existing = {

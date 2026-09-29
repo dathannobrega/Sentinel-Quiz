@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
 from app.models import ReviewQueueItem, ReviewSchedule
 from app.services.auth import normalize_client_key
-from app.services.metrics import record_review_schedule_event
+from app.services.metrics import record_review_schedule_event, record_review_schedule_events
 from app.services.owner_scope import require_owner_filters
 from app.services.pedagogy import normalize_confidence_level as normalize_pedagogical_confidence
 from app.services.question_pool import (
@@ -416,3 +417,104 @@ def schedule_exam_answer_for_review(
         attempted_at=attempted_at,
         elapsed_seconds=elapsed_seconds,
     )
+
+
+def schedule_exam_answers_for_review(
+    db: Session,
+    attempts: list[dict[str, Any]],
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    refresh_backlog: bool = True,
+) -> int:
+    """Bulk :func:`schedule_exam_answer_for_review` for a finished exam.
+
+    Same policy per answer (wrong -> relearn item, correct -> only advances an item
+    already queued) with a constant number of statements: one SELECT of the queued
+    items, one multi-row INSERT of the new items (+ one SELECT of their ids) and one
+    multi-row INSERT of the schedule rows. Each attempt has ``question_id``,
+    ``is_correct``, ``attempted_at`` and optionally ``elapsed_seconds``; attempts are
+    processed in order. Returns the number of scheduled reviews.
+    """
+    if not attempts:
+        return 0
+    question_ids = sorted({str(item["question_id"]) for item in attempts})
+    stmt = select(ReviewQueueItem).where(ReviewQueueItem.question_id.in_(question_ids))
+    stmt = require_owner_filters(stmt, ReviewQueueItem, owner_user_id, owner_client_key)
+    existing = {row.question_id: row for row in db.execute(stmt).scalars().all()}
+    normalized_client_key = None if owner_user_id else normalize_client_key(owner_client_key)
+
+    new_items: dict[str, dict[str, Any]] = {}
+    schedules: list[tuple[str, dict[str, Any]]] = []
+    scheduled_at: list[datetime] = []
+    for attempt in attempts:
+        question_id = str(attempt["question_id"])
+        is_correct = bool(attempt["is_correct"])
+        attempted_at = attempt["attempted_at"]
+        item = existing.get(question_id)
+        pending = new_items.get(question_id)
+        if is_correct and item is None and pending is None:
+            continue
+        previous = item if item is not None else (SimpleNamespace(**pending) if pending else None)
+        srs_state = _review_policy(is_correct, "medium", previous, attempt.get("elapsed_seconds"))
+        interval_days = int(srs_state["interval_days"])
+        due_at = attempted_at + timedelta(days=interval_days)
+        values = {
+            "due_at": due_at,
+            "interval_days": interval_days,
+            "repetition_count": int(srs_state["repetition_count"]),
+            "lapse_count": int(srs_state["lapse_count"]),
+            "ease_factor": float(srs_state["ease_factor"]),
+            "stability_score": float(srs_state["stability_score"]),
+            "last_quality": int(srs_state["quality"]),
+            "last_outcome": "correct" if is_correct else "wrong",
+            "confidence_level": "medium",
+            "last_attempt_at": attempted_at,
+            "updated_at": attempted_at,
+        }
+        if item is not None:
+            for key, value in values.items():
+                setattr(item, key, value)
+        elif pending is not None:
+            pending.update(values)
+        else:
+            new_items[question_id] = {
+                "user_id": owner_user_id,
+                "client_key": normalized_client_key,
+                "question_id": question_id,
+                "created_at": attempted_at,
+                **values,
+            }
+        schedules.append((
+            question_id,
+            {
+                "scheduled_for": due_at,
+                "interval_days": interval_days,
+                "trigger_reason": str(srs_state["trigger_reason"]),
+                "created_at": attempted_at,
+            },
+        ))
+        scheduled_at.append(attempted_at)
+
+    if schedules:
+        queue_ids = {question_id: item.id for question_id, item in existing.items()}
+        if new_items:
+            db.execute(insert(ReviewQueueItem), list(new_items.values()))
+            id_stmt = select(ReviewQueueItem.question_id, ReviewQueueItem.id).where(
+                ReviewQueueItem.question_id.in_(sorted(new_items))
+            )
+            id_stmt = require_owner_filters(id_stmt, ReviewQueueItem, owner_user_id, owner_client_key)
+            queue_ids.update({question_id: queue_id for question_id, queue_id in db.execute(id_stmt).all()})
+        db.execute(
+            insert(ReviewSchedule),
+            [{"review_queue_id": queue_ids[question_id], **values} for question_id, values in schedules],
+        )
+        db.flush()  # no autoflush: backlog counts below must include updated items
+    record_review_schedule_events(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        scheduled_at=scheduled_at,
+        refresh_backlog=refresh_backlog,
+    )
+    return len(schedules)

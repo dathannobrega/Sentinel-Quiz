@@ -28,6 +28,19 @@ def normalize_owner_scope(
     return normalized_user_id, normalized_client_key
 
 
+def require_owner_scope(
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    *,
+    message: str = "Owner scope is required.",
+) -> tuple[Optional[str], Optional[str]]:
+    """:func:`normalize_owner_scope` that raises :class:`OwnerScopeRequired` without a scope."""
+    user_id, client_key = normalize_owner_scope(owner_user_id, owner_client_key)
+    if not user_id and not client_key:
+        raise OwnerScopeRequired(message)
+    return user_id, client_key
+
+
 def owner_clauses(model: Any, owner_user_id: Optional[str], owner_client_key: Optional[str]) -> list[Any]:
     """SQL clauses restricting ``model`` to the owner; ``[false()]`` without a scope."""
     user_id, client_key = normalize_owner_scope(owner_user_id, owner_client_key)

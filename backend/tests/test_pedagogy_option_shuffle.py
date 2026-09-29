@@ -227,3 +227,36 @@ def test_study_answers_are_graded_with_shuffled_keys(make_client, db):
     assert item["correct_keys"] == ["C"]
     assert item["selected_keys"] == ["C"]
     assert item["options"][2]["text"] == "right answer"
+
+
+def test_study_hint_level_three_cites_display_keys(make_client, db):
+    """Hint level 3 quotes incorrect rationales that cite option letters (item 7)."""
+    from app.models import QuestionBank, QuestionVersion, StudySessionQuestion
+
+    qid = _seed(db, count=1)[0]
+    db.add(QuestionBank(stable_question_id=qid, review_status="published"))
+    db.flush()
+    version = QuestionVersion(
+        question_bank_id=qid,
+        version_number=1,
+        status="published",
+        exam_id="secplus",
+        prompt="Prompt 0",
+        incorrect_rationales_json=json.dumps(["A alternativa B parece correta, mas ignora o risco residual"]),
+    )
+    db.add(version)
+    db.flush()
+    db.get(QuestionBank, qid).published_version_id = version.id
+    db.commit()
+
+    client = make_client()
+    session_id = client.post("/api/study/sessions", json={"exam_id": "secplus", "total_questions": 1}, headers=HEADERS).json()["id"]
+    # Original B is shown as display key A.
+    _force_order(db, StudySessionQuestion, session_id, ["B", "C", "D", "A"])
+    client.get(f"/api/study/sessions/{session_id}/next", headers=HEADERS)
+
+    hint = client.get(f"/api/study/sessions/{session_id}/questions/{qid}/hint", params={"level": 3}, headers=HEADERS)
+    assert hint.status_code == 200, hint.text
+    message = hint.json()["message"]
+    assert "alternativa A parece correta" in message
+    assert "alternativa B" not in message

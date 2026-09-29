@@ -25,7 +25,7 @@ from app.models import (
     UserStreak,
     WeeklyProgressSnapshot,
 )
-from app.services.auth import normalize_client_key
+from app.services.owner_scope import owner_clauses, require_owner_scope
 
 
 DEFAULT_GOALS = {
@@ -35,26 +35,6 @@ DEFAULT_GOALS = {
     "weekly_review_target": 30,
     "stretch_question_target": 15,
 }
-
-
-def _normalize_owner_scope(
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-) -> tuple[Optional[str], Optional[str]]:
-    normalized_user_id = str(owner_user_id or "").strip() or None
-    normalized_client_key = None if normalized_user_id else normalize_client_key(owner_client_key)
-    if not normalized_user_id and not normalized_client_key:
-        raise ValueError("Owner scope is required.")
-    return normalized_user_id, normalized_client_key
-
-
-def _owner_filters(model: Any, owner_user_id: Optional[str], owner_client_key: Optional[str]) -> tuple[Any, ...]:
-    if owner_user_id:
-        return (model.user_id == owner_user_id,)
-    return (
-        model.user_id.is_(None),
-        model.client_key == owner_client_key,
-    )
 
 
 def _day_start(value: datetime) -> datetime:
@@ -81,7 +61,7 @@ def _progress_payload(*, completed: int, target: int) -> dict[str, Any]:
 
 def _find_user_goal(db: Session, *, owner_user_id: Optional[str], owner_client_key: Optional[str]) -> UserGoal | None:
     return db.execute(
-        select(UserGoal).where(*_owner_filters(UserGoal, owner_user_id, owner_client_key))
+        select(UserGoal).where(*owner_clauses(UserGoal, owner_user_id, owner_client_key))
     ).scalar_one_or_none()
 
 
@@ -91,7 +71,7 @@ def get_or_create_user_goal(
     owner_user_id: Optional[str],
     owner_client_key: Optional[str],
 ) -> UserGoal:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
     goal = _find_user_goal(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
     if goal:
         return goal
@@ -111,7 +91,7 @@ def _compute_streak(db: Session, *, owner_user_id: Optional[str], owner_client_k
     rows = db.execute(
         select(UserDomainMetricDaily.metric_date)
         .where(
-            *_owner_filters(UserDomainMetricDaily, owner_user_id, owner_client_key),
+            *owner_clauses(UserDomainMetricDaily, owner_user_id, owner_client_key),
             UserDomainMetricDaily.attempts_total > 0,
         )
         .order_by(UserDomainMetricDaily.metric_date.asc())
@@ -151,7 +131,7 @@ def _compute_streak(db: Session, *, owner_user_id: Optional[str], owner_client_k
 
 def _find_streak(db: Session, *, owner_user_id: Optional[str], owner_client_key: Optional[str]) -> UserStreak | None:
     return db.execute(
-        select(UserStreak).where(*_owner_filters(UserStreak, owner_user_id, owner_client_key))
+        select(UserStreak).where(*owner_clauses(UserStreak, owner_user_id, owner_client_key))
     ).scalar_one_or_none()
 
 
@@ -163,7 +143,7 @@ def sync_user_streak(
     observed_at: Optional[datetime] = None,
     daily_goal_completed: bool = False,
 ) -> UserStreak:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
     now = observed_at or datetime.utcnow()
     computed = _compute_streak(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now)
 
@@ -208,7 +188,7 @@ def _compute_adaptive_profile(
             func.sum(UserDomainMetricDaily.low_confidence_count),
         )
         .where(
-            *_owner_filters(UserDomainMetricDaily, owner_user_id, owner_client_key),
+            *owner_clauses(UserDomainMetricDaily, owner_user_id, owner_client_key),
             UserDomainMetricDaily.metric_date >= since,
         )
         .group_by(UserDomainMetricDaily.certification, UserDomainMetricDaily.domain)
@@ -246,7 +226,7 @@ def _compute_adaptive_profile(
     due_count = int(
         db.execute(
             select(func.count(ReviewQueueItem.id)).where(
-                *_owner_filters(ReviewQueueItem, owner_user_id, owner_client_key),
+                *owner_clauses(ReviewQueueItem, owner_user_id, owner_client_key),
                 ReviewQueueItem.due_at <= now,
             )
         ).scalar_one()
@@ -268,13 +248,13 @@ def recompute_adaptive_profile(
     lookback_days: int = 21,
     observed_at: Optional[datetime] = None,
 ) -> AdaptiveProfile:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
     now = observed_at or datetime.utcnow()
     computed = _compute_adaptive_profile(
         db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now, lookback_days=lookback_days
     )
     profile = db.execute(
-        select(AdaptiveProfile).where(*_owner_filters(AdaptiveProfile, owner_user_id, owner_client_key))
+        select(AdaptiveProfile).where(*owner_clauses(AdaptiveProfile, owner_user_id, owner_client_key))
     ).scalar_one_or_none()
     if not profile:
         profile = AdaptiveProfile(
@@ -301,7 +281,7 @@ def build_engagement_snapshot(
     owner_user_id: Optional[str],
     owner_client_key: Optional[str],
 ) -> dict[str, Any]:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
     now = datetime.utcnow()
     today = _day_start(now)
     week_start = _week_start(now)
@@ -311,7 +291,7 @@ def build_engagement_snapshot(
     today_questions_answered = int(
         db.execute(
             select(func.coalesce(func.sum(UserDomainMetricDaily.attempts_total), 0)).where(
-                *_owner_filters(UserDomainMetricDaily, owner_user_id, owner_client_key),
+                *owner_clauses(UserDomainMetricDaily, owner_user_id, owner_client_key),
                 UserDomainMetricDaily.metric_date == today,
             )
         ).scalar_one()
@@ -323,7 +303,7 @@ def build_engagement_snapshot(
             select(func.count(StudyAttempt.id))
             .join(StudySession, StudySession.id == StudyAttempt.session_id)
             .where(
-                *_owner_filters(StudySession, owner_user_id, owner_client_key),
+                *owner_clauses(StudySession, owner_user_id, owner_client_key),
                 StudySession.selection_strategy == "review",
                 StudyAttempt.answered_at >= today,
                 StudyAttempt.answered_at < today + timedelta(days=1),
@@ -335,7 +315,7 @@ def build_engagement_snapshot(
     due_now = int(
         db.execute(
             select(func.count(ReviewQueueItem.id)).where(
-                *_owner_filters(ReviewQueueItem, owner_user_id, owner_client_key),
+                *owner_clauses(ReviewQueueItem, owner_user_id, owner_client_key),
                 ReviewQueueItem.due_at <= now,
             )
         ).scalar_one()
@@ -344,7 +324,7 @@ def build_engagement_snapshot(
 
     weekly_snapshot = db.execute(
         select(WeeklyProgressSnapshot).where(
-            *_owner_filters(WeeklyProgressSnapshot, owner_user_id, owner_client_key),
+            *owner_clauses(WeeklyProgressSnapshot, owner_user_id, owner_client_key),
             WeeklyProgressSnapshot.week_start == week_start,
         )
     ).scalar_one_or_none()
@@ -429,7 +409,7 @@ def refresh_engagement_state(
 ) -> None:
     """Persist goals/streak/adaptive profile (mutating flows only; never from a GET)."""
     try:
-        owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+        owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
     except ValueError:
         return
     now = datetime.utcnow()

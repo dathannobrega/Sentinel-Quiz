@@ -18,6 +18,19 @@ Create Date: 2026-09-28 12:00:00
 - L-A3: user_exam_metrics_snapshot.session_id converged to a single unique index.
 
 Idempotent like 0009-0013 (0008 runs create_all with the current models).
+
+Downgrade is lossy by nature (the 0013 schema has no soft delete, import provenance,
+question versions per answer, option order or weights):
+- questions.is_active/deactivated_* are dropped, so every soft-deleted question
+  (editor delete or "removed from source") becomes visible again to 0013 code. The
+  downgrade prints a WARNING with the counts before dropping them; re-run the upgrade
+  (or hard-delete those questions yourself) if they must stay hidden.
+- The domain_blueprint weight rows INSERTED by this revision (or by the 0014 ingest),
+  recognisable by the "Official <cert> exam domain weight" description with no
+  objective_code/subdomain, are deleted; pre-existing rows that only received a
+  weight keep their row and just lose the column.
+- ON DELETE rules go back to CASCADE/SET NULL; question_versions.exam_id gets NOT NULL
+  again (NULLs filled from the question, or 'unknown').
 """
 from __future__ import annotations
 
@@ -363,7 +376,54 @@ def upgrade() -> None:
 
 # --------------------------------------------------------------------------- downgrade
 
+def _warn_about_soft_deleted_questions() -> None:
+    if not h.has_column("questions", "is_active"):
+        return
+    inactive = int(h.scalar("SELECT COUNT(*) FROM questions WHERE is_active = :f", f=False) or 0)
+    if not inactive:
+        return
+    removed = int(
+        h.scalar(
+            "SELECT COUNT(*) FROM questions WHERE is_active = :f AND deactivated_reason = :r",
+            f=False,
+            r="removed_from_source",
+        )
+        or 0
+    )
+    _log(
+        f"WARNING: {inactive} soft-deleted question(s) ({inactive - removed} deleted by editors, "
+        f"{removed} removed from the source JSON) will become ACTIVE again: the 0013 schema has no "
+        "questions.is_active. Re-run `alembic upgrade head` or hard-delete them if they must stay hidden."
+    )
+
+
+SEEDED_WEIGHT_DESCRIPTION_LIKE = "Official % exam domain weight (%"
+
+
+def _remove_seeded_domain_weights() -> None:
+    """Delete the domain-level weight rows this revision (or the 0014 ingest) inserted."""
+    if not h.has_column("domain_blueprint", "weight"):
+        return
+    removed = 0
+    for certification, rows in OFFICIAL_DOMAIN_WEIGHTS.items():
+        for blueprint_code, domain, _weight in rows:
+            params = dict(c=certification, b=blueprint_code, d=domain, pattern=SEEDED_WEIGHT_DESCRIPTION_LIKE)
+            where = (
+                "certification = :c AND blueprint_code = :b AND domain = :d AND weight IS NOT NULL "
+                "AND objective_code IS NULL AND subdomain IS NULL AND description LIKE :pattern"
+            )
+            count = int(h.scalar(f"SELECT COUNT(*) FROM domain_blueprint WHERE {where}", **params) or 0)
+            if count:
+                h.execute(f"DELETE FROM domain_blueprint WHERE {where}", **params)
+                removed += count
+    if removed:
+        _log(f"removed {removed} seeded domain weight row(s) from domain_blueprint.")
+
+
 def downgrade() -> None:
+    _warn_about_soft_deleted_questions()
+    _remove_seeded_domain_weights()
+
     for table, name, _condition in CHECKS:
         h.drop_check(table, name)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -13,20 +13,12 @@ from app.models import (
     UserExamMetricsSnapshot,
     WeeklyProgressSnapshot,
 )
-from app.services.auth import normalize_client_key
+from app.services.owner_scope import owner_clauses, require_owner_scope
 
 MIXED_SCOPE_EXAM_ID = "__mixed__"
 
 
-def _normalize_owner_scope(
-    owner_user_id: Optional[str],
-    owner_client_key: Optional[str],
-) -> tuple[Optional[str], Optional[str]]:
-    normalized_user_id = str(owner_user_id or "").strip() or None
-    normalized_client_key = None if normalized_user_id else normalize_client_key(owner_client_key)
-    if not normalized_user_id and not normalized_client_key:
-        raise ValueError("Owner scope is required for metrics tracking.")
-    return normalized_user_id, normalized_client_key
+_OWNER_SCOPE_MESSAGE = "Owner scope is required for metrics tracking."
 
 
 def _day_start(value: datetime) -> datetime:
@@ -38,13 +30,9 @@ def _week_start(value: datetime) -> datetime:
     return base - timedelta(days=base.weekday())
 
 
-def _owner_filters(model: Any, owner_user_id: Optional[str], owner_client_key: Optional[str]) -> tuple[Any, ...]:
-    if owner_user_id:
-        return (model.user_id == owner_user_id,)
-    return (
-        model.user_id.is_(None),
-        model.client_key == owner_client_key,
-    )
+def week_start(value: datetime) -> datetime:
+    """Monday 00:00 of the week containing ``value`` (weekly snapshot key)."""
+    return _week_start(value)
 
 
 def _normalize_exam_id(exam_id: Optional[str]) -> str:
@@ -62,7 +50,7 @@ def _get_or_create_weekly_snapshot(
 ) -> WeeklyProgressSnapshot:
     snapshot = db.execute(
         select(WeeklyProgressSnapshot).where(
-            *_owner_filters(WeeklyProgressSnapshot, owner_user_id, owner_client_key),
+            *owner_clauses(WeeklyProgressSnapshot, owner_user_id, owner_client_key),
             WeeklyProgressSnapshot.week_start == week_start,
         )
     ).scalar_one_or_none()
@@ -104,7 +92,7 @@ def _refresh_backlog_counts(
     total_count = int(
         db.execute(
             select(func.count(ReviewQueueItem.id)).where(
-                *_owner_filters(ReviewQueueItem, owner_user_id, owner_client_key),
+                *owner_clauses(ReviewQueueItem, owner_user_id, owner_client_key),
             )
         ).scalar_one()
         or 0
@@ -112,7 +100,7 @@ def _refresh_backlog_counts(
     due_count = int(
         db.execute(
             select(func.count(ReviewQueueItem.id)).where(
-                *_owner_filters(ReviewQueueItem, owner_user_id, owner_client_key),
+                *owner_clauses(ReviewQueueItem, owner_user_id, owner_client_key),
                 ReviewQueueItem.due_at <= observed_at,
             )
         ).scalar_one()
@@ -144,7 +132,7 @@ def _refresh_completed_session_counts(
             UserExamMetricsSnapshot.mode,
             func.count(UserExamMetricsSnapshot.id),
         ).where(
-            *_owner_filters(UserExamMetricsSnapshot, owner_user_id, owner_client_key),
+            *owner_clauses(UserExamMetricsSnapshot, owner_user_id, owner_client_key),
             UserExamMetricsSnapshot.completed_at.is_not(None),
             UserExamMetricsSnapshot.completed_at >= week_start,
             UserExamMetricsSnapshot.completed_at < week_end,
@@ -160,7 +148,7 @@ def _refresh_completed_session_counts(
     completed_review_sessions = int(
         db.execute(
             select(func.count(UserExamMetricsSnapshot.id)).where(
-                *_owner_filters(UserExamMetricsSnapshot, owner_user_id, owner_client_key),
+                *owner_clauses(UserExamMetricsSnapshot, owner_user_id, owner_client_key),
                 UserExamMetricsSnapshot.mode == "study",
                 UserExamMetricsSnapshot.selection_strategy == "review",
                 UserExamMetricsSnapshot.completed_at.is_not(None),
@@ -190,7 +178,7 @@ def record_review_schedule_event(
     owner_client_key: Optional[str],
     scheduled_at: Optional[datetime] = None,
 ) -> WeeklyProgressSnapshot:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
     timestamp = scheduled_at or datetime.utcnow()
     snapshot = _get_or_create_weekly_snapshot(
         db,
@@ -227,7 +215,7 @@ def record_question_attempt_metrics(
     attempted_at: Optional[datetime] = None,
     selection_strategy: Optional[str] = None,
 ) -> dict[str, Any]:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
     timestamp = attempted_at or datetime.utcnow()
     normalized_mode = "study" if str(mode or "").strip().lower() == "study" else "exam"
     normalized_domain = str(domain or "Sem dominio").strip() or "Sem dominio"
@@ -239,7 +227,7 @@ def record_question_attempt_metrics(
 
     domain_metric = db.execute(
         select(UserDomainMetricDaily).where(
-            *_owner_filters(UserDomainMetricDaily, owner_user_id, owner_client_key),
+            *owner_clauses(UserDomainMetricDaily, owner_user_id, owner_client_key),
             UserDomainMetricDaily.metric_date == metric_date,
             UserDomainMetricDaily.exam_id == normalized_exam_id,
             UserDomainMetricDaily.domain == normalized_domain,
@@ -314,6 +302,247 @@ def record_question_attempt_metrics(
     }
 
 
+def _weekly_snapshots_for(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    week_starts: set[datetime],
+    created_at: datetime,
+) -> dict[datetime, WeeklyProgressSnapshot]:
+    """Get-or-create the weekly snapshots of several weeks with a single SELECT."""
+    if not week_starts:
+        return {}
+    snapshots = {
+        row.week_start: row
+        for row in db.execute(
+            select(WeeklyProgressSnapshot).where(
+                *owner_clauses(WeeklyProgressSnapshot, owner_user_id, owner_client_key),
+                WeeklyProgressSnapshot.week_start.in_(sorted(week_starts)),
+            )
+        ).scalars().all()
+    }
+    created = False
+    for week_start in sorted(week_starts):
+        if week_start in snapshots:
+            continue
+        snapshot = WeeklyProgressSnapshot(
+            user_id=owner_user_id,
+            client_key=owner_client_key,
+            week_start=week_start,
+            questions_answered=0,
+            review_questions=0,
+            scheduled_reviews=0,
+            correct_count=0,
+            wrong_count=0,
+            low_confidence_count=0,
+            completed_exam_sessions=0,
+            completed_study_sessions=0,
+            completed_review_sessions=0,
+            review_due_count=0,
+            review_total_count=0,
+            updated_at=created_at,
+        )
+        db.add(snapshot)
+        snapshots[week_start] = snapshot
+        created = True
+    if created:
+        # The session does not autoflush: make new rows visible to later SELECTs.
+        db.flush()
+    return snapshots
+
+
+def refresh_weekly_backlog_counts(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    observed_at: datetime,
+) -> None:
+    """Refresh the review backlog counters of the week containing ``observed_at``."""
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
+    week_start = _week_start(observed_at)
+    snapshot = _weekly_snapshots_for(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        week_starts={week_start},
+        created_at=observed_at,
+    )[week_start]
+    _refresh_backlog_counts(
+        db,
+        snapshot=snapshot,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        observed_at=observed_at,
+    )
+
+
+def record_question_attempt_metrics_batch(
+    db: Session,
+    attempts: Iterable[dict[str, Any]],
+    *,
+    mode: str,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    selection_strategy: Optional[str] = None,
+    refresh_backlog: bool = True,
+) -> None:
+    """Bulk :func:`record_question_attempt_metrics` (constant number of queries).
+
+    Each attempt has ``question_id``, ``exam_id``, ``certification``, ``domain``,
+    ``is_correct``, ``attempted_at`` and optionally ``confidence_level`` /
+    ``elapsed_seconds``. With ``refresh_backlog=False`` the caller refreshes the review
+    backlog counters itself (e.g. after scheduling reviews in the same transaction).
+    """
+    items = list(attempts)
+    if not items:
+        return
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
+    normalized_mode = "study" if str(mode or "").strip().lower() == "study" else "exam"
+    normalized_strategy = str(selection_strategy or "").strip().lower() or None
+
+    prepared: list[dict[str, Any]] = []
+    for item in items:
+        timestamp = item.get("attempted_at") or datetime.utcnow()
+        prepared.append({
+            "timestamp": timestamp,
+            "metric_date": _day_start(timestamp),
+            "week_start": _week_start(timestamp),
+            "exam_id": _normalize_exam_id(item.get("exam_id")),
+            "domain": str(item.get("domain") or "Sem dominio").strip() or "Sem dominio",
+            "certification": str(item.get("certification") or "").strip() or None,
+            "confidence": str(item.get("confidence_level") or "").strip().lower() or None,
+            "elapsed_seconds": item.get("elapsed_seconds"),
+            "is_correct": bool(item.get("is_correct")),
+        })
+
+    metric_dates = sorted({item["metric_date"] for item in prepared})
+    exam_ids = sorted({item["exam_id"] for item in prepared})
+    domains = sorted({item["domain"] for item in prepared})
+    domain_metrics = {
+        (row.metric_date, row.exam_id, row.domain): row
+        for row in db.execute(
+            select(UserDomainMetricDaily).where(
+                *owner_clauses(UserDomainMetricDaily, owner_user_id, owner_client_key),
+                UserDomainMetricDaily.metric_date.in_(metric_dates),
+                UserDomainMetricDaily.exam_id.in_(exam_ids),
+                UserDomainMetricDaily.domain.in_(domains),
+            )
+        ).scalars().all()
+    }
+    weekly = _weekly_snapshots_for(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        week_starts={item["week_start"] for item in prepared},
+        created_at=prepared[0]["timestamp"],
+    )
+
+    for item in prepared:
+        timestamp = item["timestamp"]
+        key = (item["metric_date"], item["exam_id"], item["domain"])
+        domain_metric = domain_metrics.get(key)
+        if domain_metric is None:
+            domain_metric = UserDomainMetricDaily(
+                user_id=owner_user_id,
+                client_key=owner_client_key,
+                metric_date=item["metric_date"],
+                exam_id=item["exam_id"],
+                certification=item["certification"],
+                domain=item["domain"],
+                attempts_total=0,
+                exam_attempts=0,
+                study_attempts=0,
+                correct_count=0,
+                wrong_count=0,
+                low_confidence_count=0,
+                total_elapsed_seconds=0,
+                timed_attempts=0,
+                updated_at=timestamp,
+            )
+            db.add(domain_metric)
+            domain_metrics[key] = domain_metric
+        domain_metric.certification = item["certification"] or domain_metric.certification
+        domain_metric.attempts_total += 1
+        if normalized_mode == "study":
+            domain_metric.study_attempts += 1
+        else:
+            domain_metric.exam_attempts += 1
+        if item["is_correct"]:
+            domain_metric.correct_count += 1
+        else:
+            domain_metric.wrong_count += 1
+        low_confidence = bool(item["confidence"] and item["confidence"] != "high")
+        if low_confidence:
+            domain_metric.low_confidence_count += 1
+        elapsed = item["elapsed_seconds"]
+        if elapsed is not None and elapsed >= 0:
+            domain_metric.total_elapsed_seconds += int(elapsed)
+            domain_metric.timed_attempts += 1
+        domain_metric.updated_at = timestamp
+
+        snapshot = weekly[item["week_start"]]
+        snapshot.questions_answered += 1
+        if normalized_mode == "study" and normalized_strategy == "review":
+            snapshot.review_questions += 1
+        if item["is_correct"]:
+            snapshot.correct_count += 1
+        else:
+            snapshot.wrong_count += 1
+        if low_confidence:
+            snapshot.low_confidence_count += 1
+        snapshot.updated_at = timestamp
+
+    # The session does not autoflush: later reads (engagement, weekly counters) must
+    # see these rows.
+    db.flush()
+    if refresh_backlog:
+        observed_at = max(item["timestamp"] for item in prepared)
+        _refresh_backlog_counts(
+            db,
+            snapshot=weekly[_week_start(observed_at)],
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            observed_at=observed_at,
+        )
+
+
+def record_review_schedule_events(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+    scheduled_at: Iterable[datetime],
+    refresh_backlog: bool = True,
+) -> None:
+    """Bulk :func:`record_review_schedule_event` (one event per timestamp)."""
+    timestamps = list(scheduled_at)
+    if not timestamps:
+        return
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
+    weekly = _weekly_snapshots_for(
+        db,
+        owner_user_id=owner_user_id,
+        owner_client_key=owner_client_key,
+        week_starts={_week_start(item) for item in timestamps},
+        created_at=timestamps[0],
+    )
+    for timestamp in timestamps:
+        snapshot = weekly[_week_start(timestamp)]
+        snapshot.scheduled_reviews += 1
+        snapshot.updated_at = timestamp
+    if refresh_backlog:
+        observed_at = max(timestamps)
+        _refresh_backlog_counts(
+            db,
+            snapshot=weekly[_week_start(observed_at)],
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            observed_at=observed_at,
+        )
+
+
 def record_session_metrics(
     db: Session,
     *,
@@ -334,7 +563,7 @@ def record_session_metrics(
     if completed_at is None:
         return None
 
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
     normalized_mode = "study" if str(mode or "").strip().lower() == "study" else "exam"
     normalized_exam_id = _normalize_exam_id(exam_id)
     normalized_strategy = str(selection_strategy or "").strip().lower() or None
@@ -415,7 +644,7 @@ def aggregate_domain_metrics_for_owner(
     owner_client_key: Optional[str],
     days: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
     stmt = (
         select(
             UserDomainMetricDaily.certification,
@@ -427,7 +656,7 @@ def aggregate_domain_metrics_for_owner(
             func.sum(UserDomainMetricDaily.total_elapsed_seconds),
             func.sum(UserDomainMetricDaily.timed_attempts),
         )
-        .where(*_owner_filters(UserDomainMetricDaily, owner_user_id, owner_client_key))
+        .where(*owner_clauses(UserDomainMetricDaily, owner_user_id, owner_client_key))
         .group_by(UserDomainMetricDaily.certification, UserDomainMetricDaily.domain)
     )
     if days:
@@ -463,11 +692,11 @@ def load_weekly_progress_snapshots(
     owner_client_key: Optional[str],
     range_start: datetime,
 ) -> list[WeeklyProgressSnapshot]:
-    owner_user_id, owner_client_key = _normalize_owner_scope(owner_user_id, owner_client_key)
+    owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
     return db.execute(
         select(WeeklyProgressSnapshot)
         .where(
-            *_owner_filters(WeeklyProgressSnapshot, owner_user_id, owner_client_key),
+            *owner_clauses(WeeklyProgressSnapshot, owner_user_id, owner_client_key),
             WeeklyProgressSnapshot.week_start >= range_start,
         )
         .order_by(WeeklyProgressSnapshot.week_start.asc())

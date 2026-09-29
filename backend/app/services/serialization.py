@@ -9,6 +9,12 @@ import json
 from typing import Any
 
 SAFE_FEEDBACK_MAX_CHARS = 240
+
+# Keys of the exam session payload stored in ``selection_mix_json`` (the selection mix,
+# the timer/pause config and the active filters). Study sessions store a plain mix.
+SELECTION_MIX_KEY = "_selection_mix"
+SESSION_CONFIG_KEY = "_session_config"
+ACTIVE_FILTERS_KEY = "_active_filters"
 UNKNOWN_DOMAIN_LABEL = "Sem dominio"
 
 
@@ -233,3 +239,79 @@ def parse_json_dict(raw: str | None) -> dict[str, Any]:
     except (TypeError, ValueError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def sanitize_selection_mix(selection_mix: dict[str, int] | None) -> dict[str, int]:
+    cleaned: dict[str, int] = {}
+    for key, value in (selection_mix or {}).items():
+        label = str(key or "").strip()
+        if not label:
+            continue
+        try:
+            cleaned[label] = max(int(value), 0)
+        except (TypeError, ValueError):
+            continue
+    return cleaned
+
+
+def serialize_session_payload(
+    selection_mix: dict[str, int] | None,
+    *,
+    session_config: dict[str, Any] | None = None,
+    active_filters: dict[str, Any] | None = None,
+) -> str | None:
+    cleaned_mix = sanitize_selection_mix(selection_mix)
+    cleaned_config = dict(session_config or {})
+    cleaned_filters = dict(active_filters or {})
+    if not cleaned_config and not cleaned_filters:
+        if not cleaned_mix:
+            return None
+        return json.dumps(cleaned_mix, ensure_ascii=True, sort_keys=True)
+
+    payload: dict[str, Any] = {
+        SELECTION_MIX_KEY: cleaned_mix,
+        SESSION_CONFIG_KEY: cleaned_config,
+        ACTIVE_FILTERS_KEY: cleaned_filters,
+    }
+    return json.dumps(payload, ensure_ascii=True, sort_keys=True)
+
+
+def parse_session_payload(selection_mix_json: str | None) -> tuple[dict[str, int], dict[str, Any], dict[str, Any]]:
+    if not selection_mix_json:
+        return {}, {}, {}
+    try:
+        payload = json.loads(selection_mix_json)
+    except (TypeError, ValueError):
+        return {}, {}, {}
+    if not isinstance(payload, dict):
+        return {}, {}, {}
+
+    if SELECTION_MIX_KEY in payload or SESSION_CONFIG_KEY in payload or ACTIVE_FILTERS_KEY in payload:
+        raw_mix = payload.get(SELECTION_MIX_KEY)
+        raw_config = payload.get(SESSION_CONFIG_KEY)
+        raw_filters = payload.get(ACTIVE_FILTERS_KEY)
+    else:
+        raw_mix = payload
+        raw_config = {}
+        raw_filters = {}
+
+    parsed_mix: dict[str, int] = {}
+    if isinstance(raw_mix, dict):
+        for key, value in raw_mix.items():
+            label = str(key or "").strip()
+            if not label:
+                continue
+            try:
+                parsed_mix[label] = max(int(value), 0)
+            except (TypeError, ValueError):
+                continue
+
+    parsed_config = raw_config if isinstance(raw_config, dict) else {}
+    parsed_filters = raw_filters if isinstance(raw_filters, dict) else {}
+    return parsed_mix, parsed_config, parsed_filters
+
+
+def parse_selection_mix(selection_mix_json: str | None) -> dict[str, int]:
+    """Selection mix of an exam or study session (plain dict or exam envelope)."""
+    parsed_mix, _parsed_config, _parsed_filters = parse_session_payload(selection_mix_json)
+    return parsed_mix

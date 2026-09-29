@@ -12,7 +12,7 @@ from app.models import Exam, Question, ReviewQueueItem, ReviewSchedule, StudyAtt
 from app.services.metrics import load_weekly_progress_snapshots
 from app.services.owner_scope import require_owner_filters
 from app.services.review_queue import build_review_queue_snapshot
-from app.services.study_session import _parse_selection_mix
+from app.services.serialization import parse_selection_mix as _parse_selection_mix
 
 
 WEEKLY_ANALYTICS_DEFAULT_WEEKS = 8
