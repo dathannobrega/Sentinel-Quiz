@@ -5,6 +5,7 @@
 export type * from "./common";
 export type * from "./auth";
 export type * from "./catalog";
+export type * from "./pbq";
 export type * from "./sessions";
 export type * from "./runner";
 export type * from "./study";

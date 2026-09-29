@@ -1,0 +1,233 @@
+{
+  "exam": {
+    "id": "e2e-pbq",
+    "title": "E2E PBQ",
+    "source": "e2e-pbq.json",
+    "question_count": 3,
+    "certification": "Security+",
+    "language": "pt-BR",
+    "schema_version": 3,
+    "notes": "Small E2E fixture (web/e2e) with one PBQ (contract r5 §A) and two MCQs. Backends without PBQ support skip the PBQ item (no `question` field)."
+  },
+  "questions": [
+    {
+      "id": "e2e_pbq_0001",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "exam_code": "SY0-701",
+      "language": "pt-BR",
+      "domain": "Security Operations",
+      "objective_codes": [
+        "4.8"
+      ],
+      "difficulty": "Medium",
+      "points": 3,
+      "time_estimate_seconds": 180,
+      "tags": [
+        "E2E",
+        "PBQ"
+      ],
+      "title": "E2E PBQ: resposta a incidente em servidor Linux",
+      "scenario": "O servidor web02 foi comprometido. Ordene as fases da resposta e identifique no log as linhas do ataque bem-sucedido.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "log",
+          "title": "Anexo 1 - web02:/var/log/auth.log",
+          "rows": [
+            {
+              "id": "l01",
+              "text": "Sep 27 02:10:11 web02 sshd[4120]: Failed password for invalid user admin from 203.0.113.66 port 40122 ssh2"
+            },
+            {
+              "id": "l02",
+              "text": "Sep 27 02:14:57 web02 sshd[4501]: Accepted password for deploy from 203.0.113.66 port 41890 ssh2"
+            },
+            {
+              "id": "l03",
+              "text": "Sep 27 03:00:01 web02 sshd[5102]: Accepted publickey for ops from 10.0.5.20 port 52211 ssh2"
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "ordering",
+          "weight": 1,
+          "prompt": "Ordene as fases do processo de resposta a incidentes.",
+          "items": [
+            {
+              "id": "o3",
+              "text": "Contenção: isolar o web02 da rede"
+            },
+            {
+              "id": "o1",
+              "text": "Preparação: manter o playbook atualizado"
+            },
+            {
+              "id": "o2",
+              "text": "Detecção: confirmar o alerta no SIEM"
+            }
+          ],
+          "solution": {
+            "order": [
+              "o1",
+              "o2",
+              "o3"
+            ]
+          },
+          "scoring": {
+            "method": "kendall_tau_clipped"
+          },
+          "explanation": {
+            "summary": "Preparação, detecção e só então contenção.",
+            "per_item": {}
+          }
+        },
+        {
+          "id": "t2",
+          "type": "select_in_exhibit",
+          "weight": 1,
+          "exhibit_id": "e1",
+          "select_mode": "multiple",
+          "prompt": "Selecione as linhas que registram o acesso bem-sucedido do atacante.",
+          "solution": {
+            "selected": [
+              "l02"
+            ]
+          },
+          "scoring": {
+            "method": "tp_minus_fp"
+          },
+          "explanation": {
+            "summary": "l02 é o login após o brute force; l03 é a rotina legítima com chave pública.",
+            "per_item": {}
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Fixture E2E original (não é conteúdo de terceiros).",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "4.8"
+        }
+      ],
+      "provenance": {
+        "author": "Sentinel-Quiz (original, E2E)",
+        "created": "2026-09-29",
+        "review_status": "draft"
+      }
+    },
+    {
+      "id": "e2e_pbqbank_q001",
+      "question": "Durante a resposta a um incidente, qual ação preserva a memória volátil do host comprometido?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Operations",
+      "difficulty": "Medium",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Operations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Operations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e-pbq",
+      "source_exam_title": "E2E PBQ",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Desligar o host imediatamente"
+        },
+        {
+          "key": "B",
+          "text": "Isolar o host da rede sem desligá-lo"
+        },
+        {
+          "key": "C",
+          "text": "Reinstalar o sistema operacional"
+        },
+        {
+          "key": "D",
+          "text": "Apagar os logs locais"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "Isolar pela rede (EDR/switch) contém a ameaça sem perder a RAM, que é evidência volátil.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_pbqbank_q002",
+      "question": "Qual evidência é a MAIS volátil segundo a ordem de volatilidade?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Operations",
+      "difficulty": "Medium",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Operations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Operations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e-pbq",
+      "source_exam_title": "E2E PBQ",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Imagem do disco"
+        },
+        {
+          "key": "B",
+          "text": "Registradores e cache da CPU"
+        },
+        {
+          "key": "C",
+          "text": "Logs enviados ao SIEM"
+        },
+        {
+          "key": "D",
+          "text": "Fitas de backup"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "Registradores e cache da CPU se perdem primeiro; mídias de arquivamento são as menos voláteis.",
+      "needs_review": false,
+      "review_notes": null
+    }
+  ]
+}

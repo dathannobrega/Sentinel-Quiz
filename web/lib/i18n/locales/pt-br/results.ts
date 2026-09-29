@@ -48,6 +48,9 @@ export const results = {
     timeUsed: "Tempo usado",
     timeLimit: "Limite",
     passThreshold: "Nota de aprovação",
+    passThresholdNotes: {
+      CEH: "A nota de corte oficial do CEH varia de 60% a 85% conforme a forma do exame; usamos 70% como referência."
+    },
     timedOutTitle: "Simulado encerrado por tempo",
     timedOutMessage:
       "O backend aplicou auto-submit quando o cronômetro zerou. Revise primeiro os itens errados e os que ficaram sem resposta."

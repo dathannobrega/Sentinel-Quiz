@@ -52,8 +52,10 @@ export function ExamNavigator({
             <ul className="sq-chip-row sq-gap-top-sm sq-runner-navigator__list">
               {reviewScreen.items.map((item) => {
                 const isCurrent = item.position === currentPosition;
+                const isPbq = item.format === "pbq";
                 const labelParts = [
                   t("runner.navigator.itemLabel", { number: item.position + 1 }),
+                  ...(isPbq ? [t("pbq.formatLabel")] : []),
                   item.answered ? t("runner.navigator.itemAnswered") : t("runner.navigator.itemUnanswered")
                 ];
                 if (item.marked_for_review) {
@@ -78,6 +80,7 @@ export function ExamNavigator({
                       onClick={() => onJump(item.position)}
                     >
                       {item.position + 1}
+                      {isPbq ? <span aria-hidden="true"> {t("pbq.badge")}</span> : null}
                       {item.marked_for_review ? <span aria-hidden="true"> ⚑</span> : null}
                       {item.answered ? <span aria-hidden="true"> ✓</span> : null}
                     </button>

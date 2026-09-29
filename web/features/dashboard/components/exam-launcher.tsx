@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { useI18n } from "@/lib/i18n";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { PBQ_MAX_COUNT } from "@/features/session-runner/lib/pbq-utils";
 import type { DomainCatalogEntry, Exam } from "@/types/api";
 
 import type { DashboardNotice, LaunchFormValues } from "@/features/dashboard/types";
@@ -127,6 +128,21 @@ export function ExamLauncher({
               value={values.totalQuestions}
               onChange={(event) => onChange("totalQuestions", Number(event.target.value || 0))}
             />
+          </Field>
+
+          <Field label={t("launcher.fields.pbqCount")} htmlFor="pbq-count" hint={t("launcher.fields.pbqCountHint")}>
+            <select
+              id="pbq-count"
+              className="sq-select"
+              value={values.pbqCount}
+              onChange={(event) => onChange("pbqCount", Number(event.target.value))}
+            >
+              {Array.from({ length: PBQ_MAX_COUNT + 1 }, (_, count) => (
+                <option key={count} value={count}>
+                  {count === 0 ? t("launcher.pbqCount.none") : t("launcher.pbqCount.option", { count })}
+                </option>
+              ))}
+            </select>
           </Field>
 
           {!isStudy ? (

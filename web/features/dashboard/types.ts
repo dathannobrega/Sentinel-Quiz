@@ -26,4 +26,6 @@ export interface LaunchFormValues {
   studyStrategy: "standard" | "adaptive";
   totalQuestions: number;
   timeLimitMinutes: number;
+  /** PBQs at the start of the session (0–5), sent as `pbq_count`. */
+  pbqCount: number;
 }

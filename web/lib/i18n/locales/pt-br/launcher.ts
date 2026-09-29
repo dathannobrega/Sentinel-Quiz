@@ -14,7 +14,14 @@ export const launcher = {
     domain: "Domínio",
     strategy: "Estratégia",
     difficulty: "Dificuldade",
-    tags: "Tags"
+    tags: "Tags",
+    pbqCount: "PBQs",
+    pbqCountHint:
+      "Questões baseadas em desempenho (simulações interativas) no início da sessão, como no exame real."
+  },
+  pbqCount: {
+    none: "Nenhuma",
+    option: "{count} PBQ(s)"
   },
   advanced: {
     active: "ativos",

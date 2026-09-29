@@ -9,8 +9,10 @@ import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ExamNavigator } from "@/features/session-runner/components/exam-navigator";
 import { ExamTimer } from "@/features/session-runner/components/exam-timer";
+import { PbqQuestion } from "@/features/session-runner/components/pbq/pbq-question";
 import { QuestionOptions } from "@/features/session-runner/components/question-options";
 import type { ConfidenceLevel, RunnerController } from "@/features/session-runner/hooks/use-runner-session";
+import { formatPbqScoreLine, pbqCreditLabel } from "@/features/session-runner/lib/pbq-utils";
 import { buildLiveFeedbackBits, type Translate } from "@/features/session-runner/lib/runner-utils";
 
 interface QuestionCardProps {
@@ -38,7 +40,8 @@ export const QuestionCard = forwardRef<HTMLHeadingElement, QuestionCardProps>(fu
     currentPosition,
     totalQuestions,
     feedback,
-    pending
+    pending,
+    isPbq
   } = runner;
   const isStudyMode = !isExamMode;
   const answeredCount = examSession?.answered_count ?? studySession?.answered_count ?? 0;
@@ -61,7 +64,9 @@ export const QuestionCard = forwardRef<HTMLHeadingElement, QuestionCardProps>(fu
       subtitle={
         isExamDayMode
           ? t("runner.examDay.subtitle")
-          : currentQuestion?.multi_select
+          : isPbq
+            ? t("pbq.subtitle")
+            : currentQuestion?.multi_select
             ? t("runner.questionCard.multiSelect")
             : t("runner.questionCard.singleSelect")
       }
@@ -119,26 +124,41 @@ export const QuestionCard = forwardRef<HTMLHeadingElement, QuestionCardProps>(fu
               {runner.examQuestionMarked ? <span className="sq-chip">{t("runner.tags.markedForReview")}</span> : null}
             </div>
 
-            <p className="sq-runner-question" id={`${headingId}-prompt`}>
-              {currentQuestion.prompt}
-            </p>
+            {isPbq && currentQuestion.pbq ? (
+              <PbqQuestion
+                key={runner.questionKey}
+                payload={currentQuestion.pbq}
+                response={runner.pbqResponse}
+                onChange={runner.updatePbqResponse}
+                disabled={!!feedback || isPaused || pending === "submit" || runner.isQuestionLoading}
+                // exam_day: never show grading before the end, even if a backend sent it.
+                result={isExamDayMode ? null : feedback}
+                t={t}
+              />
+            ) : (
+              <>
+                <p className="sq-runner-question" id={`${headingId}-prompt`}>
+                  {currentQuestion.prompt}
+                </p>
 
-            <p id={helpId} className="sq-list-meta sq-runner-keyboard-help">
-              {t("runner.keyboard.help")}
-            </p>
+                <p id={helpId} className="sq-list-meta sq-runner-keyboard-help">
+                  {t("runner.keyboard.help")}
+                </p>
 
-            <QuestionOptions
-              questionId={runner.questionKey}
-              options={currentQuestion.options}
-              multiSelect={currentQuestion.multi_select}
-              selectedKeys={runner.selectedKeys}
-              disabled={!!feedback || isPaused || pending === "submit" || runner.isQuestionLoading}
-              feedback={isExamDayMode ? null : feedback}
-              labelledBy={`${headingId} ${headingId}-prompt`}
-              describedBy={helpId}
-              onToggle={runner.toggleSelection}
-              t={t}
-            />
+                <QuestionOptions
+                  questionId={runner.questionKey}
+                  options={currentQuestion.options}
+                  multiSelect={currentQuestion.multi_select}
+                  selectedKeys={runner.selectedKeys}
+                  disabled={!!feedback || isPaused || pending === "submit" || runner.isQuestionLoading}
+                  feedback={isExamDayMode ? null : feedback}
+                  labelledBy={`${headingId} ${headingId}-prompt`}
+                  describedBy={helpId}
+                  onToggle={runner.toggleSelection}
+                  t={t}
+                />
+              </>
+            )}
 
             {isStudyMode ? (
               <Field label={t("runner.labels.confidence")} htmlFor="confidence-level">
@@ -162,6 +182,23 @@ export const QuestionCard = forwardRef<HTMLHeadingElement, QuestionCardProps>(fu
                   tone="neutral"
                   title={t("runner.examDay.answerRecordedTitle")}
                   message={t("runner.examDay.answerRecordedMessage")}
+                />
+              ) : isPbq ? (
+                <StatusBanner
+                  tone={feedback.is_correct ? "success" : (feedback.score ?? 0) > 0 ? "warning" : "danger"}
+                  title={`${feedback.is_correct ? "✓" : "✗"} ${t("pbq.feedback.title")}: ${pbqCreditLabel(feedback.score, t)}`}
+                  message={[formatPbqScoreLine(feedback, t), feedback.feedback_summary?.trim()].filter(Boolean).join(" — ")}
+                  action={
+                    feedbackBits.length ? (
+                      <div className="sq-chip-row">
+                        {feedbackBits.map((item) => (
+                          <span key={item} className="sq-chip">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    ) : undefined
+                  }
                 />
               ) : (
                 <StatusBanner

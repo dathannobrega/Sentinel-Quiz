@@ -4,6 +4,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { extractPbqResponse, isPbqQuestion, pbqAnnouncement, serializePbqResponse } from "@/features/session-runner/lib/pbq-utils";
 import { resolveResultHref, type AnswerFeedback, type RunnerMode, type Translate } from "@/features/session-runner/lib/runner-utils";
 import { ApiError, apiClient, readErrorMessage } from "@/lib/api/client";
 import { clearSessionId } from "@/lib/auth/storage";
@@ -19,6 +20,7 @@ import type {
   ExamAnswerFeedback,
   ExamQuestionState,
   MarkForReviewResponse,
+  PbqResponse,
   SessionResponse,
   StudyAnswerFeedback,
   StudySessionResponse
@@ -77,6 +79,7 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
   const isQuestionLoading = questionQuery.isPending || questionQuery.isPlaceholderData;
 
   const [selection, setSelection] = useState<{ key: string; keys: string[] } | null>(null);
+  const [pbqState, setPbqState] = useState<{ key: string; response: PbqResponse } | null>(null);
   const [feedbackState, setFeedbackState] = useState<{ key: string; feedback: AnswerFeedback } | null>(null);
   const [confidenceLevel, setConfidenceLevel] = useState<ConfidenceLevel>("not_sure");
   const [notice, setNotice] = useState<RunnerNotice | null>(null);
@@ -88,6 +91,10 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
       ? selection.keys
       : examQuestionState?.question?.selected_keys ?? [];
   const feedback = feedbackState && feedbackState.key === questionKey ? feedbackState.feedback : null;
+  const isPbq = isPbqQuestion(currentQuestion);
+  // PBQ answers: local edits first, then the response saved on the server (exam revisits).
+  const pbqResponse: PbqResponse | null =
+    pbqState && pbqState.key === questionKey ? pbqState.response : extractPbqResponse(examQuestionState?.question);
   const isPaused = isExamMode && !!examSession?.paused && !examSession?.finished;
   const announcement = announcementState && announcementState.key === questionKey ? announcementState.text : "";
   const announce = (key: string, text: string) => setAnnouncementState({ key, text });
@@ -194,8 +201,16 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
     setSelection({ key: questionKey, keys: next });
   }
 
+  function updatePbqResponse(next: PbqResponse) {
+    if (!isPbq || feedback || isPaused || isQuestionLoading) {
+      return;
+    }
+    setPbqState({ key: questionKey, response: next });
+  }
+
+  // A PBQ can be submitted as is (partial credit); an MCQ needs a selection.
   const canSubmit =
-    selectedKeys.length > 0 && !feedback && pending === null && !!currentQuestion && !isPaused && !isQuestionLoading;
+    (isPbq || selectedKeys.length > 0) && !feedback && pending === null && !!currentQuestion && !isPaused && !isQuestionLoading;
 
   async function submitAnswer() {
     if (!currentQuestion || !canSubmit) {
@@ -206,11 +221,20 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
     setNotice(null);
     const startedAt = startedAtRef.current.key === key ? startedAtRef.current.at : Date.now();
     const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+    // PBQ: `pbq_response` replaces `selected_keys` (contract r5 §A).
+    const pbqBody = isPbqQuestion(currentQuestion) ? serializePbqResponse(currentQuestion.pbq, pbqResponse) : null;
+    const answerFields = pbqBody ? { pbq_response: pbqBody } : { selected_keys: selectedKeys };
+    const gradedAnnouncement = (response: AnswerFeedback) =>
+      pbqBody && typeof response.score === "number"
+        ? pbqAnnouncement(response, t)
+        : response.is_correct
+          ? t("runner.announce.answerCorrect")
+          : t("runner.announce.answerWrong");
     try {
       if (isExamMode) {
         const response = await apiClient.put<ExamAnswerFeedback>(
           `/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(currentQuestion.id)}/response`,
-          { question_id: currentQuestion.id, selected_keys: selectedKeys, elapsed_seconds: elapsedSeconds }
+          { question_id: currentQuestion.id, ...answerFields, elapsed_seconds: elapsedSeconds }
         );
         setFeedbackState({ key, feedback: response });
         patchExamSession({
@@ -221,22 +245,22 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
           current_index: response.progress_index,
           current_position: response.current_position ?? response.progress_index
         });
-        patchCurrentExamQuestion({ selected_keys: selectedKeys, is_answered: true });
+        patchCurrentExamQuestion(
+          pbqBody ? { pbq_response: pbqBody, is_answered: true } : { selected_keys: selectedKeys, is_answered: true }
+        );
         refreshReviewScreen();
         announce(
           key,
           isExamDayMode
             ? t("runner.announce.answerRecorded")
-            : response.is_correct
-              ? t("runner.announce.answerCorrect")
-              : t("runner.announce.answerWrong")
+            : gradedAnnouncement(response)
         );
       } else {
         const response = await apiClient.post<StudyAnswerFeedback>(
           `/study/sessions/${encodeURIComponent(sessionId)}/answer`,
           {
             question_id: currentQuestion.id,
-            selected_keys: selectedKeys,
+            ...answerFields,
             confidence_level: confidenceLevel,
             elapsed_seconds: elapsedSeconds
           }
@@ -254,7 +278,7 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
               }
             : current
         );
-        announce(key, response.is_correct ? t("runner.announce.answerCorrect") : t("runner.announce.answerWrong"));
+        announce(key, gradedAnnouncement(response));
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -272,6 +296,7 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
     setNotice(null);
     setFeedbackState(null);
     setSelection(null);
+    setPbqState(null);
     setExamPosition(targetPosition);
   }
 
@@ -393,6 +418,9 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
     questionKey,
     isQuestionLoading,
     selectedKeys,
+    isPbq,
+    pbqResponse,
+    updatePbqResponse,
     feedback,
     confidenceLevel,
     setConfidenceLevel,

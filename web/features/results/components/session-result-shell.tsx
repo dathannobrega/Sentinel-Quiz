@@ -12,6 +12,8 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { PbqQuestion } from "@/features/session-runner/components/pbq/pbq-question";
+import { extractPbqResponse, isPbqQuestion, pbqCreditLabel, scoreToPercent } from "@/features/session-runner/lib/pbq-utils";
 import { ApiError, apiClient, getTutorTimeoutMs, readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { translateBackendMessage, translateReadinessBand } from "@/lib/i18n/backend-messages";
@@ -108,6 +110,20 @@ function renderInsightLines(
   }
 
   return lines;
+}
+
+/**
+ * Optional per-certification note about the passing score (keyed by the certification name the
+ * backend reports, e.g. results.summary.passThresholdNotes.CEH). null when there is none.
+ */
+export function passThresholdNote(certification: string | null | undefined, t: Translate): string | null {
+  const name = String(certification || "").trim();
+  if (!name || !/^[\w+.-]+$/.test(name)) {
+    return null;
+  }
+  const key = `results.summary.passThresholdNotes.${name}`;
+  const text = t(key);
+  return text && text !== key ? text : null;
 }
 
 function buildReviewDomainHref(domain: string): string {
@@ -361,6 +377,9 @@ function ReviewBlock({
   const { isAuthenticated } = useSessionRole();
   const fieldId = useId();
   const questionNumber = "question_number" in question ? question.question_number : index + 1;
+  const isPbq = isPbqQuestion(question);
+  const pbqPercent = isPbq ? scoreToPercent(question.score) : null;
+  const pbqResponse = isPbq ? extractPbqResponse(question) : null;
   const [isTutorLoading, setIsTutorLoading] = useState(false);
   const [tutorReply, setTutorReply] = useState<TutorReply | null>(null);
   const [tutorError, setTutorError] = useState<{ message: string; needsLogin: boolean } | null>(null);
@@ -414,13 +433,31 @@ function ReviewBlock({
       title={t("results.reviewBlock.question", { number: questionNumber })}
       subtitle={[question.certification, question.domain, question.difficulty].filter(Boolean).join(" · ") || t("results.reviewBlock.noMetadata")}
       meta={
-        <span className={cn("sq-chip", question.is_correct ? "sq-chip--success" : "sq-chip--danger")}>
-          {question.is_correct ? t("results.reviewBlock.correct") : t("results.reviewBlock.wrong")}
-        </span>
+        <>
+          {isPbq ? <span className="sq-chip">{t("pbq.badge")}</span> : null}
+          <span className={cn("sq-chip", question.is_correct ? "sq-chip--success" : "sq-chip--danger")}>
+            <span aria-hidden="true">{question.is_correct ? "✓ " : "✗ "}</span>
+            {isPbq && pbqPercent !== null
+              ? `${pbqCreditLabel(question.score, t)} · ${pbqPercent}%`
+              : question.is_correct
+                ? t("results.reviewBlock.correct")
+                : t("results.reviewBlock.wrong")}
+          </span>
+        </>
       }
       defaultOpen={index === 0}
     >
-      <div className="sq-result-prompt">{question.prompt}</div>
+      {isPbq ? (
+        <div className="sq-stack-md">
+          <div className="sq-list-title">{t("pbq.review.title")}</div>
+          {!pbqResponse || !Object.keys(pbqResponse).length ? (
+            <p className="sq-list-meta">{t("pbq.review.noResponse")}</p>
+          ) : null}
+          <PbqQuestion payload={question.pbq} response={pbqResponse} disabled result={question} headingLevel={3} t={t} />
+        </div>
+      ) : (
+        <div className="sq-result-prompt">{question.prompt}</div>
+      )}
 
       <div className="sq-list">
         {question.options.map((option) => {
@@ -675,6 +712,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
                   value={`${formatScore(examResult.pass_threshold_percent)}${
                     examResult.pass_threshold_certification ? ` · ${examResult.pass_threshold_certification}` : ""
                   }`}
+                  meta={passThresholdNote(examResult.pass_threshold_certification, t) ?? undefined}
                 />
               ) : null}
               {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (

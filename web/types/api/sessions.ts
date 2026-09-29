@@ -2,6 +2,7 @@
 import type { LiveInsight, ResultInsight } from "./analytics";
 import type { QuestionItem } from "./catalog";
 import type { CitationItem, OptionItem, PedagogicalReferenceItem } from "./common";
+import type { PbqFeedbackFields, PbqPayload, PbqResponse, QuestionFormat } from "./pbq";
 
 /** ExamRuntimeQuestionOut */
 export interface ExamRuntimeQuestion extends QuestionItem {
@@ -9,6 +10,8 @@ export interface ExamRuntimeQuestion extends QuestionItem {
   is_answered: boolean;
   marked_for_review: boolean;
   elapsed_seconds: number | null;
+  /** Saved PBQ response (answers can be revised while the exam is open). */
+  pbq_response?: PbqResponse | null;
 }
 
 export interface ReviewScreenQuestionStatus {
@@ -18,6 +21,7 @@ export interface ReviewScreenQuestionStatus {
   selected_keys: string[];
   marked_for_review: boolean;
   is_current: boolean;
+  format?: QuestionFormat | (string & {});
 }
 
 export interface ExamReviewScreen {
@@ -52,6 +56,8 @@ export interface SessionRequest {
   strategy: ExamStrategy;
   time_limit_minutes?: number | null;
   experience_mode?: ExperienceMode;
+  /** PBQs placed at the start of the session (0–5, default 0). */
+  pbq_count?: number;
 }
 
 export interface StudySessionRequest {
@@ -68,6 +74,8 @@ export interface StudySessionRequest {
   strategy: StudyStrategy;
   queue_only?: boolean;
   review_states?: string[] | null;
+  /** PBQs placed at the start of the session (0–5, default 0). */
+  pbq_count?: number;
 }
 
 /** SessionOut / SessionStateOut (exam sessions). All fields are always serialized. */
@@ -185,7 +193,7 @@ export interface StudyNextQuestionResponse {
   answered_count?: number;
 }
 
-interface AnswerFeedbackBase {
+interface AnswerFeedbackBase extends PbqFeedbackFields {
   is_correct: boolean | null;
   justification: string | null;
   feedback_summary: string | null;
@@ -235,7 +243,7 @@ export interface ExamResult {
   wrong_count: number;
   score_percent: number;
   passed: boolean;
-  /** Passing score of the session's certification (CISSP 70, Security+ 83, default 70). */
+  /** Passing score of the session's certification (e.g. CISSP 70, Security+ 83, CEH 70; default 70). */
   pass_threshold_percent: number;
   pass_threshold_certification?: string | null;
   strategy: string;
@@ -261,8 +269,8 @@ export interface StudyResult {
   insight: ResultInsight;
 }
 
-/** ReviewQuestionOut */
-export interface ReviewQuestion {
+/** ReviewQuestionOut. PBQs carry `format: "pbq"`, the payload, the response and the solution. */
+export interface ReviewQuestion extends Omit<PbqFeedbackFields, "format"> {
   id: string;
   prompt: string;
   multi_select: boolean;
@@ -276,6 +284,9 @@ export interface ReviewQuestion {
   justification: string | null;
   tags: string[] | null;
   citations: CitationItem[] | null;
+  format?: QuestionFormat | (string & {});
+  pbq?: PbqPayload | null;
+  pbq_response?: PbqResponse | null;
 }
 
 export interface SessionReview {

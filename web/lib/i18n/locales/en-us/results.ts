@@ -48,6 +48,9 @@ export const results = {
     timeUsed: "Time used",
     timeLimit: "Limit",
     passThreshold: "Passing score",
+    passThresholdNotes: {
+      CEH: "The official CEH cut score ranges from 60% to 85% depending on the exam form; 70% is used as a reference."
+    },
     timedOutTitle: "Simulation ended by time",
     timedOutMessage:
       "The backend applied auto-submit when the timer reset. Review the incorrect and unanswered items first."
