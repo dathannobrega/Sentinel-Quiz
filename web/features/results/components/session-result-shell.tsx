@@ -12,7 +12,7 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { API_TIMEOUTS, ApiError, apiClient, readErrorMessage } from "@/lib/api/client";
+import { ApiError, apiClient, getTutorTimeoutMs, readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { translateBackendMessage, translateReadinessBand } from "@/lib/i18n/backend-messages";
 import { useSessionReviewQuery, useSessionRole } from "@/lib/query/hooks";
@@ -376,7 +376,7 @@ function ReviewBlock({
       const reply = await apiClient.post<TutorReply>(
         `/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(question.id)}/tutor`,
         { mode },
-        { timeoutMs: API_TIMEOUTS.tutor }
+        { timeoutMs: getTutorTimeoutMs() }
       );
       setTutorReply(reply);
     } catch (error) {
@@ -394,7 +394,7 @@ function ReviewBlock({
     setIsIssueSubmitting(true);
     setIssueNotice(null);
     try {
-      await apiClient.post(`/questions/${question.id}/issues`, {
+      await apiClient.post(`/questions/${encodeURIComponent(question.id)}/issues`, {
         session_id: sessionId,
         mode: enableTutor ? "exam" : "study",
         category: issueCategory,

@@ -116,12 +116,12 @@ export function DashboardShell() {
     const examItems = (activeExamQuery.data ?? []).map((session) => ({
       ...session,
       kind: "exam" as const,
-      href: `/exam/${session.id}`
+      href: `/exam/${encodeURIComponent(session.id)}`
     }));
     const studyItems = (activeStudyQuery.data ?? []).map((session) => ({
       ...session,
       kind: "study" as const,
-      href: `/study/${session.id}`
+      href: `/study/${encodeURIComponent(session.id)}`
     }));
     return [...examItems, ...studyItems].slice(0, 3);
   }, [activeExamQuery.data, activeStudyQuery.data]);

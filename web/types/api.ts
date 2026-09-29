@@ -197,7 +197,11 @@ export interface LiveInsight {
   remaining_questions: number;
   current_correct_streak: number;
   weakest_area: Record<string, unknown> | null;
+  /** pt-BR fallback; prefer translating `message_code` + `message_params` when present. */
   message: string;
+  /** e.g. "study_feedback.correct_low_confidence" (additive, optional). */
+  message_code?: string | null;
+  message_params?: Record<string, string | number | null> | null;
 }
 
 /** ResultInsightOut: list/dict fields default to empty collections server-side. */
@@ -343,21 +347,31 @@ export interface DomainCatalogResponse {
 }
 
 /** Bucket built by services/quiz.py (_bucket_template + label). */
-export interface WeakAreaDomain {
+/** i18n message code ("weak_area.<snake_case>") + params sent next to a pt-BR `message`. */
+export interface WeakAreaMessageCode {
+  code?: string | null;
+  params?: Record<string, string | number | null> | null;
+}
+
+export interface WeakAreaDomain extends WeakAreaMessageCode {
   label: string;
   total: number;
   correct: number;
   wrong: number;
   pedagogical_signal: number;
-  score_percent: number;
+  /** null when the domain has no attempts yet. */
+  score_percent: number | null;
+  /** pt-BR fallback text for `code` (optional). */
+  message?: string | null;
 }
 
-export interface WeakAreaTrack {
+export interface WeakAreaTrack extends WeakAreaMessageCode {
   certification: string;
   attempted: number;
   wrong: number;
   focus_domain: WeakAreaDomain | null;
   domains: WeakAreaDomain[];
+  /** pt-BR fallback; prefer translating `code` + `params`. */
   message: string;
 }
 
@@ -509,8 +523,8 @@ export interface SessionResponse {
   total_questions: number;
   current_index: number;
   current_position: number;
-  correct_count: number;
-  wrong_count: number;
+  correct_count: number | null;
+  wrong_count: number | null;
   answered_count: number;
   marked_for_review_count: number;
   experience_mode: ExperienceMode | (string & {});
@@ -745,14 +759,14 @@ export interface StudyNextQuestionResponse {
 }
 
 interface AnswerFeedbackBase {
-  is_correct: boolean;
+  is_correct: boolean | null;
   justification: string | null;
   feedback_summary: string | null;
   progress_index: number;
   total_questions: number;
   answered_count: number;
-  correct_count: number;
-  wrong_count: number;
+  correct_count: number | null;
+  wrong_count: number | null;
   finished: boolean;
   official_references: PedagogicalReferenceItem[];
   insight: LiveInsight | null;
@@ -763,6 +777,13 @@ interface AnswerFeedbackBase {
   correct_keys?: string[] | null;
   /** The submitted selection, in display keys. */
   selected_keys?: string[];
+  /**
+   * Optional i18n code for the feedback message (study: "study_feedback.*"). The runner
+   * checks `insight.message_code` first, then these, and falls back to `insight.message`.
+   */
+  message?: string | null;
+  message_code?: string | null;
+  message_params?: Record<string, string | number | null> | null;
 }
 
 /** AnswerFeedbackOut */

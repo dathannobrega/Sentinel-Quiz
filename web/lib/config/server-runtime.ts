@@ -1,4 +1,4 @@
-import { normalizeOrigin, type SentinelRuntimeConfig } from "@/lib/config/runtime";
+import { normalizeOrigin, parseTutorTimeoutMs, type SentinelRuntimeConfig } from "@/lib/config/runtime";
 
 /**
  * Reads the API origin at request time on the server.
@@ -11,8 +11,16 @@ export function getServerApiOrigin(): string {
   return normalizeOrigin(env["API_ORIGIN"] || env["NEXT_PUBLIC_API_ORIGIN"] || "");
 }
 
+/**
+ * TUTOR_CLIENT_TIMEOUT_MS (runtime, bracket access so it is never inlined at build time).
+ * Invalid or out-of-range values (outside 5000..300000) are ignored -> client default (45s).
+ */
+export function getServerTutorTimeoutMs(): number | null {
+  return parseTutorTimeoutMs(process.env["TUTOR_CLIENT_TIMEOUT_MS"]);
+}
+
 export function getServerRuntimeConfig(): SentinelRuntimeConfig {
-  return { apiOrigin: getServerApiOrigin() };
+  return { apiOrigin: getServerApiOrigin(), tutorTimeoutMs: getServerTutorTimeoutMs() };
 }
 
 /** Serializes the runtime config for an inline <script>, escaping `<` to avoid breaking out. */

@@ -3,17 +3,26 @@ import {
   getOrCreateClientKey,
   getStoredAuthToken
 } from "@/lib/auth/storage";
-import { getRuntimeConfig } from "@/lib/config/runtime";
+import { DEFAULT_TUTOR_TIMEOUT_MS, getRuntimeConfig } from "@/lib/config/runtime";
 import { ApiError, apiMessage, normalizeErrorResponse } from "@/lib/api/errors";
 
 export { ApiError, isApiError, isUnauthorizedError, readErrorMessage } from "@/lib/api/errors";
 
-/** Per-request timeouts (ms). The tutor waits on an LLM; admin jobs touch the whole bank. */
+/**
+ * Per-request timeouts (ms). The tutor waits on an LLM; admin jobs touch the whole bank.
+ * `tutor` is the default; tutor call sites use getTutorTimeoutMs(), which honours the runtime
+ * override (TUTOR_CLIENT_TIMEOUT_MS, injected per request into window.__SENTINEL_RUNTIME__).
+ */
 export const API_TIMEOUTS = {
   default: 15_000,
-  tutor: 45_000,
+  tutor: DEFAULT_TUTOR_TIMEOUT_MS,
   adminLong: 120_000
 } as const;
+
+/** Tutor request timeout for this page: the runtime value when valid, otherwise 45s. */
+export function getTutorTimeoutMs(): number {
+  return getRuntimeConfig().tutorTimeoutMs ?? API_TIMEOUTS.tutor;
+}
 
 export type RequestOptions = Omit<RequestInit, "body" | "headers" | "signal"> & {
   body?: unknown;
@@ -204,9 +213,7 @@ async function performRequest(path: string, options: RequestOptions): Promise<Re
   return response;
 }
 
-async function sendRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const response = await performRequest(path, options);
-
+async function readJsonBody<T>(response: Response): Promise<T> {
   if (response.status === 204) {
     return null as T;
   }
@@ -220,6 +227,34 @@ async function sendRequest<T>(path: string, options: RequestOptions = {}): Promi
   } catch {
     throw new ApiError({ code: "invalid_json", message: apiMessage("server"), status: response.status });
   }
+}
+
+async function sendRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return readJsonBody<T>(await performRequest(path, options));
+}
+
+/** JSON body plus the response headers (e.g. `X-Total-Count` on paginated admin lists). */
+export interface ApiResponseWithHeaders<T> {
+  data: T;
+  headers: Headers;
+}
+
+async function sendRequestWithHeaders<T>(path: string, options: RequestOptions = {}): Promise<ApiResponseWithHeaders<T>> {
+  const response = await performRequest(path, options);
+  return { data: await readJsonBody<T>(response), headers: response.headers };
+}
+
+/**
+ * Reads a non-negative integer count header (default `X-Total-Count`). null when missing or
+ * malformed — for a cross-origin API the header must be in the backend's CORS expose_headers.
+ */
+export function readCountHeader(headers: Headers, name = "X-Total-Count"): number | null {
+  const raw = headers.get(name);
+  if (raw === null || raw.trim() === "") {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 export interface DownloadedFile {
@@ -274,6 +309,10 @@ export function saveBlobAsFile(blob: Blob, filename: string): void {
 export const apiClient = {
   get<T>(path: string, options?: MethodOptions) {
     return sendRequest<T>(path, { ...options, method: "GET" });
+  },
+  /** GET that also returns the response headers (pagination totals). */
+  getWithHeaders<T>(path: string, options?: MethodOptions) {
+    return sendRequestWithHeaders<T>(path, { ...options, method: "GET" });
   },
   post<T>(path: string, body?: unknown, options?: MethodOptions) {
     return sendRequest<T>(path, { ...options, method: "POST", body });

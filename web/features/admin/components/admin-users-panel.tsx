@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { useI18n } from "@/lib/i18n";
-import { useAdminUpdateUserMutation, useAdminUsersQuery } from "@/lib/query/admin-hooks";
+import { ADMIN_USERS_PAGE_SIZE, useAdminUpdateUserMutation, useAdminUsersQuery } from "@/lib/query/admin-hooks";
 import type { AdminUser, AdminUserUpdateInput } from "@/types/api";
 
 import { ADMIN_USER_ROLES } from "@/features/admin/types";
@@ -18,7 +19,23 @@ type Notice = { tone: "success" | "danger"; message: string };
 
 export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean }) {
   const { t } = useI18n();
-  const usersQuery = useAdminUsersQuery({ enabled: canManageUsers });
+  const [page, setPage] = useState(0);
+  const usersQuery = useAdminUsersQuery(page, { enabled: canManageUsers });
+  const users = usersQuery.data?.users ?? [];
+  const total = usersQuery.data?.total ?? null;
+  const pageCount = total !== null ? Math.max(1, Math.ceil(total / ADMIN_USERS_PAGE_SIZE)) : null;
+  // Without X-Total-Count, a full page means there may be more.
+  const hasNextPage = pageCount !== null ? page + 1 < pageCount : users.length === ADMIN_USERS_PAGE_SIZE;
+  const hasPreviousPage = page > 0;
+  const rangeStart = users.length ? page * ADMIN_USERS_PAGE_SIZE + 1 : 0;
+  const rangeEnd = page * ADMIN_USERS_PAGE_SIZE + users.length;
+
+  useEffect(() => {
+    // The total can shrink between pages; never stay on a page past the end.
+    if (pageCount !== null && page >= pageCount) {
+      setPage(pageCount - 1);
+    }
+  }, [page, pageCount]);
   const updateUserMutation = useAdminUpdateUserMutation();
   const { confirm, dialog } = useConfirm();
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -86,7 +103,7 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
           onRetry={() => void usersQuery.refetch()}
           retrying={usersQuery.isFetching}
         />
-      ) : usersQuery.data.length ? (
+      ) : users.length || page > 0 ? (
         <div className="sq-page-stack">
           {notice ? (
             <StatusBanner
@@ -97,7 +114,7 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
             />
           ) : null}
           <div className="sq-list">
-            {usersQuery.data.slice(0, 8).map((user) => {
+            {users.map((user) => {
               const name = user.display_name || user.email;
               const roleSelectId = `admin-user-role-${user.id}`;
               const isBusy = pendingUserId === user.id;
@@ -143,6 +160,30 @@ export function AdminUsersPanel({ canManageUsers }: { canManageUsers: boolean })
               );
             })}
           </div>
+          <nav className="sq-actions" aria-label={t("admin.users.pagination.label")}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!hasPreviousPage || usersQuery.isFetching}
+              onClick={() => setPage((current) => Math.max(0, current - 1))}
+            >
+              {t("admin.users.pagination.previous")}
+            </Button>
+            <span className="sq-list-meta" role="status" aria-live="polite">
+              {total !== null
+                ? t("admin.users.pagination.rangeWithTotal", { start: rangeStart, end: rangeEnd, total })
+                : t("admin.users.pagination.range", { start: rangeStart, end: rangeEnd })}
+              {pageCount !== null ? ` · ${t("admin.users.pagination.page", { page: page + 1, pages: pageCount })}` : null}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!hasNextPage || usersQuery.isFetching}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              {t("admin.users.pagination.next")}
+            </Button>
+          </nav>
         </div>
       ) : (
         <div className="sq-empty">{t("admin.users.empty")}</div>

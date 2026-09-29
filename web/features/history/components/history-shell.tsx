@@ -88,11 +88,11 @@ function averageScore(items: Array<{ score_percent: number }>): number | null {
 }
 
 function resolveExamResultHref(item: SessionHistoryItem): string {
-  return `/exam/${item.id}/result`;
+  return `/exam/${encodeURIComponent(item.id)}/result`;
 }
 
 function resolveStudyResultHref(item: StudyHistoryItem): string {
-  return `/study/${item.id}/result`;
+  return `/study/${encodeURIComponent(item.id)}/result`;
 }
 
 function describeQueueState(
@@ -236,7 +236,7 @@ export function HistoryShell() {
     onSuccess: (response) => {
       persistSessionId("study", response.id);
       startTransition(() => {
-        router.push(`/study/${response.id}`);
+        router.push(`/study/${encodeURIComponent(response.id)}`);
       });
     },
     onError: (error) => setPageNotice(readErrorMessage(error, t("history.errors.loadHistory")))

@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/lib/i18n";
+import { translateBackendMessage } from "@/lib/i18n/backend-messages";
 import { formatDate, formatDateTime, formatScore } from "@/lib/utils/format";
 import type { SessionHistoryItem, StudyHistoryItem, StudyOverview, WeakAreaTrack } from "@/types/api";
 
@@ -89,7 +90,9 @@ function WeakAreaSummary({
             <div className="sq-progress-head">
               <div>
                 <div className="sq-list-title">{track.certification}</div>
-                <div className="sq-progress-meta">{track.message}</div>
+                <div className="sq-progress-meta">
+                  {translateBackendMessage(t, track.code, track.params, track.message)}
+                </div>
               </div>
               <div className="sq-progress-meta">{t("insights.labels.recentErrors", { ratio })}</div>
             </div>
@@ -102,11 +105,19 @@ function WeakAreaSummary({
                   {t("insights.labels.focus")}: {focus.label} ({focus.wrong}/{focus.total})
                 </span>
               ) : null}
-              {track.domains.slice(0, 2).map((domain) => (
-                <span key={`${track.certification}-${domain.label}`} className="sq-chip">
-                  {domain.label} ({domain.wrong}/{domain.total})
-                </span>
-              ))}
+              {track.domains.slice(0, 2).map((domain) => {
+                const domainMessage = translateBackendMessage(t, domain.code, domain.params, domain.message ?? "");
+                return (
+                  <span
+                    key={`${track.certification}-${domain.label}`}
+                    className="sq-chip"
+                    title={domainMessage || undefined}
+                  >
+                    {domain.label} ({domain.wrong}/{domain.total})
+                    {domainMessage ? <span className="sq-visually-hidden"> — {domainMessage}</span> : null}
+                  </span>
+                );
+              })}
             </div>
           </div>
         );

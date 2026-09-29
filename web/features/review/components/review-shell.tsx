@@ -127,7 +127,7 @@ export function ReviewShell() {
     onSuccess: (response) => {
       persistSessionId("study", response.id);
       startTransition(() => {
-        router.push(`/study/${response.id}`);
+        router.push(`/study/${encodeURIComponent(response.id)}`);
       });
     },
     onError: (error) => setPageNotice(readErrorMessage(error, t("review.errors.loadQueue")))

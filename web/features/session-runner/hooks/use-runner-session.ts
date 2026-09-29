@@ -248,8 +248,9 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
                 ...current,
                 current_index: response.progress_index,
                 answered_count: response.answered_count,
-                correct_count: response.correct_count,
-                wrong_count: response.wrong_count
+                // Counts are only withheld in exam_day sessions; keep the cached value if absent.
+                correct_count: response.correct_count ?? current.correct_count,
+                wrong_count: response.wrong_count ?? current.wrong_count
               }
             : current
         );

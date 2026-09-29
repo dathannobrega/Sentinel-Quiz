@@ -1,13 +1,13 @@
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants.js";
 
+// Single source for the Next.js responses. Behind nginx these are NOT re-added by the proxy for
+// the app locations (only HSTS is); nginx sets the same values for /api via
+// docker/nginx/api-security-headers.conf — keep both lists in sync.
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  {
-    key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
-  },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" }
 ];
 

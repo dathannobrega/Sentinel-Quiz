@@ -34,6 +34,27 @@ describe("backend message codes", () => {
     expect(translateBackendMessage(en, null, {}, "No code")).toBe("No code");
   });
 
+  it("translates weak-area codes and degrades to the backend text on mismatch", () => {
+    expect(translateBackendMessage(en, "weak_area.no_data", {}, "Sem historico")).toBe(
+      "Not enough history for this track yet."
+    );
+    expect(
+      translateBackendMessage(pt, "weak_area.low_accuracy", { domain: "IAM", wrong: 4, total: 9 }, "fallback")
+    ).toBe("Maior necessidade de estudo: IAM (4 erro(s) em 9 questões).");
+    // Params with other names than the catalog expects -> backend text, never "{domain}".
+    expect(translateBackendMessage(en, "weak_area.low_accuracy", { label: "IAM" }, "Backend text")).toBe("Backend text");
+    expect(translateBackendMessage(en, "weak_area.some_future_code", {}, "Backend text")).toBe("Backend text");
+  });
+
+  it("translates study feedback codes", () => {
+    expect(translateBackendMessage(en, "study_feedback.correct_low_confidence", {}, "fallback")).toBe(
+      "Correct, but with low confidence. The review comes back early to consolidate it."
+    );
+    expect(translateBackendMessage(pt, "study_feedback.wrong_review_soon", null, "fallback")).toBe(
+      "Erro convertido em revisão. Esta questão voltará rapidamente para reforço."
+    );
+  });
+
   it("localizes readiness bands, including insufficient data", () => {
     expect(translateReadinessBand(pt, "insufficient_data")).toBe("Dados insuficientes");
     expect(translateReadinessBand(en, "at_risk")).toBe("At risk");

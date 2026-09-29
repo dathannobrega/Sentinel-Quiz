@@ -1,8 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { API_TIMEOUTS, apiClient } from "@/lib/api/client";
+import { API_TIMEOUTS, apiClient, readCountHeader } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query/keys";
 import type {
   AdminAnalyticsSnapshotCapture,
@@ -74,10 +74,34 @@ export interface AdminQuestionListParams {
 // Users / domain catalog / issues (panels)
 // ---------------------------------------------------------------------------
 
-export function useAdminUsersQuery(options?: AdminQueryOptions) {
+/** Page size for GET /admin/users (backend default limit is 500; we page explicitly). */
+export const ADMIN_USERS_PAGE_SIZE = 50;
+
+export interface AdminUsersPage {
+  users: AdminUser[];
+  /** From X-Total-Count; null when the header is missing (e.g. not exposed via CORS). */
+  total: number | null;
+  page: number;
+  pageSize: number;
+}
+
+/** `page` is 0-based. Uses limit/offset and reads the total from `X-Total-Count`. */
+export function useAdminUsersQuery(page = 0, options?: AdminQueryOptions) {
+  const safePage = Math.max(0, Math.floor(page));
   return useQuery({
-    queryKey: adminKeys.users,
-    queryFn: ({ signal }) => apiClient.get<AdminUser[]>("/admin/users", { ...ADMIN_REQUEST, signal }),
+    queryKey: [...adminKeys.users, safePage, ADMIN_USERS_PAGE_SIZE] as const,
+    queryFn: async ({ signal }): Promise<AdminUsersPage> => {
+      const query = new URLSearchParams({
+        limit: String(ADMIN_USERS_PAGE_SIZE),
+        offset: String(safePage * ADMIN_USERS_PAGE_SIZE)
+      });
+      const { data, headers } = await apiClient.getWithHeaders<AdminUser[]>(`/admin/users?${query.toString()}`, {
+        ...ADMIN_REQUEST,
+        signal
+      });
+      return { users: data ?? [], total: readCountHeader(headers), page: safePage, pageSize: ADMIN_USERS_PAGE_SIZE };
+    },
+    placeholderData: keepPreviousData,
     enabled: options?.enabled ?? false
   });
 }
@@ -163,7 +187,7 @@ export function useAdminUpdateIssueMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ issueId, payload }: { issueId: number; payload: AdminQuestionIssueUpdateInput }) =>
-      apiClient.patch<QuestionIssue>(`/admin/question-issues/${issueId}`, payload, ADMIN_REQUEST),
+      apiClient.patch<QuestionIssue>(`/admin/question-issues/${encode(String(issueId))}`, payload, ADMIN_REQUEST),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: adminKeys.issues });
     }
@@ -174,7 +198,7 @@ export function useAdminAssignIssueVersionMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (issueId: number) =>
-      apiClient.post<QuestionIssue>(`/admin/question-issues/${issueId}/assign-current-version`, undefined, ADMIN_REQUEST),
+      apiClient.post<QuestionIssue>(`/admin/question-issues/${encode(String(issueId))}/assign-current-version`, undefined, ADMIN_REQUEST),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: adminKeys.issues });
     }

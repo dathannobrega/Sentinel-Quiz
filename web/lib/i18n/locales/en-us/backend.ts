@@ -52,6 +52,19 @@ export const backend = {
     stale_activity: "Your recency dropped; review again within the next 24 hours.",
     consistent: "Solid base. Focus on reducing residual errors and keeping the pace."
   },
+  weak_area: {
+    no_data: "Not enough history for this track yet.",
+    low_accuracy: "Biggest study need: {domain} ({wrong} error(s) in {total} questions).",
+    needs_practice: "{domain} still needs reinforcement ({wrong} error(s) in {total} questions).",
+    on_track: "{domain} is on track. Keep it fresh with spaced reviews.",
+    focus_domain: "Recommended focus: {domain} ({wrong} error(s) and {low_confidence} low-confidence answer(s) in {total} questions)."
+  },
+  study_feedback: {
+    wrong_review_soon: "Mistake turned into a review. This question will come back soon for reinforcement.",
+    correct_low_confidence: "Correct, but with low confidence. The review comes back early to consolidate it.",
+    correct_medium_confidence: "Good progress. The review comes back in a few days.",
+    correct_high_confidence: "High confidence recorded. This question was pushed to a more spaced review."
+  },
   readinessBands: {
     strong: "Strong",
     stable: "Stable",

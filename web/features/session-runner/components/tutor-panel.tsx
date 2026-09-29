@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { StatusBanner } from "@/components/ui/status-banner";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
-import { API_TIMEOUTS, ApiError, apiClient, readErrorMessage } from "@/lib/api/client";
+import { ApiError, apiClient, getTutorTimeoutMs, readErrorMessage } from "@/lib/api/client";
 import { useSessionRole } from "@/lib/query/hooks";
 import type { TutorMode, TutorReply } from "@/types/api";
 
@@ -67,7 +67,7 @@ export function TutorPanel({ sessionId, questionId, lockedDuringExam, answered, 
       const response = await apiClient.post<TutorReply>(
         `/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/tutor`,
         { mode },
-        { timeoutMs: API_TIMEOUTS.tutor }
+        { timeoutMs: getTutorTimeoutMs() }
       );
       setReply(response);
     } catch (error) {

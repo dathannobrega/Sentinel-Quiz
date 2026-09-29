@@ -87,7 +87,15 @@ export const admin = {
     confirmActiveAction: "Confirm",
     updated: "User {user} updated.",
     updateFailed: "Unable to update the user.",
-    noticeTitle: "Users"
+    noticeTitle: "Users",
+    pagination: {
+      label: "Users pagination",
+      previous: "Previous",
+      next: "Next",
+      range: "{start}–{end}",
+      rangeWithTotal: "{start}–{end} of {total} user(s)",
+      page: "page {page} of {pages}"
+    }
   },
   domainCatalog: {
     title: "Domain catalog",

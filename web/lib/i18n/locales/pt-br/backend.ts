@@ -52,6 +52,19 @@ export const backend = {
     stale_activity: "Sua recência caiu; volte a revisar nas próximas 24 horas.",
     consistent: "Base consistente. O foco agora é reduzir erros residuais e manter o ritmo."
   },
+  weak_area: {
+    no_data: "Ainda não há histórico suficiente para este track.",
+    low_accuracy: "Maior necessidade de estudo: {domain} ({wrong} erro(s) em {total} questões).",
+    needs_practice: "{domain} ainda pede reforço ({wrong} erro(s) em {total} questões).",
+    on_track: "{domain} está em dia. Mantenha com revisões espaçadas.",
+    focus_domain: "Foco recomendado: {domain} ({wrong} erro(s) e {low_confidence} resposta(s) com baixa confiança em {total} questões)."
+  },
+  study_feedback: {
+    wrong_review_soon: "Erro convertido em revisão. Esta questão voltará rapidamente para reforço.",
+    correct_low_confidence: "Acerto com baixa confiança. A revisão volta cedo para consolidar.",
+    correct_medium_confidence: "Bom progresso. A revisão volta em alguns dias.",
+    correct_high_confidence: "Alta confiança registrada. Esta questão foi empurrada para uma revisão mais espaçada."
+  },
   readinessBands: {
     strong: "Forte",
     stable: "Estável",

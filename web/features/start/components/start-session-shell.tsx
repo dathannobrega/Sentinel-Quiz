@@ -334,7 +334,7 @@ export function StartSessionShell() {
     onSuccess: (result) => {
       persistSessionId(result.mode, result.id);
       startTransition(() => {
-        router.push(result.mode === "study" ? `/study/${result.id}` : `/exam/${result.id}`);
+        router.push(result.mode === "study" ? `/study/${encodeURIComponent(result.id)}` : `/exam/${encodeURIComponent(result.id)}`);
       });
     },
     onError: (error) => {
