@@ -12,3 +12,9 @@ npm-debug.log*
 tsconfig.tsbuildinfo
 Dockerfile
 .dockerignore
+# E2E suite and its artifacts are never part of the image
+e2e
+playwright.config.ts
+playwright-report
+test-results
+blob-report

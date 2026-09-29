@@ -24,6 +24,13 @@ const eslintConfig = [
         { name: "alert", message: "Use StatusBanner notices instead of window.alert." }
       ]
     }
+  },
+  {
+    // Playwright fixtures receive a `use` callback that is not a React hook.
+    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off"
+    }
   }
 ];
 

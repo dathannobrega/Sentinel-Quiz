@@ -1,0 +1,545 @@
+{
+  "exam": {
+    "id": "e2e-cissp",
+    "title": "E2E CISSP",
+    "source": "e2e-cissp.json",
+    "question_count": 10,
+    "certification": "CISSP",
+    "language": "pt-BR",
+    "schema_version": 3,
+    "notes": "Small E2E fixture (web/e2e). Not part of the real question bank."
+  },
+  "questions": [
+    {
+      "id": "e2e_cissp_q001",
+      "question": "Qual é o objetivo principal de uma análise de impacto nos negócios (BIA)?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security and Risk Management",
+      "difficulty": "Medium",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Security and Risk Management"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Security and Risk Management"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Definir senhas"
+        },
+        {
+          "key": "B",
+          "text": "Identificar processos críticos e impactos de interrupção"
+        },
+        {
+          "key": "C",
+          "text": "Selecionar firewalls"
+        },
+        {
+          "key": "D",
+          "text": "Auditar código"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "A BIA identifica processos críticos, MTD, RTO e RPO para orientar a continuidade de negócios.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q002",
+      "question": "Qual fórmula representa a expectativa de perda anual (ALE)?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security and Risk Management",
+      "difficulty": "Hard",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Security and Risk Management"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Security and Risk Management"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "SLE x ARO"
+        },
+        {
+          "key": "B",
+          "text": "AV x EF"
+        },
+        {
+          "key": "C",
+          "text": "ARO / SLE"
+        },
+        {
+          "key": "D",
+          "text": "AV + EF"
+        }
+      ],
+      "correct_options": [
+        "A"
+      ],
+      "justification": "ALE = SLE x ARO, onde SLE = AV x EF.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q003",
+      "question": "Quem é o responsável final pela classificação dos dados?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Asset Security",
+      "difficulty": "Easy",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Asset Security"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Asset Security"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Custodiante"
+        },
+        {
+          "key": "B",
+          "text": "Proprietário dos dados"
+        },
+        {
+          "key": "C",
+          "text": "Usuário"
+        },
+        {
+          "key": "D",
+          "text": "Auditor"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "O proprietário dos dados (data owner) define a classificação; o custodiante implementa os controles.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q004",
+      "question": "Qual modelo de segurança foca em confidencialidade com 'no read up, no write down'?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Architecture and Engineering",
+      "difficulty": "Medium",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Security Architecture and Engineering"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Security Architecture and Engineering"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Biba"
+        },
+        {
+          "key": "B",
+          "text": "Bell-LaPadula"
+        },
+        {
+          "key": "C",
+          "text": "Clark-Wilson"
+        },
+        {
+          "key": "D",
+          "text": "Brewer-Nash"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "Bell-LaPadula protege a confidencialidade com as propriedades simple security e star.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q005",
+      "question": "Em qual camada OSI o IPsec opera?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Communication and Network Security",
+      "difficulty": "Hard",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Communication and Network Security"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Communication and Network Security"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Camada 2"
+        },
+        {
+          "key": "B",
+          "text": "Camada 3"
+        },
+        {
+          "key": "C",
+          "text": "Camada 4"
+        },
+        {
+          "key": "D",
+          "text": "Camada 7"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "IPsec protege pacotes IP na camada de rede (camada 3).",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q006",
+      "question": "Qual modelo de controle de acesso usa rótulos de sensibilidade definidos pelo sistema?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Identity and Access Management (IAM)",
+      "difficulty": "Easy",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Identity and Access Management (IAM)"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Identity and Access Management (IAM)"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "DAC"
+        },
+        {
+          "key": "B",
+          "text": "MAC"
+        },
+        {
+          "key": "C",
+          "text": "RBAC"
+        },
+        {
+          "key": "D",
+          "text": "ABAC"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "No MAC o sistema impõe rótulos e habilitações; usuários não alteram permissões.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q007",
+      "question": "Qual teste é realizado com conhecimento total do ambiente?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Assessment and Testing",
+      "difficulty": "Medium",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Security Assessment and Testing"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Security Assessment and Testing"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Black box"
+        },
+        {
+          "key": "B",
+          "text": "White box"
+        },
+        {
+          "key": "C",
+          "text": "Gray box"
+        },
+        {
+          "key": "D",
+          "text": "Blind"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "No teste white box o avaliador conhece a arquitetura, o código e as configurações.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q008",
+      "question": "Qual tipo de backup copia apenas os arquivos alterados desde o último backup completo?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Operations",
+      "difficulty": "Hard",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Security Operations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Security Operations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Incremental"
+        },
+        {
+          "key": "B",
+          "text": "Diferencial"
+        },
+        {
+          "key": "C",
+          "text": "Completo"
+        },
+        {
+          "key": "D",
+          "text": "Espelho"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "O backup diferencial copia tudo que mudou desde o último completo, sem limpar o bit de arquivo.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q009",
+      "question": "Em qual fase do SDLC a segurança deve ser considerada primeiro?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Software Development Security",
+      "difficulty": "Easy",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Software Development Security"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Software Development Security"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Testes"
+        },
+        {
+          "key": "B",
+          "text": "Implantação"
+        },
+        {
+          "key": "C",
+          "text": "Requisitos/iniciação"
+        },
+        {
+          "key": "D",
+          "text": "Manutenção"
+        }
+      ],
+      "correct_options": [
+        "C"
+      ],
+      "justification": "Segurança deve ser incorporada desde a iniciação e os requisitos do projeto.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_cissp_q010",
+      "question": "Quais itens pertencem à cadeia de custódia de evidências? (Escolha duas.)",
+      "language": "pt-BR",
+      "multi_select": true,
+      "domain": "Security Operations",
+      "difficulty": "Medium",
+      "certification": "CISSP",
+      "tags": [
+        "E2E",
+        "Security Operations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "multiple_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "ISC2 CISSP Exam Outline",
+          "reference": "Security Operations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E CISSP",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Quem coletou a evidência"
+        },
+        {
+          "key": "B",
+          "text": "Preço do equipamento"
+        },
+        {
+          "key": "C",
+          "text": "Data e hora de cada transferência"
+        },
+        {
+          "key": "D",
+          "text": "Cor da mídia"
+        }
+      ],
+      "correct_options": [
+        "A",
+        "C"
+      ],
+      "justification": "A cadeia de custódia registra quem manipulou a evidência e quando cada transferência ocorreu.",
+      "needs_review": false,
+      "review_notes": null
+    }
+  ]
+}

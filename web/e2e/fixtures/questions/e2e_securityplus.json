@@ -1,0 +1,545 @@
+{
+  "exam": {
+    "id": "e2e-securityplus",
+    "title": "E2E Security+",
+    "source": "e2e-securityplus.json",
+    "question_count": 10,
+    "certification": "Security+",
+    "language": "pt-BR",
+    "schema_version": 3,
+    "notes": "Small E2E fixture (web/e2e). Not part of the real question bank."
+  },
+  "questions": [
+    {
+      "id": "e2e_sp_q001",
+      "question": "Qual pilar da tríade CIA garante que os dados não sejam alterados sem autorização?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "General Security Concepts",
+      "difficulty": "Medium",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "General Security Concepts"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "General Security Concepts"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Confidencialidade"
+        },
+        {
+          "key": "B",
+          "text": "Integridade"
+        },
+        {
+          "key": "C",
+          "text": "Disponibilidade"
+        },
+        {
+          "key": "D",
+          "text": "Não repúdio"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "Integridade garante que a informação não seja modificada de forma não autorizada; hashing é um controle típico.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q002",
+      "question": "Qual controle fornece não repúdio para uma mensagem enviada por e-mail?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "General Security Concepts",
+      "difficulty": "Hard",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "General Security Concepts"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "General Security Concepts"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Criptografia simétrica"
+        },
+        {
+          "key": "B",
+          "text": "Assinatura digital"
+        },
+        {
+          "key": "C",
+          "text": "Checksum CRC"
+        },
+        {
+          "key": "D",
+          "text": "Compressão"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "A assinatura digital vincula a mensagem à chave privada do remetente, provendo não repúdio.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q003",
+      "question": "Um atacante liga se passando pelo CEO pedindo compra de gift cards. Qual técnica é essa?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Threats, Vulnerabilities and Mitigations",
+      "difficulty": "Easy",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Threats, Vulnerabilities and Mitigations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Threats, Vulnerabilities and Mitigations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Smishing"
+        },
+        {
+          "key": "B",
+          "text": "Whaling"
+        },
+        {
+          "key": "C",
+          "text": "Tailgating"
+        },
+        {
+          "key": "D",
+          "text": "Pharming"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "Whaling é phishing direcionado a executivos ou que personifica executivos de alto escalão.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q004",
+      "question": "Qual ataque insere comandos SQL em um campo de formulário?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Threats, Vulnerabilities and Mitigations",
+      "difficulty": "Medium",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Threats, Vulnerabilities and Mitigations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Threats, Vulnerabilities and Mitigations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "XSS"
+        },
+        {
+          "key": "B",
+          "text": "SQL injection"
+        },
+        {
+          "key": "C",
+          "text": "CSRF"
+        },
+        {
+          "key": "D",
+          "text": "Replay"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "SQL injection explora entradas não sanitizadas concatenadas em consultas ao banco de dados.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q005",
+      "question": "Qual dispositivo inspeciona tráfego HTTP para bloquear ataques a aplicações web?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Architecture",
+      "difficulty": "Hard",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Architecture"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Architecture"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "WAF"
+        },
+        {
+          "key": "B",
+          "text": "Switch L2"
+        },
+        {
+          "key": "C",
+          "text": "Hub"
+        },
+        {
+          "key": "D",
+          "text": "Modem"
+        }
+      ],
+      "correct_options": [
+        "A"
+      ],
+      "justification": "Um Web Application Firewall (WAF) analisa requisições HTTP e bloqueia padrões maliciosos.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q006",
+      "question": "Qual princípio assume que nenhuma rede é confiável por padrão?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Architecture",
+      "difficulty": "Easy",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Architecture"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Architecture"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Defesa em profundidade"
+        },
+        {
+          "key": "B",
+          "text": "Zero trust"
+        },
+        {
+          "key": "C",
+          "text": "Segurança por obscuridade"
+        },
+        {
+          "key": "D",
+          "text": "Fail open"
+        }
+      ],
+      "correct_options": [
+        "B"
+      ],
+      "justification": "Zero trust exige verificação contínua de identidade e contexto, sem confiança implícita na rede.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q007",
+      "question": "Qual ferramenta correlaciona logs de várias fontes para detectar incidentes?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Operations",
+      "difficulty": "Medium",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Operations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Operations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "SIEM"
+        },
+        {
+          "key": "B",
+          "text": "DLP"
+        },
+        {
+          "key": "C",
+          "text": "HSM"
+        },
+        {
+          "key": "D",
+          "text": "TPM"
+        }
+      ],
+      "correct_options": [
+        "A"
+      ],
+      "justification": "O SIEM coleta, normaliza e correlaciona eventos de segurança de múltiplas fontes.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q008",
+      "question": "Quais ações fazem parte da fase de contenção de incidentes? (Escolha duas.)",
+      "language": "pt-BR",
+      "multi_select": true,
+      "domain": "Security Operations",
+      "difficulty": "Hard",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Operations"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "multiple_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Operations"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Isolar o host afetado"
+        },
+        {
+          "key": "B",
+          "text": "Reinstalar o sistema operacional"
+        },
+        {
+          "key": "C",
+          "text": "Bloquear o IP do atacante no firewall"
+        },
+        {
+          "key": "D",
+          "text": "Escrever o relatório final"
+        }
+      ],
+      "correct_options": [
+        "A",
+        "C"
+      ],
+      "justification": "Contenção limita o impacto: isolar hosts e bloquear o atacante; erradicação e lições aprendidas vêm depois.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q009",
+      "question": "Qual documento define as regras de uso aceitável dos recursos da empresa?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Program Management and Oversight",
+      "difficulty": "Easy",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Program Management and Oversight"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Program Management and Oversight"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "AUP"
+        },
+        {
+          "key": "B",
+          "text": "SLA"
+        },
+        {
+          "key": "C",
+          "text": "MOU"
+        },
+        {
+          "key": "D",
+          "text": "NDA"
+        }
+      ],
+      "correct_options": [
+        "A"
+      ],
+      "justification": "A Acceptable Use Policy (AUP) descreve o uso permitido dos recursos corporativos.",
+      "needs_review": false,
+      "review_notes": null
+    },
+    {
+      "id": "e2e_sp_q010",
+      "question": "Qual estratégia de risco transfere o impacto financeiro a terceiros?",
+      "language": "pt-BR",
+      "multi_select": false,
+      "domain": "Security Program Management and Oversight",
+      "difficulty": "Medium",
+      "certification": "Security+",
+      "tags": [
+        "E2E",
+        "Security Program Management and Oversight"
+      ],
+      "cross_domain_tags": [],
+      "question_type": "single_response",
+      "cognitive_level": null,
+      "format_type": "direct",
+      "citations": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Security Program Management and Oversight"
+        }
+      ],
+      "source_materials": [],
+      "question_set": null,
+      "quality_score": null,
+      "source_exam_id": "e2e",
+      "source_exam_title": "E2E Security+",
+      "legacy_source_file": null,
+      "options": [
+        {
+          "key": "A",
+          "text": "Aceitar"
+        },
+        {
+          "key": "B",
+          "text": "Evitar"
+        },
+        {
+          "key": "C",
+          "text": "Transferir"
+        },
+        {
+          "key": "D",
+          "text": "Mitigar"
+        }
+      ],
+      "correct_options": [
+        "C"
+      ],
+      "justification": "Transferir o risco, por exemplo com seguro cibernético, repassa o impacto financeiro a terceiros.",
+      "needs_review": false,
+      "review_notes": null
+    }
+  ]
+}
