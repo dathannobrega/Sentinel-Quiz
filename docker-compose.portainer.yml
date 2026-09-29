@@ -171,6 +171,9 @@ services:
       # Licensed EPUBs are never in the image: point APP_MATERIAL_HOST_DIR to a
       # host folder (absolute path) or fill the named volume "material_data".
       - ${APP_MATERIAL_HOST_DIR:-material_data}:/app/material:ro
+      # Private-study question imports (questions/local, never baked into the image):
+      # point APP_LOCAL_QUESTIONS_HOST_DIR to a host folder or fill "local_questions".
+      - ${APP_LOCAL_QUESTIONS_HOST_DIR:-local_questions}:/questions/local:ro
     networks:
       - edge
       - data
@@ -263,3 +266,4 @@ volumes:
   postgres_data:
   proxy_certs:
   material_data:
+  local_questions:

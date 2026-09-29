@@ -15,11 +15,12 @@
       "url": "https://github.com/MichalisKampouridis/security-plus-study",
       "commit": "a65fd4378d2fad4db5c2fb183d3d0306160e403c",
       "license": "NOASSERTION",
-      "status": "permission_required",
+      "status": "approved",
       "reason": "No license (no LICENSE file, no license field; GitHub API license=null): all rights reserved. Best quality of the evaluated sources (sample: 96% correct, realism 4.2), so it is worth asking the author for written permission.",
       "evidence": [
         "https://github.com/MichalisKampouridis/security-plus-study (no LICENSE file at the pinned commit)",
-        "GitHub API /repos/MichalisKampouridis/security-plus-study: license = null"
+        "GitHub API /repos/MichalisKampouridis/security-plus-study: license = null",
+        "Written permission recorded 2026-09-29: scripts/question_sources/permissions/michaliskampouridis-security-plus-study/20260929T210751Z-author-permission-statement.txt"
       ],
       "adapter": "secplus_mk",
       "certification": "Security+",
@@ -32,7 +33,12 @@
         "correct_percent": 96.0,
         "realism_avg": 4.16
       },
-      "permission": null
+      "permission": {
+        "evidence_file": "scripts/question_sources/permissions/michaliskampouridis-security-plus-study/20260929T210751Z-author-permission-statement.txt",
+        "sha256": "e002f59fec5ebaf61d0c65d7fe0f7ec5e9a82ffc1288cfef6b3b515eedb12f75",
+        "recorded_at": "2026-09-29T21:07:51+00:00",
+        "note": "Owner reports the author granted reuse permission (2026-09-29)."
+      }
     },
     {
       "id": "iakhator-comptia-security-plus-701",
@@ -40,12 +46,13 @@
       "url": "https://github.com/iakhator/comptia-security-plus-701",
       "commit": "66fd929f6f52e71032bee425ec562f092fece57e",
       "license": "NOASSERTION",
-      "status": "permission_required",
+      "status": "approved",
       "reason": "No license file (MIT is only mentioned in the README, without a LICENSE file or copyright line; GitHub API license=null), so reuse needs the author's written permission. Sample: 92% correct; 89 empty answer keys in finalExam.json were inferred from the explanations and 11 could not be inferred.",
       "evidence": [
         "https://github.com/iakhator/comptia-security-plus-701 (README 'License' section only; no LICENSE file at the pinned commit)",
         "GitHub API /repos/iakhator/comptia-security-plus-701: license = null",
-        "src/data/finalExam.json: 100 items with an empty answer key (89 inferred, 11 not inferable)"
+        "src/data/finalExam.json: 100 items with an empty answer key (89 inferred, 11 not inferable)",
+        "Written permission recorded 2026-09-29: scripts/question_sources/permissions/iakhator-comptia-security-plus-701/20260929T210751Z-author-permission-statement.txt"
       ],
       "adapter": "secplus_ia",
       "certification": "Security+",
@@ -61,7 +68,12 @@
         "answer_keys_inferred": 89,
         "answer_keys_not_inferable": 11
       },
-      "permission": null
+      "permission": {
+        "evidence_file": "scripts/question_sources/permissions/iakhator-comptia-security-plus-701/20260929T210751Z-author-permission-statement.txt",
+        "sha256": "e002f59fec5ebaf61d0c65d7fe0f7ec5e9a82ffc1288cfef6b3b515eedb12f75",
+        "recorded_at": "2026-09-29T21:07:51+00:00",
+        "note": "Owner reports the author granted reuse permission (2026-09-29)."
+      }
     },
     {
       "id": "costajr007-security-plus-practice",
@@ -69,12 +81,13 @@
       "url": "https://github.com/CostaJr007/security-plus-practice",
       "commit": "7f58ef92f2aff0097c2135268bbc71ea79dfb0e4",
       "license": "MIT",
-      "status": "blocked",
+      "status": "personal_use",
       "reason": "The repository is MIT-licensed, but its content was copied from commercial ExamsDigest material: 'ExamsDigest Corp' appears in 7 question stems and PDF page numbers up to 1331 are embedded in the text. The repository author cannot license content they do not own.",
       "evidence": [
         "LICENSE (MIT, (c) 2026 CostaJr007) at the pinned commit",
         "questions_db_final.json: 'ExamsDigest Corp' in 7 stems; embedded PDF page numbers (1044-1331)",
-        "'Correct Answer: X. ... Option A is incorrect.' layout of commercial practice-test books"
+        "'Correct Answer: X. ... Option A is incorrect.' layout of commercial practice-test books",
+        "Owner authorization for private, non-commercial study recorded 2026-09-29: scripts/question_sources/permissions/costajr007-security-plus-practice/20260929T210751Z-owner-personal-use-authorization.txt"
       ],
       "adapter": "secplus_cj",
       "certification": "Security+",
@@ -88,7 +101,14 @@
         "incorrect_key_percent": 1.7,
         "ambiguous_percent": 6.3
       },
-      "permission": null
+      "permission": null,
+      "personal_use": {
+        "evidence_file": "scripts/question_sources/permissions/costajr007-security-plus-practice/20260929T210751Z-owner-personal-use-authorization.txt",
+        "sha256": "0ddaa4545a5ba33b9f0e2148b5a88a87b34a37ff160b87371b8553b1d64cda35",
+        "recorded_at": "2026-09-29T21:07:51+00:00",
+        "note": "Owner authorized private, non-commercial study use (2026-09-29).",
+        "blocked_reason": "The repository is MIT-licensed, but its content was copied from commercial ExamsDigest material: 'ExamsDigest Corp' appears in 7 question stems and PDF page numbers up to 1331 are embedded in the text. The repository author cannot license content they do not own."
+      }
     },
     {
       "id": "psybeast-ceh-v13-exam-simulator",
@@ -96,11 +116,12 @@
       "url": "https://github.com/PSYBEAST-GIT/ceh-v13-exam-simulator-2.0",
       "commit": "2dc421fcdd2ac1b7c2e6542f9aa11f55184b29b8",
       "license": "MIT",
-      "status": "blocked",
+      "status": "personal_use",
       "reason": "Question stems are verbatim ExamTopics CEH v11 dumps (EC-Council exam content covered by the candidate NDA); the MIT license of the simulator cannot cover them.",
       "evidence": [
         "LICENSE (MIT, (c) 2026 PSYBEAST) at the pinned commit",
-        "index.html 'var POOL=' question pool: stems match ExamTopics CEH v11 (312-50v11) dump pages verbatim (web search screening, 2026-09-28)"
+        "index.html 'var POOL=' question pool: stems match ExamTopics CEH v11 (312-50v11) dump pages verbatim (web search screening, 2026-09-28)",
+        "Owner authorization for private, non-commercial study recorded 2026-09-29: scripts/question_sources/permissions/psybeast-ceh-v13-exam-simulator/20260929T210751Z-owner-personal-use-authorization.txt"
       ],
       "adapter": "ceh_psybeast",
       "certification": "CEH",
@@ -113,7 +134,14 @@
         "correct_percent": 88.0,
         "realism_avg": 3.44
       },
-      "permission": null
+      "permission": null,
+      "personal_use": {
+        "evidence_file": "scripts/question_sources/permissions/psybeast-ceh-v13-exam-simulator/20260929T210751Z-owner-personal-use-authorization.txt",
+        "sha256": "0ddaa4545a5ba33b9f0e2148b5a88a87b34a37ff160b87371b8553b1d64cda35",
+        "recorded_at": "2026-09-29T21:07:51+00:00",
+        "note": "Owner authorized private, non-commercial study use (2026-09-29).",
+        "blocked_reason": "Question stems are verbatim ExamTopics CEH v11 dumps (EC-Council exam content covered by the candidate NDA); the MIT license of the simulator cannot cover them."
+      }
     },
     {
       "id": "therrpatil-ceh-v13-exam-mcq135",

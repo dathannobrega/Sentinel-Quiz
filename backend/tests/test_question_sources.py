@@ -16,13 +16,24 @@ from scripts.question_sources import adapters, cli, workflow  # noqa: E402
 from scripts.question_sources import registry as reg  # noqa: E402
 
 EXPECTED_STATUS = {
-    "michaliskampouridis-security-plus-study": "permission_required",
-    "iakhator-comptia-security-plus-701": "permission_required",
-    "costajr007-security-plus-practice": "blocked",
-    "psybeast-ceh-v13-exam-simulator": "blocked",
+    # Owner reported the authors' permission (2026-09-29).
+    "michaliskampouridis-security-plus-study": "approved",
+    "iakhator-comptia-security-plus-701": "approved",
+    # Owner authorized private, non-commercial study use; imports stay in questions/local/.
+    "costajr007-security-plus-practice": "personal_use",
+    "psybeast-ceh-v13-exam-simulator": "personal_use",
     "therrpatil-ceh-v13-exam-mcq135": "blocked",
     "siriusbkid-gideon-pbq-generator": "blocked",
 }
+
+
+def _reset(source: dict, status: str) -> dict:
+    """Copy of a registry source forced into ``status`` (decoupled from the live registry)."""
+    copy = json.loads(json.dumps(source))
+    copy["status"] = status
+    copy.pop("permission", None)
+    copy.pop("personal_use", None)
+    return copy
 
 
 @pytest.fixture()
@@ -72,6 +83,7 @@ def test_registry_has_the_six_decided_sources(registry):
 def test_registry_validation_rejects_approval_without_license_or_permission(registry):
     broken = json.loads(json.dumps(registry))
     broken["sources"][0]["status"] = "approved"
+    broken["sources"][0].pop("permission", None)  # NOASSERTION license and no recorded permission
     assert any("approved without" in error for error in reg.validate_registry(broken))
     broken["sources"][1]["commit"] = "abc"
     assert any("40-char" in error for error in reg.validate_registry(broken))
@@ -79,11 +91,28 @@ def test_registry_validation_rejects_approval_without_license_or_permission(regi
 
 def test_license_gate(registry, tmp_path):
     for source_id, status in EXPECTED_STATUS.items():
+        source = reg.get_source(registry, source_id)
+        if status == "approved":
+            reg.check_import_allowed(source)
+            assert source["permission"]["evidence_file"] and source["permission"]["sha256"]
+            continue
         with pytest.raises(reg.RegistryError):
-            reg.check_import_allowed(reg.get_source(registry, source_id))
+            reg.check_import_allowed(source)
+        if status == "personal_use":
+            reg.check_import_allowed(source, personal_use=True)
+            assert source["personal_use"]["evidence_file"] and source["personal_use"]["blocked_reason"]
     evidence = tmp_path / "permission.eml"
     evidence.write_text("Author: yes, you may reuse the questions with attribution.", encoding="utf-8")
     copy = json.loads(json.dumps(registry))
+    for source in copy["sources"]:
+        if source["id"] == "iakhator-comptia-security-plus-701":
+            source.update(_reset(source, "permission_required"))
+            source.pop("permission", None)
+        if source["id"] == "costajr007-security-plus-practice":
+            source.update(_reset(source, "blocked"))
+            source.pop("personal_use", None)
+    with pytest.raises(reg.RegistryError):
+        reg.check_import_allowed(reg.get_source(copy, "iakhator-comptia-security-plus-701"))
     reg.record_permission(copy, "iakhator-comptia-security-plus-701", evidence, note="e-mail", permissions_dir=tmp_path / "perm")
     source = reg.get_source(copy, "iakhator-comptia-security-plus-701")
     assert source["status"] == "approved" and source["permission"]["sha256"]
@@ -95,6 +124,38 @@ def test_license_gate(registry, tmp_path):
     empty.write_text("", encoding="utf-8")
     with pytest.raises(reg.RegistryError):
         reg.record_permission(copy, "michaliskampouridis-security-plus-study", empty, permissions_dir=tmp_path / "perm")
+
+
+def test_personal_use_authorization_confines_imports_to_local(registry, tmp_path, cache):
+    source = _reset(reg.get_source(registry, "costajr007-security-plus-practice"), "blocked")
+    copy = {"sources": [source]}
+    authorization = _write(tmp_path / "auth.txt", "Owner: private study only.")
+    reg.record_personal_use(copy, source["id"], authorization, note="owner", permissions_dir=tmp_path / "perm")
+    assert source["status"] == "personal_use" and source["personal_use"]["blocked_reason"]
+    assert reg.validate_registry(copy) == []
+    broken = json.loads(json.dumps(copy))
+    broken["sources"][0].pop("personal_use")
+    assert any("personal_use without" in error for error in reg.validate_registry(broken))
+    path, _ = workflow.extract_to_cache(source, _cj_checkout(tmp_path / "cj"))
+    with pytest.raises(reg.RegistryError):
+        workflow.import_source(source, path, imports_dir=tmp_path / "imports", against=[])
+    local = tmp_path / "local"
+    result = workflow.import_source(source, path, imports_dir=local, against=[], personal_use=True)
+    assert result["personal_use"] is True and result["imported"] >= 1
+    written = json.loads((local / f"{source['id']}.json").read_text(encoding="utf-8"))
+    assert all(q["usage_restriction"] == "personal_use" and q["needs_review"] for q in written["questions"])
+
+
+def test_reimport_does_not_dedupe_against_its_own_previous_output(registry, tmp_path, cache, monkeypatch):
+    source = _source(registry, "michaliskampouridis-security-plus-study")
+    path, _ = workflow.extract_to_cache(source, _mk_checkout(tmp_path / "mk"))
+    imports = tmp_path / "imports"
+    monkeypatch.setattr(workflow, "QUESTIONS_DIR", tmp_path / "questions")
+    monkeypatch.setattr(workflow, "IMPORTS_DIR", imports)
+    monkeypatch.setattr(workflow, "LOCAL_DIR", tmp_path / "local")
+    first = workflow.import_source(source, path, imports_dir=imports)
+    second = workflow.import_source(source, path, imports_dir=imports)
+    assert first["imported"] == second["imported"] > 0 and second["skipped_duplicates"] == 0
 
 
 def test_cache_must_live_outside_the_repository(monkeypatch):
@@ -298,7 +359,8 @@ def test_review_apply(registry, tmp_path, cache):
 
 
 def test_import_requires_approval_and_writes_provenance(registry, tmp_path, cache):
-    source = _source(registry, "michaliskampouridis-security-plus-study")
+    source = _reset(reg.get_source(registry, "michaliskampouridis-security-plus-study"), "permission_required")
+    registry = {"sources": [source]}
     path, _ = workflow.extract_to_cache(source, _mk_checkout(tmp_path / "mk"))
     imports = tmp_path / "imports"
     with pytest.raises(reg.RegistryError):
@@ -319,9 +381,11 @@ def test_import_requires_approval_and_writes_provenance(registry, tmp_path, cach
 def test_cli_list_and_blocked_import(capsys, cache):
     assert cli.main(["list"]) == 0
     out = capsys.readouterr().out
-    assert "costajr007-security-plus-practice" in out and "blocked" in out
-    assert cli.main(["import", "psybeast-ceh-v13-exam-simulator"]) == 2
+    assert "therrpatil-ceh-v13-exam-mcq135" in out and "blocked" in out and "personal_use" in out
+    assert cli.main(["import", "therrpatil-ceh-v13-exam-mcq135"]) == 2
     assert "blocked" in capsys.readouterr().err
+    assert cli.main(["import", "psybeast-ceh-v13-exam-simulator"]) == 2
+    assert "--personal-use" in capsys.readouterr().err
 
 
 def test_no_extracted_third_party_content_is_committed():
@@ -330,3 +394,22 @@ def test_no_extracted_third_party_content_is_committed():
         source_id = path.stem
         source = reg.get_source(reg.load_registry(), source_id)
         assert source["status"] == "approved", f"{path} imported from a non-approved source"
+
+
+def test_private_study_imports_are_ignored_by_git_and_docker():
+    gitignore = (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()
+    dockerignore = (REPO / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert "questions/local/" in gitignore
+    assert "questions/local" in dockerignore
+    assert dockerignore.index("questions/local") > dockerignore.index("!questions")
+
+
+def test_ingest_loads_imports_then_private_study_local_banks(tmp_path):
+    from app.services.ingest import _question_source_files
+
+    (tmp_path / "imports").mkdir()
+    (tmp_path / "local").mkdir()
+    for rel in ("securityplus.json", "imports/approved-source.json", "local/personal-source.json", "local/notes.txt"):
+        (tmp_path / rel).write_text("{}", encoding="utf-8")
+    names = [name for name, _path in _question_source_files(str(tmp_path))]
+    assert names == ["securityplus.json", "imports/approved-source.json", "local/personal-source.json"]

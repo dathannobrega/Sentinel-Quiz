@@ -39,5 +39,9 @@ material/**/*.epub
 material/*.pdf
 material/**/*.pdf
 
+# Private-study question imports (registry status personal_use): no redistribution
+# rights, so they stay on the owner's machine (python -m scripts.question_sources import --personal-use).
+questions/local/
+
 # graphify knowledge-graph output
 graphify-out/

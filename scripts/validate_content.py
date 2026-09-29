@@ -83,14 +83,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 QUESTIONS_DIR = ROOT / "questions"
 IMPORTS_DIR = QUESTIONS_DIR / "imports"
+# Private-study imports (git-ignored; only present on the owner's machine).
+LOCAL_DIR = QUESTIONS_DIR / "local"
 PBQ_MODULE_PATH = ROOT / "backend" / "app" / "services" / "pbq_grading.py"
 
 
 def default_files() -> list[Path]:
-    """Every bank the ingest loads: questions/*.json then questions/imports/*.json."""
+    """Every bank the ingest loads: questions/*.json, imports/*.json, then local/*.json."""
     files = sorted(QUESTIONS_DIR.glob("*.json"))
-    if IMPORTS_DIR.is_dir():
-        files += sorted(IMPORTS_DIR.glob("*.json"))
+    for extra in (IMPORTS_DIR, LOCAL_DIR):
+        if extra.is_dir():
+            files += sorted(extra.glob("*.json"))
     return files
 
 
@@ -327,9 +330,10 @@ def validate_question(report: Report, where: str, q: dict, certification: str | 
 
 def validate_file(report: Report, path: Path, seen_ids: dict[str, str]) -> None:
     label = path.name
-    is_import = path.resolve().parent == IMPORTS_DIR.resolve()
+    parent = path.resolve().parent
+    is_import = parent in (IMPORTS_DIR.resolve(), LOCAL_DIR.resolve())
     if is_import:
-        label = f"imports/{path.name}"
+        label = f"{parent.name}/{path.name}"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:

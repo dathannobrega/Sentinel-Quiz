@@ -1,0 +1,9 @@
+Permission statement recorded on 2026-09-29 by the repository owner (dathan.nobrega@datan.com.br):
+
+"Os autores MichalisKampouridis e iakhator liberaram" — the owner reports that the authors of
+https://github.com/MichalisKampouridis/security-plus-study and
+https://github.com/iakhator/comptia-security-plus-701 granted permission to reuse their
+CompTIA Security+ practice questions in Sentinel-Quiz.
+
+Scope: private, non-commercial study platform (the owner states the product will not be sold).
+The original written messages from the authors should be attached here when available.

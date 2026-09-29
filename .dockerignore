@@ -9,6 +9,8 @@
 !backend/requirements.txt
 !backend/requirements.lock
 !questions
+# Private-study imports (personal_use sources) never enter the image.
+questions/local
 !docker/entrypoint.sh
 # Study-track definitions (our own, non-licensed content) — exactly these three
 # files; they are baked into the image at /app/study-tracks (STUDY_TRACK_DIR).

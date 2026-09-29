@@ -9,6 +9,9 @@ Commands:
   review-apply <file> <review.json> [--out F] [--keep-flagged] [--drop-unreviewed]
   import <id> [--from FILE] [--permission-evidence FILE] [--note TEXT]
                                          license gate, then questions/imports/<id>.json
+  import <id> --personal-use [--authorization FILE] [--note TEXT]
+                                         private-study source -> questions/local/<id>.json
+                                         (git/docker-ignored; never committed nor shipped)
 
 The cache defaults to ~/.cache/sentinel-quiz/sources (override with SQ_SOURCES_CACHE).
 Never commit extracted third-party content: only `import` writes into the repository,
@@ -94,7 +97,13 @@ def cmd_import(args) -> int:
         reg.record_permission(registry, source["id"], Path(args.permission_evidence), note=args.note)
         reg.save_registry(registry)
         print(f"permission recorded: {source['id']} is now approved")
-    reg.check_import_allowed(source)
+    if args.authorization:
+        if not args.personal_use:
+            raise reg.RegistryError("--authorization records a private-study authorization: pass --personal-use too")
+        reg.record_personal_use(registry, source["id"], Path(args.authorization), note=args.note)
+        reg.save_registry(registry)
+        print(f"personal-use authorization recorded: {source['id']} -> questions/local/ only")
+    reg.check_import_allowed(source, personal_use=args.personal_use)
     if args.input:
         input_path = Path(args.input)
     else:
@@ -102,7 +111,7 @@ def cmd_import(args) -> int:
         input_path = reviewed if reviewed.is_file() else workflow.work_file(source, "extracted.json")
     if not input_path.is_file():
         raise workflow.PipelineError(f"{input_path} not found: run fetch/extract (and review-apply) first")
-    _print(workflow.import_source(source, input_path))
+    _print(workflow.import_source(source, input_path, personal_use=args.personal_use))
     return 0
 
 
@@ -148,6 +157,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--from", dest="input", help="normalized file (default: <cache>/<id>/reviewed.json or extracted.json)")
     p.add_argument("--permission-evidence", help="written permission of the author; records it and approves the source")
     p.add_argument("--note", help="short note stored with the permission")
+    p.add_argument(
+        "--personal-use",
+        action="store_true",
+        help="import a personal_use source into questions/local/ (git/docker-ignored, private study only)",
+    )
+    p.add_argument(
+        "--authorization",
+        help="owner's written authorization for private study; records it and sets status personal_use",
+    )
     p.set_defaults(func=cmd_import)
     return parser
 

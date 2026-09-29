@@ -13,7 +13,10 @@ REPO_ROOT = PACKAGE_DIR.parents[1]
 REGISTRY_PATH = PACKAGE_DIR / "registry.json"
 PERMISSIONS_DIR = PACKAGE_DIR / "permissions"
 
-STATUSES = ("approved", "permission_required", "blocked")
+# personal_use: no redistribution rights, but the repository owner explicitly authorized
+# private, non-commercial study use. Imports go to questions/local/ (git- and docker-ignored)
+# so the content is never committed nor baked into published images.
+STATUSES = ("approved", "permission_required", "personal_use", "blocked")
 # SPDX identifiers whose terms allow copying and adapting the questions with attribution.
 REUSE_LICENSES = {"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0", "Unlicense"}
 REQUIRED_KEYS = ("id", "name", "url", "commit", "license", "status", "reason", "evidence", "review_stats")
@@ -61,6 +64,10 @@ def validate_registry(registry: dict[str, Any]) -> list[str]:
             permission = source.get("permission") or {}
             if not license_ok and not permission.get("evidence_file"):
                 errors.append(f"{where}: approved without a reuse license or recorded permission")
+        if source.get("status") == "personal_use":
+            authorization = source.get("personal_use") or {}
+            if not authorization.get("evidence_file"):
+                errors.append(f"{where}: personal_use without a recorded owner authorization")
     return errors
 
 
@@ -71,11 +78,23 @@ def get_source(registry: dict[str, Any], source_id: str) -> dict[str, Any]:
     raise RegistryError(f"unknown source {source_id!r} (see `list`)")
 
 
-def check_import_allowed(source: dict[str, Any]) -> None:
-    """License gate: raises unless the source may be imported."""
+def check_import_allowed(source: dict[str, Any], *, personal_use: bool = False) -> None:
+    """License gate: raises unless the source may be imported.
+
+    ``personal_use`` sources are importable only when the caller explicitly opts in
+    (``--personal-use``); their output goes to the git/docker-ignored local folder.
+    """
     status = source.get("status")
     if status == "approved":
         return
+    if status == "personal_use":
+        if personal_use:
+            return
+        raise RegistryError(
+            f"{source['id']} is authorized for private study only ({source.get('reason')}). "
+            "Re-run with --personal-use: the import is written to questions/local/, which is never "
+            "committed nor shipped in images."
+        )
     if status == "blocked":
         raise RegistryError(
             f"{source['id']} is blocked: {source.get('reason')} "
@@ -121,4 +140,47 @@ def record_permission(
     }
     source["status"] = "approved"
     source.setdefault("evidence", []).append(f"Written permission recorded {stamp.date().isoformat()}: {stored}")
+    return source
+
+
+def record_personal_use(
+    registry: dict[str, Any],
+    source_id: str,
+    evidence_file: Path,
+    *,
+    note: str | None = None,
+    now: datetime | None = None,
+    permissions_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Record the repository owner's authorization to use a source for private study.
+
+    Unlike ``record_permission`` this does not grant redistribution: the status becomes
+    ``personal_use`` and imports are confined to questions/local/. The original blocking
+    reason is preserved in ``personal_use.blocked_reason`` so the risk stays visible.
+    """
+    source = get_source(registry, source_id)
+    evidence_file = Path(evidence_file)
+    if not evidence_file.is_file() or evidence_file.stat().st_size == 0:
+        raise RegistryError(f"authorization evidence {evidence_file} is missing or empty")
+    digest = hashlib.sha256(evidence_file.read_bytes()).hexdigest()
+    stamp = (now or datetime.now(timezone.utc)).replace(microsecond=0)
+    target_dir = (permissions_dir or PERMISSIONS_DIR) / source_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{stamp.strftime('%Y%m%dT%H%M%SZ')}-{evidence_file.name}"
+    shutil.copyfile(evidence_file, target)
+    try:
+        stored = str(target.relative_to(REPO_ROOT))
+    except ValueError:
+        stored = str(target)
+    source["personal_use"] = {
+        "evidence_file": stored,
+        "sha256": digest,
+        "recorded_at": stamp.isoformat(),
+        "note": note,
+        "blocked_reason": source.get("reason") if source.get("status") == "blocked" else None,
+    }
+    source["status"] = "personal_use"
+    source.setdefault("evidence", []).append(
+        f"Owner authorization for private, non-commercial study recorded {stamp.date().isoformat()}: {stored}"
+    )
     return source

@@ -29,6 +29,9 @@ from app.services.question_quality import build_fallback_rationale
 # Sub-directory of QUESTION_JSON_DIR with vetted third-party imports produced by
 # ``python -m scripts.question_sources import`` (loaded after the top-level banks).
 IMPORTS_SUBDIR = "imports"
+# Private-study imports (registry status personal_use): present only on the owner's
+# machine/volume, never committed nor baked into images.
+LOCAL_SUBDIR = "local"
 
 
 # Official exam outline weights (percent of the exam) per domain. Upserted into
@@ -1095,22 +1098,23 @@ def _resolve_material_dir(questions_dir: str, material_dir: str | None) -> str |
 # --------------------------------------------------------------------------- entrypoint
 
 def _question_source_files(dir_path: str) -> list[tuple[str, str]]:
-    """``(name, path)`` of the bank files: ``*.json`` then ``imports/*.json``.
+    """``(name, path)`` of the bank files: ``*.json``, then ``imports/*.json``, then ``local/*.json``.
 
-    ``name`` (the ImportState key) is the file name, prefixed with ``imports/`` for
-    vetted third-party imports.
+    ``name`` (the ImportState key) is the file name, prefixed with the sub-directory
+    for vetted third-party imports (``imports/``) and private-study imports (``local/``).
     """
     files: list[tuple[str, str]] = []
     for name in sorted(os.listdir(dir_path)):
         path = os.path.join(dir_path, name)
         if name.lower().endswith(".json") and os.path.isfile(path):
             files.append((name, path))
-    imports_dir = os.path.join(dir_path, IMPORTS_SUBDIR)
-    if os.path.isdir(imports_dir):
-        for name in sorted(os.listdir(imports_dir)):
-            path = os.path.join(imports_dir, name)
-            if name.lower().endswith(".json") and os.path.isfile(path):
-                files.append((f"{IMPORTS_SUBDIR}/{name}", path))
+    for subdir in (IMPORTS_SUBDIR, LOCAL_SUBDIR):
+        sub_path = os.path.join(dir_path, subdir)
+        if os.path.isdir(sub_path):
+            for name in sorted(os.listdir(sub_path)):
+                path = os.path.join(sub_path, name)
+                if name.lower().endswith(".json") and os.path.isfile(path):
+                    files.append((f"{subdir}/{name}", path))
     return files
 
 

@@ -1,0 +1,13 @@
+Private-study authorization recorded on 2026-09-29 by the repository owner (dathan.nobrega@datan.com.br):
+
+"pode usar o PSYBEAST e CostaJr007 esse produto é externo e nao vai ser comercializado entao é apenas
+um sistema para meu estudo eu autorizo o uso."
+
+Scope and conditions applied by the pipeline:
+- Private, non-commercial, single-owner study only. No redistribution rights are granted by the
+  upstream repositories for this content.
+- Imports are written to questions/local/ (git-ignored and excluded from the Docker build context),
+  so the content is never committed to the repository nor baked into published images.
+- Risks acknowledged by the owner: costajr007-security-plus-practice appears to copy commercial
+  ExamsDigest material; psybeast-ceh-v13-exam-simulator contains items matching ExamTopics CEH
+  dumps — studying with real exam items may violate the EC-Council candidate agreement.

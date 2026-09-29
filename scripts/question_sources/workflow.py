@@ -16,6 +16,8 @@ from .registry import REPO_ROOT, check_import_allowed
 
 QUESTIONS_DIR = REPO_ROOT / "questions"
 IMPORTS_DIR = QUESTIONS_DIR / "imports"
+# Private-study imports (registry status personal_use): git- and docker-ignored.
+LOCAL_DIR = QUESTIONS_DIR / "local"
 DEFAULT_CACHE = Path.home() / ".cache" / "sentinel-quiz" / "sources"
 FUZZY_THRESHOLD = 0.9
 REVIEW_VERDICTS = ("correct", "incorrect_key", "ambiguous", "outdated", "off_topic", "poor_quality")
@@ -142,7 +144,10 @@ def similarity(a: str, b: str) -> float:
 
 def repository_banks(exclude: Iterable[Path] = ()) -> list[Path]:
     excluded = {Path(p).resolve() for p in exclude}
-    files = sorted(QUESTIONS_DIR.glob("*.json")) + (sorted(IMPORTS_DIR.glob("*.json")) if IMPORTS_DIR.is_dir() else [])
+    files = sorted(QUESTIONS_DIR.glob("*.json"))
+    for extra in (IMPORTS_DIR, LOCAL_DIR):
+        if extra.is_dir():
+            files += sorted(extra.glob("*.json"))
     return [path for path in files if path.resolve() not in excluded]
 
 
@@ -277,10 +282,22 @@ def import_source(
     *,
     imports_dir: Path | None = None,
     against: Iterable[Path] | None = None,
+    personal_use: bool = False,
 ) -> dict[str, Any]:
-    """Write questions/imports/<id>.json (license gate, validation and dedupe first)."""
-    check_import_allowed(source)
+    """Write questions/imports/<id>.json (license gate, validation and dedupe first).
+
+    ``personal_use`` sources are written to questions/local/<id>.json instead (never
+    committed, never baked into images).
+    """
+    check_import_allowed(source, personal_use=personal_use)
+    local_only = source.get("status") == "personal_use"
+    default_dir = LOCAL_DIR if local_only else IMPORTS_DIR
+    target_dir = Path(imports_dir) if imports_dir else default_dir
+    target = target_dir / f"{source['id']}.json"
     bank = read_bank(input_path)
+    # Re-importing a source must not dedupe against its own previous output.
+    if against is None:
+        against = repository_banks(exclude=[Path(input_path), target])
     dedupe_report = dedupe(Path(input_path), against=against)
     duplicate_ids = {match["id"] for match in dedupe_report["matches"]}
     questions = []
@@ -291,9 +308,10 @@ def import_source(
         q["source_repo"] = q.get("source_repo") or source["url"]
         q["source_commit"] = q.get("source_commit") or source["commit"]
         q["source_license"] = source["license"]
+        if local_only:
+            q["usage_restriction"] = "personal_use"
         questions.append(q)
-    target_dir = Path(imports_dir) if imports_dir else IMPORTS_DIR
-    target = target_dir / f"{source['id']}.json"
+    target_dir.mkdir(parents=True, exist_ok=True)
     staged = target.with_suffix(".json.tmp")
     write_bank(staged, source, questions)
     try:
@@ -304,4 +322,9 @@ def import_source(
     finally:
         if staged.exists():
             staged.unlink()
-    return {"output": str(target), "imported": len(questions), "skipped_duplicates": len(duplicate_ids)}
+    return {
+        "output": str(target),
+        "imported": len(questions),
+        "skipped_duplicates": len(duplicate_ids),
+        "personal_use": local_only,
+    }
