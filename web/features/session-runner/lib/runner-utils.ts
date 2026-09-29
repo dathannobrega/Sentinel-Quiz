@@ -89,18 +89,8 @@ export function formatScope(scope: string | null | undefined, t: Translate): str
   return t("runner.labels.scopeDevice");
 }
 
-/**
- * Backend timestamps are naive UTC ISO strings (datetime.utcnow().isoformat()).
- * Treat strings without an explicit offset as UTC.
- */
-export function parseServerTimestamp(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/i.test(value.trim());
-  const parsed = Date.parse(hasZone ? value : `${value}Z`);
-  return Number.isNaN(parsed) ? null : parsed;
-}
+/** Re-exported for existing imports; the implementation lives in lib/utils/dates (r4 §3). */
+export { parseServerTimestamp } from "@/lib/utils/dates";
 
 /** True when a keyboard event originates from a text-entry control. */
 export function isTypingTarget(target: EventTarget | null): boolean {
