@@ -51,12 +51,26 @@ OFFICIAL_DOMAIN_WEIGHTS: dict[str, list[tuple[str, str, float]]] = {
         ("SY0-701-D4", "Security Operations", 28.0),
         ("SY0-701-D5", "Security Program Management and Oversight", 20.0),
     ],
+    # CEH v13: EC-Council CEH Exam Blueprint v5.0 (9 domains, 125 questions). The printed
+    # percentages are rounded and sum to 101 (quotas are normalized by the total weight).
+    "CEH": [
+        ("CEH-D1", "Information Security and Ethical Hacking Overview", 6.0),
+        ("CEH-D2", "Reconnaissance Techniques", 17.0),
+        ("CEH-D3", "System Hacking Phases and Attack Techniques", 15.0),
+        ("CEH-D4", "Network and Perimeter Hacking", 24.0),
+        ("CEH-D5", "Web Application Hacking", 14.0),
+        ("CEH-D6", "Wireless Network Hacking", 5.0),
+        ("CEH-D7", "Mobile Platform, IoT, and OT Hacking", 10.0),
+        ("CEH-D8", "Cloud Computing", 5.0),
+        ("CEH-D9", "Cryptography", 5.0),
+    ],
 }
 
 STUDY_MODULE_SOURCES = (
     # (file name inside material/, certification, parser)
     ("Modulos_sec+.md", "Security+", "markdown_modules"),
     ("cissp_domain.json", "CISSP", "domain_json"),
+    ("ceh_modules.md", "CEH", "markdown_modules"),
 )
 
 SECURITY_PLUS_DOMAIN_KEYWORDS = {
@@ -231,6 +245,8 @@ def _detect_certification(*values: str | None) -> str | None:
         return "Security+"
     if "cissp" in haystack:
         return "CISSP"
+    if "ceh" in haystack or "ethical hacker" in haystack:
+        return "CEH"
     if "ccsp" in haystack:
         return "CCSP"
     return None

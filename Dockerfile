@@ -36,7 +36,7 @@ WORKDIR /app
 # Code is owned by root and read-only for the runtime user. /app/material is
 # an empty mount point: EPUBs are provided at runtime via a read-only volume
 # (./material:/app/material:ro) and are never baked into the image.
-# /app/study-tracks holds only the two non-licensed study-track definitions
+# /app/study-tracks holds only the three non-licensed study-track definitions
 # (Modulos_sec+.md, cissp_domain.json) so the study track works without the
 # material volume (e.g. Portainer).
 RUN groupadd --system app \
@@ -49,7 +49,7 @@ COPY backend/app /app/app
 COPY backend/alembic /app/alembic
 COPY backend/alembic.ini /app/alembic.ini
 COPY questions /questions
-COPY material/Modulos_sec+.md material/cissp_domain.json /app/study-tracks/
+COPY material/Modulos_sec+.md material/cissp_domain.json material/ceh_modules.md /app/study-tracks/
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 USER app

@@ -119,7 +119,8 @@ QUESTION_KEYS = [
     "legacy_source_file", "options", "correct_options", "justification", "needs_review", "review_notes",
 ]
 PROVENANCE_KEYS = ["source_repo", "source_commit", "source_license", "source_path", "source_id"]
-OPTIONAL_QUESTION_KEYS = ["explanation_source", *PROVENANCE_KEYS]
+# module_code: study-track module of the item (questions/ceh.json, e.g. "M03").
+OPTIONAL_QUESTION_KEYS = ["explanation_source", "module_code", *PROVENANCE_KEYS]
 PBQ_REQUIRED_KEYS = [
     "id", "question_format", "language", "domain", "difficulty", "certification",
     "title", "scenario", "tasks", "explanation",

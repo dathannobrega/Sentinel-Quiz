@@ -119,7 +119,7 @@ docker build -t sentinel-quiz-web:local web                  # frontend (context
 docker build -t sentinel-quiz-proxy:local docker/nginx       # proxy nginx
 ```
 
-- **API:** multi-stage (`builder` com venv → runtime `python:3.12-slim`), usuário não-root `app`, código read-only, healthcheck em `/api/health`. As questões (`questions/`) vão na imagem; os EPUBs **não**. A trilha de estudo também vai na imagem: **somente** `material/Modulos_sec+.md` e `material/cissp_domain.json` (conteúdo próprio, não licenciado) são liberados na allowlist do `.dockerignore` e copiados para `/app/study-tracks` (`STUDY_TRACK_DIR=/app/study-tracks`; o backend cai para `MATERIAL_DIR` se o diretório não existir). Alterou esses arquivos? Rebuild da imagem.
+- **API:** multi-stage (`builder` com venv → runtime `python:3.12-slim`), usuário não-root `app`, código read-only, healthcheck em `/api/health`. As questões (`questions/`) vão na imagem; os EPUBs **não**. A trilha de estudo também vai na imagem: **somente** `material/Modulos_sec+.md`, `material/cissp_domain.json` e `material/ceh_modules.md` (conteúdo próprio, não licenciado) são liberados na allowlist do `.dockerignore` e copiados para `/app/study-tracks` (`STUDY_TRACK_DIR=/app/study-tracks`; o backend cai para `MATERIAL_DIR` se o diretório não existir). Alterou esses arquivos? Rebuild da imagem.
 - **Web:** `node:22-alpine`, `npm ci` a partir do `package-lock.json` (o build falha sem lockfile), saída `standalone`, usuário não-root.
 - **Proxy:** `nginx:1.30-alpine` com TLS, `server_tokens off`, gzip, `limit_req` em `/api/auth/`. Headers de segurança sem duplicação: HSTS em tudo; nas rotas `/api` o nginx aplica `docker/nginx/api-security-headers.conf` (oculta cópias do upstream); nas páginas do Next.js os headers e a CSP vêm do próprio app (`web/next.config.mjs` + `web/middleware.ts`).
 - Imagens base fixadas por digest (`@sha256:…`); o Dependabot abre PRs para atualizá-las.
@@ -194,7 +194,7 @@ Questões de terceiros só entram pelo pipeline `python -m scripts.question_sour
 
 ## 📚 Materiais de referência (EPUB)
 
-Os EPUBs são material comercial licenciado: **não** são versionados (`material/*.epub` e `*.pdf` estão no `.gitignore`), **não** entram na imagem (`material/` fica fora do contexto pela allowlist do `.dockerignore`, exceto os dois arquivos da trilha de estudo — `Modulos_sec+.md` e `cissp_domain.json` —, que vão para `/app/study-tracks`) e são montados em runtime, read-only, em `/app/material`:
+Os EPUBs são material comercial licenciado: **não** são versionados (`material/*.epub` e `*.pdf` estão no `.gitignore`), **não** entram na imagem (`material/` fica fora do contexto pela allowlist do `.dockerignore`, exceto os três arquivos da trilha de estudo — `Modulos_sec+.md`, `cissp_domain.json` e `ceh_modules.md` —, que vão para `/app/study-tracks`) e são montados em runtime, read-only, em `/app/material`:
 
 - local: `./material:/app/material:ro`;
 - Portainer: `APP_MATERIAL_HOST_DIR` (bind) ou volume `material_data`.
@@ -284,7 +284,7 @@ docker compose start api web proxy
 | `GEMINI_TIMEOUT_SECONDS`, `_TEMPERATURE`, `_MAX_OUTPUT_TOKENS`, `_SYSTEM_PROMPT`, `_MIN_RESPONSE_CHARS`, `_RETRY_ON_SHORT`, `_CANDIDATE_COUNT` | `20`, `0.2`, `400`, vazio, `220`, `true`, `1` | — | Ajustes do tutor. |
 | `TUTOR_DAILY_QUOTA` | `40` | — | Pedidos ao tutor por usuário/dia. |
 | `AUTH_SLIDING_SESSION` | `true` | — | Renova a validade do token de sessão quando já passou metade do TTL. |
-| `STUDY_TRACK_DIR` | `/app/study-tracks` (imagem) | — | Pasta com `Modulos_sec+.md` e `cissp_domain.json` (trilha de estudo); cai para `MATERIAL_DIR`. |
+| `STUDY_TRACK_DIR` | `/app/study-tracks` (imagem) | — | Pasta com `Modulos_sec+.md`, `cissp_domain.json` e `ceh_modules.md` (trilha de estudo); cai para `MATERIAL_DIR`. |
 | `DB_POOL_PRE_PING` | `true` | — | Testa a conexão antes de usar (evita conexões mortas). |
 | `AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS` | `60` | — | Intervalo mínimo entre reenvios do e-mail de verificação. |
 | `SMTP_TIMEOUT_SECONDS` | `20` | — | Timeout do envio SMTP (roda em background). |
@@ -370,6 +370,8 @@ O formato canônico é um JSON por certificação:
 
 1. `questions/securityplus.json`
 2. `questions/cissp.json`
+3. `questions/ceh.json` (CEH v13: banco original conceitual, 5 questões por módulo M01–M20, todas `ai_draft` com `needs_review=true` até a revisão SME; domínios e pesos do blueprint v5.0 da EC-Council; nota de corte praticada 70% — a oficial varia de 60% a 85% por forma de prova)
+4. `questions/pbq_securityplus.json` (PBQs do Security+, ver acima) e `questions/imports/*.json` (fontes externas aprovadas)
 
 Ambos usam o mesmo schema rico:
 ```json

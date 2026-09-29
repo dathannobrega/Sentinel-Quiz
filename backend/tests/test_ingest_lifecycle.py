@@ -402,7 +402,7 @@ class ReferenceDataTests(IngestTestCase):
         self.ingest()
         self.assertEqual(self.db.scalar(select(func.count(StudyModule.id))), 34)
         self.assertEqual(
-            self.db.scalar(select(func.count(DomainBlueprint.id)).where(DomainBlueprint.weight.is_not(None))), 13
+            self.db.scalar(select(func.count(DomainBlueprint.id)).where(DomainBlueprint.weight.is_not(None))), 8 + 5 + 9
         )
 
 

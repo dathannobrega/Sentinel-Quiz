@@ -53,6 +53,17 @@ FALLBACK_BLUEPRINT_WEIGHTS: dict[str, dict[str, float]] = {
         "Security Operations": 13.0,
         "Software Development Security": 10.0,
     },
+    "ceh": {
+        "Information Security and Ethical Hacking Overview": 6.0,
+        "Reconnaissance Techniques": 17.0,
+        "System Hacking Phases and Attack Techniques": 15.0,
+        "Network and Perimeter Hacking": 24.0,
+        "Web Application Hacking": 14.0,
+        "Wireless Network Hacking": 5.0,
+        "Mobile Platform, IoT, and OT Hacking": 10.0,
+        "Cloud Computing": 5.0,
+        "Cryptography": 5.0,
+    },
 }
 MIXED_BUCKET_SEPARATOR = " :: "
 

@@ -10,7 +10,8 @@
     "architecture before infrastructure, risk management before third-party risk/governance/resilience,",
     "governance before audits, monitoring before incident response, response before investigation",
     "and automation, social engineering before awareness.",
-    "CISSP: modules are the 8 domains; Security and Risk Management (D1) is the foundation of all the others."
+    "CISSP: modules are the 8 domains; Security and Risk Management (D1) is the foundation of all the others.",
+    "CEH: the 20 CEH v13 modules of material/ceh_modules.md; domain and prerequisites come from the CEH v13 blueprint (EC-Council CEH Exam Blueprint v5.0, module -> domain); the prerequisite order is an editorial learning order, not defined by EC-Council."
   ],
   "Security+": {
     "M01": {"domain": "General Security Concepts", "prerequisites": [], "rationale": "SY0-701 1.1/1.2: control types, CIA, Zero Trust."},
@@ -49,5 +50,27 @@
     "D6": {"prerequisites": ["D1"]},
     "D7": {"prerequisites": ["D1"]},
     "D8": {"prerequisites": ["D1"]}
+  },
+  "CEH": {
+    "M01": {"domain": "Information Security and Ethical Hacking Overview", "prerequisites": [], "rationale": "Introduction to Ethical Hacking (7 of 125 blueprint questions)."},
+    "M02": {"domain": "Reconnaissance Techniques", "prerequisites": ["M01"], "rationale": "Footprinting and Reconnaissance (7 of 125 blueprint questions)."},
+    "M03": {"domain": "Reconnaissance Techniques", "prerequisites": ["M02"], "rationale": "Scanning Networks (7 of 125 blueprint questions)."},
+    "M04": {"domain": "Reconnaissance Techniques", "prerequisites": ["M03"], "rationale": "Enumeration (7 of 125 blueprint questions)."},
+    "M05": {"domain": "System Hacking Phases and Attack Techniques", "prerequisites": ["M04"], "rationale": "Vulnerability Analysis (6 of 125 blueprint questions)."},
+    "M06": {"domain": "System Hacking Phases and Attack Techniques", "prerequisites": ["M05"], "rationale": "System Hacking (6 of 125 blueprint questions)."},
+    "M07": {"domain": "System Hacking Phases and Attack Techniques", "prerequisites": ["M06"], "rationale": "Malware Threats (7 of 125 blueprint questions)."},
+    "M08": {"domain": "Network and Perimeter Hacking", "prerequisites": ["M03"], "rationale": "Sniffing (6 of 125 blueprint questions)."},
+    "M09": {"domain": "Network and Perimeter Hacking", "prerequisites": ["M02"], "rationale": "Social Engineering (6 of 125 blueprint questions)."},
+    "M10": {"domain": "Network and Perimeter Hacking", "prerequisites": ["M03"], "rationale": "Denial-of-Service (6 of 125 blueprint questions)."},
+    "M11": {"domain": "Network and Perimeter Hacking", "prerequisites": ["M08"], "rationale": "Session Hijacking (6 of 125 blueprint questions)."},
+    "M12": {"domain": "Network and Perimeter Hacking", "prerequisites": ["M03", "M08"], "rationale": "Evading IDS, Firewalls, and Honeypots (6 of 125 blueprint questions)."},
+    "M13": {"domain": "Web Application Hacking", "prerequisites": ["M03", "M05"], "rationale": "Hacking Web Servers (6 of 125 blueprint questions)."},
+    "M14": {"domain": "Web Application Hacking", "prerequisites": ["M13"], "rationale": "Hacking Web Applications (6 of 125 blueprint questions)."},
+    "M15": {"domain": "Web Application Hacking", "prerequisites": ["M14"], "rationale": "SQL Injection (6 of 125 blueprint questions)."},
+    "M16": {"domain": "Wireless Network Hacking", "prerequisites": ["M08"], "rationale": "Hacking Wireless Networks (6 of 125 blueprint questions)."},
+    "M17": {"domain": "Mobile Platform, IoT, and OT Hacking", "prerequisites": ["M07", "M14"], "rationale": "Hacking Mobile Platforms (6 of 125 blueprint questions)."},
+    "M18": {"domain": "Mobile Platform, IoT, and OT Hacking", "prerequisites": ["M03", "M04"], "rationale": "IoT and OT Hacking (6 of 125 blueprint questions)."},
+    "M19": {"domain": "Cloud Computing", "prerequisites": ["M14"], "rationale": "Cloud Computing (6 of 125 blueprint questions)."},
+    "M20": {"domain": "Cryptography", "prerequisites": ["M01"], "rationale": "Cryptography (6 of 125 blueprint questions)."}
   }
 }

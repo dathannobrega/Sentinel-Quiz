@@ -10,10 +10,11 @@
 !backend/requirements.lock
 !questions
 !docker/entrypoint.sh
-# Study-track definitions (our own, non-licensed content) — exactly these two
+# Study-track definitions (our own, non-licensed content) — exactly these three
 # files; they are baked into the image at /app/study-tracks (STUDY_TRACK_DIR).
 !material/Modulos_sec+.md
 !material/cissp_domain.json
+!material/ceh_modules.md
 
 # Never ship these, even inside re-included directories. Everything else in
 # material/ (licensed EPUB/PDF) stays excluded by the leading "*".
