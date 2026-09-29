@@ -4,7 +4,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { isPbqQuestion, pbqAnnouncement, serializePbqResponse } from "@/features/session-runner/lib/pbq-utils";
+import { extractPbqResponse, isPbqQuestion, pbqAnnouncement, serializePbqResponse } from "@/features/session-runner/lib/pbq-utils";
 import { resolveResultHref, type AnswerFeedback, type RunnerMode, type Translate } from "@/features/session-runner/lib/runner-utils";
 import { ApiError, apiClient, readErrorMessage } from "@/lib/api/client";
 import { clearSessionId } from "@/lib/auth/storage";
@@ -94,7 +94,7 @@ export function useRunnerSession({ sessionId, mode, t, beforeAdvance }: Options)
   const isPbq = isPbqQuestion(currentQuestion);
   // PBQ answers: local edits first, then the response saved on the server (exam revisits).
   const pbqResponse: PbqResponse | null =
-    pbqState && pbqState.key === questionKey ? pbqState.response : examQuestionState?.question?.pbq_response ?? null;
+    pbqState && pbqState.key === questionKey ? pbqState.response : extractPbqResponse(examQuestionState?.question);
   const isPaused = isExamMode && !!examSession?.paused && !examSession?.finished;
   const announcement = announcementState && announcementState.key === questionKey ? announcementState.text : "";
   const announce = (key: string, text: string) => setAnnouncementState({ key, text });

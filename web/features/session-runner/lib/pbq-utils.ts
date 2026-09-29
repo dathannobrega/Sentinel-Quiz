@@ -27,7 +27,36 @@ export const PBQ_MAX_COUNT = 5;
 export function isPbqQuestion(question: Pick<QuestionItem, "format" | "pbq"> | null | undefined): question is QuestionItem & {
   pbq: PbqPayload;
 } {
-  return !!question && question.format === "pbq" && !!question.pbq && Array.isArray(question.pbq.tasks);
+  if (!question || !question.pbq || !Array.isArray(question.pbq.tasks)) {
+    return false;
+  }
+  // `format` is the contract flag; a payload without it is still treated as a PBQ unless "mcq".
+  return question.format === "pbq" || question.format === undefined || question.format === null;
+}
+
+/**
+ * The saved PBQ response of a runtime/review question: `pbq_response` (contract), with fallbacks
+ * for `response` / `response_json` (object or JSON string). null when absent or malformed.
+ */
+export function extractPbqResponse(question: object | null | undefined): PbqResponse | null {
+  if (!question) {
+    return null;
+  }
+  const record = question as Record<string, unknown>;
+  for (const key of ["pbq_response", "response", "response_json"]) {
+    let value = record[key];
+    if (typeof value === "string") {
+      try {
+        value = JSON.parse(value) as unknown;
+      } catch {
+        continue;
+      }
+    }
+    if (isRecord(value)) {
+      return value as PbqResponse;
+    }
+  }
+  return null;
 }
 
 /** Clamp a launcher value to the 0–5 range accepted by the API. */

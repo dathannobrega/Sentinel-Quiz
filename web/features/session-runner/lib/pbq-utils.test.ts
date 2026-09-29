@@ -4,6 +4,7 @@ import {
   buildPbqResponse,
   clampPbqCount,
   countCompleteTasks,
+  extractPbqResponse,
   formatCellSolution,
   formatPbqScoreLine,
   isCellValueAccepted,
@@ -36,6 +37,18 @@ describe("pbq-utils", () => {
     expect(isPbqQuestion({ format: "mcq" })).toBe(false);
     expect(isPbqQuestion({})).toBe(false);
     expect(isPbqQuestion(null)).toBe(false);
+    // Payload without the flag is still a PBQ; an explicit "mcq" wins.
+    expect(isPbqQuestion({ pbq: ORDERING_PAYLOAD })).toBe(true);
+    expect(isPbqQuestion({ format: "mcq", pbq: ORDERING_PAYLOAD })).toBe(false);
+  });
+
+  it("extracts the saved response from pbq_response, response or response_json", () => {
+    expect(extractPbqResponse({ pbq_response: { t1: ["a"] } })).toEqual({ t1: ["a"] });
+    expect(extractPbqResponse({ response: { t1: ["b"] } })).toEqual({ t1: ["b"] });
+    expect(extractPbqResponse({ response_json: '{"t1":["c"]}' })).toEqual({ t1: ["c"] });
+    expect(extractPbqResponse({ response_json: "not json" })).toBeNull();
+    expect(extractPbqResponse({ pbq_response: null })).toBeNull();
+    expect(extractPbqResponse(null)).toBeNull();
   });
 
   it("clamps the launcher count to 0–5", () => {
