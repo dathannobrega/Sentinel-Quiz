@@ -66,14 +66,16 @@ def test_registry_has_the_six_decided_sources(registry):
     assert stats["costajr007-security-plus-practice"]["correct_percent"] == 80.2
     assert stats["costajr007-security-plus-practice"]["incorrect_key_percent"] == 1.7
     assert stats["costajr007-security-plus-practice"]["ambiguous_percent"] == 6.3
-    assert stats["michaliskampouridis-security-plus-study"] == {
-        "reviewed": 25, "scope": stats["michaliskampouridis-security-plus-study"]["scope"],
-        "correct_percent": 96.0, "realism_avg": 4.16,
-    }
-    assert stats["iakhator-comptia-security-plus-701"]["incorrect_key_percent"] == 4.0
-    assert stats["iakhator-comptia-security-plus-701"]["realism_avg"] == 4.08
-    assert stats["psybeast-ceh-v13-exam-simulator"]["correct_percent"] == 88.0
-    assert stats["psybeast-ceh-v13-exam-simulator"]["realism_avg"] == 3.44
+    # Full SME reviews (2026-09-29) replaced the 25-item samples for the imported sources.
+    assert stats["michaliskampouridis-security-plus-study"]["reviewed"] == 535
+    assert stats["michaliskampouridis-security-plus-study"]["correct_percent"] == 89.0
+    assert stats["michaliskampouridis-security-plus-study"]["realism_avg"] == 3.69
+    assert stats["iakhator-comptia-security-plus-701"]["reviewed"] == 400
+    assert stats["iakhator-comptia-security-plus-701"]["incorrect_key_percent"] == 2.2
+    assert stats["iakhator-comptia-security-plus-701"]["realism_avg"] == 3.79
+    assert stats["psybeast-ceh-v13-exam-simulator"]["reviewed"] == 387
+    assert stats["psybeast-ceh-v13-exam-simulator"]["correct_percent"] == 90.4
+    assert stats["psybeast-ceh-v13-exam-simulator"]["realism_avg"] == 2.97
     assert stats["therrpatil-ceh-v13-exam-mcq135"]["correct_percent"] == 84.0
     assert stats["therrpatil-ceh-v13-exam-mcq135"]["realism_avg"] == 1.68
     assert "ExamsDigest" in reg.get_source(registry, "costajr007-security-plus-practice")["reason"]

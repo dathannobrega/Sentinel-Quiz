@@ -28,10 +28,12 @@
       "id_prefix": "mk",
       "language": "en",
       "review_stats": {
-        "reviewed": 25,
-        "scope": "random sample (random.Random(42))",
-        "correct_percent": 96.0,
-        "realism_avg": 4.16
+        "reviewed": 535,
+        "scope": "full SME review 2026-09-29 (476 imported)",
+        "correct_percent": 89.0,
+        "incorrect_key_percent": 0.0,
+        "ambiguous_percent": 0.4,
+        "realism_avg": 3.69
       },
       "permission": {
         "evidence_file": "scripts/question_sources/permissions/michaliskampouridis-security-plus-study/20260929T210751Z-author-permission-statement.txt",
@@ -60,13 +62,12 @@
       "id_prefix": "ia",
       "language": "en",
       "review_stats": {
-        "reviewed": 25,
-        "scope": "random sample (random.Random(42)); 10 items drawn from the inferred answer keys",
-        "correct_percent": 92.0,
-        "incorrect_key_percent": 4.0,
-        "realism_avg": 4.08,
-        "answer_keys_inferred": 89,
-        "answer_keys_not_inferable": 11
+        "reviewed": 400,
+        "scope": "full SME review 2026-09-29 (336 imported)",
+        "correct_percent": 81.8,
+        "incorrect_key_percent": 2.2,
+        "ambiguous_percent": 1.8,
+        "realism_avg": 3.79
       },
       "permission": {
         "evidence_file": "scripts/question_sources/permissions/iakhator-comptia-security-plus-701/20260929T210751Z-author-permission-statement.txt",
@@ -96,7 +97,7 @@
       "language": "en",
       "review_stats": {
         "reviewed": 600,
-        "scope": "full review",
+        "scope": "full SME review 2026-09-29 (481 imported, personal use)",
         "correct_percent": 80.2,
         "incorrect_key_percent": 1.7,
         "ambiguous_percent": 6.3
@@ -129,10 +130,12 @@
       "id_prefix": "psy",
       "language": "en",
       "review_stats": {
-        "reviewed": 25,
-        "scope": "random sample (random.Random(42))",
-        "correct_percent": 88.0,
-        "realism_avg": 3.44
+        "reviewed": 387,
+        "scope": "full SME review 2026-09-29 (353 imported, personal use)",
+        "correct_percent": 90.4,
+        "incorrect_key_percent": 0.8,
+        "ambiguous_percent": 1.3,
+        "realism_avg": 2.97
       },
       "permission": null,
       "personal_use": {
