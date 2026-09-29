@@ -1,7 +1,7 @@
 """Readiness formula (M-C4) and (certification, domain) grouping (M-C5)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 OWNER = "device-readiness"
 
@@ -9,7 +9,7 @@ OWNER = "device-readiness"
 def _metric(db, *, certification, domain, attempts, correct, low_confidence=0, days_ago=1):
     from app.models import UserDomainMetricDaily
 
-    day = (datetime.utcnow() - timedelta(days=days_ago)).replace(hour=0, minute=0, second=0, microsecond=0)
+    day = (datetime.now(timezone.utc) - timedelta(days=days_ago)).replace(hour=0, minute=0, second=0, microsecond=0)
     db.add(UserDomainMetricDaily(
         client_key=OWNER,
         metric_date=day,
@@ -84,7 +84,7 @@ def test_projection_never_increases_with_overdue_reviews(db):
 
     projections = [_snapshot(db)["projected_score_percent"]]
     for index in range(8):
-        db.add(ReviewQueueItem(client_key=OWNER, question_id=f"q-{index}", due_at=datetime.utcnow() - timedelta(days=1)))
+        db.add(ReviewQueueItem(client_key=OWNER, question_id=f"q-{index}", due_at=datetime.now(timezone.utc) - timedelta(days=1)))
         db.commit()
         snapshot = _snapshot(db)
         projections.append(snapshot["projected_score_percent"])

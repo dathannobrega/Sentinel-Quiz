@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import (
     DomainCatalog,
     Explanation,
@@ -208,9 +209,8 @@ def _sync_reference_catalog_for_version(db: Session, version: QuestionVersion) -
     if existing_rows:
         return existing_rows
 
-    from datetime import datetime
 
-    now = datetime.utcnow()
+    now = utcnow()
     rows: list[ReferenceCatalog] = []
 
     if version.blueprint_code:

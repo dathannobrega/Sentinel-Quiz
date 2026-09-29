@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import (
     ExamSession,
     Question,
@@ -332,7 +333,7 @@ def count_due_review_items(
     required: bool = False,
 ) -> int:
     """Due review queue items of the owner (active questions only)."""
-    due_cutoff = due_at_or_before or datetime.utcnow()
+    due_cutoff = due_at_or_before or utcnow()
     stmt = (
         select(func.count())
         .select_from(ReviewQueueItem)
@@ -403,7 +404,7 @@ def weak_domain_keys(
             weight += 1
         _add(certification, question_domain, weight)
 
-    now = datetime.utcnow()
+    now = utcnow()
     for item in review_queue_candidates(
         db,
         owner_user_id=owner_user_id,

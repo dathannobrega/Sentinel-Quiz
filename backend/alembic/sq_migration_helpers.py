@@ -1,12 +1,12 @@
 """Idempotent schema helpers shared by the Alembic revisions.
 
-Why this exists: revision 0008 is a consolidated baseline that runs
-``Base.metadata.create_all`` with the *current* models. On an empty database it
-therefore already creates every column/table/index/constraint that the later
-revisions (0009+) add. Every later revision must be idempotent: each operation
-checks the live schema first and is skipped when the object already exists (or
-is already gone, for downgrades). This lets ``alembic upgrade head`` work both
-on an empty database and on databases stamped at older revisions.
+Why this exists: revision 0008 used to be a consolidated baseline that ran
+``Base.metadata.create_all`` with the *current* models, so on an empty database it
+already created every object that the later revisions (0009+) add. 0008 is now a
+frozen, explicit schema, but databases created by the old baseline (and databases
+bootstrapped with BOOTSTRAP_SCHEMA=true) still exist, so every revision keeps being
+idempotent: each operation checks the live schema first and is skipped when the
+object already exists (or is already gone, for downgrades).
 
 SQLite cannot ALTER constraints, so constraint/FK changes run inside
 ``op.batch_alter_table`` (table recreate) on SQLite and as plain ALTERs on

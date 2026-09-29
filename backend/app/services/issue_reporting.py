@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import Question, QuestionBank, QuestionIssue, QuestionVersion
 from app.services.owner_scope import require_owner_scope
 
@@ -195,7 +195,7 @@ def update_question_issue(
         issue.status = normalized_status
         now = None
 
-        now = datetime.utcnow()
+        now = utcnow()
         if normalized_status in {"triaged", "fix_in_progress", "verified", "released"}:
             issue.triaged_by_user_id = actor_user_id
             issue.triaged_at = issue.triaged_at or now
@@ -217,7 +217,7 @@ def update_question_issue(
         issue.resolved_version_id = version.id
         issue.question_version_id = issue.question_version_id or version.id
         if now is None:
-            now = datetime.utcnow()
+            now = utcnow()
         issue.resolved_by_user_id = actor_user_id
         issue.resolved_at = now
 

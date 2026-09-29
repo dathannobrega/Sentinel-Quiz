@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import event
@@ -98,7 +98,6 @@ def test_get_endpoints_do_not_write(make_client, db):
     urls = [
         f"/api/sessions/{exam_id}",
         f"/api/sessions/{exam_id}/review",
-        f"/api/sessions/{exam_id}/result",
         f"/api/sessions/{exam_id}/review-screen",
         "/api/analytics/engagement",
         "/api/analytics/readiness",
@@ -110,7 +109,6 @@ def test_get_endpoints_do_not_write(make_client, db):
         "/api/study/analytics/weekly",
         "/api/study/modules",
         f"/api/study/sessions/{study_id}",
-        f"/api/study/sessions/{study_id}/result",
         f"/api/study/sessions/{study_id}/review",
         f"/api/study/sessions/{active_study}/questions/{active_question}/hint?level=2",
     ]
@@ -145,7 +143,7 @@ def test_study_completion_records_placement_and_snapshot(make_client, db):
     session_id = _finish_study(client)
     db.expire_all()
     assert db.query(UserExamMetricsSnapshot).filter_by(session_id=session_id, mode="study").count() == 1
-    result = client.get(f"/api/study/sessions/{session_id}/result", headers=HEADERS).json()
+    result = client.get(f"/api/study/sessions/{session_id}/review", headers=HEADERS).json()["result"]
     assert result["placement_completed"] is False  # 2 answers < placement minimum
 
 
@@ -172,7 +170,7 @@ def test_inactive_questions_are_never_selected_or_listed(make_client, db):
     catalog = client.get("/api/domains", params={"exam_id": "cissp"}).json()
     assert catalog["domains"][0]["question_count"] == 2
 
-    db.add(ReviewQueueItem(client_key=KEY, question_id=inactive[0], due_at=datetime.utcnow() - timedelta(hours=1)))
+    db.add(ReviewQueueItem(client_key=KEY, question_id=inactive[0], due_at=datetime.now(timezone.utc) - timedelta(hours=1)))
     db.commit()
     queue = client.get("/api/study/review/queue", headers=HEADERS).json()
     assert inactive[0] not in {item["question_id"] for item in queue["items"]}
@@ -215,7 +213,10 @@ def test_modules_endpoint_returns_ordered_track(make_client, db):
     body = client.get("/api/study/modules", params={"certification": "cissp"}).json()
     assert body["certification"] == "cissp"
     assert [item["code"] for item in body["modules"]] == ["D1", "D2"]
-    assert set(body["modules"][0]) == {"id", "certification", "code", "position", "title", "description", "domain"}
+    assert set(body["modules"][0]) == {
+        "id", "certification", "code", "position", "title", "description", "domain",
+        "prerequisite_codes", "status", "mastery_percent", "attempted",
+    }
     everything = client.get("/api/study/modules").json()["modules"]
     assert len(everything) == 3
 
@@ -226,7 +227,7 @@ def test_study_plan_codes_and_next_module_for_weakest_domain(make_client, db):
     from app.models import UserDomainMetricDaily
 
     _modules(db)
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     for domain, correct in (("Security and Risk Management", 18), ("Asset Security", 9)):
         db.add(UserDomainMetricDaily(
             client_key=KEY, metric_date=today, exam_id="cissp", certification="CISSP", domain=domain,
@@ -251,7 +252,7 @@ def test_plan_tie_breaks_equal_scores_by_module_order(db):
     from app.services.study_plan import build_study_plan
 
     _modules(db)
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     for domain in ("Asset Security", "Security and Risk Management"):
         db.add(UserDomainMetricDaily(
             client_key=KEY, metric_date=today, exam_id="cissp", certification="CISSP", domain=domain,
@@ -261,3 +262,94 @@ def test_plan_tie_breaks_equal_scores_by_module_order(db):
     plan = build_study_plan(db, owner_user_id=None, owner_client_key=KEY)
     assert plan["risk_domains"][0] == "Security and Risk Management"  # module position 1 < 2
     assert plan["recommended_module"]["code"] == "D1"
+
+
+# ---------------------------------------------------------------- M-A7 status / prerequisites
+
+def _track(db):
+    from app.models import StudyModule
+
+    db.add_all([
+        StudyModule(certification="Security+", code="M01", position=1, title="Fundamentos", domain="General Security Concepts",
+                    prerequisite_codes=[], source_file="material/Modulos_sec+.md"),
+        StudyModule(certification="Security+", code="M02", position=2, title="Atores", domain="Threats, Vulnerabilities and Mitigations",
+                    prerequisite_codes=["M01"], source_file="material/Modulos_sec+.md"),
+        StudyModule(certification="Security+", code="M03", position=3, title="Física", domain="General Security Concepts",
+                    prerequisite_codes=["M01"], source_file="material/Modulos_sec+.md"),
+        StudyModule(certification="Security+", code="M04", position=4, title="Eng. social", domain="Threats, Vulnerabilities and Mitigations",
+                    prerequisite_codes=["M02"], source_file="material/Modulos_sec+.md"),
+        StudyModule(certification="Security+", code="M05", position=5, title="Sem domínio", domain=None,
+                    prerequisite_codes=["M04"], source_file="material/Modulos_sec+.md"),
+    ])
+    db.commit()
+
+
+def _metric(db, domain, attempts, correct, key=KEY):
+    from app.models import UserDomainMetricDaily
+
+    db.add(UserDomainMetricDaily(
+        client_key=key, metric_date=datetime.now(timezone.utc), exam_id="secplus", certification="Security+",
+        domain=domain, attempts_total=attempts, study_attempts=attempts, correct_count=correct, wrong_count=attempts - correct,
+    ))
+    db.commit()
+
+
+def test_module_status_without_attempts(make_client, db):
+    _track(db)
+    client = make_client()
+    modules = {m["code"]: m for m in client.get("/api/study/modules", params={"certification": "Security+"}, headers=HEADERS).json()["modules"]}
+    assert modules["M01"]["status"] == "available"
+    assert modules["M01"]["mastery_percent"] is None and modules["M01"]["attempted"] == 0
+    assert modules["M02"]["status"] == "locked"
+    assert modules["M02"]["prerequisite_codes"] == ["M01"]
+    # No owner at all: same (nothing attempted), no 400.
+    anonymous = client.get("/api/study/modules", params={"certification": "Security+"}).json()["modules"]
+    assert [m["status"] for m in anonymous] == ["available", "locked", "locked", "locked", "locked"]
+
+
+def test_module_status_completed_in_progress_locked(make_client, db):
+    _track(db)
+    _metric(db, "General Security Concepts", attempts=10, correct=8)  # 80% with 10 attempts -> completed
+    _metric(db, "Threats, Vulnerabilities and Mitigations", attempts=4, correct=1)  # in progress
+    client = make_client()
+    modules = {m["code"]: m for m in client.get("/api/study/modules", headers=HEADERS).json()["modules"]}
+    assert modules["M01"]["status"] == "completed" and modules["M01"]["mastery_percent"] == 80.0
+    assert modules["M03"]["status"] == "completed"  # same domain as M01
+    assert modules["M02"]["status"] == "in_progress" and modules["M02"]["attempted"] == 4
+    assert modules["M04"]["status"] == "in_progress"  # attempts in its domain win over the lock
+    assert modules["M05"]["status"] == "locked"  # no domain: prerequisites only (M04 not completed)
+    assert modules["M05"]["mastery_percent"] is None
+
+
+def test_module_needs_min_attempts_to_complete(db):
+    from app.services.study_plan import list_study_modules
+
+    _track(db)
+    _metric(db, "General Security Concepts", attempts=9, correct=9)
+    modules = {m["code"]: m for m in list_study_modules(db, "Security+", owner_client_key=KEY)}
+    assert modules["M01"]["status"] == "in_progress"
+    assert modules["M02"]["status"] == "locked"
+
+
+def test_recommended_module_skips_completed_and_locked(db):
+    from app.services.study_plan import _recommend_module, list_study_modules
+
+    _track(db)
+    _metric(db, "General Security Concepts", attempts=20, correct=19)
+    modules = list_study_modules(db, owner_client_key=KEY)
+    # Weakest domain GSC is fully completed -> fallback: first available (M02).
+    assert _recommend_module(modules, certification="Security+", domain="General Security Concepts")["code"] == "M02"
+    # Weakest domain TVM: M02 available (M04 locked) -> M02.
+    assert _recommend_module(modules, certification="Security+", domain="Threats, Vulnerabilities and Mitigations")["code"] == "M02"
+    # Unknown certification -> None.
+    assert _recommend_module(modules, certification="CISSP", domain=None) is None
+
+
+def test_study_plan_recommended_module_has_status(make_client, db):
+    _track(db)
+    _metric(db, "Threats, Vulnerabilities and Mitigations", attempts=20, correct=5)
+    _metric(db, "General Security Concepts", attempts=20, correct=18)
+    client = make_client()
+    plan = client.get("/api/study/plan", headers=HEADERS).json()
+    assert plan["recommended_module"]["code"] == "M02"
+    assert plan["recommended_module"]["status"] == "in_progress"

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy.orm import Session
 from sqlalchemy import exists, func, select
+from app.core.clock import utcnow
 from app.models import (
     QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE,
     DomainBlueprint,
@@ -759,7 +760,7 @@ def sync_domain_blueprint_weights(db: Session) -> int:
             if row.weight != weight or row.domain != domain:
                 row.weight = weight
                 row.domain = domain
-                row.updated_at = datetime.utcnow()
+                row.updated_at = utcnow()
                 touched += 1
     db.flush()
     return touched
@@ -775,6 +776,34 @@ def get_domain_blueprint_weights(db: Session, certification: str) -> dict[str, f
         )
     ).all()
     return {domain: float(weight) for cert, domain, weight in rows if str(cert or "").strip().lower() == wanted}
+
+
+def blueprint_domains_by_certification(db: Session) -> dict[str, set[str]]:
+    """{certification (lower): {domain (lower)}} of every domain_blueprint row."""
+    allowed: dict[str, set[str]] = {}
+    rows = db.execute(
+        select(DomainBlueprint.certification, DomainBlueprint.domain).where(DomainBlueprint.domain.is_not(None))
+    ).all()
+    for certification, domain in rows:
+        cert = str(certification or "").strip().lower()
+        name = str(domain or "").strip().lower()
+        if cert and name:
+            allowed.setdefault(cert, set()).add(name)
+    return allowed
+
+
+def invalid_blueprint_domain(allowed: dict[str, set[str]], certification: str | None, domain: str | None) -> bool:
+    """True when ``domain`` is not a domain_blueprint domain of a known ``certification``.
+
+    ``questions.domain`` is a free string (no DB constraint); ingest rejects questions
+    whose (certification, domain) pair is unknown. Certifications without blueprint rows
+    and questions without a domain are accepted.
+    """
+    cert = str(certification or "").strip().lower()
+    name = str(domain or "").strip().lower()
+    if not cert or not name or cert not in allowed:
+        return False
+    return name not in allowed[cert]
 
 
 # --------------------------------------------------------------------------- study modules (M-A7)
@@ -877,6 +906,37 @@ def load_study_modules(*search_dirs: str | None) -> dict[str, dict]:
     return loaded
 
 
+STUDY_TRACK_METADATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "study_track_metadata.json")
+
+
+def load_study_track_metadata(path: str | None = None) -> dict[str, dict[str, dict]]:
+    """{certification: {module code: {"domain"?, "prerequisites"}}} from app/data (ships with the code)."""
+    try:
+        with open(path or STUDY_TRACK_METADATA_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    return {cert: spec for cert, spec in payload.items() if not cert.startswith("_") and isinstance(spec, dict)}
+
+
+def _apply_track_metadata(modules: list[dict], metadata: dict[str, dict]) -> list[dict]:
+    """Fill module domains (when the source has none) and prerequisite codes.
+
+    Unknown prerequisite codes (not in this track) and self-references are dropped.
+    """
+    codes = {module["code"] for module in modules}
+    for module in modules:
+        spec = metadata.get(module["code"]) or {}
+        if not module.get("domain") and spec.get("domain"):
+            module["domain"] = spec["domain"]
+        prerequisites = [
+            str(code) for code in (spec.get("prerequisites") or [])
+            if str(code) in codes and str(code) != module["code"]
+        ]
+        module["prerequisite_codes"] = list(dict.fromkeys(prerequisites))
+    return modules
+
+
 def _configured_study_track_dir() -> str | None:
     try:
         from app.core.config import settings
@@ -902,9 +962,11 @@ def sync_study_modules(
     if not search_dirs:
         return 0
     total = 0
+    track_metadata = load_study_track_metadata()
     for certification, spec in load_study_modules(*search_dirs).items():
         source_file = spec["source_file"]
-        wanted = {module["code"]: module for module in spec["modules"]}
+        modules = _apply_track_metadata(spec["modules"], track_metadata.get(certification) or {})
+        wanted = {module["code"]: module for module in modules}
         existing = {
             row.code: row
             for row in db.execute(
@@ -924,6 +986,7 @@ def sync_study_modules(
             row.title = module["title"][:255]
             row.description = module.get("description")
             row.domain = module.get("domain")
+            row.prerequisite_codes = module.get("prerequisite_codes") or []
             row.source_file = source_file
             total += 1
     db.flush()
@@ -963,7 +1026,18 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
         "skipped_editorial": 0,
         "reactivated": 0,
         "deactivated": 0,
+        "rejected_invalid_domain": 0,
     }
+
+    # Official weights first: they define the valid (certification, domain) pairs.
+    try:
+        weights = sync_domain_blueprint_weights(db)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        weights = 0
+        errors.append(f"reference data: {exc}")
+    allowed_domains = blueprint_domains_by_certification(db)
 
     for name in sorted(os.listdir(dir_path)):
         if not name.lower().endswith(".json"):
@@ -1010,6 +1084,12 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
                 for q in questions:
                     qid = q.get("id")
                     if not qid or not q.get("question"):
+                        continue
+                    if invalid_blueprint_domain(allowed_domains, q.get("certification"), q.get("domain")):
+                        file_stats["rejected_invalid_domain"] += 1
+                        file_errors.append(
+                            f"{name}:{qid}: domain {q.get('domain')!r} is not in the {q.get('certification')} blueprint"
+                        )
                         continue
                     existing = db.get(Question, qid)
                     if _is_deleted(existing):
@@ -1061,12 +1141,10 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
             errors.append(f"{name}: {e}")
 
     try:
-        weights = sync_domain_blueprint_weights(db)
         modules = sync_study_modules(db, _resolve_material_dir(dir_path, material_dir))
         db.commit()
     except Exception as exc:
         db.rollback()
-        weights = 0
         modules = 0
         errors.append(f"reference data: {exc}")
 

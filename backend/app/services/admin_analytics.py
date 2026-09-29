@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import case, func, inspect, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import (
     Exam,
     Question,
@@ -347,7 +347,7 @@ def capture_admin_question_analytics_snapshot(
         }
 
     metrics = _collect_question_metrics(db)
-    captured_at = datetime.utcnow()
+    captured_at = utcnow()
     capture_batch_id = str(uuid.uuid4())
 
     for item in metrics:

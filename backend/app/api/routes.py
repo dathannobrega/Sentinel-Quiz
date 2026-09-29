@@ -21,7 +21,6 @@ from app.schemas import (
     CreateSessionIn,
     DomainCatalogOut,
     EngagementSnapshotOut,
-    ExamNavigationIn,
     ExamOut,
     ExamQuestionStateOut,
     ExamReviewScreenOut,
@@ -46,7 +45,6 @@ from app.services.engagement import build_engagement_snapshot
 from app.services.exam_runtime import (
     build_exam_review_screen,
     get_exam_question_state,
-    navigate_exam_session,
     save_exam_response,
     submit_exam_session,
     toggle_mark_for_review,
@@ -59,7 +57,6 @@ from app.services.quiz import (
     build_weak_area_snapshot_for_owner,
     pause_exam_session,
     resume_exam_session,
-    exam_answers_are_hidden,
     expire_exam_session_if_due,
     serialize_exam_session,
 )
@@ -281,21 +278,6 @@ def get_session_state(
     expire_exam_session_if_due(db, session)
     return SessionStateOut(**serialize_exam_session(session))
 
-@router.get(
-    "/sessions/{session_id}/next",
-    response_model=ExamQuestionStateOut,
-    response_model_exclude_unset=True,
-    deprecated=True,
-)
-def get_next_question(
-    session_id: str,
-    current_user: User | None = Depends(get_current_user_optional),
-    client_key: str | None = Depends(get_client_key),
-    db: Session = Depends(get_db),
-):
-    session = _get_session(db, session_id, current_user, client_key)
-    return get_exam_question_state(db, session, position=session.current_position)
-
 
 @router.get("/sessions/{session_id}/questions/{position}", response_model=ExamQuestionStateOut)
 def get_question_at_position(
@@ -338,32 +320,6 @@ def resume_session(
         raise HTTPException(status_code=409, detail=str(exc))
     return SessionStateOut(**serialize_exam_session(updated))
 
-@router.post("/sessions/{session_id}/answer", response_model=AnswerFeedbackOut, deprecated=True)
-def submit_answer(
-    session_id: str,
-    payload: AnswerIn,
-    current_user: User | None = Depends(get_current_user_optional),
-    client_key: str | None = Depends(get_client_key),
-    db: Session = Depends(get_db),
-):
-    session = _get_session(db, session_id, current_user, client_key)
-    try:
-        fb = save_exam_response(
-            db,
-            session,
-            question_id=payload.question_id,
-            selected_keys=payload.selected_keys,
-            elapsed_seconds=payload.elapsed_seconds,
-            auto_advance=True,
-            auto_submit_when_complete=True,
-        )
-        return AnswerFeedbackOut(**fb)
-    except ValueError as e:
-        detail = str(e)
-        if "auto-submitted" in detail or "paused" in detail.lower():
-            raise HTTPException(status_code=409, detail=detail)
-        raise HTTPException(status_code=400, detail=detail)
-
 
 @router.put("/sessions/{session_id}/questions/{question_id}/response", response_model=AnswerFeedbackOut)
 def save_answer_without_advancing(
@@ -384,8 +340,6 @@ def save_answer_without_advancing(
             question_id=question_id,
             selected_keys=payload.selected_keys,
             elapsed_seconds=payload.elapsed_seconds,
-            auto_advance=False,
-            auto_submit_when_complete=False,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -410,22 +364,6 @@ def mark_question_for_review(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/sessions/{session_id}/navigation", response_model=ExamQuestionStateOut)
-def navigate_session(
-    session_id: str,
-    payload: ExamNavigationIn,
-    current_user: User | None = Depends(get_current_user_optional),
-    client_key: str | None = Depends(get_client_key),
-    db: Session = Depends(get_db),
-):
-    session = _get_session(db, session_id, current_user, client_key)
-    try:
-        result = navigate_exam_session(db, session, position=payload.position)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return ExamQuestionStateOut(**result)
-
-
 @router.get("/sessions/{session_id}/review-screen", response_model=ExamReviewScreenOut)
 def exam_review_screen(
     session_id: str,
@@ -446,23 +384,6 @@ def submit_exam(
 ):
     session = _get_session(db, session_id, current_user, client_key)
     return ResultOut(**submit_exam_session(db, session))
-
-@router.get("/sessions/{session_id}/result", response_model=ResultOut, deprecated=True)
-def get_result(
-    session_id: str,
-    current_user: User | None = Depends(get_current_user_optional),
-    client_key: str | None = Depends(get_client_key),
-    db: Session = Depends(get_db),
-):
-    session = _get_session(db, session_id, current_user, client_key)
-    expire_exam_session_if_due(db, session)
-    if exam_answers_are_hidden(session):
-        # Exam-day mode: no score before the session is submitted.
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "exam_day_result_unavailable", "message": "The result is available after submitting the exam."},
-        )
-    return ResultOut(**compute_result(db, session))
 
 
 @router.post("/questions/{question_id}/issues", response_model=QuestionIssueOut)

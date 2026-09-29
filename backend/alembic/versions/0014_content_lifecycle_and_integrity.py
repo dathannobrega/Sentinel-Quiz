@@ -17,7 +17,7 @@ Create Date: 2026-09-28 12:00:00
   CHECK constraints for closed value sets (only when existing data conforms).
 - L-A3: user_exam_metrics_snapshot.session_id converged to a single unique index.
 
-Idempotent like 0009-0013 (0008 runs create_all with the current models).
+Idempotent like 0009-0013 (0008 used to run create_all with the current models).
 
 Downgrade is lossy by nature (the 0013 schema has no soft delete, import provenance,
 question versions per answer, option order or weights):
@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from alembic import op
@@ -323,7 +323,7 @@ def _backfill_import_provenance() -> None:
 
 
 def _seed_domain_weights() -> None:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC (columns are naive at 0014)
     for certification, rows in OFFICIAL_DOMAIN_WEIGHTS.items():
         for blueprint_code, domain, weight in rows:
             existing = h.scalar(

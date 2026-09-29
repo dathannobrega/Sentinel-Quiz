@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,7 +62,7 @@ class StudyPlanTests(unittest.TestCase):
             metric = UserDomainMetricDaily(
                 user_id=None,
                 client_key="device-b",
-                metric_date=datetime.utcnow(),
+                metric_date=datetime.now(timezone.utc),
                 exam_id="secplus",
                 certification="Security+",
                 domain="IAM",
@@ -76,7 +76,7 @@ class StudyPlanTests(unittest.TestCase):
                 user_id=None,
                 client_key="device-b",
                 question_id="q-1",
-                due_at=datetime.utcnow() - timedelta(hours=2),
+                due_at=datetime.now(timezone.utc) - timedelta(hours=2),
                 confidence_level="low",
             )
             db.add_all([exam, question, metric, review_item])
@@ -102,7 +102,7 @@ class StudyPlanTests(unittest.TestCase):
             metric = UserDomainMetricDaily(
                 user_id=None,
                 client_key="device-c",
-                metric_date=datetime.utcnow(),
+                metric_date=datetime.now(timezone.utc),
                 exam_id="secplus",
                 certification="Security+",
                 domain="IAM",
@@ -114,7 +114,7 @@ class StudyPlanTests(unittest.TestCase):
             )
             session = StudySession(
                 id="study-1",
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
                 user_id=None,
                 client_key="device-c",
                 exam_id="secplus",

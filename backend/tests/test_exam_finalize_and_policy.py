@@ -3,7 +3,7 @@ per-certification quotas (M-C5) and question version tracking (M-A3)."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 HEADERS = {"X-Client-Key": "device-exam"}
 
@@ -90,7 +90,7 @@ def test_exam_answer_changes_are_counted_once_at_submit(make_client, db):
     queue = {row.question_id: row for row in db.query(ReviewQueueItem)}
     assert set(queue) == {wrong_qid}
     assert queue[wrong_qid].client_key == "device-exam"
-    assert queue[wrong_qid].due_at <= datetime.utcnow() + timedelta(days=2, minutes=1)
+    assert queue[wrong_qid].due_at <= datetime.now(timezone.utc) + timedelta(days=2, minutes=1)
     assert queue[wrong_qid].last_outcome == "wrong"
 
     # Submitting again / reading the result never records anything twice.
@@ -127,7 +127,7 @@ def test_expired_exam_is_auto_submitted_once_on_read(make_client, db):
     qid = client.get(f"/api/sessions/{session_id}/questions/0", headers=HEADERS).json()["question"]["id"]
     _answer(client, session_id, qid, "B")
     session = db.get(ExamSession, session_id)
-    session.created_at = datetime.utcnow() - timedelta(hours=3)
+    session.created_at = datetime.now(timezone.utc) - timedelta(hours=3)
     db.commit()
 
     state = client.get(f"/api/sessions/{session_id}", headers=HEADERS).json()

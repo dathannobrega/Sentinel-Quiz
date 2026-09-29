@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.api.deps import get_current_user_optional, get_current_user_required
 from app.core.config import settings
 from app.core.errors import api_error
@@ -21,6 +23,7 @@ from app.schemas import (
     OkMessageOut,
     OkOut,
     PasswordResetIn,
+    RegistrationPendingOut,
 )
 from app.services.auth import (
     RegistrationUnavailable,
@@ -28,6 +31,7 @@ from app.services.auth import (
     claim_client_sessions,
     create_user,
     deliver_email_safely,
+    hash_password,
     issue_auth_token,
     parse_bearer_token,
     prepare_email_verification,
@@ -35,6 +39,8 @@ from app.services.auth import (
     reset_password_with_token,
     run_email_verification_request,
     run_password_reset_request,
+    run_registration_request,
+    validate_email_address,
     verify_email_address,
 )
 from app.services.study import claim_client_study_state
@@ -44,6 +50,10 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 GENERIC_VERIFICATION_MESSAGE = "If the account exists, a verification email was sent."
 GENERIC_RESET_MESSAGE = "If the account exists, a password reset email was sent."
+VERIFICATION_REQUIRED_MESSAGE = (
+    "Check your e-mail: if the address can be used, we sent a link to confirm it and finish creating the account."
+)
+EMAIL_NOT_VERIFIED_MESSAGE = "Verify your e-mail address before signing in."
 REGISTRATION_UNAVAILABLE_MESSAGE = (
     "We could not create an account with these details. "
     "If you already have an account, sign in or reset your password."
@@ -51,7 +61,7 @@ REGISTRATION_UNAVAILABLE_MESSAGE = (
 
 
 def _serialize_user(user: User) -> AuthUserOut:
-    created_at = user.created_at if isinstance(user.created_at, datetime) else datetime.utcnow()
+    created_at = user.created_at if isinstance(user.created_at, datetime) else utcnow()
     return AuthUserOut(
         id=user.id,
         email=user.email,
@@ -102,7 +112,11 @@ def _clear_auth_cookie(response: Response) -> None:
     )
 
 
-@router.post("/register", response_model=AuthTokenOut)
+@router.post(
+    "/register",
+    response_model=AuthTokenOut,
+    responses={202: {"model": RegistrationPendingOut, "description": "Two-step sign-up: verification required."}},
+)
 def register(
     payload: AuthRegisterIn,
     response: Response,
@@ -110,6 +124,9 @@ def register(
     x_client_key: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
+    if settings.requires_email_verification():
+        return _register_with_verification(payload, background_tasks)
+
     try:
         user = create_user(
             db,
@@ -118,8 +135,8 @@ def register(
             display_name=payload.display_name,
         )
     except RegistrationUnavailable:
-        # Generic answer: the message does not confirm that the e-mail is registered.
-        # (Full anti-enumeration requires an e-mail-first sign-up flow.)
+        # Only reachable with REGISTRATION_EMAIL_VERIFICATION=false (dev/test): the
+        # two-step flow above never reveals whether the e-mail is registered.
         raise api_error(409, "registration_unavailable", REGISTRATION_UNAVAILABLE_MESSAGE)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -135,6 +152,29 @@ def register(
     return result
 
 
+def _register_with_verification(payload: AuthRegisterIn, background_tasks: BackgroundTasks) -> JSONResponse:
+    """Two-step sign-up (M-B2/L-B2): always the same 202, no cookie.
+
+    Input validation and the scrypt hash run in the request for every e-mail (new or
+    already registered), so status, body and timing do not reveal whether the account
+    exists; the lookup, user creation and e-mails run in a background task with its own
+    DB session.
+    """
+    try:
+        email = validate_email_address(payload.email)
+        password_hash = hash_password(payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    background_tasks.add_task(
+        run_registration_request,
+        email=email,
+        password_hash=password_hash,
+        display_name=payload.display_name,
+    )
+    body = RegistrationPendingOut(detail=VERIFICATION_REQUIRED_MESSAGE)
+    return JSONResponse(status_code=202, content=body.model_dump(), background=background_tasks)
+
+
 @router.post("/login", response_model=AuthTokenOut)
 def login(
     payload: AuthLoginIn,
@@ -145,6 +185,9 @@ def login(
     user = authenticate_user(db, email=payload.email, password=payload.password)
     if not user:
         raise api_error(401, "invalid_credentials", "Invalid credentials.")
+    if settings.requires_email_verification() and not user.email_verified:
+        # Only after the password was verified, so it does not reveal the account state.
+        raise api_error(403, "email_not_verified", EMAIL_NOT_VERIFIED_MESSAGE)
 
     claim_client_sessions(db, user=user, client_key=x_client_key)
     claim_client_study_state(db, user=user, client_key=x_client_key)
@@ -187,16 +230,25 @@ def request_email_verification(
     return OkMessageOut(ok=True, message=GENERIC_VERIFICATION_MESSAGE)
 
 
-@router.post("/verify-email", response_model=AuthUserOut)
+@router.post("/verify-email", response_model=AuthTokenOut)
 def verify_email(
     payload: EmailChallengeConsumeIn,
+    response: Response,
+    x_client_key: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
+    """Confirm the e-mail, sign the user in (session cookie) and claim anonymous progress."""
     try:
         user = verify_email_address(db, raw_token=payload.token)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return _serialize_user(user)
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Token is invalid or expired.")
+    claim_client_sessions(db, user=user, client_key=x_client_key)
+    claim_client_study_state(db, user=user, client_key=x_client_key)
+    token, expires_at = issue_auth_token(db, user)
+    _set_auth_cookie(response, token, expires_at)
+    return _token_response(user, token, expires_at)
 
 
 @router.post("/request-password-reset", response_model=OkMessageOut)

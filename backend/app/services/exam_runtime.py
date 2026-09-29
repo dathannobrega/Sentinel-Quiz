@@ -3,30 +3,28 @@
 Answers are exchanged in the session's display keys (per-session option shuffle,
 M-C1) and stored with the original keys. Saving/changing an answer only updates the
 session row; learning signals are recorded once at completion (M-C2, see
-:func:`app.services.quiz.finalize_exam_session`).
+:func:`app.services.exam_finalize.finalize_exam_session`).
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import ExamSession, Option, Question, SessionAnswer, SessionQuestion
 from app.services.option_order import OptionMapping, option_keys_by_question, split_keys
 from app.services.question_data import correct_option_keys, published_version_id
-from app.services.quiz import (
-    _analyze_session,
-    _get_session_rows,
+from app.services.exam_finalize import (
     complete_exam_session,
-    compute_result,
-    exam_answers_are_hidden,
     expire_exam_session_if_due,
-    get_question_for_session,
     lock_exam_session,
     sync_exam_session_state,
 )
+from app.services.exam_results import _analyze_session, _get_session_rows, compute_result
+from app.services.exam_session_create import get_question_for_session
+from app.services.exam_timing import exam_answers_are_hidden
 from app.services.reference_resolver import build_feedback_summary, build_official_reference_summaries
 
 
@@ -101,7 +99,7 @@ def get_exam_question_state(
         return {"finished": True}
 
     _set_position(session, target_position)
-    session_row.last_viewed_at = datetime.utcnow()
+    session_row.last_viewed_at = utcnow()
     db.commit()
     db.refresh(session)
 
@@ -128,8 +126,6 @@ def save_exam_response(
     question_id: str,
     selected_keys: list[str],
     elapsed_seconds: int | None = None,
-    auto_advance: bool = False,
-    auto_submit_when_complete: bool = False,
 ) -> dict[str, Any]:
     lock_exam_session(db, session)
     timing = sync_exam_session_state(db, session)
@@ -196,17 +192,12 @@ def save_exam_response(
         existing.is_correct = is_correct
         existing.question_version_id = question_version_id
         existing.elapsed_seconds = elapsed_seconds
-        existing.answered_at = datetime.utcnow()
+        existing.answered_at = utcnow()
 
-    session_row.last_viewed_at = datetime.utcnow()
-    if auto_advance:
-        _set_position(session, min(session_row.position + 1, max(session.total_questions - 1, 0)))
-    else:
-        _set_position(session, session_row.position)
+    session_row.last_viewed_at = utcnow()
+    _set_position(session, session_row.position)
 
     answered_count = _answered_count(session)
-    if auto_submit_when_complete and answered_count >= session.total_questions:
-        complete_exam_session(db, session)
 
     db.flush()
     hidden = exam_answers_are_hidden(session)
@@ -269,7 +260,7 @@ def toggle_mark_for_review(
     if not session_row:
         raise ValueError("Question does not belong to this session.")
     session_row.marked_for_review = not bool(session_row.marked_for_review)
-    session_row.last_viewed_at = datetime.utcnow()
+    session_row.last_viewed_at = utcnow()
     if session_row.position != session.current_position:
         _set_position(session, session_row.position)
     db.commit()
@@ -280,17 +271,6 @@ def toggle_mark_for_review(
         "marked_for_review_count": _marked_for_review_count(session),
         "current_position": session.current_position,
     }
-
-
-def navigate_exam_session(
-    db: Session,
-    session: ExamSession,
-    *,
-    position: int,
-) -> dict[str, Any]:
-    if position < 0 or position >= session.total_questions:
-        raise ValueError("Navigation target is outside the current session.")
-    return get_exam_question_state(db, session, position=position)
 
 
 def build_exam_review_screen(
@@ -339,7 +319,7 @@ def submit_exam_session(
     """Complete the exam (once): records progress/metrics/SRS, then returns the result.
 
     Concurrent submits are serialized by the row lock and the conditional
-    ``completed_at`` update (see :func:`app.services.quiz.complete_exam_session`): only
+    ``completed_at`` update (see :func:`app.services.exam_finalize.complete_exam_session`): only
     one of them finalizes; the others return the same result.
     """
     lock_exam_session(db, session)

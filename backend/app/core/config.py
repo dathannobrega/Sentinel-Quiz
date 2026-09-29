@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     auth_verification_resend_cooldown_seconds: int = Field(
         default=60, alias="AUTH_VERIFICATION_RESEND_COOLDOWN_SECONDS"
     )
+    # Two-step sign-up (M-B2/L-B2): register only sends a verification link and login
+    # requires a verified e-mail. None => derived from the environment (on in production).
+    registration_email_verification: Optional[bool] = Field(default=None, alias="REGISTRATION_EMAIL_VERIFICATION")
     auth_cookie_name: str = Field(default="sentinel_session", alias="AUTH_COOKIE_NAME")
     auth_cookie_secure: bool = Field(default=True, alias="AUTH_COOKIE_SECURE")
     auth_cookie_samesite: str = Field(default="lax", alias="AUTH_COOKIE_SAMESITE")
@@ -117,6 +120,9 @@ class Settings(BaseSettings):
     # output-token budget is not consumed by reasoning). Negative => not sent.
     gemini_thinking_budget: int = Field(default=0, alias="GEMINI_THINKING_BUDGET")
     tutor_daily_quota: int = Field(default=40, alias="TUTOR_DAILY_QUOTA")
+    # IANA timezone defining the "study day" for daily goals, streaks and daily metric
+    # buckets (timestamps themselves are always stored/served in UTC).
+    study_day_timezone: str = Field(default="America/Sao_Paulo", alias="STUDY_DAY_TIMEZONE")
 
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
@@ -131,6 +137,11 @@ class Settings(BaseSettings):
         if self.expose_api_docs is not None:
             return bool(self.expose_api_docs)
         return not self.is_production()
+
+    def requires_email_verification(self) -> bool:
+        if self.registration_email_verification is not None:
+            return bool(self.registration_email_verification)
+        return self.is_production()
 
     def effective_cookie_secure(self) -> bool:
         # Insecure cookies are only honoured outside production.

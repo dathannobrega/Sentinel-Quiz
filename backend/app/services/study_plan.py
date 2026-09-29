@@ -5,16 +5,17 @@ Every task carries a stable ``code`` + ``params`` (M-C7); ``title``/``descriptio
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import PlacementState, StudyModule, StudySession, UserDomainMetricDaily
 from app.services.auth import normalize_client_key
 from app.services.exam_policy import normalize_certification
+from app.services.metrics import aggregate_domain_metrics_for_owner
 from app.services.owner_scope import require_owner_filters, session_owner_scope
 from app.services.readiness import build_readiness_snapshot
 from app.services.study_state import build_study_overview
@@ -78,7 +79,7 @@ def _mark_placement_complete(
     state = _get_or_create_placement_state(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
     if state.placement_completed_at:
         return False
-    state.placement_completed_at = session.completed_at or datetime.utcnow()
+    state.placement_completed_at = session.completed_at or utcnow()
     state.placement_exam_id = session.exam_id
     state.placement_question_count = answered_count
     db.flush()
@@ -102,6 +103,15 @@ def placement_completed_by_session(db: Session, *, session: StudySession, answer
 
 # --------------------------------------------------------------------------- study modules (M-A7)
 
+MODULE_COMPLETED_MASTERY_PERCENT = 80.0
+MODULE_COMPLETED_MIN_ATTEMPTS = 10
+
+MODULE_STATUS_LOCKED = "locked"
+MODULE_STATUS_AVAILABLE = "available"
+MODULE_STATUS_IN_PROGRESS = "in_progress"
+MODULE_STATUS_COMPLETED = "completed"
+
+
 def serialize_study_module(module: StudyModule) -> dict[str, Any]:
     return {
         "id": module.id,
@@ -111,18 +121,92 @@ def serialize_study_module(module: StudyModule) -> dict[str, Any]:
         "title": module.title,
         "description": module.description,
         "domain": module.domain,
+        "prerequisite_codes": [str(code) for code in (module.prerequisite_codes or [])],
+        "status": MODULE_STATUS_AVAILABLE,
+        "mastery_percent": None,
+        "attempted": 0,
     }
 
 
-def list_study_modules(db: Session, certification: Optional[str] = None) -> list[dict[str, Any]]:
-    """Ordered study track of a certification (all certifications when omitted)."""
+def _domain_key(certification: Optional[str], domain: Optional[str]) -> tuple[str, str]:
+    return normalize_certification(certification), str(domain or "").strip().lower()
+
+
+def _owner_domain_mastery(
+    db: Session,
+    *,
+    owner_user_id: Optional[str],
+    owner_client_key: Optional[str],
+) -> dict[tuple[str, str], tuple[int, int]]:
+    """{(certification, domain): (attempts, correct)} of the owner (all time)."""
+    if not owner_user_id and not owner_client_key:
+        return {}
+    totals: dict[tuple[str, str], tuple[int, int]] = {}
+    for item in aggregate_domain_metrics_for_owner(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key):
+        key = _domain_key(item["certification"], item["domain"])
+        attempts, correct = totals.get(key, (0, 0))
+        totals[key] = (attempts + int(item["attempts_total"]), correct + int(item["correct_count"]))
+    return totals
+
+
+def apply_module_progress(
+    modules: list[dict[str, Any]],
+    mastery: dict[tuple[str, str], tuple[int, int]],
+) -> list[dict[str, Any]]:
+    """Set ``status``/``mastery_percent``/``attempted`` on serialized modules (contracts_r4 §2).
+
+    - completed: mastery >= 80% with >= 10 attempts in the module's domain;
+    - in_progress: attempts > 0;
+    - locked: some prerequisite (same certification) is not completed;
+    - available: otherwise.
+    Modules without a domain have no mastery: available/locked from prerequisites only.
+    """
+    for module in modules:
+        attempts, correct = (0, 0)
+        if module.get("domain"):
+            attempts, correct = mastery.get(_domain_key(module["certification"], module["domain"]), (0, 0))
+        module["attempted"] = attempts
+        module["mastery_percent"] = round((correct / attempts) * 100.0, 1) if attempts else None
+
+    completed: set[tuple[str, str]] = set()
+    for module in modules:
+        if (
+            module["attempted"] >= MODULE_COMPLETED_MIN_ATTEMPTS
+            and (module["mastery_percent"] or 0.0) >= MODULE_COMPLETED_MASTERY_PERCENT
+        ):
+            completed.add((normalize_certification(module["certification"]), module["code"]))
+
+    for module in modules:
+        cert = normalize_certification(module["certification"])
+        if (cert, module["code"]) in completed:
+            module["status"] = MODULE_STATUS_COMPLETED
+        elif module["attempted"] > 0:
+            module["status"] = MODULE_STATUS_IN_PROGRESS
+        elif any((cert, code) not in completed for code in module.get("prerequisite_codes") or []):
+            module["status"] = MODULE_STATUS_LOCKED
+        else:
+            module["status"] = MODULE_STATUS_AVAILABLE
+    return modules
+
+
+def list_study_modules(
+    db: Session,
+    certification: Optional[str] = None,
+    *,
+    owner_user_id: Optional[str] = None,
+    owner_client_key: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Ordered study track of a certification (all certifications when omitted), with the
+    owner's status/mastery per module (no owner: nothing attempted)."""
     rows = db.execute(
         select(StudyModule).order_by(StudyModule.certification.asc(), StudyModule.position.asc(), StudyModule.code.asc())
     ).scalars().all()
     if certification:
         wanted = normalize_certification(certification)
         rows = [row for row in rows if normalize_certification(row.certification) == wanted]
-    return [serialize_study_module(row) for row in rows]
+    modules = [serialize_study_module(row) for row in rows]
+    mastery = _owner_domain_mastery(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
+    return apply_module_progress(modules, mastery)
 
 
 def _module_position_index(modules: list[dict[str, Any]]) -> dict[tuple[str, str], int]:
@@ -135,26 +219,38 @@ def _module_position_index(modules: list[dict[str, Any]]) -> dict[tuple[str, str
     return index
 
 
+def _is_open(module: dict[str, Any]) -> bool:
+    return module.get("status") not in (MODULE_STATUS_COMPLETED, MODULE_STATUS_LOCKED)
+
+
 def _recommend_module(
     modules: list[dict[str, Any]],
     *,
     certification: Optional[str],
     domain: Optional[str],
 ) -> Optional[dict[str, Any]]:
-    """Next module for the weakest domain: first module (by position) of that domain;
-    otherwise the first module of the certification track."""
+    """Next module (contracts_r4 §2): the first module (by position) of the weakest
+    domain that is neither completed nor locked; fallback: the first available module of
+    the track, then the first open one."""
     if not modules or not certification:
         return None
     wanted_cert = normalize_certification(certification)
     track = [module for module in modules if normalize_certification(module["certification"]) == wanted_cert]
     if not track:
         return None
+    track.sort(key=lambda module: (int(module["position"]), module["code"]))
     if domain:
         wanted_domain = str(domain).strip().lower()
         for module in track:
-            if str(module.get("domain") or "").strip().lower() == wanted_domain:
+            if str(module.get("domain") or "").strip().lower() == wanted_domain and _is_open(module):
                 return module
-    return track[0]
+    for module in track:
+        if module.get("status") == MODULE_STATUS_AVAILABLE:
+            return module
+    for module in track:
+        if _is_open(module):
+            return module
+    return None
 
 
 # --------------------------------------------------------------------------- plan
@@ -193,7 +289,7 @@ def build_study_plan(
     placement_required = not bool(state and state.placement_completed_at) and attempts_total < PLACEMENT_MIN_QUESTION_COUNT
 
     plan_certification = readiness.get("certification")
-    modules = list_study_modules(db)
+    modules = list_study_modules(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
     positions = _module_position_index(modules)
 
     risk_details: list[dict[str, Any]] = []
@@ -314,5 +410,5 @@ def build_study_plan(
         "review_backlog_due": due_count,
         "certification": (top_risk or {}).get("certification") or plan_certification,
         "recommended_module": recommended_module,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": utcnow().isoformat(),
     }

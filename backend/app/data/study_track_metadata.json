@@ -1,0 +1,53 @@
+{
+  "_doc": [
+    "Study-track metadata applied by app.services.ingest.sync_study_modules (M-A7).",
+    "Module lists/titles come from material/Modulos_sec+.md and material/cissp_domain.json; this file adds",
+    "the exam domain of each module and its prerequisite module codes (same certification).",
+    "Security+ domains are the five SY0-701 domains; each module is mapped by its content to the domain",
+    "of the objectives it covers (rationale per module). Prerequisites only point to earlier modules",
+    "(acyclic): fundamentals before everything, threat actors before social engineering/malware,",
+    "malware before vulnerabilities and malicious activity, crypto + fundamentals before architecture,",
+    "architecture before infrastructure, risk management before third-party risk/governance/resilience,",
+    "governance before audits, monitoring before incident response, response before investigation",
+    "and automation, social engineering before awareness.",
+    "CISSP: modules are the 8 domains; Security and Risk Management (D1) is the foundation of all the others."
+  ],
+  "Security+": {
+    "M01": {"domain": "General Security Concepts", "prerequisites": [], "rationale": "SY0-701 1.1/1.2: control types, CIA, Zero Trust."},
+    "M02": {"domain": "Threats, Vulnerabilities and Mitigations", "prerequisites": ["M01"], "rationale": "2.1/2.2: threat actors, vectors and attack surfaces."},
+    "M03": {"domain": "General Security Concepts", "prerequisites": ["M01"], "rationale": "1.2: physical security controls."},
+    "M04": {"domain": "Threats, Vulnerabilities and Mitigations", "prerequisites": ["M02"], "rationale": "2.2: social engineering vectors."},
+    "M05": {"domain": "Threats, Vulnerabilities and Mitigations", "prerequisites": ["M02"], "rationale": "2.4: malware and indicators of malicious activity."},
+    "M06": {"domain": "Security Architecture", "prerequisites": ["M01"], "rationale": "3.3: data classification and protection strategies."},
+    "M07": {"domain": "General Security Concepts", "prerequisites": ["M01"], "rationale": "1.4: cryptographic solutions, PKI."},
+    "M08": {"domain": "Security Program Management and Oversight", "prerequisites": ["M01"], "rationale": "5.2: risk management process."},
+    "M09": {"domain": "Security Program Management and Oversight", "prerequisites": ["M08"], "rationale": "5.3: third-party risk assessment."},
+    "M10": {"domain": "Security Program Management and Oversight", "prerequisites": ["M08"], "rationale": "5.1/5.4: governance and compliance."},
+    "M11": {"domain": "Security Operations", "prerequisites": ["M01"], "rationale": "4.2: asset management (change management, 1.3, is the smaller part)."},
+    "M12": {"domain": "Security Program Management and Oversight", "prerequisites": ["M10"], "rationale": "5.5: audits and assessments, penetration testing."},
+    "M13": {"domain": "Security Architecture", "prerequisites": ["M08"], "rationale": "3.4: resilience and recovery."},
+    "M14": {"domain": "Security Architecture", "prerequisites": ["M01", "M07"], "rationale": "3.1/3.2: architecture models, secure network design."},
+    "M15": {"domain": "Security Architecture", "prerequisites": ["M14"], "rationale": "3.2: securing enterprise infrastructure."},
+    "M16": {"domain": "Security Operations", "prerequisites": ["M01"], "rationale": "4.6: identity and access management."},
+    "M17": {"domain": "Threats, Vulnerabilities and Mitigations", "prerequisites": ["M05"], "rationale": "2.3: types of vulnerabilities."},
+    "M18": {"domain": "Threats, Vulnerabilities and Mitigations", "prerequisites": ["M05", "M17"], "rationale": "2.4: indicators of malicious activity."},
+    "M19": {"domain": "Security Operations", "prerequisites": ["M17"], "rationale": "4.1: secure baselines and hardening of computing resources."},
+    "M20": {"domain": "Security Operations", "prerequisites": ["M14", "M19"], "rationale": "4.1/4.5: application security, web filtering, proxies."},
+    "M21": {"domain": "Security Operations", "prerequisites": ["M17"], "rationale": "4.3: vulnerability management."},
+    "M22": {"domain": "Security Operations", "prerequisites": ["M18"], "rationale": "4.4: security alerting and monitoring."},
+    "M23": {"domain": "Security Operations", "prerequisites": ["M22"], "rationale": "4.8: incident response (after monitoring)."},
+    "M24": {"domain": "Security Operations", "prerequisites": ["M23"], "rationale": "4.9: data sources and digital forensics for investigations."},
+    "M25": {"domain": "Security Operations", "prerequisites": ["M22", "M23"], "rationale": "4.7: automation and orchestration."},
+    "M26": {"domain": "Security Program Management and Oversight", "prerequisites": ["M04"], "rationale": "5.6: security awareness practices."}
+  },
+  "CISSP": {
+    "D1": {"prerequisites": [], "rationale": "Security and Risk Management: foundation (governance, risk, ethics)."},
+    "D2": {"prerequisites": ["D1"]},
+    "D3": {"prerequisites": ["D1"]},
+    "D4": {"prerequisites": ["D1"]},
+    "D5": {"prerequisites": ["D1"]},
+    "D6": {"prerequisites": ["D1"]},
+    "D7": {"prerequisites": ["D1"]},
+    "D8": {"prerequisites": ["D1"]}
+  }
+}

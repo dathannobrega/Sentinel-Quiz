@@ -5,7 +5,7 @@ import os
 import sys
 import unittest
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -79,7 +79,7 @@ class _IntegrityMixin:
             StudySessionQuestion(session_id="st1", question_id="q1", position=0),
             StudyAttempt(session_id="st1", question_id="q1", selected_keys="A", is_correct=True),
             UserQuestionProgress(user_id=user.id, question_id="q1"),
-            ReviewQueueItem(user_id=user.id, question_id="q1", due_at=datetime.utcnow()),
+            ReviewQueueItem(user_id=user.id, question_id="q1", due_at=datetime.now(timezone.utc)),
             UserBookmark(user_id=user.id, question_id="q1"),
             UserExamMetricsSnapshot(user_id=user.id, session_id="s1"),
         ])

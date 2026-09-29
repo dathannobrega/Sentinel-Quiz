@@ -262,10 +262,6 @@ class ExamQuestionStateOut(BaseModel):
     experience_mode: Optional[str] = None
 
 
-class ExamNavigationIn(BaseModel):
-    position: int = Field(..., ge=0)
-
-
 class ReviewScreenQuestionStatusOut(BaseModel):
     position: int
     question_id: str
@@ -690,6 +686,11 @@ class StudyModuleOut(BaseModel):
     title: str
     description: Optional[str] = None
     domain: Optional[str] = None
+    prerequisite_codes: List[str] = Field(default_factory=list)
+    # locked | available | in_progress | completed (computed for the owner, M-A7).
+    status: str = "available"
+    mastery_percent: Optional[float] = None
+    attempted: int = 0
 
 
 class StudyModuleListOut(BaseModel):
@@ -862,6 +863,14 @@ class AuthUserOut(BaseModel):
     is_active: bool
     email_verified: bool
     created_at: str
+
+
+class RegistrationPendingOut(BaseModel):
+    """202 body of POST /api/auth/register in the two-step sign-up (M-B2/L-B2)."""
+
+    status: str = "verification_required"
+    detail: str
+    code: str = "verification_required"
 
 
 class AuthTokenOut(BaseModel):
@@ -1198,6 +1207,7 @@ class AdminIngestResultOut(PassthroughModel):
     skipped_editorial: int = 0
     reactivated: int = 0
     deactivated: int = 0
+    rejected_invalid_domain: int = 0
     domain_weights_updated: int = 0
     study_modules: int = 0
 

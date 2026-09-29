@@ -7,6 +7,7 @@ from typing import Any, Optional
 from sqlalchemy import func, select  # noqa: F401
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import Question, ReviewQueueItem, StudySession, User, UserBookmark, UserNote
 from app.services.auth import normalize_client_key
 from app.services.owner_scope import require_owner_filters
@@ -93,7 +94,7 @@ def set_question_state(
     _question_or_error(db, question_id)
     normalized_client_key = normalize_client_key(owner_client_key)
     normalized_note = _normalize_note_text(note_text)
-    now = datetime.utcnow()
+    now = utcnow()
 
     bookmark = _state_query(db, UserBookmark, question_id, owner_user_id, normalized_client_key)
     note = _state_query(db, UserNote, question_id, owner_user_id, normalized_client_key)
@@ -218,7 +219,7 @@ def build_study_overview(
         for question_id, updated_at, note_text, prompt in db.execute(recent_notes_stmt).all()
     ]
 
-    due_now = datetime.utcnow()
+    due_now = utcnow()
     due_review_count = count_due_review_items(
         db,
         owner_user_id=owner_user_id,
@@ -303,7 +304,7 @@ def claim_client_study_state(db: Session, *, user: User, client_key: str | None)
             continue
         bookmark.user_id = user.id
         bookmark.client_key = None
-        bookmark.updated_at = datetime.utcnow()
+        bookmark.updated_at = utcnow()
         claimed_bookmarks += 1
         changed = True
 
@@ -322,13 +323,13 @@ def claim_client_study_state(db: Session, *, user: User, client_key: str | None)
         ).scalar_one_or_none()
         if target:
             target.note_text = _merge_note_text(target.note_text, note.note_text)
-            target.updated_at = max(target.updated_at, note.updated_at) if target.updated_at and note.updated_at else datetime.utcnow()
+            target.updated_at = max(target.updated_at, note.updated_at) if target.updated_at and note.updated_at else utcnow()
             db.delete(note)
             changed = True
             continue
         note.user_id = user.id
         note.client_key = None
-        note.updated_at = datetime.utcnow()
+        note.updated_at = utcnow()
         claimed_notes += 1
         changed = True
 
@@ -364,13 +365,13 @@ def claim_client_study_state(db: Session, *, user: User, client_key: str | None)
                 target.last_outcome = item.last_outcome
                 target.confidence_level = item.confidence_level
                 target.last_attempt_at = item.last_attempt_at
-                target.updated_at = datetime.utcnow()
+                target.updated_at = utcnow()
             db.delete(item)
             changed = True
             continue
         item.user_id = user.id
         item.client_key = None
-        item.updated_at = datetime.utcnow()
+        item.updated_at = utcnow()
         claimed_review_items += 1
         changed = True
 

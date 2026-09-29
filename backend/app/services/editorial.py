@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import (
     QUESTION_DEACTIVATED_DELETED,
     DomainBlueprint,
@@ -388,7 +389,7 @@ def _sync_domain_blueprint_catalog(
         catalog_row.title = subtopic or catalog_row.title
         catalog_row.description = (payload.get("correct_rationale") or payload.get("justification") or catalog_row.description)
         catalog_row.is_active = True
-        catalog_row.updated_at = datetime.utcnow()
+        catalog_row.updated_at = utcnow()
 
     if blueprint_code:
         blueprint_row = db.execute(
@@ -415,7 +416,7 @@ def _sync_domain_blueprint_catalog(
             blueprint_row.subdomain = subdomain
             blueprint_row.title = subtopic or blueprint_row.title
             blueprint_row.description = (payload.get("correct_rationale") or payload.get("justification") or blueprint_row.description)
-            blueprint_row.updated_at = datetime.utcnow()
+            blueprint_row.updated_at = utcnow()
 
 
 def _create_version(
@@ -498,7 +499,7 @@ def _ensure_bank_seeded_from_projection(
             status="published",
             actor_user_id=None,
             approved_by_user_id=None,
-            published_at=datetime.utcnow(),
+            published_at=utcnow(),
             import_hash="seeded-projection",
         )
         bank.published_version_id = seeded_version.id
@@ -535,7 +536,7 @@ def _ensure_bank_seeded_from_projection(
         status="published",
         actor_user_id=None,
         approved_by_user_id=None,
-        published_at=datetime.utcnow(),
+        published_at=utcnow(),
         import_hash="seeded-projection",
     )
     bank.published_version_id = seeded_version.id
@@ -1061,7 +1062,7 @@ def publish_question(
 
     version.status = "published"
     version.approved_by_user_id = actor_user_id
-    version.published_at = datetime.utcnow()
+    version.published_at = utcnow()
     version.updated_by_user_id = actor_user_id
 
     bank.published_version_id = version.id
@@ -1118,7 +1119,7 @@ def rollback_question_to_version(
         status="published",
         actor_user_id=actor_user_id,
         approved_by_user_id=actor_user_id,
-        published_at=datetime.utcnow(),
+        published_at=utcnow(),
     )
 
     previous_published = _get_version(db, bank.published_version_id)
@@ -1356,7 +1357,7 @@ def sync_imported_question_publication(
         status="published",
         actor_user_id=None,
         approved_by_user_id=None,
-        published_at=datetime.utcnow(),
+        published_at=utcnow(),
         import_hash=target_hash,
     )
     bank.published_version_id = published_version.id
