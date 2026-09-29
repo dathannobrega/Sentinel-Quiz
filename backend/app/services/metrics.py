@@ -561,7 +561,10 @@ def record_session_metrics(
     completed_at: Optional[datetime],
     created_at: Optional[datetime],
     weakest_domains: Optional[list[dict[str, Any]]] = None,
+    score_points: Optional[float] = None,
 ) -> UserExamMetricsSnapshot | None:
+    """``score_points``: earned credit when it differs from ``correct_count`` (PBQ partial
+    credit counts each PBQ as one question weighted by its score)."""
     if completed_at is None:
         return None
 
@@ -573,7 +576,8 @@ def record_session_metrics(
     duration_seconds = None
     if created_at and completed_at and completed_at >= created_at:
         duration_seconds = int((completed_at - created_at).total_seconds())
-    score_percent = round((correct_count / total_questions) * 100.0, 2) if total_questions else 0.0
+    points = correct_count if score_points is None else score_points
+    score_percent = round((points / total_questions) * 100.0, 2) if total_questions else 0.0
 
     snapshot = db.execute(
         select(UserExamMetricsSnapshot).where(UserExamMetricsSnapshot.session_id == session_id)

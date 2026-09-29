@@ -5,6 +5,10 @@ percentage of correct answers:
 
 * CISSP: 700/1000 scaled score -> 70.0 %
 * CompTIA Security+ (SY0-701): 750 on a 100-900 scale -> 750/900 = 83.0 %
+* EC-Council CEH v13 (312-50): 70.0 %. There is no fixed official passing score: each
+  exam form has its own cut score set by psychometricians, between 60 % and 85 %
+  according to the v13 brochure (the eccouncil.org FAQ says 65 %-85 %). 70 % is a
+  practice target inside that range.
 * anything else: 70.0 %
 
 Scaled scores are not linear in the number of correct answers; these percentages are a
@@ -18,6 +22,8 @@ DEFAULT_PASS_THRESHOLD = 70.0
 PASS_THRESHOLDS: dict[str, float] = {
     "cissp": 70.0,
     "security+": 83.0,
+    # Official cut score varies per exam form (60-85 %); see the module docstring.
+    "ceh": 70.0,
 }
 _ALIASES = {
     "securityplus": "security+",
@@ -26,6 +32,11 @@ _ALIASES = {
     "sec+": "security+",
     "secplus": "security+",
     "sy0-701": "security+",
+    "ceh v13": "ceh",
+    "cehv13": "ceh",
+    "ceh ai": "ceh",
+    "312-50": "ceh",
+    "certified ethical hacker": "ceh",
 }
 
 

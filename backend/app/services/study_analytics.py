@@ -316,6 +316,7 @@ def list_study_history(
             StudyAttempt.elapsed_seconds,
             StudyAttempt.confidence_level,
             Question.domain,
+            StudyAttempt.score,
         )
         .join(Question, Question.id == StudyAttempt.question_id)
         .where(StudyAttempt.session_id.in_(session_ids))
@@ -323,13 +324,16 @@ def list_study_history(
     ).all()
 
     aggregates: dict[str, dict[str, Any]] = {}
-    for session_id, is_correct, elapsed_seconds, confidence_level, domain in attempt_rows:
+    for session_id, is_correct, elapsed_seconds, confidence_level, domain, attempt_score in attempt_rows:
         bucket = aggregates.setdefault(session_id, {
             "timed_total": 0,
             "timed_count": 0,
             "confidence": {"low": 0, "medium": 0, "high": 0},
             "domains": {},
+            "earned": 0.0,
         })
+        # PBQ: one question weighted by its partial score.
+        bucket["earned"] += float(attempt_score) if attempt_score is not None else (1.0 if is_correct else 0.0)
         if elapsed_seconds is not None:
             bucket["timed_total"] += int(elapsed_seconds)
             bucket["timed_count"] += 1
@@ -345,8 +349,8 @@ def list_study_history(
     history: list[dict[str, Any]] = []
     for session, exam_title in rows:
         total = session.total_questions
-        score = round((session.correct_count / total) * 100.0, 2) if total else 0.0
         bucket = aggregates.get(session.id, {})
+        score = round((float(bucket.get("earned") or 0.0) / total) * 100.0, 2) if total else 0.0
         timed_count = int(bucket.get("timed_count") or 0)
         timed_total = int(bucket.get("timed_total") or 0)
         confidence = bucket.get("confidence") or {}

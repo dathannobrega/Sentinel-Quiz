@@ -17,6 +17,19 @@ from app.services.engagement import refresh_engagement_state
 from app.services.learning import upsert_question_progress
 from app.services.metrics import record_question_attempt_metrics, record_session_metrics
 from app.services.option_order import OptionMapping, build_option_orders, split_keys
+from app.services.pbq_runtime import (
+    MAX_PBQ_COUNT,
+    MCQ_FORMAT,
+    PBQ_FORMAT,
+    build_pbq_orders,
+    dump_response,
+    grade_pbq_answer,
+    is_pbq,
+    load_response,
+    pbq_feedback_fields,
+    pbq_question_view,
+    pbq_review_fields,
+)
 from app.services.pedagogy import confidence_signal_from_level
 from app.services.question_pool import (
     count_due_review_items as _count_due_review_items,
@@ -28,6 +41,7 @@ from app.services.question_pool import (
     owner_note_question_ids,
     owner_seen_question_ids,
     review_queue_candidates,
+    select_pbq_question_ids,
     validate_requested_question_ids,
     weak_domain_keys,
 )
@@ -102,7 +116,12 @@ def _session_question_row(db: Session, session_id: str, question_id: str) -> Stu
     ).scalar_one_or_none()
 
 
-def _serialize_question_payload(db: Session, question_id: str, option_order_json: str | None = None) -> dict[str, Any]:
+def _serialize_question_payload(
+    db: Session,
+    question_id: str,
+    option_order_json: str | None = None,
+    pbq_order_json: str | None = None,
+) -> dict[str, Any]:
     question = _question_or_error(db, question_id)
     options = option_rows(db, question_id)
     mapping = OptionMapping.build(option_order_json, [item["key"] for item in options])
@@ -116,6 +135,7 @@ def _serialize_question_payload(db: Session, question_id: str, option_order_json
         "certification": question.certification,
         "tags": parse_tags(question.tags_json),
         "options": [{"key": item["key"], "text": item["text"]} for item in mapping.display_options(options)],
+        **pbq_question_view(question, pbq_order_json),
     }
 
 
@@ -384,26 +404,57 @@ def create_study_session(
     review_states: Optional[list[str]] = None,
     owner_user_id: Optional[str] = None,
     owner_client_key: Optional[str] = None,
+    pbq_count: int = 0,
 ) -> StudySession:
-    qids, resolved_strategy, selection_mix = _build_question_pool(
-        db,
-        exam_id=exam_id,
-        total_questions=total_questions,
-        question_ids=question_ids,
-        domains=domains,
-        difficulties=difficulties,
-        tags=tags,
-        bookmarked_only=bookmarked_only,
-        notes_only=notes_only,
-        incorrect_only=incorrect_only,
-        unseen_only=unseen_only,
-        low_confidence_only=low_confidence_only,
-        strategy=strategy,
-        queue_only=queue_only,
-        review_states=review_states,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-    )
+    # PBQs first (part of total_questions); never mixed into review-queue-only sessions.
+    pbq_ids: list[str] = []
+    if pbq_count and not question_ids and not queue_only:
+        pbq_ids = select_pbq_question_ids(
+            db,
+            count=min(int(pbq_count), MAX_PBQ_COUNT, int(total_questions)),
+            exam_id=exam_id,
+            domains=domains,
+            difficulties=difficulties,
+            tags=tags,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            bookmarked_only=bookmarked_only,
+            notes_only=notes_only,
+            incorrect_only=incorrect_only,
+            unseen_only=unseen_only,
+            low_confidence_only=low_confidence_only,
+        )
+    mcq_total = int(total_questions) - len(pbq_ids)
+    qids: list[str] = []
+    resolved_strategy = _normalize_strategy(strategy, queue_only)
+    selection_mix: dict[str, int] = {}
+    if mcq_total > 0:
+        try:
+            qids, resolved_strategy, selection_mix = _build_question_pool(
+                db,
+                exam_id=exam_id,
+                total_questions=mcq_total,
+                question_ids=question_ids,
+                domains=domains,
+                difficulties=difficulties,
+                tags=tags,
+                bookmarked_only=bookmarked_only,
+                notes_only=notes_only,
+                incorrect_only=incorrect_only,
+                unseen_only=unseen_only,
+                low_confidence_only=low_confidence_only,
+                strategy=strategy,
+                queue_only=queue_only,
+                review_states=review_states,
+                owner_user_id=owner_user_id,
+                owner_client_key=owner_client_key,
+            )
+        except ValueError:
+            if not pbq_ids:
+                raise
+    if pbq_ids:
+        selection_mix = {"pbq": len(pbq_ids), **selection_mix}
+        qids = pbq_ids + [qid for qid in qids if qid not in set(pbq_ids)]
     if not qids:
         raise ValueError("No questions found for the selected study session.")
 
@@ -425,6 +476,7 @@ def create_study_session(
     db.flush()
 
     option_orders = build_option_orders(db, qids[:total])
+    pbq_orders = build_pbq_orders(db, qids[:total])
     for position, question_id in enumerate(qids[:total]):
         db.add(
             StudySessionQuestion(
@@ -432,6 +484,7 @@ def create_study_session(
                 question_id=question_id,
                 position=position,
                 option_order_json=option_orders.get(question_id),
+                pbq_order_json=pbq_orders.get(question_id),
             )
         )
 
@@ -476,15 +529,19 @@ def get_question_for_study_session(db: Session, session: StudySession, position:
     if position < 0 or position >= session.total_questions:
         return None
     row = db.execute(
-        select(StudySessionQuestion.question_id, StudySessionQuestion.option_order_json).where(
+        select(
+            StudySessionQuestion.question_id,
+            StudySessionQuestion.option_order_json,
+            StudySessionQuestion.pbq_order_json,
+        ).where(
             StudySessionQuestion.session_id == session.id,
             StudySessionQuestion.position == position,
         )
     ).first()
     if not row:
         return None
-    question_id, option_order_json = row
-    return _serialize_question_payload(db, question_id, option_order_json)
+    question_id, option_order_json, pbq_order_json = row
+    return _serialize_question_payload(db, question_id, option_order_json, pbq_order_json)
 
 
 def answer_study_question(
@@ -494,6 +551,7 @@ def answer_study_question(
     selected_keys: list[str],
     confidence_level: str,
     elapsed_seconds: Optional[int] = None,
+    pbq_response: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     confidence = _normalize_confidence_level(confidence_level)
     session_row = _session_question_row(db, session.id, question_id)
@@ -502,16 +560,29 @@ def answer_study_question(
 
     question = db.get(Question, question_id)
 
-    options = option_rows(db, question_id)
-    if not options:
-        raise ValueError("Question options not found.")
-    mapping = OptionMapping.build(session_row.option_order_json, [item["key"] for item in options])
-    # Display keys -> original keys: grading, storage and analytics use original keys.
-    original_selected = mapping.to_original(selected_keys)
-    selected_set = set(original_selected)
-
-    correct_keys = [item["key"] for item in options if item["is_correct"]]
-    is_correct = (selected_set == set(correct_keys))
+    grading: dict[str, Any] | None = None
+    response_json: str | None = None
+    if is_pbq(question):
+        if selected_keys:
+            raise ValueError("Performance-based questions are answered with pbq_response, not selected_keys.")
+        clean_response, grading = grade_pbq_answer(question, pbq_response)
+        response_json = dump_response(clean_response)
+        mapping = OptionMapping.build(None, [])
+        original_selected: list[str] = []
+        correct_keys: list[str] = []
+        is_correct = bool(grading["is_correct"])
+    else:
+        if pbq_response is not None:
+            raise ValueError("pbq_response is only accepted for performance-based questions.")
+        options = option_rows(db, question_id)
+        if not options:
+            raise ValueError("Question options not found.")
+        mapping = OptionMapping.build(session_row.option_order_json, [item["key"] for item in options])
+        # Display keys -> original keys: grading, storage and analytics use original keys.
+        original_selected = mapping.to_original(selected_keys)
+        correct_keys = [item["key"] for item in options if item["is_correct"]]
+        is_correct = (set(original_selected) == set(correct_keys))
+    score = grading["score"] if grading else None
     now = utcnow()
     question_version_id = published_version_id(db, question_id)
 
@@ -527,6 +598,8 @@ def answer_study_question(
         else:
             session.wrong_count = max(session.wrong_count - 1, 0)
         existing_attempt.selected_keys = ",".join(original_selected)
+        existing_attempt.response_json = response_json
+        existing_attempt.score = score
         existing_attempt.question_version_id = question_version_id
         existing_attempt.is_correct = is_correct
         existing_attempt.confidence_level = confidence
@@ -543,6 +616,8 @@ def answer_study_question(
                 confidence_level=confidence,
                 elapsed_seconds=elapsed_seconds,
                 answered_at=now,
+                response_json=response_json,
+                score=score,
             )
         )
         session.answered_count += 1
@@ -640,6 +715,11 @@ def answer_study_question(
         },
         "correct_keys": mapping.to_display(correct_keys),
         "selected_keys": mapping.to_display(original_selected),
+        **(
+            {**pbq_feedback_fields(question, grading, reveal=True), "pbq_response": load_response(response_json)}
+            if grading
+            else {"format": MCQ_FORMAT}
+        ),
     }
 
 
@@ -688,6 +768,7 @@ def _finalize_study_session(db: Session, session: StudySession) -> None:
         completed_at=session.completed_at,
         created_at=session.created_at,
         weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+        score_points=round(float(result["score_percent"]) * session.total_questions / 100.0, 4),
     )
     refresh_engagement_state(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
 
@@ -725,6 +806,8 @@ def _build_study_result(db: Session, session: StudySession) -> dict[str, Any]:
             StudyAttempt.is_correct,
             StudyAttempt.elapsed_seconds,
             StudyAttempt.confidence_level,
+            StudyAttempt.score,
+            Question.question_format,
         )
         .join(Question, Question.id == StudySessionQuestion.question_id)
         .outerjoin(
@@ -747,10 +830,21 @@ def _build_study_result(db: Session, session: StudySession) -> dict[str, Any]:
     }
     by_domain: dict[str, dict[str, Any]] = {}
     confidence_buckets = {"low": 0, "medium": 0, "high": 0}
+    earned = 0.0
 
-    for position, question_id, prompt, multi_select, domain, difficulty, is_correct, elapsed_seconds, confidence_level in rows:
-        bucket = "multi_select" if multi_select else "single_select"
+    for (
+        position, question_id, prompt, multi_select, domain, difficulty, is_correct, elapsed_seconds,
+        confidence_level, attempt_score, question_format,
+    ) in rows:
+        if question_format == PBQ_FORMAT:
+            bucket = "pbq"
+            by_type.setdefault("pbq", {"correct": 0, "total": 0, "score_percent": 0.0})
+        else:
+            bucket = "multi_select" if multi_select else "single_select"
         by_type[bucket]["total"] += 1
+        if is_correct is not None:
+            # A PBQ counts as one question weighted by its partial score.
+            earned += float(attempt_score) if attempt_score is not None else (1.0 if is_correct else 0.0)
         if is_correct is not None:
             attempted += 1
             confidence_key = str(confidence_level or "medium").strip().lower()
@@ -799,7 +893,7 @@ def _build_study_result(db: Session, session: StudySession) -> dict[str, Any]:
     weakest_domains = weakest_domains[:5]
 
     unanswered = max(session.total_questions - attempted, 0)
-    score = round((session.correct_count / session.total_questions) * 100.0, 2) if session.total_questions else 0.0
+    score = round((earned / session.total_questions) * 100.0, 2) if session.total_questions else 0.0
     avg_seconds = round(total_elapsed / timed_attempts, 2) if timed_attempts else None
     duration_seconds = total_elapsed if timed_attempts else None
     owner_user_id, owner_client_key = _study_scope_for_session(session)
@@ -910,6 +1004,10 @@ def get_study_session_review(db: Session, session: StudySession) -> dict[str, An
             StudyAttempt.confidence_level,
             StudyAttempt.elapsed_seconds,
             StudyAttempt.answered_at,
+            StudySessionQuestion.pbq_order_json,
+            StudyAttempt.response_json,
+            StudyAttempt.score,
+            StudyAttempt.id,
         )
         .join(Question, Question.id == StudySessionQuestion.question_id)
         .outerjoin(
@@ -943,6 +1041,12 @@ def get_study_session_review(db: Session, session: StudySession) -> dict[str, An
             "is_correct": bool(is_correct),
         })
     explanation_map = {question_id: justification for question_id, justification in explanation_rows}
+    pbq_questions = {
+        question.id: question
+        for question in db.execute(
+            select(Question).where(Question.id.in_(question_ids), Question.question_format == PBQ_FORMAT)
+        ).scalars().all()
+    } if question_ids else {}
 
     timed_total = 0
     timed_count = 0
@@ -964,6 +1068,10 @@ def get_study_session_review(db: Session, session: StudySession) -> dict[str, An
         confidence_level,
         elapsed_seconds,
         answered_at,
+        pbq_order_json,
+        response_json,
+        attempt_score,
+        attempt_id,
     ) in rows:
         raw_options = option_map.get(question_id, [])
         mapping = OptionMapping.build(option_order_json, [item["key"] for item in raw_options])
@@ -994,7 +1102,16 @@ def get_study_session_review(db: Session, session: StudySession) -> dict[str, An
             "justification": mapping.remap_text(explanation_map.get(question_id)),
             "tags": parse_tags(tags_json),
             "citations": parse_citation_dicts(citations_json),
+            "format": MCQ_FORMAT,
         })
+        if question_id in pbq_questions:
+            questions[-1].update(pbq_review_fields(
+                pbq_questions[question_id],
+                pbq_order_json=pbq_order_json,
+                response_json=response_json,
+                answered=attempt_id is not None,
+                stored_score=attempt_score,
+            ))
 
     weakest_domains = [
         str(item.get("label") or "").strip()

@@ -5,11 +5,12 @@ import json
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Exam, ExamSession, Explanation, Option, Question, SessionAnswer, SessionQuestion
 from app.services.option_order import OptionMapping
+from app.services.pbq_runtime import MCQ_FORMAT, pbq_review_fields
 
 
 def iso(dt: datetime | None) -> str | None:
@@ -40,9 +41,26 @@ def parse_selection_mix(selection_mix_json: str | None) -> dict[str, int]:
     return cleaned
 
 
-def serialize_session_history(session: ExamSession, exam_title: str | None) -> dict[str, Any]:
+def earned_points_by_session(db: Session, session_ids: list[str]) -> dict[str, float]:
+    """Sum of answer credits per exam session (PBQ partial score, else 1/0)."""
+    if not session_ids:
+        return {}
+    credit = func.coalesce(
+        SessionAnswer.score,
+        case((SessionAnswer.is_correct.is_(True), 1.0), else_=0.0),
+    )
+    rows = db.execute(
+        select(SessionAnswer.session_id, func.sum(credit))
+        .where(SessionAnswer.session_id.in_(session_ids))
+        .group_by(SessionAnswer.session_id)
+    ).all()
+    return {session_id: float(total or 0.0) for session_id, total in rows}
+
+
+def serialize_session_history(session: ExamSession, exam_title: str | None, earned: float | None = None) -> dict[str, Any]:
     total = session.total_questions
-    score = (session.correct_count / total * 100.0) if total else 0.0
+    points = session.correct_count if earned is None else earned
+    score = (points / total * 100.0) if total else 0.0
     return {
         "id": session.id,
         "exam_id": session.exam_id,
@@ -80,7 +98,9 @@ def list_completed_session_history(
         stmt = stmt.where(ExamSession.user_id.is_(None), ExamSession.client_key == owner_client_key)
     else:
         return []
-    return [serialize_session_history(session, exam_title) for session, exam_title in db.execute(stmt).all()]
+    rows = db.execute(stmt).all()
+    earned = earned_points_by_session(db, [session.id for session, _title in rows])
+    return [serialize_session_history(session, exam_title, earned.get(session.id, 0.0)) for session, exam_title in rows]
 
 
 def _parse_list(raw: str | None, *, dicts: bool = False) -> list | None:
@@ -110,6 +130,7 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
             Question.tags_json,
             Question.citations_json,
             SessionQuestion.option_order_json,
+            SessionQuestion.pbq_order_json,
         )
         .join(Question, Question.id == SessionQuestion.question_id)
         .where(SessionQuestion.session_id == session.id)
@@ -131,7 +152,13 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
             .where(Explanation.question_id.in_(qids))
         ).all()
         ans_rows = db.execute(
-            select(SessionAnswer.question_id, SessionAnswer.selected_keys, SessionAnswer.is_correct)
+            select(
+                SessionAnswer.question_id,
+                SessionAnswer.selected_keys,
+                SessionAnswer.is_correct,
+                SessionAnswer.response_json,
+                SessionAnswer.score,
+            )
             .where(SessionAnswer.session_id == session.id)
         ).all()
 
@@ -140,12 +167,26 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
         opt_map.setdefault(qid, []).append({"key": key, "text": text, "is_correct": is_correct})
     exp_map = {qid: justification for (qid, justification) in exp_rows}
     ans_map = {
-        qid: {"selected_keys": (selected.split(",") if selected else []), "is_correct": ok}
-        for (qid, selected, ok) in ans_rows
+        qid: {
+            "selected_keys": (selected.split(",") if selected else []),
+            "is_correct": ok,
+            "response_json": response_json,
+            "score": score,
+        }
+        for (qid, selected, ok, response_json, score) in ans_rows
     }
+    pbq_questions = {
+        question.id: question
+        for question in db.execute(
+            select(Question).where(Question.id.in_(qids), Question.question_format == "pbq")
+        ).scalars().all()
+    } if qids else {}
 
     questions = []
-    for _pos, qid, prompt, multi, domain, difficulty, certification, tags_json, citations_json, option_order_json in q_rows:
+    for (
+        _pos, qid, prompt, multi, domain, difficulty, certification, tags_json, citations_json,
+        option_order_json, pbq_order_json,
+    ) in q_rows:
         raw_opts = opt_map.get(qid, [])
         # Present options/keys exactly as in this session (per-session shuffle, M-C1).
         mapping = OptionMapping.build(option_order_json, [o["key"] for o in raw_opts])
@@ -165,10 +206,21 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
             "justification": mapping.remap_text(exp_map.get(qid)),
             "tags": _parse_list(tags_json),
             "citations": _parse_list(citations_json, dicts=True),
+            "format": MCQ_FORMAT,
         })
+        pbq_question = pbq_questions.get(qid)
+        if pbq_question is not None:
+            questions[-1].update(pbq_review_fields(
+                pbq_question,
+                pbq_order_json=pbq_order_json,
+                response_json=answer.get("response_json"),
+                answered=bool(answer),
+                stored_score=answer.get("score"),
+            ))
     return questions
 
 
 def build_exam_session_meta(db: Session, session: ExamSession) -> dict[str, Any]:
     exam = db.get(Exam, session.exam_id) if session.exam_id else None
-    return serialize_session_history(session, exam.title if exam else None)
+    earned = earned_points_by_session(db, [session.id]).get(session.id, 0.0)
+    return serialize_session_history(session, exam.title if exam else None, earned)

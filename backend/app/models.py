@@ -17,6 +17,8 @@ USER_ROLES = ("student", "editor", "reviewer", "admin")
 QUESTION_DIFFICULTIES = ("Easy", "Medium", "Hard")
 QUESTION_VERSION_STATUSES = ("draft", "in_review", "approved", "published", "archived")
 QUESTION_ISSUE_STATUSES = ("open", "triaged", "fix_in_progress", "verified", "released", "dismissed")
+# Student-facing question formats (migration 0017): multiple choice or performance-based.
+QUESTION_FORMATS = ("mcq", "pbq")
 # Why a question projection was deactivated (soft delete).
 QUESTION_DEACTIVATED_DELETED = "deleted"
 QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE = "removed_from_source"
@@ -310,6 +312,11 @@ class QuestionVersion(Base):
     # import ("legacy-import"/"seeded-projection" markers for rows that predate 0014).
     # NULL => created editorially; ingest never overwrites an editorial published version.
     import_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Performance-based questions (question_format == "pbq", migration 0017): public
+    # payload (title, scenario, exhibits, tasks without solutions) and the private
+    # answer key (solutions, scoring, explanations), both JSON text.
+    pbq_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pbq_answer_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     question_bank: Mapped["QuestionBank"] = relationship(back_populates="versions", foreign_keys=[question_bank_id])
     options: Mapped[list["QuestionVersionOption"]] = relationship(back_populates="version", cascade="all, delete-orphan")
@@ -486,6 +493,10 @@ class Question(Base):
     # Editorial flags so admins can find incomplete content.
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false(), index=True)
     explanation_missing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false(), index=True)
+    # "mcq" (options) | "pbq" (performance-based: pbq_payload_json/pbq_answer_json), 0017.
+    question_format: Mapped[str] = mapped_column(String(8), nullable=False, default="mcq", server_default=text("'mcq'"), index=True)
+    pbq_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pbq_answer_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     exam: Mapped["Exam"] = relationship(back_populates="questions")
     options: Mapped[list["Option"]] = relationship(back_populates="question", cascade="all, delete-orphan")
@@ -499,6 +510,7 @@ class Question(Base):
             "difficulty IS NULL OR " + _sql_in("difficulty", QUESTION_DIFFICULTIES),
             name="ck_questions_difficulty",
         ),
+        CheckConstraint(_sql_in("question_format", QUESTION_FORMATS), name="ck_questions_question_format"),
     )
 
 class Option(Base):
@@ -565,6 +577,8 @@ class SessionQuestion(Base):
     last_viewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
     # JSON list of option keys in the order shown to the student (per-session shuffle).
     option_order_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # PBQ per-session shuffle: {task_id: [item ids in display order]} (0017).
+    pbq_order_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["ExamSession"] = relationship(back_populates="questions")
 
@@ -587,6 +601,9 @@ class SessionAnswer(Base):
     selected_keys: Mapped[str] = mapped_column(String(255), nullable=False)  # comma-separated keys
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     elapsed_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # PBQ answers (0017): the learner's response (JSON) and the partial-credit score 0..1.
+    response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     answered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
@@ -706,6 +723,8 @@ class StudySessionQuestion(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     # JSON list of option keys in the order shown to the student (per-session shuffle).
     option_order_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # PBQ per-session shuffle: {task_id: [item ids in display order]} (0017).
+    pbq_order_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["StudySession"] = relationship(back_populates="questions")
 
@@ -730,6 +749,9 @@ class StudyAttempt(Base):
     confidence_level: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
     elapsed_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     answered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)
+    # PBQ answers (0017): the learner's response (JSON) and the partial-credit score 0..1.
+    response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     session: Mapped["StudySession"] = relationship(back_populates="attempts")
 

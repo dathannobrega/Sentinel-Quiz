@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     question_json_dir: str = Field(default="../questions", alias="QUESTION_JSON_DIR")
     material_dir: str = Field(default="../material", alias="MATERIAL_DIR")
-    # Non-licensed study-track sources (Modulos_sec+.md, cissp_domain.json) shipped in
+    # Non-licensed study-track sources (Modulos_sec+.md, cissp_domain.json, ceh_modules.md) shipped in
     # the image; empty falls back to MATERIAL_DIR.
     study_track_dir: str = Field(default="", alias="STUDY_TRACK_DIR")
     database_url: str = Field(

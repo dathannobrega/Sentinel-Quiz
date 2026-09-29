@@ -22,7 +22,7 @@ TEST_DATABASE_URL=postgresql+psycopg://user:pass@127.0.0.1:5432/sentinel_test py
 ## Variáveis principais
 - `DATABASE_URL`: `postgresql+psycopg://sentinel:sentinel@127.0.0.1:5432/sentinel_quiz` (dev)
 - `QUESTION_JSON_DIR` / `MATERIAL_DIR`: `../questions` / `../material`
-- `STUDY_TRACK_DIR`: diretório com `Modulos_sec+.md` e `cissp_domain.json` (trilha de estudo). Na imagem: `/app/study-tracks`; vazio/ausente = usa `MATERIAL_DIR`
+- `STUDY_TRACK_DIR`: diretório com `Modulos_sec+.md`, `cissp_domain.json` e `ceh_modules.md` (trilha de estudo). Na imagem: `/app/study-tracks`; vazio/ausente = usa `MATERIAL_DIR`
 - `INGEST_ON_STARTUP`: importa os JSON no startup (ou `POST /api/admin/ingest`)
 - `BOOTSTRAP_SCHEMA`: `false` (legado; proibido em produção)
 - `AUTH_COOKIE_*`: cookie HttpOnly de sessão

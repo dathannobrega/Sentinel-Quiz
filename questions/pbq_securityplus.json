@@ -1,0 +1,1311 @@
+{
+  "exam": {
+    "id": "securityplus",
+    "title": "CompTIA Security+ - Banco de Questoes",
+    "source": "pbq_securityplus.json",
+    "question_count": 6,
+    "certification": "Security+",
+    "language": "pt-BR",
+    "schema_version": 3,
+    "notes": "PBQs (performance-based questions) originais do Sentinel-Quiz para o SY0-701, no formato de autoria sentinel.pbq.v1 (question_format=\"pbq\"; ver app/services/pbq_grading.py). Complementam o exame securityplus (mesmo exam.id). Na ingestão, o payload público (sem solution/explanation) é separado do gabarito privado. IPs usam faixas de documentação (RFC 5737) e privadas (RFC 1918)."
+  },
+  "questions": [
+    {
+      "id": "sq_pbq_701_0001",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "exam_code": "SY0-701",
+      "language": "pt-BR",
+      "domain": "Security Operations",
+      "objective_codes": [
+        "4.8"
+      ],
+      "difficulty": "Medium",
+      "points": 3,
+      "time_estimate_seconds": 240,
+      "title": "Ransomware no servidor de arquivos: processo de resposta e coleta de evidências",
+      "scenario": "Sexta-feira, 22h. O EDR da Contoso Engenharia alerta que o servidor de arquivos FS01 está renomeando milhares de arquivos com a extensão .lkd e criou o arquivo LEIA-ME.txt com instruções de pagamento em criptomoeda. A empresa possui um plano de resposta a incidentes (IR) aprovado e backups diários imutáveis. Você é o líder de IR de plantão.",
+      "exhibits": [],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "ordering",
+          "weight": 2,
+          "prompt": "Arraste (ou use os botões Mover para cima/baixo) para colocar as ações na ordem em que ocorrem no processo de resposta a incidentes.",
+          "items": [
+            {
+              "id": "q7k",
+              "text": "Restaurar os dados a partir do backup imutável validado e monitorar de perto os sistemas restaurados"
+            },
+            {
+              "id": "m2x",
+              "text": "Isolar o FS01 e as estações afetadas da rede pelo console do EDR, sem desligá-los"
+            },
+            {
+              "id": "a9d",
+              "text": "Manter o playbook de ransomware atualizado e testar a restauração de backups trimestralmente"
+            },
+            {
+              "id": "z4p",
+              "text": "Realizar a reunião pós-incidente e atualizar o playbook e os controles com o que foi aprendido"
+            },
+            {
+              "id": "c3h",
+              "text": "Triar o alerta do EDR, correlacionar com o SIEM e confirmar que não é um falso positivo"
+            },
+            {
+              "id": "w8r",
+              "text": "Remover a persistência e as contas criadas pelo atacante e corrigir a vulnerabilidade explorada"
+            },
+            {
+              "id": "e5n",
+              "text": "Determinar o escopo: variante, paciente zero, hosts e compartilhamentos afetados"
+            }
+          ],
+          "solution": {
+            "order": [
+              "a9d",
+              "c3h",
+              "e5n",
+              "m2x",
+              "w8r",
+              "q7k",
+              "z4p"
+            ]
+          },
+          "scoring": {
+            "method": "kendall_tau_clipped"
+          },
+          "explanation": {
+            "summary": "O SY0-701 (objetivo 4.8) lista o processo como Preparation -> Detection -> Analysis -> Containment -> Eradication -> Recovery -> Lessons learned. Na prática, análise e contenção se sobrepõem; por isso a pontuação por pares (Kendall) dá crédito parcial alto para uma troca adjacente.",
+            "per_item": {
+              "a9d": "Preparation: acontece ANTES do incidente (playbooks, testes de restauração).",
+              "c3h": "Detection: confirmar que o evento é real e declarar o incidente.",
+              "e5n": "Analysis: entender escopo e impacto para dimensionar a contenção.",
+              "m2x": "Containment: isolar sem desligar preserva a memória volátil para a forense.",
+              "w8r": "Eradication: eliminar a causa e a persistência antes de restaurar.",
+              "q7k": "Recovery: restaurar de backup limpo e monitorar reinfecção.",
+              "z4p": "Lessons learned: fecha o ciclo e retroalimenta a preparação."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "ordering",
+          "weight": 1,
+          "prompt": "Antes de qualquer reimagem, a equipe fará a coleta forense do FS01. Ordene as fontes de evidência da MAIS volátil para a MENOS volátil.",
+          "items": [
+            {
+              "id": "v1b",
+              "text": "Imagem forense bit a bit do disco local"
+            },
+            {
+              "id": "v7s",
+              "text": "Memória RAM (processos em execução, conexões de rede, chaves em memória)"
+            },
+            {
+              "id": "v3k",
+              "text": "Fitas de backup arquivadas offline"
+            },
+            {
+              "id": "v9a",
+              "text": "Registradores e cache da CPU"
+            },
+            {
+              "id": "v2m",
+              "text": "Logs do FS01 já enviados ao SIEM remoto"
+            },
+            {
+              "id": "v5t",
+              "text": "Sistema de arquivos temporário (ex.: diretórios temporários)"
+            }
+          ],
+          "solution": {
+            "order": [
+              "v9a",
+              "v7s",
+              "v5t",
+              "v1b",
+              "v2m",
+              "v3k"
+            ]
+          },
+          "scoring": {
+            "method": "kendall_tau_clipped"
+          },
+          "explanation": {
+            "summary": "Ordem de volatilidade (RFC 3227, referenciada no objetivo 4.8 - digital forensics/acquisition): registradores/cache -> memória (tabelas de processos, ARP, conexões) -> sistemas de arquivos temporários -> disco -> logs/monitoramento remotos -> mídia de arquivamento. Por isso a contenção da t1 isola o host SEM desligá-lo.",
+            "per_item": {}
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Os dois conceitos cobrados juntos: a sequência do processo de IR e a preservação de evidências voláteis durante a contenção.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "4.8 Explain appropriate incident response activities"
+        },
+        {
+          "source": "IETF RFC 3227",
+          "reference": "Guidelines for Evidence Collection and Archiving, 2.1 Order of Volatility"
+        }
+      ],
+      "provenance": {
+        "author": "Sentinel-Quiz (original)",
+        "created": "2026-09-28",
+        "review_status": "draft"
+      }
+    },
+    {
+      "id": "sq_pbq_701_0002",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "exam_code": "SY0-701",
+      "language": "pt-BR",
+      "domain": "Security Operations",
+      "objective_codes": [
+        "4.5",
+        "3.2"
+      ],
+      "difficulty": "Hard",
+      "points": 3,
+      "time_estimate_seconds": 360,
+      "title": "Configurar a ACL do firewall da DMZ",
+      "scenario": "Você precisa configurar o firewall de borda (stateful, avaliação de cima para baixo, primeira regra que casa vence; tráfego de retorno de sessões permitidas é liberado automaticamente). Leia a topologia e os requisitos no Anexo 1.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "text",
+          "title": "Anexo 1 - Topologia e requisitos",
+          "content": "Segmentos:\n- Internet\n- DMZ 10.10.20.0/24 -> WEB01 = 10.10.20.10 (servidor web público)\n- VLAN Servidores 10.10.30.0/24 -> SQL01 = 10.10.30.5 (Microsoft SQL Server)\n- VLAN Administração 10.10.50.0/24\n- VLAN Usuários 10.10.60.0/24\n\nRequisitos:\nR1. Qualquer origem deve acessar o WEB01 somente via HTTPS.\nR2. Somente a VLAN de Administração pode administrar o WEB01 via SSH.\nR3. Somente o WEB01 pode acessar o banco de dados no SQL01.\nR4. Todo o restante deve ser negado por uma regra explícita no final."
+        },
+        {
+          "id": "e2",
+          "kind": "table",
+          "title": "Anexo 2 - Novas tentativas de conexão (início de sessão)",
+          "columns": [
+            "#",
+            "Origem",
+            "Destino",
+            "Protocolo/Porta"
+          ],
+          "rows": [
+            {
+              "id": "c1",
+              "cells": [
+                "1",
+                "203.0.113.7",
+                "10.10.20.10",
+                "TCP 443"
+              ]
+            },
+            {
+              "id": "c2",
+              "cells": [
+                "2",
+                "10.10.50.14",
+                "10.10.20.10",
+                "TCP 22"
+              ]
+            },
+            {
+              "id": "c3",
+              "cells": [
+                "3",
+                "198.51.100.23",
+                "10.10.20.10",
+                "TCP 22"
+              ]
+            },
+            {
+              "id": "c4",
+              "cells": [
+                "4",
+                "10.10.20.10",
+                "10.10.30.5",
+                "TCP 1433"
+              ]
+            },
+            {
+              "id": "c5",
+              "cells": [
+                "5",
+                "10.10.60.31",
+                "10.10.30.5",
+                "TCP 1433"
+              ]
+            },
+            {
+              "id": "c6",
+              "cells": [
+                "6",
+                "10.10.20.10",
+                "203.0.113.50",
+                "TCP 443"
+              ]
+            },
+            {
+              "id": "c7",
+              "cells": [
+                "7",
+                "10.10.60.31",
+                "10.10.20.10",
+                "TCP 443"
+              ]
+            },
+            {
+              "id": "c8",
+              "cells": [
+                "8",
+                "203.0.113.7",
+                "10.10.20.10",
+                "TCP 80"
+              ]
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Complete os campos editáveis da ACL para atender a R1-R4.",
+          "columns": [
+            {
+              "id": "src",
+              "label": "Origem",
+              "input": "select",
+              "choices": [
+                "ANY",
+                "10.10.20.10",
+                "10.10.30.5",
+                "10.10.50.0/24",
+                "10.10.60.0/24",
+                "10.10.0.0/16"
+              ]
+            },
+            {
+              "id": "dst",
+              "label": "Destino",
+              "input": "select",
+              "choices": [
+                "ANY",
+                "10.10.20.10",
+                "10.10.30.5",
+                "10.10.50.0/24",
+                "10.10.60.0/24",
+                "10.10.0.0/16"
+              ]
+            },
+            {
+              "id": "svc",
+              "label": "Protocolo/Porta",
+              "input": "select",
+              "choices": [
+                "ANY",
+                "TCP 22",
+                "TCP 23",
+                "TCP 80",
+                "TCP 443",
+                "TCP 1433",
+                "TCP 3389"
+              ]
+            },
+            {
+              "id": "act",
+              "label": "Ação",
+              "input": "select",
+              "choices": [
+                "ALLOW",
+                "DENY"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "Regra 1",
+              "cells": {
+                "src": {
+                  "value": "ANY"
+                },
+                "dst": {
+                  "editable": true
+                },
+                "svc": {
+                  "editable": true
+                },
+                "act": {
+                  "editable": true
+                }
+              }
+            },
+            {
+              "id": "r2",
+              "label": "Regra 2",
+              "cells": {
+                "src": {
+                  "editable": true
+                },
+                "dst": {
+                  "value": "10.10.20.10"
+                },
+                "svc": {
+                  "editable": true
+                },
+                "act": {
+                  "value": "ALLOW"
+                }
+              }
+            },
+            {
+              "id": "r3",
+              "label": "Regra 3",
+              "cells": {
+                "src": {
+                  "editable": true
+                },
+                "dst": {
+                  "editable": true
+                },
+                "svc": {
+                  "editable": true
+                },
+                "act": {
+                  "value": "ALLOW"
+                }
+              }
+            },
+            {
+              "id": "r4",
+              "label": "Regra 4",
+              "cells": {
+                "src": {
+                  "value": "ANY"
+                },
+                "dst": {
+                  "value": "ANY"
+                },
+                "svc": {
+                  "value": "ANY"
+                },
+                "act": {
+                  "editable": true
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "dst": {
+                  "accepted": [
+                    "10.10.20.10"
+                  ]
+                },
+                "svc": {
+                  "accepted": [
+                    "TCP 443"
+                  ]
+                },
+                "act": {
+                  "accepted": [
+                    "ALLOW"
+                  ]
+                }
+              },
+              "r2": {
+                "src": {
+                  "accepted": [
+                    "10.10.50.0/24"
+                  ]
+                },
+                "svc": {
+                  "accepted": [
+                    "TCP 22"
+                  ]
+                }
+              },
+              "r3": {
+                "src": {
+                  "accepted": [
+                    "10.10.20.10"
+                  ]
+                },
+                "dst": {
+                  "accepted": [
+                    "10.10.30.5"
+                  ]
+                },
+                "svc": {
+                  "accepted": [
+                    "TCP 1433"
+                  ]
+                }
+              },
+              "r4": {
+                "act": {
+                  "accepted": [
+                    "DENY"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "R1: destino deve ser o WEB01 (destino ANY exporia HTTPS de todos os hosts internos) e somente TCP 443. R2: origem restrita a 10.10.50.0/24 (10.10.0.0/16 incluiria Usuários). R3: origem = WEB01, destino = SQL01, TCP 1433 (porta padrão do Microsoft SQL Server). R4: deny any/any explícito no fim (implicit deny tornado visível e registrável em log).",
+            "per_item": {}
+          }
+        },
+        {
+          "id": "t2",
+          "type": "select_in_exhibit",
+          "weight": 1,
+          "exhibit_id": "e2",
+          "prompt": "Considerando a ACL CORRETA para os requisitos, selecione TODAS as tentativas do Anexo 2 que serão BLOQUEADAS.",
+          "solution": {
+            "selected": [
+              "c3",
+              "c5",
+              "c6",
+              "c8"
+            ]
+          },
+          "scoring": {
+            "method": "tp_minus_fp"
+          },
+          "explanation": {
+            "summary": "Bloqueadas: c3 (SSH de origem fora da VLAN de Administração -> regra 4), c5 (somente o WEB01 pode acessar o SQL01), c6 (nova conexão de SAÍDA iniciada pelo WEB01 não casa nenhuma regra ALLOW; o retorno stateful vale apenas para sessões iniciadas de fora), c8 (HTTP/80 não é permitido). Permitidas: c1 e c7 (regra 1 - origem ANY), c2 (regra 2), c4 (regra 3).",
+            "per_item": {
+              "c1": "Permitida pela regra 1.",
+              "c2": "Permitida pela regra 2.",
+              "c3": "Bloqueada: origem externa para SSH.",
+              "c4": "Permitida pela regra 3.",
+              "c5": "Bloqueada: VLAN de Usuários não pode acessar o SQL01.",
+              "c6": "Bloqueada: WEB01 não tem regra de saída para a Internet.",
+              "c7": "Permitida: a regra 1 tem origem ANY, inclusive redes internas.",
+              "c8": "Bloqueada: somente HTTPS é permitido."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Cobra portas/protocolos, least privilege em regras de firewall, zonas de segurança (DMZ) e o comportamento de primeira regra que casa + deny explícito.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "4.5 Given a scenario, modify enterprise capabilities to enhance security (Firewall: rules, access lists, ports/protocols, screened subnets)"
+        },
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "3.2 Given a scenario, apply security principles to secure enterprise infrastructure (security zones)"
+        }
+      ],
+      "provenance": {
+        "author": "Sentinel-Quiz (original)",
+        "created": "2026-09-28",
+        "review_status": "draft"
+      }
+    },
+    {
+      "id": "sq_pbq_701_0003",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "exam_code": "SY0-701",
+      "language": "pt-BR",
+      "domain": "General Security Concepts",
+      "objective_codes": [
+        "1.1"
+      ],
+      "difficulty": "Medium",
+      "points": 3,
+      "time_estimate_seconds": 240,
+      "title": "Classificar os controles de segurança de uma clínica",
+      "scenario": "Você está conduzindo a revisão de controles da Clínica Horizonte, que armazena prontuários eletrônicos. O auditor pediu que cada controle seja classificado por TIPO (função) e por CATEGORIA (como é implementado).",
+      "exhibits": [],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "categorization",
+          "weight": 1,
+          "prompt": "Arraste cada controle para o TIPO de controle correspondente. Cada controle pertence a exatamente um tipo.",
+          "buckets": [
+            {
+              "id": "prev",
+              "label": "Preventivo (Preventive)"
+            },
+            {
+              "id": "det",
+              "label": "Detectivo (Detective)"
+            },
+            {
+              "id": "cor",
+              "label": "Corretivo (Corrective)"
+            },
+            {
+              "id": "dis",
+              "label": "Dissuasivo (Deterrent)"
+            },
+            {
+              "id": "comp",
+              "label": "Compensatório (Compensating)"
+            },
+            {
+              "id": "dir",
+              "label": "Diretivo (Directive)"
+            }
+          ],
+          "items": [
+            {
+              "id": "k1",
+              "text": "Bloqueio de conta após 5 tentativas de login malsucedidas"
+            },
+            {
+              "id": "k2",
+              "text": "Alerta do SIEM quando uma conta administrativa faz login fora do horário comercial"
+            },
+            {
+              "id": "k3",
+              "text": "Restauração automática de uma VM a partir de snapshot após um ataque de ransomware"
+            },
+            {
+              "id": "k4",
+              "text": "Placa na recepção: 'Área monitorada - acessos indevidos serão processados'"
+            },
+            {
+              "id": "k5",
+              "text": "Norma interna que determina que todos os funcionários sigam a política de mesa limpa"
+            },
+            {
+              "id": "k6",
+              "text": "Sistema legado de exames, sem suporte a MFA, isolado em VLAN própria acessível apenas por jump server monitorado até ser substituído"
+            },
+            {
+              "id": "k7",
+              "text": "Revisão trimestral dos logs de acesso ao prontuário eletrônico"
+            },
+            {
+              "id": "k8",
+              "text": "Criptografia de disco completo nos notebooks dos médicos"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "k1": "prev",
+              "k2": "det",
+              "k3": "cor",
+              "k4": "dis",
+              "k5": "dir",
+              "k6": "comp",
+              "k7": "det",
+              "k8": "prev"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "Tipo descreve a FUNÇÃO do controle em relação ao incidente: impedir (preventivo), identificar (detectivo), restaurar (corretivo), desencorajar (dissuasivo), substituir um controle que não pode ser aplicado (compensatório) ou orientar comportamento (diretivo).",
+            "per_item": {
+              "k1": "Impede a continuidade do ataque de senha.",
+              "k2": "Identifica atividade suspeita; não a impede.",
+              "k3": "Restaura o estado após o incidente.",
+              "k4": "Desencoraja; não impede fisicamente.",
+              "k5": "Orienta/obriga um comportamento.",
+              "k6": "Compensa a impossibilidade de aplicar MFA no sistema legado.",
+              "k7": "Revisão de logs é detecção após o fato.",
+              "k8": "Impede a exposição dos dados em caso de furto do notebook."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "categorization",
+          "weight": 1,
+          "prompt": "Agora classifique estes controles pela CATEGORIA.",
+          "buckets": [
+            {
+              "id": "tec",
+              "label": "Técnico (Technical)"
+            },
+            {
+              "id": "ger",
+              "label": "Gerencial (Managerial)"
+            },
+            {
+              "id": "ope",
+              "label": "Operacional (Operational)"
+            },
+            {
+              "id": "fis",
+              "label": "Físico (Physical)"
+            }
+          ],
+          "items": [
+            {
+              "id": "g1",
+              "text": "Avaliação de risco anual conduzida pela diretoria de segurança"
+            },
+            {
+              "id": "g2",
+              "text": "Treinamento de conscientização sobre phishing ministrado pela equipe de segurança"
+            },
+            {
+              "id": "g3",
+              "text": "Bollards (frades) em frente à entrada principal"
+            },
+            {
+              "id": "g4",
+              "text": "Firewall de host habilitado em todas as estações"
+            },
+            {
+              "id": "g5",
+              "text": "Revisão mensal de acessos de usuários executada pelos administradores de sistemas"
+            },
+            {
+              "id": "g6",
+              "text": "Política de classificação de dados aprovada pela diretoria"
+            },
+            {
+              "id": "g7",
+              "text": "Vestíbulo de controle de acesso (mantrap) na entrada do data center"
+            },
+            {
+              "id": "g8",
+              "text": "MFA obrigatório para acesso à VPN"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "g1": "ger",
+              "g2": "ope",
+              "g3": "fis",
+              "g4": "tec",
+              "g5": "ope",
+              "g6": "ger",
+              "g7": "fis",
+              "g8": "tec"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "Categoria descreve COMO o controle é implementado: tecnologia (técnico), supervisão e gestão de risco/políticas (gerencial), procedimentos executados por pessoas (operacional) ou barreiras no mundo físico (físico).",
+            "per_item": {
+              "g1": "Gestão de risco = gerencial.",
+              "g2": "Executado por pessoas, rotina de segurança = operacional.",
+              "g3": "Barreira física.",
+              "g4": "Implementado em software = técnico.",
+              "g5": "Procedimento executado por pessoas = operacional.",
+              "g6": "Política/supervisão = gerencial.",
+              "g7": "Controle de acesso físico.",
+              "g8": "Implementado em tecnologia = técnico."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Um mesmo controle tem um TIPO e uma CATEGORIA; o SY0-701 cobra os dois eixos separadamente (objetivo 1.1).",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "1.1 Compare and contrast various types of security controls"
+        }
+      ],
+      "provenance": {
+        "author": "Sentinel-Quiz (original)",
+        "created": "2026-09-28",
+        "review_status": "draft"
+      }
+    },
+    {
+      "id": "sq_pbq_701_0004",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "exam_code": "SY0-701",
+      "language": "pt-BR",
+      "domain": "Threats, Vulnerabilities and Mitigations",
+      "objective_codes": [
+        "2.4"
+      ],
+      "difficulty": "Medium",
+      "points": 3,
+      "time_estimate_seconds": 300,
+      "title": "Associar indicadores a ataques",
+      "scenario": "O SOC recebeu seis evidências de fontes diferentes (WAF, servidor web, IdP, firewall e IDS). Associe cada evidência ao ataque que ela indica. Há mais ataques do que evidências; nem todos serão usados e cada ataque é usado no máximo uma vez.",
+      "exhibits": [],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "matching",
+          "weight": 1,
+          "prompt": "Associe cada evidência (esquerda) ao ataque correspondente (direita).",
+          "left": [
+            {
+              "id": "i1",
+              "text": "Log web: GET /loja/produto?id=10%27%20OR%20%271%27%3D%271 HTTP/1.1 200"
+            },
+            {
+              "id": "i2",
+              "text": "Log web: GET /download?arquivo=../../../../etc/passwd HTTP/1.1 200"
+            },
+            {
+              "id": "i3",
+              "text": "IdP: 240 contas diferentes com exatamente 1 falha de login cada, todas com a mesma senha, a partir do mesmo IP em 3 minutos"
+            },
+            {
+              "id": "i4",
+              "text": "Log da aplicação: POST /api/preview com url=http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+            },
+            {
+              "id": "i5",
+              "text": "Firewall: ~40.000 respostas DNS (UDP/53) grandes vindas de ~2.000 resolvedores abertos para um único IP interno, sem consultas correspondentes originadas desse IP"
+            },
+            {
+              "id": "i6",
+              "text": "IDS na LAN: 'ARP reply 10.0.0.1 is-at 00:0c:29:4f:8e:35' repetido a cada 2 s; o MAC real do gateway é 00:1a:2b:3c:4d:5e"
+            }
+          ],
+          "right": [
+            {
+              "id": "a_sqli",
+              "text": "Injeção de SQL (SQL injection)"
+            },
+            {
+              "id": "a_trav",
+              "text": "Travessia de diretório (Directory traversal)"
+            },
+            {
+              "id": "a_spray",
+              "text": "Password spraying"
+            },
+            {
+              "id": "a_ssrf",
+              "text": "Server-side request forgery (SSRF)"
+            },
+            {
+              "id": "a_ddos",
+              "text": "DDoS amplificado/refletido via DNS"
+            },
+            {
+              "id": "a_arp",
+              "text": "On-path via ARP poisoning"
+            },
+            {
+              "id": "a_xss",
+              "text": "Cross-site scripting (XSS)"
+            },
+            {
+              "id": "a_brute",
+              "text": "Brute force"
+            },
+            {
+              "id": "a_bof",
+              "text": "Buffer overflow"
+            },
+            {
+              "id": "a_replay",
+              "text": "Replay"
+            }
+          ],
+          "allow_reuse": false,
+          "solution": {
+            "pairs": {
+              "i1": "a_sqli",
+              "i2": "a_trav",
+              "i3": "a_spray",
+              "i4": "a_ssrf",
+              "i5": "a_ddos",
+              "i6": "a_arp"
+            }
+          },
+          "scoring": {
+            "method": "per_pair"
+          },
+          "explanation": {
+            "summary": "Cada evidência tem um indicador característico; os distratores (XSS, brute force, buffer overflow, replay) exploram confusões comuns.",
+            "per_item": {
+              "i1": "A tautologia ' OR '1'='1 (URL-encoded) altera a cláusula WHERE: SQL injection.",
+              "i2": "Sequências ../ para sair do diretório web e ler /etc/passwd: directory traversal.",
+              "i3": "Muitas contas x uma senha x poucas tentativas por conta (evita lockout) = password spraying; brute force seria muitas senhas contra uma conta.",
+              "i4": "O servidor é induzido a requisitar o endpoint de metadados da nuvem (169.254.169.254) para roubar credenciais: SSRF (forgery).",
+              "i5": "Respostas sem consultas correspondentes, vindas de muitos resolvedores abertos: reflexão + amplificação DNS.",
+              "i6": "ARP falsificado associando o IP do gateway a outro MAC: ARP poisoning para posição on-path."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Objetivo 2.4: analisar indicadores de atividade maliciosa (ataques de aplicação, de rede e de senha).",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "2.4 Given a scenario, analyze indicators of malicious activity"
+        }
+      ],
+      "provenance": {
+        "author": "Sentinel-Quiz (original)",
+        "created": "2026-09-28",
+        "review_status": "draft"
+      }
+    },
+    {
+      "id": "sq_pbq_701_0005",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "exam_code": "SY0-701",
+      "language": "pt-BR",
+      "domain": "Security Operations",
+      "objective_codes": [
+        "4.9",
+        "2.4",
+        "2.5"
+      ],
+      "difficulty": "Hard",
+      "points": 3,
+      "time_estimate_seconds": 360,
+      "title": "Investigação de auth.log em servidor Linux exposto",
+      "scenario": "O servidor Debian web02 (IP público, SSH exposto na porta 22) apresentou comportamento anômalo. Você exportou o trecho relevante do /var/log/auth.log (Anexo 1). Informações de contexto: 10.0.5.20 é o jump server corporativo; o usuário ops executa um backup agendado às 03:00 todos os dias a partir dele; o /etc/crontab do Debian executa o cron.hourly no minuto 17 de cada hora.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "log",
+          "title": "Anexo 1 - web02:/var/log/auth.log (trecho)",
+          "rows": [
+            {
+              "id": "l01",
+              "text": "Sep 27 02:10:11 web02 sshd[4120]: Failed password for invalid user admin from 203.0.113.66 port 40122 ssh2"
+            },
+            {
+              "id": "l02",
+              "text": "Sep 27 02:10:12 web02 sshd[4122]: Failed password for invalid user oracle from 203.0.113.66 port 40130 ssh2"
+            },
+            {
+              "id": "l03",
+              "text": "Sep 27 02:10:12 web02 sshd[4124]: Failed password for deploy from 203.0.113.66 port 40134 ssh2"
+            },
+            {
+              "id": "l04",
+              "text": "Sep 27 02:14:50 web02 sshd[4124]: message repeated 312 times: [ Failed password for deploy from 203.0.113.66 port 40134 ssh2]"
+            },
+            {
+              "id": "l05",
+              "text": "Sep 27 02:14:57 web02 sshd[4501]: Accepted password for deploy from 203.0.113.66 port 41890 ssh2"
+            },
+            {
+              "id": "l06",
+              "text": "Sep 27 02:16:40 web02 sudo:   deploy : TTY=pts/0 ; PWD=/home/deploy ; USER=root ; COMMAND=/usr/sbin/useradd -o -u 0 -g 0 -M -s /bin/bash sysbackup"
+            },
+            {
+              "id": "l07",
+              "text": "Sep 27 02:16:40 web02 useradd[4610]: new user: name=sysbackup, UID=0, GID=0, home=/home/sysbackup, shell=/bin/bash, from=/dev/pts/0"
+            },
+            {
+              "id": "l08",
+              "text": "Sep 27 02:17:01 web02 CRON[4633]: pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)"
+            },
+            {
+              "id": "l09",
+              "text": "Sep 27 02:17:05 web02 sudo:   deploy : TTY=pts/0 ; PWD=/home/deploy ; USER=root ; COMMAND=/usr/bin/truncate -s 0 /var/log/nginx/access.log"
+            },
+            {
+              "id": "l10",
+              "text": "Sep 27 03:00:01 web02 sshd[5102]: Accepted publickey for ops from 10.0.5.20 port 52211 ssh2: ED25519 SHA256:q3Vn8c0mS1fX2kP9aZr7uYw4tLh6eJb5dGi0oNpQxCs"
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "select_in_exhibit",
+          "weight": 1,
+          "exhibit_id": "e1",
+          "prompt": "Selecione TODAS as linhas que registram atividade maliciosa BEM-SUCEDIDA (o acesso obtido e as ações posteriores do atacante). Tentativas que falharam não contam.",
+          "solution": {
+            "selected": [
+              "l05",
+              "l06",
+              "l07",
+              "l09"
+            ]
+          },
+          "scoring": {
+            "method": "tp_minus_fp"
+          },
+          "explanation": {
+            "summary": "l05 é o acesso obtido após 315 tentativas contra 'deploy'; l06/l07 criam uma conta com UID 0 (root duplicado) para persistência; l09 zera o log de acesso do nginx (anti-forense). l01-l04 são maliciosas mas falharam. l08 é o cron.hourly padrão do Debian (minuto 17). l10 é a rotina legítima de backup a partir do jump server, com chave pública.",
+            "per_item": {
+              "l01": "Tentativa falha (usuário inexistente): enumeração/brute force, mas sem sucesso.",
+              "l02": "Tentativa falha.",
+              "l03": "Tentativa falha contra conta válida.",
+              "l04": "312 falhas agregadas pelo rsyslog: brute force em andamento.",
+              "l05": "Sucesso do atacante: mesmo IP externo, logo após centenas de falhas.",
+              "l06": "Uso de sudo para criar conta não única (-o) com UID 0.",
+              "l07": "Confirmação da criação da conta sysbackup com UID/GID 0.",
+              "l08": "Benigno: execução horária padrão do cron no minuto 17.",
+              "l09": "Adulteração de log (truncate) = anti-forense.",
+              "l10": "Benigno: origem interna esperada, horário agendado, autenticação por chave."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "table_form",
+          "weight": 1,
+          "prompt": "Complete o resumo da investigação escolhendo a opção correta em cada linha.",
+          "columns": [
+            {
+              "id": "ans",
+              "label": "Resposta",
+              "input": "select",
+              "choices_by_row": true
+            }
+          ],
+          "rows": [
+            {
+              "id": "q1",
+              "label": "Vetor de acesso inicial",
+              "cells": {
+                "ans": {
+                  "editable": true,
+                  "choices": [
+                    "Brute force de senha via SSH",
+                    "Password spraying no IdP corporativo",
+                    "Exploração de vulnerabilidade no nginx",
+                    "Chave SSH roubada"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "q2",
+              "label": "Mecanismo de persistência",
+              "cells": {
+                "ans": {
+                  "editable": true,
+                  "choices": [
+                    "Conta local com UID 0 (root duplicado)",
+                    "Cron job malicioso",
+                    "Chave pública adicionada ao authorized_keys",
+                    "Serviço systemd malicioso"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "q3",
+              "label": "Controle que MELHOR teria impedido o acesso inicial",
+              "cells": {
+                "ans": {
+                  "editable": true,
+                  "choices": [
+                    "Desabilitar login SSH por senha e exigir chaves (ou MFA)",
+                    "Colocar um WAF na frente do nginx",
+                    "Habilitar DLP de e-mail",
+                    "Criptografia de disco completo"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "q1": {
+                "ans": {
+                  "accepted": [
+                    "Brute force de senha via SSH"
+                  ]
+                }
+              },
+              "q2": {
+                "ans": {
+                  "accepted": [
+                    "Conta local com UID 0 (root duplicado)"
+                  ]
+                }
+              },
+              "q3": {
+                "ans": {
+                  "accepted": [
+                    "Desabilitar login SSH por senha e exigir chaves (ou MFA)"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "q1: centenas de senhas contra UMA conta (deploy) = brute force, não spraying (uma senha contra muitas contas). q2: a única persistência evidenciada é a conta sysbackup com UID 0; a linha CRON é a execução horária padrão e não há evidência de authorized_keys ou systemd. q3: sem autenticação por senha, o brute force de SSH se torna inviável (hardening - objetivo 2.5); WAF protege HTTP, DLP e FDE não se aplicam ao vetor.",
+            "per_item": {}
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Usa dados de log de SÓ para apoiar a investigação (4.9), reconhecer indicadores (2.4: brute force, conteúdo ausente/logs apagados) e escolher a mitigação (2.5: hardening).",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "4.9 Given a scenario, use data sources to support an investigation (log data: OS-specific security logs)"
+        },
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "2.4 Given a scenario, analyze indicators of malicious activity (brute force, missing logs)"
+        },
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "2.5 Explain the purpose of mitigation techniques used to secure the enterprise (hardening)"
+        }
+      ],
+      "provenance": {
+        "author": "Sentinel-Quiz (original)",
+        "created": "2026-09-28",
+        "review_status": "draft"
+      }
+    },
+    {
+      "id": "sq_pbq_701_0006",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "exam_code": "SY0-701",
+      "language": "pt-BR",
+      "domain": "Security Program Management and Oversight",
+      "objective_codes": [
+        "5.2"
+      ],
+      "difficulty": "Medium",
+      "points": 3,
+      "time_estimate_seconds": 300,
+      "title": "Análise quantitativa de risco e estratégias de resposta",
+      "scenario": "A plataforma de e-commerce da Loja Aurora tem valor de ativo (AV) de US$ 120.000. Um ataque de ransomware bem-sucedido destruiria 25% desse valor (EF = 25%). A inteligência de ameaças estima uma ocorrência a cada 2 anos. O fornecedor propõe EDR + backups imutáveis por US$ 9.000/ano, o que reduziria a taxa de ocorrência para uma vez a cada 10 anos (EF inalterado).",
+      "exhibits": [],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Calcule os valores (em US$, apenas números inteiros) e escolha a decisão.",
+          "columns": [
+            {
+              "id": "val",
+              "label": "Valor",
+              "input": "number_or_select",
+              "choices_by_row": true
+            }
+          ],
+          "rows": [
+            {
+              "id": "sle",
+              "label": "SLE (perda por ocorrência)",
+              "cells": {
+                "val": {
+                  "editable": true,
+                  "input": "number"
+                }
+              }
+            },
+            {
+              "id": "ale0",
+              "label": "ALE atual (sem o controle)",
+              "cells": {
+                "val": {
+                  "editable": true,
+                  "input": "number"
+                }
+              }
+            },
+            {
+              "id": "ale1",
+              "label": "ALE com o controle",
+              "cells": {
+                "val": {
+                  "editable": true,
+                  "input": "number"
+                }
+              }
+            },
+            {
+              "id": "net",
+              "label": "Benefício líquido anual do controle (ALE atual - ALE com controle - custo anual)",
+              "cells": {
+                "val": {
+                  "editable": true,
+                  "input": "number"
+                }
+              }
+            },
+            {
+              "id": "dec",
+              "label": "Decisão",
+              "cells": {
+                "val": {
+                  "editable": true,
+                  "input": "select",
+                  "choices": [
+                    "Implementar: o controle se paga",
+                    "Não implementar: o custo supera o benefício"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "sle": {
+                "val": {
+                  "number": 30000,
+                  "tolerance": 0
+                }
+              },
+              "ale0": {
+                "val": {
+                  "number": 15000,
+                  "tolerance": 0
+                }
+              },
+              "ale1": {
+                "val": {
+                  "number": 3000,
+                  "tolerance": 0
+                }
+              },
+              "net": {
+                "val": {
+                  "number": 3000,
+                  "tolerance": 0
+                }
+              },
+              "dec": {
+                "val": {
+                  "accepted": [
+                    "Implementar: o controle se paga"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "SLE = AV x EF = 120.000 x 0,25 = 30.000. ARO atual = 1/2 = 0,5 -> ALE = SLE x ARO = 15.000. ARO com controle = 1/10 = 0,1 -> ALE = 3.000. Benefício líquido = 15.000 - 3.000 - 9.000 = 3.000 > 0, logo o controle é justificado financeiramente.",
+            "per_item": {}
+          }
+        },
+        {
+          "id": "t2",
+          "type": "categorization",
+          "weight": 1,
+          "prompt": "Classifique cada decisão da Loja Aurora pela estratégia de resposta ao risco.",
+          "buckets": [
+            {
+              "id": "acc",
+              "label": "Aceitar (Accept)"
+            },
+            {
+              "id": "avo",
+              "label": "Evitar (Avoid)"
+            },
+            {
+              "id": "mit",
+              "label": "Mitigar (Mitigate)"
+            },
+            {
+              "id": "tra",
+              "label": "Transferir (Transfer)"
+            }
+          ],
+          "items": [
+            {
+              "id": "d1",
+              "text": "Contratar seguro cibernético que cobre custos de resposta a ransomware"
+            },
+            {
+              "id": "d2",
+              "text": "Desativar definitivamente o servidor FTP anônimo legado, que não é mais necessário"
+            },
+            {
+              "id": "d3",
+              "text": "Implantar EDR e backups imutáveis"
+            },
+            {
+              "id": "d4",
+              "text": "Registrar uma exceção formal, aprovada pelo dono do risco, para um quiosque interno de baixo impacto que não suporta o agente de EDR"
+            },
+            {
+              "id": "d5",
+              "text": "Aplicar patches mensais no servidor web"
+            },
+            {
+              "id": "d6",
+              "text": "Cancelar a expansão para um país cuja lei de proteção de dados a empresa não consegue cumprir"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "d1": "tra",
+              "d2": "avo",
+              "d3": "mit",
+              "d4": "acc",
+              "d5": "mit",
+              "d6": "avo"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "Transferir desloca o impacto financeiro a terceiros (seguro); evitar elimina a atividade que gera o risco; mitigar reduz probabilidade/impacto; aceitar (incluindo exceções/isenções formais) mantém o risco conscientemente.",
+            "per_item": {
+              "d1": "Seguro = transferência.",
+              "d2": "Elimina a atividade/ativo que gera o risco = evitar.",
+              "d3": "Reduz probabilidade e impacto = mitigar.",
+              "d4": "Exceção formal aprovada pelo dono do risco = aceitar.",
+              "d5": "Reduz a probabilidade de exploração = mitigar.",
+              "d6": "Desiste da atividade = evitar."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Objetivo 5.2: análise quantitativa (SLE, ALE, ARO, EF) e estratégias de gestão de risco (transfer, accept com exemption/exception, avoid, mitigate).",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Exam Objectives",
+          "reference": "5.2 Explain elements of the risk management process (risk analysis: SLE, ALE, ARO, exposure factor; risk management strategies)"
+        }
+      ],
+      "provenance": {
+        "author": "Sentinel-Quiz (original)",
+        "created": "2026-09-28",
+        "review_status": "draft"
+      }
+    }
+  ]
+}

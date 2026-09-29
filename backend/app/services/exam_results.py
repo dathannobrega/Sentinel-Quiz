@@ -100,6 +100,9 @@ def _get_session_rows(db: Session, session_id: str):
             Exam.title,
             SessionAnswer.is_correct,
             SessionAnswer.answered_at,
+            # 13/14: PBQ partial credit (score 0..1, NULL for MCQ) and the question format.
+            SessionAnswer.score,
+            Question.question_format,
         )
         .join(Question, Question.id == SessionQuestion.question_id)
         .outerjoin(Exam, Exam.id == Question.exam_id)
@@ -115,6 +118,17 @@ def _get_session_rows(db: Session, session_id: str):
     ).all()
 
 
+def answer_credit(is_correct, score) -> float:
+    """Credit of one answer: the PBQ partial score, else 1/0 (acerto/erro)."""
+    if score is not None:
+        return max(0.0, min(1.0, float(score)))
+    return 1.0 if is_correct else 0.0
+
+
+def _earned_points(rows) -> float:
+    return sum(answer_credit(row[11], row[13] if len(row) > 13 else None) for row in rows if row[11] is not None)
+
+
 def _analyze_session(
     session: ExamSession,
     rows,
@@ -127,12 +141,15 @@ def _analyze_session(
     unanswered = max(session.total_questions - attempted, 0)
     correct = session.correct_count
     wrong = session.wrong_count
-    score = score_percent(correct, session.total_questions)
-    attempt_accuracy = score_percent(correct, attempted) if attempted else 0.0
+    # A PBQ counts as one question weighted by its partial score (M: PBQ).
+    earned = _earned_points(answered_rows)
+    score = score_percent(earned, session.total_questions)
+    attempt_accuracy = score_percent(earned, attempted) if attempted else 0.0
     passed = score >= pass_threshold
 
     ms = _bucket_template()
     ss = _bucket_template()
+    pbq_bucket = _bucket_template()
     by_domain: dict[str, dict] = {}
     by_difficulty: dict[str, dict] = {}
     by_certification: dict[str, dict] = {}
@@ -171,9 +188,10 @@ def _analyze_session(
             exam_title,
             is_correct,
             answered_at,
-        ) = row
+        ) = row[:13]
+        question_format = row[14] if len(row) > 14 else None
 
-        bucket = ms if multi_select else ss
+        bucket = pbq_bucket if question_format == "pbq" else (ms if multi_select else ss)
         _update_bucket(bucket, bool(is_correct))
 
         domain_label = str(domain or "Sem dominio")
@@ -352,6 +370,7 @@ def _analyze_session(
         "by_type": {
             "single_select": ss,
             "multi_select": ms,
+            **({"pbq": pbq_bucket} if pbq_bucket["total"] else {}),
         },
         "by_domain": _bucket_rows(by_domain),
         "by_difficulty": _bucket_rows(by_difficulty),

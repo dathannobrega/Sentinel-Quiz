@@ -15,6 +15,17 @@ from sqlalchemy.orm import Session
 from app.core.clock import utcnow
 from app.models import ExamSession, Option, Question, SessionAnswer, SessionQuestion
 from app.services.option_order import OptionMapping, option_keys_by_question, split_keys
+from app.services.pbq_runtime import (
+    MCQ_FORMAT,
+    PBQ_FORMAT,
+    dump_response,
+    empty_pbq_feedback,
+    grade_pbq_answer,
+    is_pbq,
+    load_response,
+    pbq_feedback_fields,
+    question_formats,
+)
 from app.services.question_data import correct_option_keys, published_version_id
 from app.services.exam_finalize import (
     complete_exam_session,
@@ -62,6 +73,9 @@ def _current_question_payload(db: Session, session: ExamSession, position: int) 
     answer = next((item for item in session.answers if item.question_id == row.question_id), None)
     mapping = _mapping_for(db, row)
     payload["selected_keys"] = mapping.to_display(split_keys(answer.selected_keys)) if answer else []
+    if payload.get("format") == PBQ_FORMAT:
+        # The saved (not graded) response, so the learner can resume/change it.
+        payload["pbq_response"] = load_response(answer.response_json) if answer else None
     payload["is_answered"] = bool(answer)
     payload["marked_for_review"] = bool(row.marked_for_review)
     payload["elapsed_seconds"] = answer.elapsed_seconds if answer else None
@@ -126,6 +140,7 @@ def save_exam_response(
     question_id: str,
     selected_keys: list[str],
     elapsed_seconds: int | None = None,
+    pbq_response: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lock_exam_session(db, session)
     timing = sync_exam_session_state(db, session)
@@ -146,17 +161,31 @@ def save_exam_response(
     if not question:
         raise ValueError("Question not found.")
 
-    option_keys = [row[0] for row in db.execute(select(Option.key).where(Option.question_id == question_id)).all()]
-    if not option_keys:
-        raise ValueError("Question options not found.")
+    grading: dict[str, Any] | None = None
+    response_json: str | None = None
+    if is_pbq(question):
+        if selected_keys:
+            raise ValueError("Performance-based questions are answered with pbq_response, not selected_keys.")
+        clean_response, grading = grade_pbq_answer(question, pbq_response)
+        response_json = dump_response(clean_response)
+        mapping = _mapping_for(db, session_row, [])
+        original_selected: list[str] = []
+        correct_keys: list[str] = []
+        is_correct = bool(grading["is_correct"])
+    else:
+        if pbq_response is not None:
+            raise ValueError("pbq_response is only accepted for performance-based questions.")
+        option_keys = [row[0] for row in db.execute(select(Option.key).where(Option.question_id == question_id)).all()]
+        if not option_keys:
+            raise ValueError("Question options not found.")
 
-    mapping = _mapping_for(db, session_row, option_keys)
-    # Display keys -> original keys: grading, storage and analytics use original keys.
-    original_selected = mapping.to_original(selected_keys)
+        mapping = _mapping_for(db, session_row, option_keys)
+        # Display keys -> original keys: grading, storage and analytics use original keys.
+        original_selected = mapping.to_original(selected_keys)
+        correct_keys = correct_option_keys(db, question_id)
+        is_correct = set(original_selected) == set(correct_keys)
     stored_keys = ",".join(original_selected)
-
-    correct_keys = correct_option_keys(db, question_id)
-    is_correct = set(original_selected) == set(correct_keys)
+    score = grading["score"] if grading else None
     question_version_id = published_version_id(db, question_id)
     existing = db.execute(
         select(SessionAnswer).where(
@@ -174,6 +203,8 @@ def save_exam_response(
                 selected_keys=stored_keys,
                 is_correct=is_correct,
                 elapsed_seconds=elapsed_seconds,
+                response_json=response_json,
+                score=score,
             )
         )
         if is_correct:
@@ -189,6 +220,8 @@ def save_exam_response(
                 session.wrong_count -= 1
                 session.correct_count += 1
         existing.selected_keys = stored_keys
+        existing.response_json = response_json
+        existing.score = score
         existing.is_correct = is_correct
         existing.question_version_id = question_version_id
         existing.elapsed_seconds = elapsed_seconds
@@ -222,11 +255,17 @@ def save_exam_response(
             "marked_for_review_count": _marked_for_review_count(session),
             "correct_keys": None,
             "selected_keys": mapping.to_display(original_selected),
+            **(_pbq_echo(response_json, empty_pbq_feedback()) if grading else {"format": MCQ_FORMAT}),
         }
 
     official_references = build_official_reference_summaries(db, question_id, limit=4)
     feedback_summary = mapping.remap_text(build_feedback_summary(db, question_id, is_correct=is_correct))
     result_snapshot = _analyze_session(session, _get_session_rows(db, session.id))
+    format_fields = (
+        _pbq_echo(response_json, pbq_feedback_fields(question, grading, reveal=True))
+        if grading
+        else {"format": MCQ_FORMAT}
+    )
     db.commit()
     db.refresh(session)
 
@@ -247,7 +286,12 @@ def save_exam_response(
         # Answer key in this session's display keys.
         "correct_keys": mapping.to_display(correct_keys),
         "selected_keys": mapping.to_display(original_selected),
+        **format_fields,
     }
+
+
+def _pbq_echo(response_json: str | None, fields: dict[str, Any]) -> dict[str, Any]:
+    return {**fields, "pbq_response": load_response(response_json)}
 
 
 def toggle_mark_for_review(
@@ -285,6 +329,7 @@ def build_exam_review_screen(
     }
     ordered_rows = sorted(session.questions, key=lambda item: item.position)
     keys_map = option_keys_by_question(db, [row.question_id for row in ordered_rows])
+    formats = question_formats(db, [row.question_id for row in ordered_rows])
     items: list[dict[str, Any]] = []
     for session_row in ordered_rows:
         answer = answer_map.get(session_row.question_id)
@@ -293,6 +338,7 @@ def build_exam_review_screen(
             {
                 "position": session_row.position,
                 "question_id": session_row.question_id,
+                "format": formats.get(session_row.question_id, MCQ_FORMAT),
                 "answered": bool(answer),
                 "selected_keys": mapping.to_display(split_keys(answer.selected_keys)) if answer else [],
                 "marked_for_review": bool(session_row.marked_for_review),

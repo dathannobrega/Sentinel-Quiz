@@ -23,7 +23,12 @@ from app.models import (
     StudySession,
 )
 from app.services.editorial import LEGACY_IMPORT_MARKERS, sync_imported_question_publication
+from app.services.pbq_grading import split_authoring_item, validate_authoring_item
 from app.services.question_quality import build_fallback_rationale
+
+# Sub-directory of QUESTION_JSON_DIR with vetted third-party imports produced by
+# ``python -m scripts.question_sources import`` (loaded after the top-level banks).
+IMPORTS_SUBDIR = "imports"
 
 
 # Official exam outline weights (percent of the exam) per domain. Upserted into
@@ -46,12 +51,26 @@ OFFICIAL_DOMAIN_WEIGHTS: dict[str, list[tuple[str, str, float]]] = {
         ("SY0-701-D4", "Security Operations", 28.0),
         ("SY0-701-D5", "Security Program Management and Oversight", 20.0),
     ],
+    # CEH v13: EC-Council CEH Exam Blueprint v5.0 (9 domains, 125 questions). The printed
+    # percentages are rounded and sum to 101 (quotas are normalized by the total weight).
+    "CEH": [
+        ("CEH-D1", "Information Security and Ethical Hacking Overview", 6.0),
+        ("CEH-D2", "Reconnaissance Techniques", 17.0),
+        ("CEH-D3", "System Hacking Phases and Attack Techniques", 15.0),
+        ("CEH-D4", "Network and Perimeter Hacking", 24.0),
+        ("CEH-D5", "Web Application Hacking", 14.0),
+        ("CEH-D6", "Wireless Network Hacking", 5.0),
+        ("CEH-D7", "Mobile Platform, IoT, and OT Hacking", 10.0),
+        ("CEH-D8", "Cloud Computing", 5.0),
+        ("CEH-D9", "Cryptography", 5.0),
+    ],
 }
 
 STUDY_MODULE_SOURCES = (
     # (file name inside material/, certification, parser)
     ("Modulos_sec+.md", "Security+", "markdown_modules"),
     ("cissp_domain.json", "CISSP", "domain_json"),
+    ("ceh_modules.md", "CEH", "markdown_modules"),
 )
 
 SECURITY_PLUS_DOMAIN_KEYWORDS = {
@@ -226,6 +245,8 @@ def _detect_certification(*values: str | None) -> str | None:
         return "Security+"
     if "cissp" in haystack:
         return "CISSP"
+    if "ceh" in haystack or "ethical hacker" in haystack:
+        return "CEH"
     if "ccsp" in haystack:
         return "CCSP"
     return None
@@ -358,7 +379,59 @@ def _resolve_rationale(
     return build_fallback_rationale(options, correct_options, language), True
 
 
+def _normalize_pbq_question(raw: dict, *, certification, domain, language) -> dict | None:
+    """Authoring PBQ item -> normalized question (public payload / private answer split).
+
+    Invalid items are returned with ``_invalid`` (list of errors) so the ingest can
+    report them instead of silently dropping them.
+    """
+    qid = str(raw.get("id") or "").strip()
+    if not qid:
+        return None
+    title = str(raw.get("title") or "").strip()
+    scenario = str(raw.get("scenario") or "").strip()
+    errors = validate_authoring_item(raw, where=qid)
+    if errors:
+        return {"id": qid, "question": title or qid, "_invalid": errors}
+    public, answer = split_authoring_item(raw)
+    explanation = _normalize_text(raw.get("explanation")) or _normalize_text(raw.get("justification"))
+    objective_codes = [str(code).strip() for code in raw.get("objective_codes") or [] if str(code).strip()]
+    objective_code = _normalize_text(raw.get("objective_code")) or (objective_codes[0] if objective_codes else None)
+    return {
+        "id": qid,
+        "question": f"{title}\n\n{scenario}".strip(),
+        "multi_select": False,
+        "options": [],
+        "correct_options": [],
+        "justification": explanation,
+        "explanation_missing": not explanation,
+        "needs_review": bool(raw.get("needs_review")),
+        "language": language,
+        "domain": domain,
+        "difficulty": raw.get("difficulty"),
+        "certification": certification,
+        "subject": raw.get("subject"),
+        "subtopic": raw.get("subtopic"),
+        "subdomain": raw.get("subdomain"),
+        "objective_code": objective_code,
+        "blueprint_code": raw.get("blueprint_code"),
+        "keywords": raw.get("keywords"),
+        "trap_patterns": raw.get("trap_patterns"),
+        "question_format": "pbq",
+        "correct_rationale": explanation,
+        "incorrect_rationales": None,
+        "avg_time_seconds": raw.get("time_estimate_seconds") or raw.get("avg_time_seconds"),
+        "global_accuracy_percent": raw.get("global_accuracy_percent"),
+        "tags": _merge_tags(["PBQ"], raw.get("tags"), [f"Objetivo {code}" for code in objective_codes]),
+        "citations": _normalize_citations(raw.get("citations") or raw.get("references")),
+        "pbq_payload": public,
+        "pbq_answer": answer,
+    }
+
+
 def _normalize_question(raw: dict, *, certification, domain, language) -> dict | None:
+    if str(raw.get("question_format") or "").strip().lower() == "pbq":
+        return _normalize_pbq_question(raw, certification=certification, domain=domain, language=language)
     qid = str(raw.get("id") or "").strip()
     prompt = str(raw.get("question") or "").strip()
     if not qid or not prompt:
@@ -544,6 +617,7 @@ def _refresh_lookup_rows(db: Session, question_ids: list[str]) -> tuple[dict, di
                 Question.certification,
                 Question.tags_json,
                 Question.citations_json,
+                Question.question_format,
             ).where(Question.id.in_(chunk))
         ).all():
             questions[row.id] = row
@@ -586,7 +660,8 @@ def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
             return True
 
         file_ids = {str(q.get("id") or "").strip() for q in bundle.get("questions") or []}
-        if exam_id and _imported_active_question_ids(db, exam_id) - file_ids:
+        exam_ids = set(bundle.get("exam_question_ids") or file_ids)
+        if exam_id and _imported_active_question_ids(db, exam_id) - exam_ids:
             return True
 
         wanted_ids = sorted(qid for qid in file_ids if qid)
@@ -630,6 +705,8 @@ def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
             if q.get("tags") and not existing.tags_json:
                 return True
             if q.get("citations") and not existing.citations_json:
+                return True
+            if (q.get("question_format") == "pbq") != (existing.question_format == "pbq"):
                 return True
     return False
 
@@ -718,6 +795,11 @@ def _import_payload(exam_id: str, q: dict) -> dict:
         "avg_time_seconds": q.get("avg_time_seconds"),
         "global_accuracy_percent": q.get("global_accuracy_percent"),
         "change_summary": "Import refresh",
+        **(
+            {"pbq_payload": q.get("pbq_payload"), "pbq_answer": q.get("pbq_answer")}
+            if q.get("question_format") == "pbq"
+            else {}
+        ),
     }
 
 
@@ -1012,6 +1094,50 @@ def _resolve_material_dir(questions_dir: str, material_dir: str | None) -> str |
 
 # --------------------------------------------------------------------------- entrypoint
 
+def _question_source_files(dir_path: str) -> list[tuple[str, str]]:
+    """``(name, path)`` of the bank files: ``*.json`` then ``imports/*.json``.
+
+    ``name`` (the ImportState key) is the file name, prefixed with ``imports/`` for
+    vetted third-party imports.
+    """
+    files: list[tuple[str, str]] = []
+    for name in sorted(os.listdir(dir_path)):
+        path = os.path.join(dir_path, name)
+        if name.lower().endswith(".json") and os.path.isfile(path):
+            files.append((name, path))
+    imports_dir = os.path.join(dir_path, IMPORTS_SUBDIR)
+    if os.path.isdir(imports_dir):
+        for name in sorted(os.listdir(imports_dir)):
+            path = os.path.join(imports_dir, name)
+            if name.lower().endswith(".json") and os.path.isfile(path):
+                files.append((f"{IMPORTS_SUBDIR}/{name}", path))
+    return files
+
+
+def _exam_union(all_bundles: list[list[dict]]) -> dict[str, dict]:
+    """Per exam id: every question id across the files, the count and the title/source
+    of the largest file (the canonical bank; supplements such as PBQs never rename it)."""
+    union: dict[str, dict] = {}
+    for bundles in all_bundles:
+        for bundle in bundles:
+            exam = bundle.get("exam") or {}
+            exam_id = str(exam.get("id") or "").strip()
+            if not exam_id:
+                continue
+            # Invalid items stay in the union: they keep their last valid version instead
+            # of being deactivated as "removed from source".
+            ids = {str(q.get("id") or "").strip() for q in bundle.get("questions") or [] if str(q.get("id") or "").strip()}
+            spec = union.setdefault(exam_id, {"question_ids": set(), "size": -1, "title": None, "source": None})
+            spec["question_ids"] |= ids
+            if len(ids) > spec["size"]:
+                spec["size"] = len(ids)
+                spec["title"] = exam.get("title")
+                spec["source"] = exam.get("source")
+    for spec in union.values():
+        spec["question_count"] = len(spec["question_ids"])
+    return union
+
+
 def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str | None = None) -> dict:
     dir_path = os.path.abspath(dir_path)
     if not os.path.isdir(dir_path):
@@ -1027,6 +1153,7 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
         "reactivated": 0,
         "deactivated": 0,
         "rejected_invalid_domain": 0,
+        "rejected_invalid_pbq": 0,
     }
 
     # Official weights first: they define the valid (certification, domain) pairs.
@@ -1039,19 +1166,39 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
         errors.append(f"reference data: {exc}")
     allowed_domains = blueprint_domains_by_certification(db)
 
-    for name in sorted(os.listdir(dir_path)):
-        if not name.lower().endswith(".json"):
-            continue
-        file_path = os.path.join(dir_path, name)
+    # Pre-pass: parse every source file. Several files may feed the same exam (e.g.
+    # questions/pbq_securityplus.json and questions/imports/*.json extend the
+    # "securityplus" exam), so the exam-level bookkeeping (question_count, removal of
+    # questions that left the sources, title/source) uses the union of all files.
+    parsed: list[tuple[str, str, list[dict] | None, str | None]] = []
+    for name, file_path in _question_source_files(dir_path):
         try:
-            digest = _sha256_file(file_path)
-
             with open(file_path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-
-            bundles = _normalize_payload(name, payload)
+            bundles = _normalize_payload(os.path.basename(name), payload)
             if not bundles:
                 raise ValueError("No supported questions found")
+            parsed.append((name, file_path, bundles, None))
+        except Exception as exc:
+            parsed.append((name, file_path, None, str(exc)))
+    exam_union = _exam_union([bundles for _name, _path, bundles, _err in parsed if bundles])
+    # A file that cannot be parsed may hold questions of any exam: never deactivate
+    # "removed" questions in that run (a JSON typo must not hide a whole bank).
+    allow_deactivation = all(err is None for _name, _path, _bundles, err in parsed)
+    for _name, _path, bundles, _err in parsed:
+        for bundle in bundles or []:
+            spec = exam_union.get(str((bundle.get("exam") or {}).get("id") or "").strip())
+            if spec:
+                bundle["exam"]["question_count"] = spec["question_count"]
+                bundle["exam"]["title"] = spec["title"]
+                bundle["exam"]["source"] = spec["source"]
+                bundle["exam_question_ids"] = spec["question_ids"]
+
+    for name, file_path, bundles, parse_error in parsed:
+        try:
+            if parse_error is not None:
+                raise ValueError(parse_error)
+            digest = _sha256_file(file_path)
 
             # skip if exact file hash already imported and no metadata backfill is needed
             exists_stmt = select(ImportState).where(ImportState.file_name == name, ImportState.file_sha256 == digest)
@@ -1078,12 +1225,16 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
                     db.add(db_exam)
                 db_exam.title = title
                 db_exam.source = exam.get("source")
-                db_exam.question_count = len(questions)
+                db_exam.question_count = exam.get("question_count") or len(questions)
                 db.flush()
 
                 for q in questions:
                     qid = q.get("id")
                     if not qid or not q.get("question"):
+                        continue
+                    if q.get("_invalid"):
+                        file_stats["rejected_invalid_pbq"] += 1
+                        file_errors.extend(f"{name}: {error}" for error in q["_invalid"])
                         continue
                     if invalid_blueprint_domain(allowed_domains, q.get("certification"), q.get("domain")):
                         file_stats["rejected_invalid_domain"] += 1
@@ -1116,8 +1267,8 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
                     except Exception as exc:
                         file_errors.append(f"{name}:{qid}: {exc}")
 
-                if questions:
-                    file_ids = {str(q.get("id") or "").strip() for q in questions}
+                if questions and allow_deactivation:
+                    file_ids = set(bundle.get("exam_question_ids") or {str(q.get("id") or "").strip() for q in questions})
                     file_stats["deactivated"] += _deactivate_removed_questions(db, exam_id, file_ids)
 
             _delete_empty_exams(db)

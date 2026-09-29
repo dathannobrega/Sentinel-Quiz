@@ -53,6 +53,17 @@ FALLBACK_BLUEPRINT_WEIGHTS: dict[str, dict[str, float]] = {
         "Security Operations": 13.0,
         "Software Development Security": 10.0,
     },
+    "ceh": {
+        "Information Security and Ethical Hacking Overview": 6.0,
+        "Reconnaissance Techniques": 17.0,
+        "System Hacking Phases and Attack Techniques": 15.0,
+        "Network and Perimeter Hacking": 24.0,
+        "Web Application Hacking": 14.0,
+        "Wireless Network Hacking": 5.0,
+        "Mobile Platform, IoT, and OT Hacking": 10.0,
+        "Cloud Computing": 5.0,
+        "Cryptography": 5.0,
+    },
 }
 MIXED_BUCKET_SEPARATOR = " :: "
 
@@ -211,13 +222,21 @@ def filtered_question_rows_detailed(
     incorrect_only: bool = False,
     unseen_only: bool = False,
     low_confidence_only: bool = False,
+    question_format: Optional[str] = "mcq",
 ) -> list[tuple[str, str | None, str | None]]:
-    """Active candidate questions as ``(question_id, domain, certification)``."""
+    """Active candidate questions as ``(question_id, domain, certification)``.
+
+    ``question_format`` defaults to multiple choice: performance-based questions only
+    enter sessions through ``pbq_count`` (see :func:`select_pbq_question_ids`).
+    ``None`` returns every format.
+    """
     normalized_domains = normalize_domain_filters(domains)
     normalized_difficulties = normalize_difficulty_filters(difficulties)
     normalized_tags = {item.lower() for item in normalize_tag_filters(tags)}
 
     stmt = select(Question.id, Question.domain, Question.certification, Question.tags_json).where(active_question_clause())
+    if question_format:
+        stmt = stmt.where(Question.question_format == question_format)
     if exam_id:
         stmt = stmt.where(Question.exam_id == exam_id)
     if normalized_domains:
@@ -255,6 +274,17 @@ def filtered_question_rows_detailed(
             continue
         rows.append((question_id, domain, certification))
     return rows
+
+
+def select_pbq_question_ids(db: Session, *, count: int, **filters: Any) -> list[str]:
+    """Up to ``count`` random active PBQs matching the session filters (fewer when the
+    bank has fewer; never raises)."""
+    if count <= 0:
+        return []
+    rows = filtered_question_rows_detailed(db, question_format="pbq", **filters)
+    ids = [qid for qid, _domain, _cert in rows]
+    random.shuffle(ids)
+    return ids[:count]
 
 
 def filtered_question_rows(db: Session, **kwargs) -> list[tuple[str, str | None]]:
