@@ -112,6 +112,20 @@ function renderInsightLines(
   return lines;
 }
 
+/**
+ * Optional per-certification note about the passing score (keyed by the certification name the
+ * backend reports, e.g. results.summary.passThresholdNotes.CEH). null when there is none.
+ */
+export function passThresholdNote(certification: string | null | undefined, t: Translate): string | null {
+  const name = String(certification || "").trim();
+  if (!name || !/^[\w+.-]+$/.test(name)) {
+    return null;
+  }
+  const key = `results.summary.passThresholdNotes.${name}`;
+  const text = t(key);
+  return text && text !== key ? text : null;
+}
+
 function buildReviewDomainHref(domain: string): string {
   const params = new URLSearchParams();
   params.append("domains", domain);
@@ -697,6 +711,7 @@ export function SessionResultShell({ sessionId, mode }: SessionResultShellProps)
                   value={`${formatScore(examResult.pass_threshold_percent)}${
                     examResult.pass_threshold_certification ? ` · ${examResult.pass_threshold_certification}` : ""
                   }`}
+                  meta={passThresholdNote(examResult.pass_threshold_certification, t) ?? undefined}
                 />
               ) : null}
               {examResult?.time_limit_seconds !== undefined && examResult?.time_limit_seconds !== null ? (

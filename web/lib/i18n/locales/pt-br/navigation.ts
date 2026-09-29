@@ -2,7 +2,7 @@ export const navigation = {
   ariaLabel: "Navegação principal",
   skipToContent: "Pular para o conteúdo",
   brandTitle: "Sentinel Quiz",
-  brandSubtitle: "Simulados, estudo guiado e revisão inteligente para Security+ e CISSP.",
+  brandSubtitle: "Simulados, estudo guiado e revisão inteligente para Security+, CISSP e CEH.",
   locale: {
     label: "Idioma",
     ptBR: "PT-BR",

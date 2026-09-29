@@ -4,8 +4,8 @@ export const marketing = {
     checkSession: "Não foi possível verificar a sessão."
   },
   hero: {
-    eyebrow: "Security+ e CISSP",
-    title: "Treine para Security+ e CISSP com simulados e revisão inteligente.",
+    eyebrow: "Security+, CISSP e CEH",
+    title: "Treine para Security+, CISSP e CEH com simulados e revisão inteligente.",
     lead:
       "Questões com explicações, modo prova cronometrado, fila de revisão (SRS) e métricas por domínio para atacar seus pontos fracos.",
     chips: ["Sem cartão", "Acesso imediato", "Desktop e celular"]
@@ -74,7 +74,7 @@ export const marketing = {
     subtitle: "Objetivo, independente e transparente.",
     items: [
       ["Isso é dump?", "Não. O foco é treino com explicação, dicas e revisão para entender o conteúdo."],
-      ["É afiliado à CompTIA ou ISC2?", "Não. É uma plataforma independente."],
+      ["É afiliado à CompTIA, ISC2 ou EC-Council?", "Não. É uma plataforma independente."],
       ["As questões são atualizadas?", "Sim. O catálogo é versionado e revisado continuamente."],
       ["Posso estudar no celular?", "Sim. O fluxo foi desenhado para desktop e mobile."],
       ["Como funcionam metas e revisão?", "O sistema registra seu desempenho, monta fila de reforço e sugere a próxima ação."]

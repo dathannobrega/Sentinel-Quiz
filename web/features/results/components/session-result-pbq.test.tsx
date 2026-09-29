@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { SessionResultShell } from "@/features/results/components/session-result-shell";
+import { passThresholdNote, SessionResultShell } from "@/features/results/components/session-result-shell";
 import { ORDERING_FEEDBACK, ORDERING_PAYLOAD } from "@/features/session-runner/lib/pbq-test-fixtures";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator, getMessages } from "@/lib/i18n/core";
@@ -103,6 +103,15 @@ function wrapper({ children }: { children: ReactNode }) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("passThresholdNote", () => {
+  it("explains the variable CEH cut score and stays silent for other certifications", () => {
+    expect(passThresholdNote("CEH", t)).toBe(t("results.summary.passThresholdNotes.CEH"));
+    expect(passThresholdNote("CISSP", t)).toBeNull();
+    expect(passThresholdNote(null, t)).toBeNull();
+    expect(passThresholdNote("a b", t)).toBeNull();
+  });
 });
 
 describe("session result with a PBQ", () => {
