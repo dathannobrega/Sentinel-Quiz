@@ -262,10 +262,6 @@ class ExamQuestionStateOut(BaseModel):
     experience_mode: Optional[str] = None
 
 
-class ExamNavigationIn(BaseModel):
-    position: int = Field(..., ge=0)
-
-
 class ReviewScreenQuestionStatusOut(BaseModel):
     position: int
     question_id: str

@@ -128,8 +128,6 @@ def save_exam_response(
     question_id: str,
     selected_keys: list[str],
     elapsed_seconds: int | None = None,
-    auto_advance: bool = False,
-    auto_submit_when_complete: bool = False,
 ) -> dict[str, Any]:
     lock_exam_session(db, session)
     timing = sync_exam_session_state(db, session)
@@ -199,14 +197,9 @@ def save_exam_response(
         existing.answered_at = datetime.utcnow()
 
     session_row.last_viewed_at = datetime.utcnow()
-    if auto_advance:
-        _set_position(session, min(session_row.position + 1, max(session.total_questions - 1, 0)))
-    else:
-        _set_position(session, session_row.position)
+    _set_position(session, session_row.position)
 
     answered_count = _answered_count(session)
-    if auto_submit_when_complete and answered_count >= session.total_questions:
-        complete_exam_session(db, session)
 
     db.flush()
     hidden = exam_answers_are_hidden(session)
@@ -280,17 +273,6 @@ def toggle_mark_for_review(
         "marked_for_review_count": _marked_for_review_count(session),
         "current_position": session.current_position,
     }
-
-
-def navigate_exam_session(
-    db: Session,
-    session: ExamSession,
-    *,
-    position: int,
-) -> dict[str, Any]:
-    if position < 0 or position >= session.total_questions:
-        raise ValueError("Navigation target is outside the current session.")
-    return get_exam_question_state(db, session, position=position)
 
 
 def build_exam_review_screen(

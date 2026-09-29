@@ -196,8 +196,8 @@ def test_exam_day_answer_response_withholds_correctness(make_client, db):
 
     review = client.get(f"/api/sessions/{session_id}/review-screen", headers=HEADERS).json()
     assert all("is_correct" not in item for item in review["items"])
-    # The deprecated result endpoint must not reveal the score before submission.
-    assert client.get(f"/api/sessions/{session_id}/result", headers=HEADERS).status_code == 409
+    # The review endpoint must not reveal the score before submission.
+    assert client.get(f"/api/sessions/{session_id}/review", headers=HEADERS).status_code in (400, 409)
 
     result = client.post(f"/api/sessions/{session_id}/submit", headers=HEADERS)
     assert result.status_code == 200

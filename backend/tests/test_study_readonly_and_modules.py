@@ -98,7 +98,6 @@ def test_get_endpoints_do_not_write(make_client, db):
     urls = [
         f"/api/sessions/{exam_id}",
         f"/api/sessions/{exam_id}/review",
-        f"/api/sessions/{exam_id}/result",
         f"/api/sessions/{exam_id}/review-screen",
         "/api/analytics/engagement",
         "/api/analytics/readiness",
@@ -110,7 +109,6 @@ def test_get_endpoints_do_not_write(make_client, db):
         "/api/study/analytics/weekly",
         "/api/study/modules",
         f"/api/study/sessions/{study_id}",
-        f"/api/study/sessions/{study_id}/result",
         f"/api/study/sessions/{study_id}/review",
         f"/api/study/sessions/{active_study}/questions/{active_question}/hint?level=2",
     ]
@@ -145,7 +143,7 @@ def test_study_completion_records_placement_and_snapshot(make_client, db):
     session_id = _finish_study(client)
     db.expire_all()
     assert db.query(UserExamMetricsSnapshot).filter_by(session_id=session_id, mode="study").count() == 1
-    result = client.get(f"/api/study/sessions/{session_id}/result", headers=HEADERS).json()
+    result = client.get(f"/api/study/sessions/{session_id}/review", headers=HEADERS).json()["result"]
     assert result["placement_completed"] is False  # 2 answers < placement minimum
 
 

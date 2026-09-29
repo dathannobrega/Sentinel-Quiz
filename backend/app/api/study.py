@@ -17,7 +17,6 @@ from app.schemas import (
     StudyNextQuestionOut,
     StudyOverviewOut,
     StudyPlanOut,
-    StudyResultOut,
     StudySessionReviewOut,
     StudySessionCreateIn,
     StudySessionOut,
@@ -36,7 +35,6 @@ from app.services.study import (
     build_review_queue_snapshot,
     build_study_plan,
     build_weekly_study_analytics,
-    compute_study_result,
     create_placement_session,
     create_study_session,
     get_study_session_review,
@@ -432,22 +430,6 @@ def submit_study_answer(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return StudyAnswerFeedbackOut(**feedback)
-
-
-@router.get("/sessions/{session_id}/result", response_model=StudyResultOut, deprecated=True)
-def study_result(
-    session_id: str,
-    current_user: User | None = Depends(get_current_user_optional),
-    client_key: str | None = Depends(get_client_key),
-    db: Session = Depends(get_db),
-):
-    session = _get_study_session(db, session_id, current_user, client_key)
-    try:
-        result = compute_study_result(db, session)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    # Read-only (M-B7): placement/metrics are recorded when the session completes.
-    return StudyResultOut(**result)
 
 
 @router.get("/sessions/{session_id}/review", response_model=StudySessionReviewOut)

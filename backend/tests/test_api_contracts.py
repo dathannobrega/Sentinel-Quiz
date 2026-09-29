@@ -240,14 +240,23 @@ def test_admin_export_streams_valid_json(login_client, db):
     }
 
 
-def test_deprecated_orphan_routes_are_flagged(client):
+def test_deprecated_orphan_routes_are_removed(client):
+    # L-B10: deprecated routes no frontend uses are gone (contracts_r4 section 4).
     spec = client.get("/openapi.json").json()
     paths = spec["paths"]
-    assert paths["/api/sessions/{session_id}/next"]["get"].get("deprecated") is True
-    assert paths["/api/sessions/{session_id}/answer"]["post"].get("deprecated") is True
-    assert paths["/api/sessions/{session_id}/result"]["get"].get("deprecated") is True
-    assert paths["/api/study/sessions/{session_id}/result"]["get"].get("deprecated") is True
+    for path in (
+        "/api/sessions/{session_id}/next",
+        "/api/sessions/{session_id}/answer",
+        "/api/sessions/{session_id}/result",
+        "/api/sessions/{session_id}/navigation",
+        "/api/study/sessions/{session_id}/result",
+    ):
+        assert path not in paths, path
+    assert not any(op.get("deprecated") for item in paths.values() for op in item.values() if isinstance(op, dict))
     assert not paths["/api/health"]["get"].get("deprecated")
+    assert client.get("/api/sessions/any/next").status_code in (404, 405)
+    assert client.post("/api/sessions/any/answer", json={}).status_code in (404, 405)
+    assert client.get("/api/study/sessions/any/result").status_code in (404, 405)
 
 
 @pytest.mark.parametrize(
