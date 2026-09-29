@@ -1,4 +1,4 @@
-/** Builds the per-request Content-Security-Policy (contract §7). Used by middleware.ts. */
+/** Builds the per-request Content-Security-Policy (contract §7). Used by proxy.ts (Next 16 request proxy). */
 export function buildContentSecurityPolicy(nonce: string, apiOrigin: string, isDev: boolean): string {
   const connectSources = ["'self'", apiOrigin, isDev ? "ws: wss:" : ""].filter(Boolean).join(" ");
   const directives = [

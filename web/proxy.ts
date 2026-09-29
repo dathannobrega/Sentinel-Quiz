@@ -38,7 +38,7 @@ function isAdminGuardEnabled(request: NextRequest, apiOrigin: string): boolean {
   }
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const apiOrigin = readApiOrigin();
   const { pathname, search } = request.nextUrl;
 

@@ -21,7 +21,7 @@ interface AdminShellProps {
 }
 
 /**
- * Admin entry point. middleware.ts already redirects cookie-less visitors; this client guard
+ * Admin entry point. proxy.ts already redirects cookie-less visitors; this client guard
  * covers expired sessions and role checks via the shared ["current-user"] query.
  */
 export function AdminShell({ initialQuestionId = null, editorOnly = false }: AdminShellProps) {
