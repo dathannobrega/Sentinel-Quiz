@@ -7,12 +7,12 @@ session row; learning signals are recorded once at completion (M-C2, see
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import ExamSession, Option, Question, SessionAnswer, SessionQuestion
 from app.services.option_order import OptionMapping, option_keys_by_question, split_keys
 from app.services.question_data import correct_option_keys, published_version_id
@@ -99,7 +99,7 @@ def get_exam_question_state(
         return {"finished": True}
 
     _set_position(session, target_position)
-    session_row.last_viewed_at = datetime.utcnow()
+    session_row.last_viewed_at = utcnow()
     db.commit()
     db.refresh(session)
 
@@ -192,9 +192,9 @@ def save_exam_response(
         existing.is_correct = is_correct
         existing.question_version_id = question_version_id
         existing.elapsed_seconds = elapsed_seconds
-        existing.answered_at = datetime.utcnow()
+        existing.answered_at = utcnow()
 
-    session_row.last_viewed_at = datetime.utcnow()
+    session_row.last_viewed_at = utcnow()
     _set_position(session, session_row.position)
 
     answered_count = _answered_count(session)
@@ -260,7 +260,7 @@ def toggle_mark_for_review(
     if not session_row:
         raise ValueError("Question does not belong to this session.")
     session_row.marked_for_review = not bool(session_row.marked_for_review)
-    session_row.last_viewed_at = datetime.utcnow()
+    session_row.last_viewed_at = utcnow()
     if session_row.position != session.current_position:
         _set_position(session, session_row.position)
     db.commit()

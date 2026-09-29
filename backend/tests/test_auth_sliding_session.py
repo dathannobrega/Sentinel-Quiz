@@ -1,7 +1,7 @@
 """Sliding session renewal (L-B1): AUTH_SLIDING_SESSION extends tokens past half-life."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -18,7 +18,7 @@ def _token_row(db, user):
 
 def _age_token(db, user, *, remaining: timedelta, last_used_ago: timedelta | None = None):
     row = _token_row(db, user)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     row.expires_at = now + remaining
     row.last_used_at = None if last_used_ago is None else now - last_used_ago
     db.commit()
@@ -35,7 +35,7 @@ def test_token_past_half_life_is_extended_and_cookie_refreshed(login_client, db)
     response = client.get("/api/auth/me")
     assert response.status_code == 200
     row = _token_row(db, user)
-    assert row.expires_at >= datetime.utcnow() + _ttl() - timedelta(minutes=5)
+    assert row.expires_at >= datetime.now(timezone.utc) + _ttl() - timedelta(minutes=5)
     set_cookie = response.headers.get("set-cookie", "")
     assert settings.auth_cookie_name in set_cookie
     assert "httponly" in set_cookie.lower()
@@ -83,7 +83,7 @@ def test_bearer_token_is_extended_without_setting_cookie(client, db, make_user, 
 
     response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
-    assert _token_row(db, user).expires_at >= datetime.utcnow() + _ttl() - timedelta(minutes=5)
+    assert _token_row(db, user).expires_at >= datetime.now(timezone.utc) + _ttl() - timedelta(minutes=5)
     assert settings.auth_cookie_name not in response.headers.get("set-cookie", "")
 
 

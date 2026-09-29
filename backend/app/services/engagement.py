@@ -8,13 +8,21 @@ study session, exam submission).
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import (
+    bucket_study_date,
+    study_date,
+    study_day_start,
+    study_day_start_for_date,
+    study_week_start,
+    utcnow,
+)
 from app.models import (
     AdaptiveProfile,
     ReviewQueueItem,
@@ -37,13 +45,14 @@ DEFAULT_GOALS = {
 }
 
 
+# Day/week boundaries follow STUDY_DAY_TIMEZONE (see app.core.clock) and match the
+# bucket keys written by app.services.metrics.
 def _day_start(value: datetime) -> datetime:
-    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+    return study_day_start(value)
 
 
 def _week_start(value: datetime) -> datetime:
-    base = _day_start(value)
-    return base - timedelta(days=base.weekday())
+    return study_week_start(value)
 
 
 def _progress_payload(*, completed: int, target: int) -> dict[str, Any]:
@@ -87,7 +96,7 @@ def get_or_create_user_goal(
 
 
 def _compute_streak(db: Session, *, owner_user_id: Optional[str], owner_client_key: Optional[str], now: datetime) -> dict[str, Any]:
-    today = _day_start(now)
+    today = study_date(now)
     rows = db.execute(
         select(UserDomainMetricDaily.metric_date)
         .where(
@@ -96,11 +105,12 @@ def _compute_streak(db: Session, *, owner_user_id: Optional[str], owner_client_k
         )
         .order_by(UserDomainMetricDaily.metric_date.asc())
     ).scalars().all()
-    activity_days = sorted({_day_start(item) for item in rows if item})
+    # Calendar dates in STUDY_DAY_TIMEZONE (legacy UTC-midnight buckets map to their date).
+    activity_days = sorted({bucket_study_date(item) for item in rows if item})
 
     best = 0
     current_run = 0
-    previous_day: datetime | None = None
+    previous_day: date | None = None
     for day in activity_days:
         if previous_day and day == previous_day + timedelta(days=1):
             current_run += 1
@@ -125,7 +135,7 @@ def _compute_streak(db: Session, *, owner_user_id: Optional[str], owner_client_k
         "current": current,
         "best": max(best, current),
         "total_active_days": len(activity_days),
-        "last_activity_date": activity_days[-1] if activity_days else None,
+        "last_activity_date": study_day_start_for_date(activity_days[-1]) if activity_days else None,
     }
 
 
@@ -144,7 +154,7 @@ def sync_user_streak(
     daily_goal_completed: bool = False,
 ) -> UserStreak:
     owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
-    now = observed_at or datetime.utcnow()
+    now = observed_at or utcnow()
     computed = _compute_streak(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now)
 
     streak = _find_streak(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
@@ -249,7 +259,7 @@ def recompute_adaptive_profile(
     observed_at: Optional[datetime] = None,
 ) -> AdaptiveProfile:
     owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
-    now = observed_at or datetime.utcnow()
+    now = observed_at or utcnow()
     computed = _compute_adaptive_profile(
         db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, now=now, lookback_days=lookback_days
     )
@@ -282,7 +292,7 @@ def build_engagement_snapshot(
     owner_client_key: Optional[str],
 ) -> dict[str, Any]:
     owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
-    now = datetime.utcnow()
+    now = utcnow()
     today = _day_start(now)
     week_start = _week_start(now)
 
@@ -412,7 +422,7 @@ def refresh_engagement_state(
         owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key)
     except ValueError:
         return
-    now = datetime.utcnow()
+    now = utcnow()
     get_or_create_user_goal(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
     snapshot = build_engagement_snapshot(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
     daily_goal_completed = bool(snapshot["daily_goal"]["reached"] and snapshot["daily_review_goal"]["reached"])

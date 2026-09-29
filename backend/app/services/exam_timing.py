@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.core.clock import parse_iso_utc, utcnow
 from app.models import ExamSession
 from app.services.serialization import parse_selection_mix as _parse_selection_mix
 from app.services.serialization import parse_session_payload as _parse_session_payload
@@ -38,13 +39,8 @@ def _parse_active_filters(selection_mix_json: str | None) -> dict[str, Any]:
 
 
 def _parse_iso_datetime(value: Any) -> datetime | None:
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    try:
-        return datetime.fromisoformat(raw)
-    except ValueError:
-        return None
+    # Legacy values were naive UTC isoformat strings; always return aware UTC.
+    return parse_iso_utc(value)
 
 
 def _effective_session_config(session: ExamSession, config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -67,7 +63,7 @@ def _build_exam_timing_metadata(
     now: datetime | None = None,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    reference_now = now or datetime.utcnow()
+    reference_now = now or utcnow()
     effective_now = session.completed_at if session.completed_at and session.completed_at < reference_now else reference_now
     effective_config = _effective_session_config(session, config)
     paused_at = _parse_iso_datetime(effective_config.get("paused_at"))

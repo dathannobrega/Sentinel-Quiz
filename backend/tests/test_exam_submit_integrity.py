@@ -6,7 +6,7 @@ import os
 import threading
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -131,7 +131,7 @@ def test_batched_finalization_matches_incremental_srs_semantics(make_client, db)
 
     ids = _seed_questions(db, count=3)
     already_queued = ids[1]  # answered correctly below
-    db.add(ReviewQueueItem(client_key="device-submit", question_id=already_queued, due_at=datetime.utcnow() - timedelta(days=1), repetition_count=0))
+    db.add(ReviewQueueItem(client_key="device-submit", question_id=already_queued, due_at=datetime.now(timezone.utc) - timedelta(days=1), repetition_count=0))
     db.commit()
     session_id, _correct, wrong = _make_answered_session(db, ids)  # position 0 wrong, 1-2 right
     client = make_client()

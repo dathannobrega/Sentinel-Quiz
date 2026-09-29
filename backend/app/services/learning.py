@@ -6,6 +6,7 @@ from typing import Any, Iterable, Optional
 from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import UserQuestionProgress
 from app.services.auth import normalize_client_key
 
@@ -137,7 +138,7 @@ def upsert_question_progress(
     confidence_level: str | None = None,
     attempted_at: Optional[datetime] = None,
 ) -> UserQuestionProgress:
-    timestamp = attempted_at or datetime.utcnow()
+    timestamp = attempted_at or utcnow()
     normalized_mode = _normalize_mode(mode)
     normalized_confidence = str(confidence_level or "").strip().lower() or None
     normalized_client_key = None if owner_user_id else normalize_client_key(owner_client_key)
@@ -206,7 +207,7 @@ def record_question_progress_batch(
     for item in items:
         question_id = str(item["question_id"])
         is_correct = bool(item["is_correct"])
-        timestamp = item.get("attempted_at") or datetime.utcnow()
+        timestamp = item.get("attempted_at") or utcnow()
         normalized_confidence = str(item.get("confidence_level") or "").strip().lower() or None
         progress = progress_by_question.get(question_id)
         if progress is None:

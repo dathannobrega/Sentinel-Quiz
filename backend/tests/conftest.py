@@ -166,7 +166,7 @@ def seed_question(db, *, exam_id: str = "secplus", question_id: str | None = Non
 
 
 def make_exam_session(db, *, question_ids, user_id=None, client_key=None, completed=False, answers=None, experience_mode="standard"):
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     from app.models import ExamSession, SessionAnswer, SessionQuestion
 
@@ -177,7 +177,7 @@ def make_exam_session(db, *, question_ids, user_id=None, client_key=None, comple
         exam_id="secplus",
         total_questions=len(question_ids),
         experience_mode=experience_mode,
-        completed_at=datetime.utcnow() if completed else None,
+        completed_at=datetime.now(timezone.utc) if completed else None,
     )
     db.add(session)
     db.flush()

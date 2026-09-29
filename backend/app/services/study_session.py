@@ -5,12 +5,12 @@ import json
 import math
 import random
 import uuid
-from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import Exam, Explanation, Option, Question, StudyAttempt, StudySession, StudySessionQuestion
 from app.services.auth import normalize_client_key
 from app.services.engagement import refresh_engagement_state
@@ -199,7 +199,7 @@ def _build_question_pool(
     if total_questions > len(qids):
         total_questions = len(qids)
 
-    now = datetime.utcnow()
+    now = utcnow()
     bookmark_ids = owner_bookmark_question_ids(
         db,
         owner_user_id=owner_user_id,
@@ -512,7 +512,7 @@ def answer_study_question(
 
     correct_keys = [item["key"] for item in options if item["is_correct"]]
     is_correct = (selected_set == set(correct_keys))
-    now = datetime.utcnow()
+    now = utcnow()
     question_version_id = published_version_id(db, question_id)
 
     existing_attempt = db.execute(

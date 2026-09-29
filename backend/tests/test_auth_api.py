@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -178,7 +178,7 @@ def test_password_reset_token_expires(client, make_user, captured_emails, db):
     client.post("/api/auth/request-password-reset", json={"email": user.email})
     token = _token_from_email(captured_emails[0])
     challenge = db.execute(select(AuthChallenge).where(AuthChallenge.user_id == user.id)).scalar_one()
-    challenge.expires_at = datetime.utcnow() - timedelta(minutes=1)
+    challenge.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
     db.commit()
     response = client.post("/api/auth/reset-password", json={"token": token, "new_password": "brand-new-password"})
     assert response.status_code == 400

@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
+from app.core.clock import utcnow
 from app.models import (
     ExamSession,
     Question,
@@ -45,7 +46,7 @@ def sync_exam_session_state(
     selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
     config = _effective_session_config(session, raw_config)
     changed = False
-    now = datetime.utcnow()
+    now = utcnow()
 
     paused_at = _parse_iso_datetime(config.get("paused_at"))
     if paused_at and session.completed_at is None:
@@ -76,7 +77,7 @@ def sync_exam_session_state(
 def exam_session_expired(session: ExamSession, *, now: datetime | None = None) -> bool:
     if session.completed_at is not None:
         return False
-    timing = _build_exam_timing_metadata(session, now=now or datetime.utcnow())
+    timing = _build_exam_timing_metadata(session, now=now or utcnow())
     return timing["remaining_seconds"] <= 0
 
 
@@ -95,7 +96,7 @@ def expire_exam_session_if_due(db: Session, session: ExamSession) -> bool:
         # A concurrent request auto-submitted it while we waited for the lock.
         db.commit()
         return False
-    now = datetime.utcnow()
+    now = utcnow()
     complete_exam_session(db, session, completed_at=now, auto_submitted=True)
     db.commit()
     db.refresh(session)
@@ -149,7 +150,7 @@ def complete_exam_session(
 ) -> None:
     """Mark the session completed and record its learning signals once (no commit)."""
     if session.completed_at is None:
-        if not _claim_completion(db, session, completed_at or datetime.utcnow()):
+        if not _claim_completion(db, session, completed_at or utcnow()):
             # A concurrent request completed (and finalized) the session first.
             return
         if auto_submitted:
@@ -193,7 +194,7 @@ def finalize_exam_session(db: Session, session: ExamSession) -> bool:
         .where(SessionAnswer.session_id == session.id)
         .order_by(SessionAnswer.answered_at.asc(), SessionAnswer.id.asc())
     ).all()
-    fallback_time = session.completed_at or datetime.utcnow()
+    fallback_time = session.completed_at or utcnow()
     attempts = [
         {
             "question_id": question_id,
@@ -265,7 +266,7 @@ def finalize_exam_session(db: Session, session: ExamSession) -> bool:
 
     selection_mix, raw_config, active_filters = _parse_session_payload(session.selection_mix_json)
     config = dict(raw_config)
-    config["finalized_at"] = datetime.utcnow().isoformat()
+    config["finalized_at"] = utcnow().isoformat()
     session.selection_mix_json = _serialize_session_payload(
         selection_mix,
         session_config=config,
@@ -289,7 +290,7 @@ def pause_exam_session(db: Session, session: ExamSession) -> ExamSession:
     if int(config["pause_count"]) >= int(config["pause_limit"]):
         raise ValueError("Pause limit reached for this exam session.")
 
-    config["paused_at"] = datetime.utcnow().isoformat()
+    config["paused_at"] = utcnow().isoformat()
     config["pause_count"] = int(config["pause_count"]) + 1
     session.selection_mix_json = _serialize_session_payload(
         selection_mix,
@@ -311,7 +312,7 @@ def resume_exam_session(db: Session, session: ExamSession) -> ExamSession:
         db.commit()
         raise ValueError("Session is not paused.")
 
-    now = datetime.utcnow()
+    now = utcnow()
     elapsed_pause = max(int((now - paused_at).total_seconds()), 0)
     config["paused_total_seconds"] = max(int(config["paused_total_seconds"]), 0) + min(
         elapsed_pause,

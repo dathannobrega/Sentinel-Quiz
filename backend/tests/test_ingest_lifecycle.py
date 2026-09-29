@@ -128,6 +128,24 @@ class IngestTestCase(unittest.TestCase):
         return result
 
 
+class DomainValidationTests(IngestTestCase):
+    def test_questions_with_unknown_blueprint_domain_are_rejected_and_counted(self) -> None:
+        """L-A2: questions.domain is a free string; ingest rejects (cert, domain) pairs
+        that are not in domain_blueprint and reports how many were rejected."""
+        self.write_bank(_bank([
+            _question("ok-1", "Valid domain question?"),
+            _question("bad-1", "Unknown domain question?", domain="Made Up Domain"),
+            _question("case-1", "Case-insensitive match?", domain="security operations"),
+        ]))
+        result = ingest_questions_from_dir(self.db, str(self.qdir), material_dir=str(self.material))
+        self.assertEqual(result["rejected_invalid_domain"], 1)
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("bad-1", result["errors"][0])
+        self.assertIn("Made Up Domain", result["errors"][0])
+        ids = set(self.db.scalars(select(Question.id)))
+        self.assertEqual(ids, {"ok-1", "case-1"})
+
+
 class ReimportTests(IngestTestCase):
     def test_reimport_after_editing_real_securityplus_prompt_has_no_errors(self) -> None:
         """C1: editing one prompt and re-importing used to fail with uq_option_question_key (726 errors)."""

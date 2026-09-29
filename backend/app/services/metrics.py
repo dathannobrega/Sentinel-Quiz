@@ -7,6 +7,7 @@ from typing import Any, Iterable, Optional
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import study_day_start, study_week_start, utcnow
 from app.models import (
     ReviewQueueItem,
     UserDomainMetricDaily,
@@ -22,16 +23,17 @@ _OWNER_SCOPE_MESSAGE = "Owner scope is required for metrics tracking."
 
 
 def _day_start(value: datetime) -> datetime:
-    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+    """Daily bucket key: local midnight of the study day (STUDY_DAY_TIMEZONE), as UTC."""
+    return study_day_start(value)
 
 
 def _week_start(value: datetime) -> datetime:
-    base = _day_start(value)
-    return base - timedelta(days=base.weekday())
+    """Weekly bucket key: Monday local midnight of the study week, as UTC."""
+    return study_week_start(value)
 
 
 def week_start(value: datetime) -> datetime:
-    """Monday 00:00 of the week containing ``value`` (weekly snapshot key)."""
+    """Monday 00:00 (STUDY_DAY_TIMEZONE) of the week containing ``value`` (weekly snapshot key)."""
     return _week_start(value)
 
 
@@ -179,7 +181,7 @@ def record_review_schedule_event(
     scheduled_at: Optional[datetime] = None,
 ) -> WeeklyProgressSnapshot:
     owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
-    timestamp = scheduled_at or datetime.utcnow()
+    timestamp = scheduled_at or utcnow()
     snapshot = _get_or_create_weekly_snapshot(
         db,
         owner_user_id=owner_user_id,
@@ -216,7 +218,7 @@ def record_question_attempt_metrics(
     selection_strategy: Optional[str] = None,
 ) -> dict[str, Any]:
     owner_user_id, owner_client_key = require_owner_scope(owner_user_id, owner_client_key, message=_OWNER_SCOPE_MESSAGE)
-    timestamp = attempted_at or datetime.utcnow()
+    timestamp = attempted_at or utcnow()
     normalized_mode = "study" if str(mode or "").strip().lower() == "study" else "exam"
     normalized_domain = str(domain or "Sem dominio").strip() or "Sem dominio"
     normalized_certification = str(certification or "").strip() or None
@@ -404,7 +406,7 @@ def record_question_attempt_metrics_batch(
 
     prepared: list[dict[str, Any]] = []
     for item in items:
-        timestamp = item.get("attempted_at") or datetime.utcnow()
+        timestamp = item.get("attempted_at") or utcnow()
         prepared.append({
             "timestamp": timestamp,
             "metric_date": _day_start(timestamp),
@@ -660,7 +662,7 @@ def aggregate_domain_metrics_for_owner(
         .group_by(UserDomainMetricDaily.certification, UserDomainMetricDaily.domain)
     )
     if days:
-        threshold = _day_start(datetime.utcnow() - timedelta(days=max(int(days), 1) - 1))
+        threshold = _day_start(utcnow() - timedelta(days=max(int(days), 1) - 1))
         stmt = stmt.where(UserDomainMetricDaily.metric_date >= threshold)
 
     rows = db.execute(stmt).all()

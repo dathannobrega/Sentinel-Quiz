@@ -38,6 +38,7 @@ import app.models  # noqa: E402,F401
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "").strip()
 REV_0008 = "0008_question_stats_snapshot"
 REV_0013 = "0013_issue_workflow_and_placement"
+REV_0014 = "0014_content_lifecycle_and_integrity"
 
 
 def alembic_config(url: str) -> Config:
@@ -201,6 +202,51 @@ class _MigrationMixin:
             self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM exam_sessions")).scalar(), 0)
             self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM session_answers")).scalar(), 0)
 
+    def test_0015_converts_naive_utc_timestamps_to_timestamptz(self) -> None:
+        from datetime import datetime, timezone
+
+        from sqlalchemy.orm import Session
+
+        from app.models import AuthToken, User
+
+        command.upgrade(self.cfg, REV_0014)
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO users (id, email, password_hash, role, is_active, email_verified, created_at, updated_at) "
+                "VALUES ('u1', 'u1@example.com', 'x', 'student', true, true, '2026-01-02 03:04:05', '2026-01-02 03:04:05')"
+            ))
+            conn.execute(text(
+                "INSERT INTO auth_tokens (user_id, token_hash, created_at, expires_at) "
+                "VALUES ('u1', 'h1', '2026-01-02 03:04:05', '2026-07-01 23:30:00')"
+            ))
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+        expected_created = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+        expected_expiry = datetime(2026, 7, 1, 23, 30, tzinfo=timezone.utc)
+        if self.engine.dialect.name == "postgresql":
+            types = {c["name"]: c["type"] for c in inspect(self.engine).get_columns("auth_tokens")}
+            self.assertTrue(types["expires_at"].timezone)
+        with self.engine.connect() as conn:
+            if self.engine.dialect.name == "postgresql":
+                # The stored instant does not depend on the session time zone.
+                conn.execute(text("SET TIME ZONE 'America/Sao_Paulo'"))
+            with Session(bind=conn) as session:
+                user = session.get(User, "u1")
+                token = session.query(AuthToken).one()
+                self.assertEqual(user.created_at, expected_created)
+                self.assertEqual(user.created_at.utcoffset().total_seconds(), 0)
+                self.assertEqual(token.expires_at, expected_expiry)
+        # Downgrade restores naive UTC values.
+        command.downgrade(self.cfg, REV_0014)
+        with self.engine.connect() as conn:
+            raw = conn.execute(text("SELECT expires_at FROM auth_tokens")).scalar()
+            if isinstance(raw, str):
+                raw = datetime.fromisoformat(raw)
+            self.assertIsNone(raw.tzinfo)
+            self.assertEqual(raw, expected_expiry.replace(tzinfo=None))
+        command.upgrade(self.cfg, "head")
+        self.assert_models_match()
+
     def test_frozen_baseline_does_not_depend_on_models(self) -> None:
         # C2: 0008 is an explicit, frozen schema (no create_all with current models).
         source = (BACKEND / "alembic" / "versions" / "0008_consolidated_baseline.py").read_text()
@@ -219,7 +265,14 @@ class _MigrationMixin:
     def test_database_from_old_create_all_baseline_is_unaffected(self) -> None:
         # Databases created by the previous baseline (create_all of the models, stamped
         # at head) must keep working: upgrade head is a no-op and the schema matches.
-        Base.metadata.create_all(self.engine)
+        # (A fresh copy of the metadata: DDL events of earlier create_all calls on other
+        # dialects in this process must not leak into the SQLite DDL.)
+        from sqlalchemy import MetaData
+
+        fresh = MetaData()
+        for table in Base.metadata.sorted_tables:
+            table.to_metadata(fresh)
+        fresh.create_all(self.engine)
         command.stamp(self.cfg, "head")
         command.upgrade(self.cfg, "head")
         self.assert_models_match()

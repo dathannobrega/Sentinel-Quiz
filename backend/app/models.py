@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import (
-    String, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Text, Float, CheckConstraint, Index,
+    String, Integer, Boolean, ForeignKey, UniqueConstraint, Text, Float, CheckConstraint, Index,
     text, true, false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.core.clock import utcnow
 from app.db.base import Base
+from app.db.types import UTCDateTime
 
 
 # Closed value sets enforced with CHECK constraints (migration 0014).
@@ -25,15 +27,15 @@ def _sql_in(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({joined})"
 
 
-def utcnow_aware() -> datetime:
-    return datetime.now(timezone.utc)
+# Kept as an alias of app.core.clock.utcnow (aware UTC).
+utcnow_aware = utcnow
 
 class ImportState(Base):
     __tablename__ = "import_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    imported_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    imported_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
     __table_args__ = (UniqueConstraint("file_name", "file_sha256", name="uq_import_file_hash"),)
 
@@ -57,9 +59,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="student")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # Sessions are removed together with the user (FK ON DELETE CASCADE); SET NULL would
     # violate the owner XOR check constraint on exam_sessions/study_sessions.
@@ -83,10 +85,10 @@ class AuthToken(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
 
     user: Mapped["User"] = relationship(back_populates="tokens")
 
@@ -99,9 +101,9 @@ class AuthChallenge(Base):
     challenge_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     delivery_target: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, index=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
 
     user: Mapped["User"] = relationship(back_populates="auth_challenges")
 
@@ -113,8 +115,8 @@ class UserBookmark(Base):
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     user: Mapped["User | None"] = relationship(back_populates="bookmarks")
     question: Mapped["Question"] = relationship(back_populates="bookmarks")
@@ -137,8 +139,8 @@ class UserNote(Base):
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
     note_text: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     user: Mapped["User | None"] = relationship(back_populates="notes")
     question: Mapped["Question"] = relationship(back_populates="notes")
@@ -185,8 +187,8 @@ class QuestionBank(Base):
     last_import_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     updated_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     versions: Mapped[list["QuestionVersion"]] = relationship(
         back_populates="question_bank",
@@ -212,8 +214,8 @@ class DomainCatalog(Base):
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -241,8 +243,8 @@ class DomainBlueprint(Base):
     # Official exam weight (percent) of the domain. Only domain-level rows carry a weight;
     # objective-level rows created by the editorial flow keep it NULL.
     weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -301,9 +303,9 @@ class QuestionVersion(Base):
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     updated_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     approved_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
     # sha256 of the imported payload signature when this version was created by the JSON
     # import ("legacy-import"/"seeded-projection" markers for rows that predate 0014).
     # NULL => created editorially; ingest never overwrites an editorial published version.
@@ -361,7 +363,7 @@ class QuestionReference(Base):
     material_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
     version: Mapped["QuestionVersion"] = relationship(back_populates="references")
 
@@ -380,8 +382,8 @@ class QuestionHint(Base):
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     hint_text: Mapped[str] = mapped_column(Text, nullable=False)
     hint_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="concept")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     version: Mapped["QuestionVersion"] = relationship(back_populates="hint_rows")
 
@@ -414,8 +416,8 @@ class ReferenceCatalog(Base):
     page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_official: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     version: Mapped["QuestionVersion | None"] = relationship(back_populates="reference_catalog_rows")
 
@@ -431,7 +433,7 @@ class EditorialAuditLog(Base):
     action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)
 
 
 class QuestionStatsSnapshot(Base):
@@ -459,7 +461,7 @@ class QuestionStatsSnapshot(Base):
     review_pressure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     avg_study_elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     difficulty_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    captured_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)
 
 
 class Question(Base):
@@ -478,7 +480,7 @@ class Question(Base):
     # Soft delete: inactive questions are hidden from new sessions but keep student history.
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true(), index=True)
     deactivated_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deactivated_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # Content language of the question text, e.g. "en" or "pt-BR".
     language: Mapped[str | None] = mapped_column(String(8), nullable=True)
     # Editorial flags so admins can find incomplete content.
@@ -525,7 +527,7 @@ class ExamSession(Base):
     __tablename__ = "exam_sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
@@ -539,7 +541,7 @@ class ExamSession(Base):
     current_position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, index=True)
+    completed_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=True, index=True)
 
     owner: Mapped["User | None"] = relationship(back_populates="sessions")
     questions: Mapped[list["SessionQuestion"]] = relationship(back_populates="session", cascade="all, delete-orphan")
@@ -560,7 +562,7 @@ class SessionQuestion(Base):
     question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     marked_for_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
     # JSON list of option keys in the order shown to the student (per-session shuffle).
     option_order_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -586,7 +588,7 @@ class SessionAnswer(Base):
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     elapsed_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    answered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    answered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
     session: Mapped["ExamSession"] = relationship(back_populates="answers")
 
@@ -618,7 +620,7 @@ class QuestionIssue(Base):
         nullable=True,
         index=True,
     )
-    triaged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    triaged_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
     resolved_version_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("question_versions.id", ondelete="SET NULL"),
@@ -631,9 +633,9 @@ class QuestionIssue(Base):
         nullable=True,
         index=True,
     )
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -650,11 +652,11 @@ class PlacementState(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    placement_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    placement_completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
     placement_exam_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     placement_question_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -670,8 +672,8 @@ class StudySession(Base):
     __tablename__ = "study_sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
@@ -727,7 +729,7 @@ class StudyAttempt(Base):
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     confidence_level: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
     elapsed_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    answered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    answered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)
 
     session: Mapped["StudySession"] = relationship(back_populates="attempts")
 
@@ -741,7 +743,7 @@ class ReviewQueueItem(Base):
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
-    due_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    due_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, index=True)
     interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     repetition_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     lapse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -750,9 +752,9 @@ class ReviewQueueItem(Base):
     last_quality: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="wrong")
     confidence_level: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
-    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     schedules: Mapped[list["ReviewSchedule"]] = relationship(back_populates="queue_item", cascade="all, delete-orphan")
 
@@ -771,10 +773,10 @@ class ReviewSchedule(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     review_queue_id: Mapped[int] = mapped_column(Integer, ForeignKey("review_queue.id", ondelete="CASCADE"), nullable=False, index=True)
-    scheduled_for: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    scheduled_for: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, index=True)
     interval_days: Mapped[int] = mapped_column(Integer, nullable=False)
     trigger_reason: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
     queue_item: Mapped["ReviewQueueItem"] = relationship(back_populates="schedules")
 
@@ -786,8 +788,8 @@ class UserQuestionProgress(Base):
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     question_id: Mapped[str] = mapped_column(String(128), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)
     total_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     exam_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     study_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -799,8 +801,8 @@ class UserQuestionProgress(Base):
     last_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="exam")
     last_confidence_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
     last_is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -823,8 +825,8 @@ class UserGoal(Base):
     weekly_question_target: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
     weekly_review_target: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     stretch_question_target: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -845,10 +847,10 @@ class UserStreak(Base):
     current_streak_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     best_streak_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_active_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_activity_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    last_goal_completed_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_activity_date: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    last_goal_completed_date: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -870,9 +872,9 @@ class AdaptiveProfile(Base):
     low_confidence_bias: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     variety_floor_percent: Mapped[float] = mapped_column(Float, nullable=False, default=30.0)
     recovery_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    last_recomputed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_recomputed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -890,7 +892,7 @@ class UserDomainMetricDaily(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    metric_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    metric_date: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, index=True)
     exam_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     certification: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     domain: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -902,7 +904,7 @@ class UserDomainMetricDaily(Base):
     low_confidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_elapsed_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     timed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -945,9 +947,9 @@ class UserExamMetricsSnapshot(Base):
     weakest_domains_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     review_due_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     review_total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -963,7 +965,7 @@ class WeeklyProgressSnapshot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     client_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    week_start: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    week_start: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, index=True)
     questions_answered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     review_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scheduled_reviews: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -975,7 +977,7 @@ class WeeklyProgressSnapshot(Base):
     completed_review_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     review_due_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     review_total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -1000,9 +1002,9 @@ class StudyModule(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_file: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow_aware, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow_aware, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow_aware, onupdate=utcnow_aware, nullable=False
+        UTCDateTime, default=utcnow_aware, onupdate=utcnow_aware, nullable=False
     )
 
     __table_args__ = (

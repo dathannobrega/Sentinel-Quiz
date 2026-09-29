@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.api.deps import get_current_user_optional, get_current_user_required
 from app.core.config import settings
 from app.core.errors import api_error
@@ -51,7 +52,7 @@ REGISTRATION_UNAVAILABLE_MESSAGE = (
 
 
 def _serialize_user(user: User) -> AuthUserOut:
-    created_at = user.created_at if isinstance(user.created_at, datetime) else datetime.utcnow()
+    created_at = user.created_at if isinstance(user.created_at, datetime) else utcnow()
     return AuthUserOut(
         id=user.id,
         email=user.email,

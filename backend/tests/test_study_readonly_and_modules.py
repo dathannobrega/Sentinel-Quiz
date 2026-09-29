@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import event
@@ -170,7 +170,7 @@ def test_inactive_questions_are_never_selected_or_listed(make_client, db):
     catalog = client.get("/api/domains", params={"exam_id": "cissp"}).json()
     assert catalog["domains"][0]["question_count"] == 2
 
-    db.add(ReviewQueueItem(client_key=KEY, question_id=inactive[0], due_at=datetime.utcnow() - timedelta(hours=1)))
+    db.add(ReviewQueueItem(client_key=KEY, question_id=inactive[0], due_at=datetime.now(timezone.utc) - timedelta(hours=1)))
     db.commit()
     queue = client.get("/api/study/review/queue", headers=HEADERS).json()
     assert inactive[0] not in {item["question_id"] for item in queue["items"]}
@@ -224,7 +224,7 @@ def test_study_plan_codes_and_next_module_for_weakest_domain(make_client, db):
     from app.models import UserDomainMetricDaily
 
     _modules(db)
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     for domain, correct in (("Security and Risk Management", 18), ("Asset Security", 9)):
         db.add(UserDomainMetricDaily(
             client_key=KEY, metric_date=today, exam_id="cissp", certification="CISSP", domain=domain,
@@ -249,7 +249,7 @@ def test_plan_tie_breaks_equal_scores_by_module_order(db):
     from app.services.study_plan import build_study_plan
 
     _modules(db)
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     for domain in ("Asset Security", "Security and Risk Management"):
         db.add(UserDomainMetricDaily(
             client_key=KEY, metric_date=today, exam_id="cissp", certification="CISSP", domain=domain,

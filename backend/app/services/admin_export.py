@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import (
     DomainBlueprint,
     DomainCatalog,
@@ -323,7 +324,7 @@ def _iter_sessions(db: Session) -> Iterator[Dict[str, Any]]:
 
         for s in batch:
             q_list = sorted(sq_map.get(s.id, []), key=lambda row: row.position)
-            a_list = sorted(sa_map.get(s.id, []), key=lambda row: row.answered_at or datetime.min)
+            a_list = sorted(sa_map.get(s.id, []), key=lambda row: row.answered_at or datetime.min.replace(tzinfo=timezone.utc))
             yield {
                 "id": s.id,
                 "exam_id": s.exam_id,
@@ -419,7 +420,7 @@ def _serialize_import(item: ImportState) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------------ document
 def iter_export_document(db: Session, *, exported_at: Optional[datetime] = None) -> Iterator[str]:
-    meta = {"exported_at": (exported_at or datetime.utcnow()).isoformat(), "version": EXPORT_FORMAT_VERSION}
+    meta = {"exported_at": (exported_at or utcnow()).isoformat(), "version": EXPORT_FORMAT_VERSION}
     yield '{"meta":' + _dumps(meta)
 
     yield ',"exams":'
@@ -520,4 +521,4 @@ def stream_export(session_factory: Callable[[], Session]) -> Iterator[bytes]:
 
 
 def export_filename(now: Optional[datetime] = None) -> str:
-    return f"securityplus_export_{(now or datetime.utcnow()).strftime('%Y%m%d_%H%M%S')}.json"
+    return f"securityplus_export_{(now or utcnow()).strftime('%Y%m%d_%H%M%S')}.json"

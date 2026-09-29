@@ -5,13 +5,13 @@ Every task carries a stable ``code`` + ``params`` (M-C7); ``title``/``descriptio
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import PlacementState, StudyModule, StudySession, UserDomainMetricDaily
 from app.services.auth import normalize_client_key
 from app.services.exam_policy import normalize_certification
@@ -78,7 +78,7 @@ def _mark_placement_complete(
     state = _get_or_create_placement_state(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
     if state.placement_completed_at:
         return False
-    state.placement_completed_at = session.completed_at or datetime.utcnow()
+    state.placement_completed_at = session.completed_at or utcnow()
     state.placement_exam_id = session.exam_id
     state.placement_question_count = answered_count
     db.flush()
@@ -314,5 +314,5 @@ def build_study_plan(
         "review_backlog_due": due_count,
         "certification": (top_risk or {}).get("certification") or plan_certification,
         "recommended_module": recommended_module,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": utcnow().isoformat(),
     }

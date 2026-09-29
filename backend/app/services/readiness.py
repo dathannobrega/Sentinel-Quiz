@@ -42,6 +42,7 @@ from typing import Any, Optional
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import Question, ReviewQueueItem, UserDomainMetricDaily, UserQuestionProgress
 from app.services.exam_policy import normalize_certification, pass_threshold_for
 from app.services.owner_scope import owner_clauses
@@ -126,7 +127,7 @@ def build_readiness_snapshot(
 ) -> dict[str, Any]:
     """Read-only readiness snapshot; see the module docstring for the formula."""
     weakest_domains = weakest_domains or []
-    now = datetime.utcnow()
+    now = utcnow()
     recent = _domain_metrics(db, owner_user_id, owner_client_key, now - timedelta(days=RECENT_WINDOW_DAYS))
     trend_window = _domain_metrics(db, owner_user_id, owner_client_key, now - timedelta(days=TREND_WINDOW_DAYS))
 

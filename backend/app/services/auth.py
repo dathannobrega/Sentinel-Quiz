@@ -14,6 +14,7 @@ from email.message import EmailMessage
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.core.config import settings
 from app.models import AuthChallenge, AuthToken, ExamSession, User
 
@@ -225,7 +226,7 @@ def authenticate_user(db: Session, *, email: str, password: str) -> User | None:
 def issue_auth_token(db: Session, user: User) -> tuple[str, datetime]:
     raw_token = secrets.token_urlsafe(max(settings.auth_token_bytes, 24))
     token_hash = _token_hash(raw_token)
-    expires_at = datetime.utcnow() + timedelta(hours=max(settings.auth_token_ttl_hours, 1))
+    expires_at = utcnow() + timedelta(hours=max(settings.auth_token_ttl_hours, 1))
 
     auth_token = AuthToken(
         user_id=user.id,
@@ -283,7 +284,7 @@ def resolve_auth_token(db: Session, raw_token: str) -> tuple[User | None, dateti
     if not token:
         return None, None
     token_hash = _token_hash(token)
-    now = datetime.utcnow()
+    now = utcnow()
     row = db.execute(
         select(AuthToken, User)
         .join(User, User.id == AuthToken.user_id)
@@ -324,7 +325,7 @@ def revoke_token(db: Session, raw_token: str) -> bool:
     ).scalar_one_or_none()
     if not auth_token:
         return False
-    auth_token.revoked_at = datetime.utcnow()
+    auth_token.revoked_at = utcnow()
     db.commit()
     return True
 
@@ -336,7 +337,7 @@ def revoke_all_user_tokens(db: Session, *, user: User) -> int:
             AuthToken.revoked_at.is_(None),
         )
     ).scalars().all()
-    now = datetime.utcnow()
+    now = utcnow()
     for token in tokens:
         token.revoked_at = now
     db.commit()
@@ -461,7 +462,7 @@ def _issue_challenge(
             AuthChallenge.consumed_at.is_(None),
         )
     ).scalars().all()
-    now = datetime.utcnow()
+    now = utcnow()
     for existing in active_challenges:
         existing.consumed_at = now
 
@@ -494,7 +495,7 @@ def _verification_on_cooldown(db: Session, *, user: User) -> bool:
     ).scalar_one_or_none()
     if latest is None:
         return False
-    return (datetime.utcnow() - latest) < timedelta(seconds=cooldown)
+    return (utcnow() - latest) < timedelta(seconds=cooldown)
 
 
 def prepare_email_verification(db: Session, *, user: User, enforce_cooldown: bool = True) -> OutgoingEmail | None:
@@ -621,7 +622,7 @@ def _consume_challenge(
     token = str(raw_token or "").strip()
     if not token:
         raise ValueError("Token is required.")
-    now = datetime.utcnow()
+    now = utcnow()
     challenge = db.execute(
         select(AuthChallenge).where(
             AuthChallenge.token_hash == _token_hash(token),
@@ -646,7 +647,7 @@ def verify_email_address(db: Session, *, raw_token: str) -> User:
     if not user:
         raise ValueError("User not found.")
     user.email_verified = True
-    user.email_verified_at = datetime.utcnow()
+    user.email_verified_at = utcnow()
     db.commit()
     db.refresh(user)
     return user

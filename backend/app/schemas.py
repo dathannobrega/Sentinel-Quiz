@@ -1194,6 +1194,7 @@ class AdminIngestResultOut(PassthroughModel):
     skipped_editorial: int = 0
     reactivated: int = 0
     deactivated: int = 0
+    rejected_invalid_domain: int = 0
     domain_weights_updated: int = 0
     study_modules: int = 0
 

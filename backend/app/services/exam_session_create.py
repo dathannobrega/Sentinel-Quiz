@@ -4,12 +4,12 @@ from __future__ import annotations
 import math
 import random
 import uuid
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import (
     ExamSession,
     Question,
@@ -167,7 +167,7 @@ def _build_exam_question_pool(
         domains=normalized_domains,
         include_exam_answers=True,
     ))
-    now = datetime.utcnow()
+    now = utcnow()
     queue_rows = review_queue_candidates(
         db,
         owner_user_id=owner_user_id,

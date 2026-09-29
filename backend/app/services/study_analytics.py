@@ -8,6 +8,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import Exam, Question, ReviewQueueItem, ReviewSchedule, StudyAttempt, StudySession
 from app.services.metrics import load_weekly_progress_snapshots
 from app.services.owner_scope import require_owner_filters
@@ -36,7 +37,7 @@ def build_weekly_study_analytics(
     weeks: int = WEEKLY_ANALYTICS_DEFAULT_WEEKS,
 ) -> dict[str, Any]:
     total_weeks = max(2, min(int(weeks or WEEKLY_ANALYTICS_DEFAULT_WEEKS), 24))
-    now = datetime.utcnow()
+    now = utcnow()
     current_week_start = _week_start_utc(now)
     range_start = current_week_start - timedelta(days=7 * (total_weeks - 1))
 

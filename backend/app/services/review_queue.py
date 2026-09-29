@@ -9,6 +9,7 @@ from typing import Any, Optional
 from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.models import ReviewQueueItem, ReviewSchedule
 from app.services.auth import normalize_client_key
 from app.services.metrics import record_review_schedule_event, record_review_schedule_events
@@ -253,7 +254,7 @@ def build_review_queue_snapshot(
     )
     bookmark_ids = all_bookmark_ids if bookmarked_only else set()
     note_ids = all_note_ids if notes_only else set()
-    now = datetime.utcnow()
+    now = utcnow()
     state_breakdown = {
         "due_now": 0,
         "overdue": 0,
