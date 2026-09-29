@@ -1,5 +1,6 @@
 /** Exams, questions and the public question/domain catalog. */
 import type { OptionItem } from "./common";
+import type { PbqPayload, QuestionFormat } from "./pbq";
 
 export interface Exam {
   id: string;
@@ -18,7 +19,12 @@ export interface QuestionItem {
   difficulty: string | null;
   certification: string | null;
   tags: string[] | null;
+  /** Empty for PBQs. */
   options: OptionItem[];
+  /** Absent on older backends: treat as "mcq". */
+  format?: QuestionFormat | (string & {});
+  /** Present when format === "pbq". */
+  pbq?: PbqPayload | null;
 }
 
 export interface DomainCatalogEntry {
