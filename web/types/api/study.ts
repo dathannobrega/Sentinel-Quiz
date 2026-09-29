@@ -25,6 +25,13 @@ export interface StudyPlanTask {
   params?: Record<string, string | number | null>;
 }
 
+/**
+ * Per-owner progress of a study-track module (contract r4 §2):
+ * completed = mastery ≥ 80% with ≥ 10 attempts in the module's domain; in_progress = any
+ * attempt; locked = some prerequisite not completed; otherwise available.
+ */
+export type StudyModuleStatus = "locked" | "available" | "in_progress" | "completed";
+
 /** StudyModuleOut (GET /api/study/modules). */
 export interface StudyModule {
   id: number;
@@ -34,6 +41,12 @@ export interface StudyModule {
   title: string;
   description: string | null;
   domain: string | null;
+  /** r4 §2 fields: optional so the UI degrades gracefully against older backends. */
+  prerequisite_codes?: string[] | null;
+  status?: StudyModuleStatus | (string & {}) | null;
+  /** 0-100, null when the domain has no attempts yet. */
+  mastery_percent?: number | null;
+  attempted?: number | null;
 }
 
 export interface StudyModuleList {

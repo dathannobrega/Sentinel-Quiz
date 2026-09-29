@@ -57,8 +57,24 @@ export const dashboard = {
     placementPending: "Pending diagnosis",
     nextModule: "Next module: {code} · {title}",
     nextModuleHint: "Suggested to reinforce {domain}, following the track order.",
-    trackToggle: "See the {certification} track ({count} modules)",
     trackItem: "{position}. {title}"
+  },
+  trackCard: {
+    title: "{certification} track",
+    subtitle: "Modules in the recommended order, with status, mastery and prerequisites.",
+    listLabel: "{certification} track modules",
+    summary: "{completed} of {total} modules completed",
+    recommended: "Recommended now",
+    mastery: "Mastery {value}",
+    masteryUnknown: "No mastery data yet",
+    attempts: "{count} attempt(s)",
+    pendingPrerequisites: "Pending prerequisites: {items}",
+    status: {
+      locked: "Locked",
+      available: "Available",
+      in_progress: "In progress",
+      completed: "Completed"
+    }
   },
   weekCard: {
     title: "This week",
