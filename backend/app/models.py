@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Integer, Boolean, ForeignKey, UniqueConstraint, Text, Float, CheckConstraint, Index,
+    String, Integer, Boolean, ForeignKey, JSON, UniqueConstraint, Text, Float, CheckConstraint, Index,
     text, true, false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -1001,6 +1001,8 @@ class StudyModule(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Codes of the modules (same certification) to complete first; NULL/[] = none (0016).
+    prerequisite_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     source_file: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow_aware, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

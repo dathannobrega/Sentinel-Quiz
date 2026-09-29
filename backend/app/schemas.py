@@ -686,6 +686,11 @@ class StudyModuleOut(BaseModel):
     title: str
     description: Optional[str] = None
     domain: Optional[str] = None
+    prerequisite_codes: List[str] = Field(default_factory=list)
+    # locked | available | in_progress | completed (computed for the owner, M-A7).
+    status: str = "available"
+    mastery_percent: Optional[float] = None
+    attempted: int = 0
 
 
 class StudyModuleListOut(BaseModel):

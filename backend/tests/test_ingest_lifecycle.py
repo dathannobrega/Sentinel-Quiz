@@ -385,6 +385,19 @@ class ReferenceDataTests(IngestTestCase):
         ).scalars().all()
         self.assertEqual([m.domain for m in cissp_modules][:2], ["Security and Risk Management", "Asset Security"])
 
+        # M-A7: every Security+ module maps to one of the 5 SY0-701 domains and every
+        # prerequisite points to an earlier module of the same track (acyclic).
+        self.assertEqual({m.domain for m in modules}, set(secplus))
+        by_code = {m.code: m for m in modules}
+        self.assertEqual(by_code["M01"].prerequisite_codes, [])
+        self.assertEqual(by_code["M23"].prerequisite_codes, ["M22"])  # incident response after monitoring
+        self.assertIn("M07", by_code["M14"].prerequisite_codes)  # crypto before architecture
+        for module in modules:
+            for code in module.prerequisite_codes:
+                self.assertLess(by_code[code].position, module.position, (module.code, code))
+        self.assertEqual(cissp_modules[0].prerequisite_codes, [])
+        self.assertTrue(all(m.prerequisite_codes == ["D1"] for m in cissp_modules[1:]))
+
         # Idempotent: a second run neither duplicates weights nor modules.
         self.ingest()
         self.assertEqual(self.db.scalar(select(func.count(StudyModule.id))), 34)

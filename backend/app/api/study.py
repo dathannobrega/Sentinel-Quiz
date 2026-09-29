@@ -117,11 +117,22 @@ def study_plan(
 @router.get("/modules", response_model=StudyModuleListOut)
 def study_modules(
     certification: str | None = Query(default=None, max_length=64),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
     db: Session = Depends(get_db),
 ):
-    """Ordered study track (modules) of a certification; all tracks when omitted (M-A7)."""
+    """Ordered study track (modules) of a certification; all tracks when omitted (M-A7).
+
+    Each module carries prerequisites plus status/mastery for the caller (user or
+    X-Client-Key); without an owner nothing counts as attempted.
+    """
     normalized = certification.strip() if certification else None
-    return StudyModuleListOut(certification=normalized or None, modules=list_study_modules(db, normalized or None))
+    owner_user_id = current_user.id if current_user else None
+    owner_client_key = None if current_user else client_key
+    modules = list_study_modules(
+        db, normalized or None, owner_user_id=owner_user_id, owner_client_key=owner_client_key
+    )
+    return StudyModuleListOut(certification=normalized or None, modules=modules)
 
 
 @router.get("/sessions/active", response_model=list[ActiveSessionOut])

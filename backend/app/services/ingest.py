@@ -906,6 +906,37 @@ def load_study_modules(*search_dirs: str | None) -> dict[str, dict]:
     return loaded
 
 
+STUDY_TRACK_METADATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "study_track_metadata.json")
+
+
+def load_study_track_metadata(path: str | None = None) -> dict[str, dict[str, dict]]:
+    """{certification: {module code: {"domain"?, "prerequisites"}}} from app/data (ships with the code)."""
+    try:
+        with open(path or STUDY_TRACK_METADATA_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    return {cert: spec for cert, spec in payload.items() if not cert.startswith("_") and isinstance(spec, dict)}
+
+
+def _apply_track_metadata(modules: list[dict], metadata: dict[str, dict]) -> list[dict]:
+    """Fill module domains (when the source has none) and prerequisite codes.
+
+    Unknown prerequisite codes (not in this track) and self-references are dropped.
+    """
+    codes = {module["code"] for module in modules}
+    for module in modules:
+        spec = metadata.get(module["code"]) or {}
+        if not module.get("domain") and spec.get("domain"):
+            module["domain"] = spec["domain"]
+        prerequisites = [
+            str(code) for code in (spec.get("prerequisites") or [])
+            if str(code) in codes and str(code) != module["code"]
+        ]
+        module["prerequisite_codes"] = list(dict.fromkeys(prerequisites))
+    return modules
+
+
 def _configured_study_track_dir() -> str | None:
     try:
         from app.core.config import settings
@@ -931,9 +962,11 @@ def sync_study_modules(
     if not search_dirs:
         return 0
     total = 0
+    track_metadata = load_study_track_metadata()
     for certification, spec in load_study_modules(*search_dirs).items():
         source_file = spec["source_file"]
-        wanted = {module["code"]: module for module in spec["modules"]}
+        modules = _apply_track_metadata(spec["modules"], track_metadata.get(certification) or {})
+        wanted = {module["code"]: module for module in modules}
         existing = {
             row.code: row
             for row in db.execute(
@@ -953,6 +986,7 @@ def sync_study_modules(
             row.title = module["title"][:255]
             row.description = module.get("description")
             row.domain = module.get("domain")
+            row.prerequisite_codes = module.get("prerequisite_codes") or []
             row.source_file = source_file
             total += 1
     db.flush()
