@@ -1,0 +1,136 @@
+/** Study plan, study track modules, bookmarks/notes and the review queue. */
+
+export interface StudyPlanItem {
+  domain: string;
+  wrong: number;
+  total: number;
+  score_percent: number;
+  topics: string[];
+  resources: string[];
+  reason: string;
+  action: string;
+}
+
+export interface StudyPlanTask {
+  kind: string;
+  /** pt-BR fallback texts; prefer translating `code` + `params`. */
+  title: string;
+  description: string;
+  cta_label: string;
+  cta_href: string;
+  preset_key: string;
+  domain?: string | null;
+  certification?: string | null;
+  code?: string | null;
+  params?: Record<string, string | number | null>;
+}
+
+/** StudyModuleOut (GET /api/study/modules). */
+export interface StudyModule {
+  id: number;
+  certification: string;
+  code: string;
+  position: number;
+  title: string;
+  description: string | null;
+  domain: string | null;
+}
+
+export interface StudyModuleList {
+  certification: string | null;
+  modules: StudyModule[];
+}
+
+export interface StudyPlanRiskDomain {
+  certification: string | null;
+  domain: string;
+  score_percent: number | null;
+}
+
+export interface StudyPlanResponse {
+  placement_required: boolean;
+  primary_task?: StudyPlanTask | null;
+  secondary_tasks: StudyPlanTask[];
+  suggested_presets: string[];
+  risk_domains: string[];
+  risk_domain_details?: StudyPlanRiskDomain[];
+  review_backlog_due: number;
+  certification?: string | null;
+  recommended_module?: StudyModule | null;
+  generated_at: string;
+}
+
+export interface StudyOverviewItem {
+  question_id: string;
+  prompt: string;
+  updated_at?: string | null;
+  excerpt?: string | null;
+}
+
+export interface StudyOverview {
+  scope: string;
+  bookmark_count: number;
+  note_count: number;
+  due_review_count: number;
+  next_due_at?: string | null;
+  recent_bookmarks: StudyOverviewItem[];
+  recent_notes: StudyOverviewItem[];
+  due_reviews: StudyOverviewItem[];
+}
+
+export interface StudyState {
+  question_id: string;
+  bookmarked: boolean;
+  note_text?: string | null;
+  updated_at?: string | null;
+  scope: string;
+}
+
+export interface ReviewQueueEntry {
+  question_id: string;
+  prompt: string;
+  due_at?: string | null;
+  state: string;
+  is_overdue: boolean;
+  overdue_days: number;
+  domain?: string | null;
+  certification?: string | null;
+  repetition_count: number;
+  stability_score: number;
+  ease_factor: number;
+  bookmarked: boolean;
+  has_note: boolean;
+}
+
+export interface ReviewQueueStateBreakdown {
+  due_now: number;
+  overdue: number;
+  at_risk: number;
+  scheduled: number;
+  mastered: number;
+}
+
+export interface ReviewQueueForecastDay {
+  date: string;
+  label: string;
+  due_count: number;
+  at_risk_count: number;
+}
+
+export interface ReviewQueueGoals {
+  daily_review_target: number;
+  weekly_review_target: number;
+  new_question_budget: number;
+}
+
+export interface ReviewQueueSnapshot {
+  due_count: number;
+  total_count: number;
+  next_due_at?: string | null;
+  recommended_batch_size: number;
+  state_breakdown: ReviewQueueStateBreakdown;
+  upcoming_load: ReviewQueueForecastDay[];
+  goals: ReviewQueueGoals;
+  applied_filters: Record<string, unknown>;
+  items: ReviewQueueEntry[];
+}
