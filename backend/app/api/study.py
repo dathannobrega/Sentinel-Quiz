@@ -256,6 +256,7 @@ def start_study_session(
             payload.review_states,
             owner_user_id=owner_user_id,
             owner_client_key=owner_client_key,
+            pbq_count=payload.pbq_count,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -437,6 +438,7 @@ def submit_study_answer(
             payload.selected_keys,
             payload.confidence_level,
             payload.elapsed_seconds,
+            pbq_response=payload.pbq_response,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

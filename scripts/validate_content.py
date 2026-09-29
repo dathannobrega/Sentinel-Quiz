@@ -48,6 +48,18 @@ question_type vocabulary (normalized in schema v3):
       Sec+   "multiple_response" -> multiple_response when >1 correct, otherwise single_response
                                     (38 items had a single correct option)
 
+Performance-based questions (PBQ, ``question_format: "pbq"``, e.g.
+questions/pbq_securityplus.json) use the authoring format documented in
+backend/app/services/pbq_grading.py: keys id, question_format, language, domain,
+difficulty, certification, title, scenario, exhibits, tasks, explanation (+ optional
+objective_codes, points, scoring, references...). Every task must have a solution that
+is consistent with its items/buckets/rows/exhibit and a weight > 0 (checked by
+pbq_grading.validate_authoring_item, loaded from the backend without importing the app).
+
+Third-party imports (questions/imports/*.json, written by
+``python -m scripts.question_sources import``) must carry provenance on every question:
+source_repo, source_commit, source_license, source_path, source_id.
+
 Errors: invalid JSON/schema, missing keys, duplicate ids, answers not in options,
 multi_select/question_type incoherence, invalid language/difficulty, domain outside
 the official outline, exact duplicate questions, duplicate option texts (downgraded
@@ -61,6 +73,7 @@ the official blueprint weights.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -68,7 +81,36 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_FILES = [ROOT / "questions" / "cissp.json", ROOT / "questions" / "securityplus.json"]
+QUESTIONS_DIR = ROOT / "questions"
+IMPORTS_DIR = QUESTIONS_DIR / "imports"
+PBQ_MODULE_PATH = ROOT / "backend" / "app" / "services" / "pbq_grading.py"
+
+
+def default_files() -> list[Path]:
+    """Every bank the ingest loads: questions/*.json then questions/imports/*.json."""
+    files = sorted(QUESTIONS_DIR.glob("*.json"))
+    if IMPORTS_DIR.is_dir():
+        files += sorted(IMPORTS_DIR.glob("*.json"))
+    return files
+
+
+def _load_pbq_module():
+    spec = importlib.util.spec_from_file_location("sq_pbq_grading", PBQ_MODULE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules.setdefault("sq_pbq_grading", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+_PBQ = None
+
+
+def pbq_module():
+    global _PBQ
+    if _PBQ is None:
+        _PBQ = _load_pbq_module()
+    return _PBQ
 
 QUESTION_KEYS = [
     "id", "question", "language", "multi_select", "domain", "difficulty", "certification",
@@ -76,7 +118,16 @@ QUESTION_KEYS = [
     "source_materials", "question_set", "quality_score", "source_exam_id", "source_exam_title",
     "legacy_source_file", "options", "correct_options", "justification", "needs_review", "review_notes",
 ]
-OPTIONAL_QUESTION_KEYS = ["explanation_source"]
+PROVENANCE_KEYS = ["source_repo", "source_commit", "source_license", "source_path", "source_id"]
+OPTIONAL_QUESTION_KEYS = ["explanation_source", *PROVENANCE_KEYS]
+PBQ_REQUIRED_KEYS = [
+    "id", "question_format", "language", "domain", "difficulty", "certification",
+    "title", "scenario", "tasks", "explanation",
+]
+PBQ_OPTIONAL_KEYS = [
+    "exam_code", "objective_codes", "objective_code", "points", "time_estimate_seconds", "exhibits",
+    "scoring", "references", "citations", "tags", "provenance", "needs_review", "review_notes",
+]
 EXPLANATION_SOURCES = {"ai_draft", "editor", "official"}
 EXAM_KEYS = ["id", "title", "source", "question_count", "certification", "language", "schema_version", "notes"]
 
@@ -104,6 +155,19 @@ BLUEPRINTS = {
         "Security Architecture": 18.0,
         "Security Operations": 28.0,
         "Security Program Management and Oversight": 20.0,
+    },
+    # CEH v13 (EC-Council CEH Exam Blueprint v5.0: 9 domains, 20 modules, 125 questions).
+    # The printed percentages are rounded and sum to 101.
+    "CEH": {
+        "Information Security and Ethical Hacking Overview": 6.0,
+        "Reconnaissance Techniques": 17.0,
+        "System Hacking Phases and Attack Techniques": 15.0,
+        "Network and Perimeter Hacking": 24.0,
+        "Web Application Hacking": 14.0,
+        "Wireless Network Hacking": 5.0,
+        "Mobile Platform, IoT, and OT Hacking": 10.0,
+        "Cloud Computing": 5.0,
+        "Cryptography": 5.0,
     },
 }
 # Warn when a domain's share of the bank deviates from its weight by more than this (p.p.).
@@ -140,7 +204,37 @@ def _check_cissp_domains_file(report: Report) -> None:
         report.error(str(path.relative_to(ROOT)), "domain names differ from the CISSP blueprint used by the validator")
 
 
+def validate_pbq(report: Report, where: str, q: dict, certification: str | None) -> None:
+    missing = [key for key in PBQ_REQUIRED_KEYS if key not in q]
+    if missing:
+        report.error(where, f"missing PBQ keys {missing}")
+    extra = [key for key in q if key not in PBQ_REQUIRED_KEYS and key not in PBQ_OPTIONAL_KEYS and key not in PROVENANCE_KEYS]
+    if extra:
+        report.warn("unknown keys", where, str(extra))
+    if q.get("language") not in LANGUAGES:
+        report.error(where, f"language must be one of {sorted(LANGUAGES)} (got {q.get('language')!r})")
+    if q.get("difficulty") not in DIFFICULTIES:
+        report.error(where, f"difficulty must be one of {sorted(DIFFICULTIES)} (got {q.get('difficulty')!r})")
+    q_cert = q.get("certification")
+    if certification and q_cert != certification:
+        report.error(where, f"certification {q_cert!r} differs from exam certification {certification!r}")
+    blueprint = BLUEPRINTS.get(q_cert or certification or "")
+    if blueprint is None:
+        report.error(where, f"unknown certification {q_cert!r}")
+    elif q.get("domain") not in blueprint:
+        report.error(where, f"domain {q.get('domain')!r} is not an official {q_cert} domain")
+    if not str(q.get("explanation") or "").strip():
+        report.error(where, "PBQ explanation is required")
+    for error in pbq_module().validate_authoring_item(q, where="PBQ"):
+        report.error(where, error)
+    if q.get("needs_review"):
+        report.warn("needs_review", where, str(q.get("review_notes") or ""))
+
+
 def validate_question(report: Report, where: str, q: dict, certification: str | None) -> None:
+    if str(q.get("question_format") or "").strip().lower() == "pbq":
+        validate_pbq(report, where, q, certification)
+        return
     missing = [key for key in QUESTION_KEYS if key not in q]
     if missing:
         report.error(where, f"missing keys {missing}")
@@ -232,6 +326,9 @@ def validate_question(report: Report, where: str, q: dict, certification: str | 
 
 def validate_file(report: Report, path: Path, seen_ids: dict[str, str]) -> None:
     label = path.name
+    is_import = path.resolve().parent == IMPORTS_DIR.resolve()
+    if is_import:
+        label = f"imports/{path.name}"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -259,6 +356,7 @@ def validate_file(report: Report, path: Path, seen_ids: dict[str, str]) -> None:
     if exam.get("language") is not None and exam.get("language") not in LANGUAGES:
         report.error(f"{label}:exam", f"invalid language {exam.get('language')!r}")
 
+    pbq_count = 0
     fingerprints: dict[tuple, str] = {}
     prompts: dict[str, list[str]] = defaultdict(list)
     domain_counts: Counter[str] = Counter()
@@ -269,11 +367,18 @@ def validate_file(report: Report, path: Path, seen_ids: dict[str, str]) -> None:
         qid = str(q.get("id") or f"#{index}")
         where = f"{label}:{qid}"
         validate_question(report, where, q, certification)
+        if is_import:
+            missing_provenance = [key for key in PROVENANCE_KEYS if not str(q.get(key) or "").strip()]
+            if missing_provenance:
+                report.error(where, f"third-party import without provenance {missing_provenance}")
         if qid in seen_ids:
             report.error(where, f"duplicate id (also in {seen_ids[qid]})")
         seen_ids[qid] = label
         if exam.get("language") is not None and q.get("language") != exam.get("language"):
             report.error(where, f"language {q.get('language')!r} differs from exam language {exam.get('language')!r}")
+        if str(q.get("question_format") or "").strip().lower() == "pbq":
+            pbq_count += 1
+            continue
 
         options = [o for o in (q.get("options") or []) if isinstance(o, dict)]
         texts = {str(o.get("key")): _norm(o.get("text")) for o in options}
@@ -292,7 +397,8 @@ def validate_file(report: Report, path: Path, seen_ids: dict[str, str]) -> None:
 
     blueprint = BLUEPRINTS.get(certification or "")
     total = sum(domain_counts.values())
-    if blueprint and total:
+    # Supplements (PBQ-only files, third-party imports) are not meant to mirror the outline.
+    if blueprint and total and not is_import and not pbq_count:
         for domain, weight in blueprint.items():
             share = 100.0 * domain_counts.get(domain, 0) / total
             if abs(share - weight) > DISTRIBUTION_TOLERANCE_PP:
@@ -305,11 +411,11 @@ def validate_file(report: Report, path: Path, seen_ids: dict[str, str]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("files", nargs="*", type=Path, help="JSON files (default: questions/cissp.json questions/securityplus.json)")
+    parser.add_argument("files", nargs="*", type=Path, help="JSON files (default: questions/*.json and questions/imports/*.json)")
     parser.add_argument("--verbose", "-v", action="store_true", help="print every warning (default: 10 per category)")
     args = parser.parse_args(argv)
 
-    files = args.files or DEFAULT_FILES
+    files = args.files or default_files()
     report = Report()
     _check_cissp_domains_file(report)
     seen_ids: dict[str, str] = {}

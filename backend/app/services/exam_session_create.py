@@ -16,6 +16,7 @@ from app.models import (
     SessionQuestion,
 )
 from app.services.option_order import OptionMapping, build_option_orders, option_keys_by_question
+from app.services.pbq_runtime import MAX_PBQ_COUNT, build_pbq_orders, pbq_question_view
 from app.services.question_pool import (
     build_domain_quota_map,
     build_question_domain_map,
@@ -29,6 +30,7 @@ from app.services.question_pool import (
     resolve_quota_buckets,
     review_queue_candidates,
     select_candidates_with_domain_targets,
+    select_pbq_question_ids,
     validate_requested_question_ids,
     weak_domain_keys,
     weighted_domain_sample,
@@ -276,24 +278,55 @@ def create_session(
     experience_mode: str = "standard",
     owner_user_id: Optional[str] = None,
     owner_client_key: Optional[str] = None,
+    pbq_count: int = 0,
 ) -> ExamSession:
-    selected, resolved_strategy, selection_mix = _build_exam_question_pool(
-        db,
-        exam_id=exam_id,
-        total_questions=total_questions,
-        question_ids=question_ids,
-        domains=domains,
-        difficulties=difficulties,
-        tags=tags,
-        bookmarked_only=bookmarked_only,
-        notes_only=notes_only,
-        incorrect_only=incorrect_only,
-        unseen_only=unseen_only,
-        low_confidence_only=low_confidence_only,
-        strategy=strategy,
-        owner_user_id=owner_user_id,
-        owner_client_key=owner_client_key,
-    )
+    # PBQs come first, as in the real exam, and are part of ``total_questions``.
+    pbq_ids: list[str] = []
+    if pbq_count and not question_ids:
+        pbq_ids = select_pbq_question_ids(
+            db,
+            count=min(int(pbq_count), MAX_PBQ_COUNT, int(total_questions)),
+            exam_id=exam_id,
+            domains=domains,
+            difficulties=difficulties,
+            tags=tags,
+            owner_user_id=owner_user_id,
+            owner_client_key=owner_client_key,
+            bookmarked_only=bookmarked_only,
+            notes_only=notes_only,
+            incorrect_only=incorrect_only,
+            unseen_only=unseen_only,
+            low_confidence_only=low_confidence_only,
+        )
+    mcq_total = int(total_questions) - len(pbq_ids)
+    selected: list[str] = []
+    resolved_strategy = _normalize_strategy(strategy)
+    selection_mix: dict[str, int] = {}
+    if mcq_total > 0:
+        try:
+            selected, resolved_strategy, selection_mix = _build_exam_question_pool(
+                db,
+                exam_id=exam_id,
+                total_questions=mcq_total,
+                question_ids=question_ids,
+                domains=domains,
+                difficulties=difficulties,
+                tags=tags,
+                bookmarked_only=bookmarked_only,
+                notes_only=notes_only,
+                incorrect_only=incorrect_only,
+                unseen_only=unseen_only,
+                low_confidence_only=low_confidence_only,
+                strategy=strategy,
+                owner_user_id=owner_user_id,
+                owner_client_key=owner_client_key,
+            )
+        except ValueError:
+            if not pbq_ids:
+                raise
+    if pbq_ids:
+        selection_mix = {"pbq": len(pbq_ids), **selection_mix}
+    selected = pbq_ids + [qid for qid in selected if qid not in set(pbq_ids)]
     total_questions = len(selected)
     active_filters = _normalize_active_filters(
         domains=domains,
@@ -336,8 +369,17 @@ def create_session(
     db.flush()
 
     option_orders = build_option_orders(db, selected)
+    pbq_orders = build_pbq_orders(db, selected)
     for i, qid in enumerate(selected):
-        db.add(SessionQuestion(session_id=sid, question_id=qid, position=i, option_order_json=option_orders.get(qid)))
+        db.add(
+            SessionQuestion(
+                session_id=sid,
+                question_id=qid,
+                position=i,
+                option_order_json=option_orders.get(qid),
+                pbq_order_json=pbq_orders.get(qid),
+            )
+        )
 
     db.commit()
     db.refresh(session)
@@ -378,4 +420,5 @@ def get_question_for_session(db: Session, session: ExamSession, position: int) -
         "certification": q.certification,
         "tags": parse_tags(q.tags_json),
         "options": [{"key": item["key"], "text": item["text"]} for item in mapping.display_options(options)],
+        **pbq_question_view(q, row.pbq_order_json),
     }

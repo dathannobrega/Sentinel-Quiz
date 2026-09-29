@@ -229,6 +229,7 @@ def start_session(
             payload.experience_mode,
             owner_user_id=current_user.id if current_user else None,
             owner_client_key=None if current_user else client_key,
+            pbq_count=payload.pbq_count,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -339,6 +340,7 @@ def save_answer_without_advancing(
             session,
             question_id=question_id,
             selected_keys=payload.selected_keys,
+            pbq_response=payload.pbq_response,
             elapsed_seconds=payload.elapsed_seconds,
         )
     except ValueError as exc:

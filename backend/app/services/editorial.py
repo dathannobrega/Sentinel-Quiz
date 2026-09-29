@@ -27,6 +27,7 @@ from app.services.admin_serialization import parse_json
 from app.services.admin_serialization import parse_dict_list as _parse_dict_list
 from app.services.admin_serialization import parse_text_list as _parse_text_list
 from app.services.question_quality import (
+    PBQ_FORMAT,
     assess_question_quality,
     is_fallback_rationale,
     json_text_list,
@@ -73,6 +74,10 @@ def _payload_signature(payload: dict[str, Any]) -> str:
         "avg_time_seconds": normalized.get("avg_time_seconds"),
         "global_accuracy_percent": normalized.get("global_accuracy_percent"),
     }
+    if normalized.get("question_format") == PBQ_FORMAT:
+        # Only PBQs carry these keys, so the hash of every multiple-choice question is unchanged.
+        signature_payload["pbq_payload"] = normalized.get("pbq_payload")
+        signature_payload["pbq_answer"] = normalized.get("pbq_answer")
     return json.dumps(signature_payload, ensure_ascii=False, sort_keys=True)
 
 
@@ -137,6 +142,9 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "avg_time_seconds": payload.get("avg_time_seconds"),
         "global_accuracy_percent": payload.get("global_accuracy_percent"),
     }
+    if normalized["question_format"] == PBQ_FORMAT:
+        normalized["pbq_payload"] = payload.get("pbq_payload") if isinstance(payload.get("pbq_payload"), dict) else None
+        normalized["pbq_answer"] = payload.get("pbq_answer") if isinstance(payload.get("pbq_answer"), dict) else None
     return normalize_editorial_payload(normalized)
 
 
@@ -172,7 +180,27 @@ def _question_payload_from_projection(db: Session, question_id: str) -> dict[str
         ],
         "justification": explanation.justification if explanation else None,
         "change_summary": None,
+        **_pbq_fields_from_row(question),
     })
+
+
+def _pbq_fields_from_row(row: Question | QuestionVersion) -> dict[str, Any]:
+    """PBQ keys of an editorial payload (empty for multiple-choice rows)."""
+    if getattr(row, "question_format", None) != PBQ_FORMAT:
+        return {}
+    payload = parse_json(row.pbq_payload_json, None)
+    answer = parse_json(row.pbq_answer_json, None)
+    return {
+        "question_format": PBQ_FORMAT,
+        "pbq_payload": payload if isinstance(payload, dict) else None,
+        "pbq_answer": answer if isinstance(answer, dict) else None,
+    }
+
+
+def _pbq_json(payload: dict[str, Any], key: str) -> str | None:
+    if payload.get("question_format") != PBQ_FORMAT or not isinstance(payload.get(key), dict):
+        return None
+    return json.dumps(payload[key], ensure_ascii=False, sort_keys=True)
 
 
 def _question_payload_from_version(version: QuestionVersion) -> dict[str, Any]:
@@ -220,6 +248,7 @@ def _question_payload_from_version(version: QuestionVersion) -> dict[str, Any]:
         "avg_time_seconds": version.avg_time_seconds,
         "global_accuracy_percent": version.global_accuracy_percent,
         "change_summary": version.change_summary,
+        **_pbq_fields_from_row(version),
     })
 
 
@@ -292,6 +321,8 @@ def _replace_version_fields(
     version.avg_time_seconds = payload.get("avg_time_seconds")
     version.global_accuracy_percent = payload.get("global_accuracy_percent")
     version.change_summary = payload.get("change_summary")
+    version.pbq_payload_json = _pbq_json(payload, "pbq_payload")
+    version.pbq_answer_json = _pbq_json(payload, "pbq_answer")
     version.updated_by_user_id = actor_user_id
     if not preserve_status:
         version.status = "draft"
@@ -457,6 +488,8 @@ def _create_version(
         avg_time_seconds=payload.get("avg_time_seconds"),
         global_accuracy_percent=payload.get("global_accuracy_percent"),
         change_summary=payload.get("change_summary"),
+        pbq_payload_json=_pbq_json(payload, "pbq_payload"),
+        pbq_answer_json=_pbq_json(payload, "pbq_answer"),
         created_by_user_id=actor_user_id,
         updated_by_user_id=actor_user_id,
         approved_by_user_id=approved_by_user_id,
@@ -610,6 +643,11 @@ def _sync_projection_from_version(
         projection.tags_json = version.tags_json
         projection.citations_json = version.citations_json
 
+    is_pbq = version.question_format == PBQ_FORMAT
+    projection.question_format = PBQ_FORMAT if is_pbq else "mcq"
+    projection.pbq_payload_json = version.pbq_payload_json if is_pbq else None
+    projection.pbq_answer_json = version.pbq_answer_json if is_pbq else None
+
     sync_projection_options(
         db,
         projection,
@@ -760,6 +798,7 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
                 "quality": {
                     **_quality_summary(quality),
                 },
+                **_admin_pbq_fields(payload),
                 **state,
             }
 
@@ -802,8 +841,25 @@ def build_admin_question_document(db: Session, question_id: str) -> dict[str, An
         "quality": {
             **_quality_summary(quality),
         },
+        **_admin_pbq_fields(payload),
         **state,
     }
+
+
+def _admin_pbq_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """PBQs are shown read-only in the admin editor (content is edited in questions/pbq_*.json)."""
+    if payload.get("question_format") != PBQ_FORMAT:
+        return {"pbq": None, "pbq_answer": None, "read_only": False}
+    return {"pbq": payload.get("pbq_payload"), "pbq_answer": payload.get("pbq_answer"), "read_only": True}
+
+
+def _reject_pbq_edit(db: Session, question_id: str | None, payload: dict[str, Any] | None = None) -> None:
+    fmt = str((payload or {}).get("question_format") or "").strip().lower()
+    projection = db.get(Question, question_id) if question_id else None
+    if fmt == PBQ_FORMAT or (projection is not None and projection.question_format == PBQ_FORMAT):
+        raise ValueError(
+            "Performance-based questions are read-only in the editor; edit questions/pbq_*.json and re-run the ingest."
+        )
 
 
 def list_question_versions(db: Session, question_id: str) -> list[dict[str, Any]]:
@@ -877,6 +933,7 @@ def save_question_draft(
     actor_user_id: str | None,
     actor_role: str | None,
 ) -> dict[str, Any]:
+    _reject_pbq_edit(db, str(payload.get("id") or "").strip() or None, payload)
     quality = assess_question_quality(_clean_payload(payload), db=db)
     clean = quality["normalized"]
     if not clean["id"]:

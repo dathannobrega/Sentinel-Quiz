@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models import DomainBlueprint
 
-ALLOWED_QUESTION_FORMATS = {"single_choice", "multiple_response", "best_answer", "matching", "ordering"}
+ALLOWED_QUESTION_FORMATS = {"single_choice", "multiple_response", "best_answer", "matching", "ordering", "pbq"}
+PBQ_FORMAT = "pbq"
 ALLOWED_DIFFICULTIES = ("Easy", "Medium", "Hard")
 
 # Marker sentences appended to automatically generated rationales. They let the
@@ -186,13 +187,33 @@ def assess_question_quality(
         if len(prompt) < 24:
             warnings.append("Prompt is unusually short and may not provide enough context.")
 
-    if len(options) < 2:
+    if question_format == PBQ_FORMAT:
+        # Performance-based question: tasks + answer key replace options (see pbq_grading).
+        pbq_payload = normalized.get("pbq_payload") if isinstance(normalized.get("pbq_payload"), dict) else {}
+        pbq_answer = normalized.get("pbq_answer") if isinstance(normalized.get("pbq_answer"), dict) else {}
+        task_ids = [str(task.get("id")) for task in pbq_payload.get("tasks") or [] if isinstance(task, dict)]
+        if not task_ids:
+            blocking_issues.append("Performance-based questions need at least one task.")
+            field_status["pbq_tasks"] = "missing"
+        else:
+            field_status["pbq_tasks"] = "ok"
+        answered = set((pbq_answer.get("tasks") or {}).keys())
+        if not task_ids or set(task_ids) - answered:
+            blocking_issues.append("Every performance-based task needs a solution in the answer key.")
+            field_status["pbq_answer"] = "missing"
+        else:
+            field_status["pbq_answer"] = "ok"
+        if options:
+            blocking_issues.append("Performance-based questions must not have options.")
+    elif len(options) < 2:
         blocking_issues.append("At least two options are required.")
         field_status["options"] = "missing"
     else:
         field_status["options"] = "ok"
 
-    if not correct_options:
+    if question_format == PBQ_FORMAT:
+        pass
+    elif not correct_options:
         blocking_issues.append("At least one correct option is required.")
         field_status["correct_options"] = "missing"
     else:

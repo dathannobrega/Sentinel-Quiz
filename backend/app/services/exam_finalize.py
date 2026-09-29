@@ -31,7 +31,7 @@ from app.services.review_queue import schedule_exam_answers_for_review
 from app.services.serialization import parse_session_payload as _parse_session_payload
 from app.services.serialization import serialize_session_payload as _serialize_session_payload
 from app.services.exam_timing import _build_exam_timing_metadata, _effective_session_config, _parse_iso_datetime
-from app.services.exam_results import _analyze_session, _get_session_rows, _pass_threshold_from_rows
+from app.services.exam_results import _analyze_session, _earned_points, _get_session_rows, _pass_threshold_from_rows
 
 
 def sync_exam_session_state(
@@ -261,6 +261,7 @@ def finalize_exam_session(db: Session, session: ExamSession) -> bool:
         completed_at=session.completed_at,
         created_at=session.created_at,
         weakest_domains=((result.get("insight") or {}).get("weakest_domains") or []),
+        score_points=_earned_points(rows_for_result),
     )
     refresh_engagement_state(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key)
 

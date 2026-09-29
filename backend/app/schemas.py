@@ -18,6 +18,31 @@ IdentifierStr = Annotated[str, Field(max_length=128)]
 OptionKeyStr = Annotated[str, Field(max_length=16)]
 ShortText = Annotated[str, Field(max_length=500)]
 
+MAX_PBQ_TASKS = 20
+
+
+class PBQFieldsMixin(BaseModel):
+    """PBQ keys shared by question/feedback/review payloads (``format == "pbq"``).
+
+    ``pbq``: public payload {title, scenario, exhibits, tasks} with the session shuffle;
+    ``pbq_response``: learner response {task_id: response}; ``score`` 0..1 (partial
+    credit); ``task_results``: [{task_id, type, weight, score, is_correct}];
+    ``pbq_solution`` {task_id: solution in response shape} and ``pbq_explanations``
+    {task_id: text} are only sent when correctness may be revealed.
+    """
+
+    format: str = "mcq"
+    pbq: Optional[Dict[str, Any]] = None
+    pbq_response: Optional[Dict[str, Any]] = None
+    score: Optional[float] = None
+    points_earned: Optional[float] = None
+    points_possible: Optional[float] = None
+    task_results: Optional[List[Dict[str, Any]]] = None
+    pbq_solution: Optional[Dict[str, Any]] = None
+    pbq_explanations: Optional[Dict[str, str]] = None
+    pbq_item_explanations: Optional[Dict[str, Dict[str, str]]] = None
+
+
 class ExamOut(BaseModel):
     id: str
     title: str
@@ -53,6 +78,7 @@ class CreateSessionIn(BaseModel):
     strategy: str = Field(default="standard", max_length=32, description="standard or adaptive.")
     time_limit_minutes: Optional[int] = Field(default=None, ge=1, le=360)
     experience_mode: str = Field(default="standard", max_length=32, description="standard or exam_day.")
+    pbq_count: int = Field(default=0, ge=0, le=5, description="Performance-based questions placed first (part of total_questions).")
 
 class SessionOut(BaseModel):
     id: str
@@ -102,7 +128,9 @@ class SessionStateOut(BaseModel):
 
 class AnswerIn(BaseModel):
     question_id: str = Field(max_length=128)
-    selected_keys: List[OptionKeyStr] = Field(max_length=MAX_SELECTED_KEYS)
+    selected_keys: List[OptionKeyStr] = Field(default_factory=list, max_length=MAX_SELECTED_KEYS)
+    # PBQ answers: {task_id: response} (selected_keys stays empty).
+    pbq_response: Optional[Dict[str, Any]] = Field(default=None, max_length=MAX_PBQ_TASKS)
     elapsed_seconds: Optional[int] = Field(default=None, ge=0, le=86400)
 
 
@@ -235,7 +263,7 @@ class ResultInsightOut(BaseModel):
     live: Optional[LiveInsightOut] = None
 
 
-class ExamRuntimeQuestionOut(BaseModel):
+class ExamRuntimeQuestionOut(PBQFieldsMixin):
     id: str
     exam_id: str
     prompt: str
@@ -265,6 +293,7 @@ class ExamQuestionStateOut(BaseModel):
 class ReviewScreenQuestionStatusOut(BaseModel):
     position: int
     question_id: str
+    format: str = "mcq"
     answered: bool
     selected_keys: List[str] = Field(default_factory=list)
     marked_for_review: bool = False
@@ -311,7 +340,7 @@ class QuestionIssueOut(BaseModel):
     prompt_excerpt: Optional[str] = None
 
 
-class AnswerFeedbackOut(BaseModel):
+class AnswerFeedbackOut(PBQFieldsMixin):
     # In exam_day mode (until the session is completed) every correctness signal is
     # withheld: is_correct, justification, feedback_summary, correct_count, wrong_count,
     # insight and correct_keys are null and official_references is empty.
@@ -395,7 +424,7 @@ class QuestionSearchOut(BaseModel):
     offset: int = 0
     applied_filters: Dict[str, Any] = Field(default_factory=dict)
 
-class ReviewQuestionOut(BaseModel):
+class ReviewQuestionOut(PBQFieldsMixin):
     id: str
     prompt: str
     multi_select: bool
@@ -470,6 +499,7 @@ class StudySessionCreateIn(BaseModel):
     strategy: str = Field(default="standard", max_length=32, description="standard, review, or adaptive.")
     queue_only: bool = Field(default=False, description="If true, use only due review items as the pool.")
     review_states: Optional[List[FilterValue]] = Field(default=None, max_length=MAX_FILTER_ITEMS, description="Optional review queue states for review sessions.")
+    pbq_count: int = Field(default=0, ge=0, le=5, description="Performance-based questions placed first (part of total_questions).")
 
 
 class StudySessionOut(BaseModel):
@@ -500,12 +530,14 @@ class StudySessionStateOut(BaseModel):
 
 class StudyAnswerIn(BaseModel):
     question_id: str = Field(max_length=128)
-    selected_keys: List[OptionKeyStr] = Field(max_length=MAX_SELECTED_KEYS)
+    selected_keys: List[OptionKeyStr] = Field(default_factory=list, max_length=MAX_SELECTED_KEYS)
+    # PBQ answers: {task_id: response} (selected_keys stays empty).
+    pbq_response: Optional[Dict[str, Any]] = Field(default=None, max_length=MAX_PBQ_TASKS)
     confidence_level: str = Field(default="not_sure", max_length=32)
     elapsed_seconds: Optional[int] = Field(default=None, ge=0, le=86400)
 
 
-class StudyAnswerFeedbackOut(BaseModel):
+class StudyAnswerFeedbackOut(PBQFieldsMixin):
     is_correct: bool
     justification: Optional[str] = None
     feedback_summary: Optional[str] = None
@@ -717,7 +749,7 @@ class StudyPlanOut(BaseModel):
     generated_at: str
 
 
-class StudyReviewQuestionOut(BaseModel):
+class StudyReviewQuestionOut(PBQFieldsMixin):
     id: str
     question_number: int
     prompt: str
@@ -829,6 +861,9 @@ class StudyQuestionPayloadOut(PassthroughModel):
     certification: Optional[str] = None
     tags: Optional[List[str]] = None
     options: List[OptionOut]
+    # "mcq" | "pbq"; PBQs carry ``pbq`` (public payload, options == []).
+    format: str = "mcq"
+    pbq: Optional[Dict[str, Any]] = None
 
 
 class StudyNextQuestionOut(PassthroughModel):
@@ -991,6 +1026,11 @@ class AdminQuestionOut(BaseModel):
     deactivated_at: Optional[str] = None
     needs_review: bool = False
     explanation_missing: bool = False
+    # PBQs (question_format == "pbq") are read-only in the editor: public payload and
+    # answer key are shown as-is and edited in questions/pbq_*.json.
+    pbq: Optional[Dict[str, Any]] = None
+    pbq_answer: Optional[Dict[str, Any]] = None
+    read_only: bool = False
 
 
 class AdminQuestionSummaryOut(BaseModel):

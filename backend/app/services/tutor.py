@@ -92,6 +92,13 @@ def build_tutor_context(
     question = db.get(Question, question_id)
     if not question:
         raise TutorRequestError(404, "Question not found.")
+    if question.question_format == "pbq":
+        # The tutor prompt is built around options/answer keys; PBQs are not supported.
+        raise TutorRequestError(
+            409,
+            "The AI tutor is not available for performance-based questions.",
+            code="tutor_unsupported_question_format",
+        )
 
     normalized_mode = (mode or "help").strip().lower()
     if normalized_mode not in ALLOWED_TUTOR_MODES:
