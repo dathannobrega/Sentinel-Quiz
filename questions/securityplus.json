@@ -3,7 +3,7 @@
     "id": "securityplus",
     "title": "CompTIA Security+ - Banco de Questoes",
     "source": "securityplus_sim.json",
-    "question_count": 723,
+    "question_count": 714,
     "certification": "Security+",
     "language": null,
     "schema_version": 3,
@@ -795,88 +795,6 @@
         "A"
       ],
       "justification": "O uso de identificação com foto e vestíbulo de controle de acesso\nsão controles de segurança física porque:\n- Implementam barreiras físicas tangíveis\n- Controlam acesso físico às instalações\n- Verificam identidade de visitantes\n- Previnem acesso não autorizado através de medidas físicas\nDiferente de controles gerenciais, técnicos ou operacionais, estes são especificamente projetados para proteger o ambiente físico.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
-      "id": "sim1_q011",
-      "question": "Um gerente recebe um e-mail que contém um link para receber um reembolso. Após passar o mouse sobre o link, o gerente percebe que o URL do domínio aponta para um link suspeito. Qual das seguintes práticas de segurança ajudou o gerente a identificar o ataque?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "Security Program Management and Oversight",
-      "difficulty": "Hard",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 01",
-        "URL",
-        "Security Program Management and Oversight"
-      ],
-      "cross_domain_tags": [
-        "General Security Concepts",
-        "Threats, Vulnerabilities and Mitigations"
-      ],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "Security Program Management and Oversight"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 16: Security Governance and Compliance -> Understanding Policy Documents",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c16.xhtml#head-2-259",
-          "page_start": 521,
-          "page_end": 531,
-          "confidence": 0.84,
-          "chapter": "Chapter 16: Security Governance and Compliance",
-          "section": "Understanding Policy Documents",
-          "match_terms": [
-            "e-",
-            "crucial",
-            "final",
-            "link",
-            "links",
-            "management"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "01",
-      "source_exam_title": "CompTIA - Security+ - Simulado 1",
-      "legacy_source_file": "securityplus_sim1.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "Treinamento de usuário final (End user training)."
-        },
-        {
-          "key": "B",
-          "text": "Revisão de políticas (Policy review)."
-        },
-        {
-          "key": "C",
-          "text": "Verificação de URL (URL Scanning)."
-        },
-        {
-          "key": "D",
-          "text": "E-mail em texto simples (Plain text email)."
-        }
-      ],
-      "correct_options": [
-        "A"
-      ],
-      "justification": "O treinamento de usuário final\nfoi crucial neste cenário porque:\n- Desenvolveu o hábito de verificar URLs antes de clicar\n- Ensinou a identificar sinais de phishing\n- Capacitou o usuário a detectar tentativas de fraude\n- Demonstrou a importância de verificar links suspeitos\nA prática de passar o mouse sobre links para verificar o URL verdadeiro é uma habilidade fundamental ensinada em treinamentos de conscientização em segurança, permitindo que o gerente identificasse a tentativa de fraude antes de clicar no link malicioso.",
       "needs_review": false,
       "review_notes": null
     },
@@ -3432,7 +3350,7 @@
         },
         {
           "key": "C",
-          "text": "Fim de testes (End of testing)."
+          "text": "Fim do suporte (End of support)."
         },
         {
           "key": "D",
@@ -3442,9 +3360,9 @@
       "correct_options": [
         "D"
       ],
-      "justification": "O termo correto é Fim da Vida Útil (End of Life)\nporque:\n- Indica que o dispositivo não receberá mais atualizações\n- Significa que o suporte técnico será descontinuado\n- Representa o fim do ciclo de vida do produto\n- Sinaliza necessidade de substituição ou migração\nOutros termos como fim de negócios ou fim de testes não descrevem adequadamente a descontinuação do suporte e atualizações.",
+      "justification": "O termo correto é Fim da Vida Útil (End of Life)\nporque:\n- Indica que o dispositivo não receberá mais atualizações\n- Significa que o suporte técnico será descontinuado\n- Representa o fim do ciclo de vida do produto\n- Sinaliza necessidade de substituição ou migração\nOutros termos como fim de negócios ou fim de testes não descrevem adequadamente a descontinuação do suporte e atualizações. Fim do suporte (End of support) é um distrator próximo: indica que o fabricante deixou de oferecer suporte e correções, mas o cenário descreve um dispositivo legado sendo desativado ao término do seu ciclo de vida, o que caracteriza o fim da vida útil (EOL).",
       "needs_review": true,
-      "review_notes": "Options B and C are identical ('Fim de testes (End of testing).'). The written explanation does not identify the intended distinct option; likely 'Fim do suporte (End of support).' per the CompTIA sample item. Needs editor review."
+      "review_notes": "Options B and C were identical ('Fim de testes (End of testing).'). Option C restored as 'Fim do suporte (End of support).' per the CompTIA SY0-701 sample item (End of business / End of testing / End of support / End of life); key D (End of life) unchanged and the explanation now addresses the End-of-support distractor. Needs editor confirmation."
     },
     {
       "id": "sim1_q044",
@@ -4799,87 +4717,6 @@
       "review_notes": null
     },
     {
-      "id": "sim1_q061",
-      "question": "Um gerente de TI está elaborando um plano documentado descrevendo como a organização continuará operando em caso de um incidente global. Qual dos seguintes planos o gerente de TI está criando?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "Security Operations",
-      "difficulty": "Medium",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 01",
-        "TI",
-        "Security Operations"
-      ],
-      "cross_domain_tags": [
-        "General Security Concepts"
-      ],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "Security Operations"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 9: Resilience and Physical Security -> Response and Recovery Controls",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c09.xhtml#head-2-139",
-          "page_start": 280,
-          "page_end": 285,
-          "confidence": 0.89,
-          "chapter": "Chapter 9: Resilience and Physical Security",
-          "section": "Response and Recovery Controls",
-          "match_terms": [
-            "ti",
-            "business continuity",
-            "business",
-            "change",
-            "continue",
-            "continuity"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "01",
-      "source_exam_title": "CompTIA - Security+ - Simulado 1",
-      "legacy_source_file": "securityplus_sim1.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "Continuidade de negócios (Business continuity)."
-        },
-        {
-          "key": "B",
-          "text": "Segurança física (Physical security)."
-        },
-        {
-          "key": "C",
-          "text": "Gerenciamento de mudanças (Change management)."
-        },
-        {
-          "key": "D",
-          "text": "Recuperação de desastres (Disaster recovery)."
-        }
-      ],
-      "correct_options": [
-        "A"
-      ],
-      "justification": "Continuidade de negócios (Business Continuity)\né a melhor opção porque:\n- Garante que a organização continue operando durante e após um incidente global\n- Inclui estratégias para minimizar o impacto em processos críticos\n- Define responsabilidades e planos de resposta a emergências\n- Complementa o plano de recuperação de desastres, que foca apenas na restauração de infraestrutura\nOutras opções como recuperação de desastres e gerenciamento de mudanças não abrangem toda a continuidade operacional da empresa.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
       "id": "sim1_q062",
       "question": "Arquivos de clientes só podem ser acessados por funcionários que precisam saber as informações e têm funções específicas na empresa. Qual das seguintes opções descreve melhor esse conceito de segurança?",
       "language": "pt-BR",
@@ -5271,85 +5108,6 @@
       "review_notes": null
     },
     {
-      "id": "sim1_q067",
-      "question": "O Diretor de Segurança da Informação (CISO) de uma grande empresa gostaria de entender como as políticas de segurança da empresa se comparam aos requisitos impostos por reguladores externos. Qual das seguintes opções o CISO deve usar?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "Security Program Management and Oversight",
-      "difficulty": "Medium",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 01",
-        "CISO",
-        "Security Program Management and Oversight"
-      ],
-      "cross_domain_tags": [],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "Security Program Management and Oversight"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 5: Security Assessment and Testing -> Audits and Assessments -> Security Audits -> Internal Audits",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c05.xhtml#head-4-41",
-          "page_start": 129,
-          "page_end": 129,
-          "confidence": 0.81,
-          "chapter": "Chapter 5: Security Assessment and Testing",
-          "section": "Audits and Assessments -> Security Audits -> Internal Audits",
-          "match_terms": [
-            "internal audit",
-            "audit",
-            "external",
-            "formal",
-            "gaps",
-            "internal"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "01",
-      "source_exam_title": "CompTIA - Security+ - Simulado 1",
-      "legacy_source_file": "securityplus_sim1.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "Teste de penetração (Penetration test)."
-        },
-        {
-          "key": "B",
-          "text": "Auditoria interna (Internal audit)."
-        },
-        {
-          "key": "C",
-          "text": "Atestação (Attestation)."
-        },
-        {
-          "key": "D",
-          "text": "Exame externo (External examination)."
-        }
-      ],
-      "correct_options": [
-        "B"
-      ],
-      "justification": "Auditoria interna (Internal Audit)\né a melhor opção porque:\n- Permite avaliar se as políticas de segurança estão em conformidade com regulamentos externos\n- Identifica gaps e recomenda melhorias na segurança\n- Auxilia no alinhamento das práticas da empresa aos requisitos regulatórios\n- Oferece uma visão independente dos controles internos e processos\nOutras opções como teste de penetração e exame externo focam mais em avaliação técnica ou regulatória formal.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
       "id": "sim1_q068",
       "question": "Um administrador de uma pequena empresa percebe um aumento nas chamadas de suporte de funcionários que recebem uma mensagem de página bloqueada após tentarem navegar para um site falsificado. O que o administrador deve fazer?",
       "language": "pt-BR",
@@ -5583,86 +5341,6 @@
         "C"
       ],
       "justification": "Senha, token de autenticação, impressão digital\nimplementa autenticação multifator corretamente porque:\n- Usa três fatores distintos: algo que você sabe (senha), algo que você tem (token) e algo que você é (biometria)\n- Aumenta significativamente a segurança do acesso remoto\n- Reduz o risco de comprometimento por ataques de senha\n- Atende aos padrões modernos de segurança para VPNs e autenticação remota\nOutras opções incluem elementos que não se enquadram corretamente nos três fatores da autenticação multifator.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
-      "id": "sim1_q071",
-      "question": "Qual das seguintes vulnerabilidades é explorada quando um atacante sobrescreve um registrador com um endereço malicioso?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "Security Program Management and Oversight",
-      "difficulty": "Easy",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 01",
-        "VM",
-        "SQL",
-        "Security Program Management and Oversight"
-      ],
-      "cross_domain_tags": [
-        "Threats, Vulnerabilities and Mitigations"
-      ],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "Security Program Management and Oversight"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 5: Security Assessment and Testing -> Vulnerability Management",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c05.xhtml#head-2-46",
-          "page_start": 87,
-          "page_end": 112,
-          "confidence": 0.76,
-          "chapter": "Chapter 5: Security Assessment and Testing",
-          "section": "Vulnerability Management",
-          "match_terms": [
-            "sql",
-            "injection",
-            "management",
-            "program"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "01",
-      "source_exam_title": "CompTIA - Security+ - Simulado 1",
-      "legacy_source_file": "securityplus_sim1.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "VM escape"
-        },
-        {
-          "key": "B",
-          "text": "SQL injection"
-        },
-        {
-          "key": "C",
-          "text": "Buffer overflow"
-        },
-        {
-          "key": "D",
-          "text": "Race condition"
-        }
-      ],
-      "correct_options": [
-        "C"
-      ],
-      "justification": "Buffer overflow\né a vulnerabilidade explorada porque:\n- Permite sobrescrever registradores com endereços maliciosos.\n- Manipula a memória além dos limites alocados.\n- Pode redirecionar o fluxo de execução do programa.\n- É uma vulnerabilidade clássica usada em explorações de memória.\nOutras vulnerabilidades como SQL injection ou race condition não envolvem diretamente sobrescrita de registradores.",
       "needs_review": false,
       "review_notes": null
     },
@@ -7078,93 +6756,6 @@
         "D"
       ],
       "justification": "O balanceador de carga atende ao requisito de\ndisponibilidade\nporque:\n- Distribui carga entre múltiplos servidores\n- Previne sobrecarga de recursos\n- Mantém serviços acessíveis\n- Aumenta resiliência do ambiente\nNão está primariamente relacionado a confidencialidade, integridade ou privacidade.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
-      "id": "sim1_q090",
-      "question": "Qual das seguintes opções seria mais útil para determinar se o custo de longo prazo para transferir um risco é menor do que o impacto do risco?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "General Security Concepts",
-      "difficulty": "Medium",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 01",
-        "ARO",
-        "RTO",
-        "RPO",
-        "ALE",
-        "SLE",
-        "General Security Concepts"
-      ],
-      "cross_domain_tags": [
-        "Security Operations"
-      ],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "General Security Concepts"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 17: Risk Management and Privacy -> Review Questions",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c17.xhtml#head-2-296",
-          "page_start": 587,
-          "page_end": 590,
-          "confidence": 0.89,
-          "chapter": "Chapter 17: Risk Management and Privacy",
-          "section": "Review Questions",
-          "match_terms": [
-            "aro",
-            "rto",
-            "rpo",
-            "ale"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "01",
-      "source_exam_title": "CompTIA - Security+ - Simulado 1",
-      "legacy_source_file": "securityplus_sim1.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "ARO (Annualized Rate of Occurrence)"
-        },
-        {
-          "key": "B",
-          "text": "RTO (Recovery Time Objective"
-        },
-        {
-          "key": "C",
-          "text": "RPO (Recovery Point Objective)"
-        },
-        {
-          "key": "D",
-          "text": "ALE (Annualized Loss Expectancy)"
-        },
-        {
-          "key": "E",
-          "text": "SLE (Single Loss Expectancy)"
-        }
-      ],
-      "correct_options": [
-        "D"
-      ],
-      "justification": "O\nALE (Annualized Loss Expectancy)\né mais útil porque:\n- Calcula perda anual esperada\n- Permite comparação com custo de transferência\n- Considera frequência e impacto\n- Fornece base quantitativa para decisão\nOutras métricas como RTO/RPO ou SLE não fornecem visão completa do impacto financeiro anualizado.",
       "needs_review": false,
       "review_notes": null
     },
@@ -11525,7 +11116,7 @@
       "options": [
         {
           "key": "A",
-          "text": "Disuasivo (Deterrent)."
+          "text": "Dissuasivo (Deterrent)."
         },
         {
           "key": "B",
@@ -23101,84 +22692,6 @@
       "review_notes": null
     },
     {
-      "id": "sim4_q024",
-      "question": "Um engenheiro de segurança está instalando um IPS para bloquear ataques baseados em assinaturas no ambiente. Qual dos seguintes modos melhor realizará essa tarefa?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "Security Program Management and Oversight",
-      "difficulty": "Medium",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 04",
-        "IPS",
-        "Security Program Management and Oversight"
-      ],
-      "cross_domain_tags": [],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "Security Program Management and Oversight"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 5: Security Assessment and Testing -> Vulnerability Management",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c05.xhtml#head-2-46",
-          "page_start": 87,
-          "page_end": 112,
-          "confidence": 0.79,
-          "chapter": "Chapter 5: Security Assessment and Testing",
-          "section": "Vulnerability Management",
-          "match_terms": [
-            "ips",
-            "active",
-            "management",
-            "program",
-            "real"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "04",
-      "source_exam_title": "CompTIA - Security+ - Simulado 4",
-      "legacy_source_file": "securityplus_sim4.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "Monitorar (Monitor)"
-        },
-        {
-          "key": "B",
-          "text": "Sensor (Sensor)"
-        },
-        {
-          "key": "C",
-          "text": "Auditoria (Audit)"
-        },
-        {
-          "key": "D",
-          "text": "Ativo (Active)"
-        }
-      ],
-      "correct_options": [
-        "D"
-      ],
-      "justification": "A resposta correta é D (Ativo) porque, no modo ativo, o IPS detecta e bloqueia ataques baseados em assinaturas em tempo real, garantindo que o ambiente seja protegido de forma automática e eficaz. As outras opções não envolvem ações preventivas necessárias para bloquear ataques.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
       "id": "sim4_q025",
       "question": "Um gerente de TI está aumentando as capacidades de segurança de uma organização depois que uma iniciativa de classificação de dados determinou que dados sensíveis poderiam ser exfiltrados do ambiente. Qual das seguintes soluções mitigaria esse risco?",
       "language": "pt-BR",
@@ -23413,82 +22926,6 @@
       "review_notes": null
     },
     {
-      "id": "sim4_q028",
-      "question": "Qual das seguintes opções descreve a categoria de dados que é mais impactada quando é perdida?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "General Security Concepts",
-      "difficulty": "Easy",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 04",
-        "General Security Concepts"
-      ],
-      "cross_domain_tags": [],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "General Security Concepts"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 7: Cryptography and the PKI -> Cryptographic Concepts",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c07.xhtml#head-2-98",
-          "page_start": 200,
-          "page_end": 202,
-          "confidence": 0.76,
-          "chapter": "Chapter 7: Cryptography and the PKI",
-          "section": "Cryptographic Concepts",
-          "match_terms": [
-            "critical",
-            "concepts",
-            "private",
-            "public"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "04",
-      "source_exam_title": "CompTIA - Security+ - Simulado 4",
-      "legacy_source_file": "securityplus_sim4.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "Confidencial (Confidential)"
-        },
-        {
-          "key": "B",
-          "text": "Pública (Public)"
-        },
-        {
-          "key": "C",
-          "text": "Privada (Private)"
-        },
-        {
-          "key": "D",
-          "text": "Crítica (Critical)"
-        }
-      ],
-      "correct_options": [
-        "D"
-      ],
-      "justification": "A resposta correta é D (Crítica) porque dados críticos têm o maior impacto quando perdidos, dado seu papel central na continuidade operacional e na execução das funções mais importantes de uma organização. As outras categorias, embora importantes, não apresentam o mesmo nível de impacto imediato e operacional.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
       "id": "sim4_q029",
       "question": "Um novo funcionário faz login no sistema de e-mail pela primeira vez e percebe uma mensagem do departamento de recursos humanos sobre o processo de integração. O funcionário passa o mouse sobre alguns dos links no e-mail e descobre que os links não correspondem aos associados à empresa. Qual dos seguintes vetores de ataque é mais provável estar sendo usado?",
       "language": "pt-BR",
@@ -23719,79 +23156,6 @@
         "D"
       ],
       "justification": "A resposta correta é D (Hot) porque um hot site é o único tipo de site que permite à empresa continuar as operações imediatamente após um desastre. As outras opções (Cold, Warm, Tertiary) não oferecem a prontidão necessária para este cenário crítico.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
-      "id": "sim4_q032",
-      "question": "Qual dos seguintes controles de segurança é mais provável de ser usado quando um servidor legado crítico é segmentado em uma rede privada?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "General Security Concepts",
-      "difficulty": "Easy",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 04",
-        "General Security Concepts"
-      ],
-      "cross_domain_tags": [],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "General Security Concepts"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 7: Cryptography and the PKI -> Cryptographic Concepts",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c07.xhtml#head-2-98",
-          "page_start": 200,
-          "page_end": 202,
-          "confidence": 0.58,
-          "chapter": "Chapter 7: Cryptography and the PKI",
-          "section": "Cryptographic Concepts",
-          "match_terms": [
-            "concepts"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "04",
-      "source_exam_title": "CompTIA - Security+ - Simulado 4",
-      "legacy_source_file": "securityplus_sim4.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "Disuasório"
-        },
-        {
-          "key": "B",
-          "text": "Corretivo"
-        },
-        {
-          "key": "C",
-          "text": "Compensatório"
-        },
-        {
-          "key": "D",
-          "text": "Preventivo"
-        }
-      ],
-      "correct_options": [
-        "C"
-      ],
-      "justification": "No contexto da CompTIA Security+, um controle compensatório é uma solução alternativa implementada quando um sistema ou configuração padrão não pode ser modificado, como no caso de um servidor legado crítico.\nPara servidores legados em redes privadas, os controles compensatórios:\n* Fornecem proteções adicionais sem alterar o sistema original\n* Ajudam a mitigar riscos em sistemas que não podem ser facilmente atualizados\n* Permitem segurança complementar através de métodos alternativos\nNeste cenário, o controle compensatório seria a abordagem mais apropriada para proteger o servidor legado crítico sem comprometer sua funcionalidade original.",
       "needs_review": false,
       "review_notes": null
     },
@@ -26798,92 +26162,6 @@
         "C"
       ],
       "justification": "A opção C (Auditoria interna) é a resposta correta porque auditorias internas permitem revisões frequentes e detalhadas de sistemas e processos dentro da organização. Elas são eficazes para verificar o cumprimento de regulamentos, políticas internas e objetivos de conformidade.\nAuditorias internas oferecem uma abordagem sistemática para identificar problemas e propor melhorias, garantindo que a empresa atenda às suas metas de conformidade sem depender exclusivamente de auditorias externas ou ferramentas técnicas. As outras opções têm propósitos mais específicos e não abrangem o monitoramento contínuo e detalhado necessário.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
-      "id": "sim4_q074",
-      "question": "Qual dos seguintes conceitos de segurança é realizado com a instalação de um servidor RADIUS?",
-      "language": "pt-BR",
-      "multi_select": false,
-      "domain": "General Security Concepts",
-      "difficulty": "Medium",
-      "certification": "Security+",
-      "tags": [
-        "Simulado 04",
-        "RADIUS",
-        "CIA",
-        "AAA",
-        "ACL",
-        "PEM",
-        "General Security Concepts"
-      ],
-      "cross_domain_tags": [
-        "Security Architecture",
-        "Security Program Management and Oversight"
-      ],
-      "question_type": "single_response",
-      "cognitive_level": null,
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "CompTIA Security+ SY0-701 Objectives",
-          "reference": "General Security Concepts"
-        },
-        {
-          "source": "Sentinel Quiz internal material",
-          "reference": "material/Modulos_sec+.md"
-        },
-        {
-          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
-          "reference": "Chapter 8: Identity and Access Management -> Authentication and Authorization",
-          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
-          "locator": "OPS/c08.xhtml#head-2-122",
-          "page_start": 240,
-          "page_end": 246,
-          "confidence": 0.93,
-          "chapter": "Chapter 8: Identity and Access Management",
-          "section": "Authentication and Authorization",
-          "match_terms": [
-            "radius",
-            "cia",
-            "aaa",
-            "authentication",
-            "dial-in",
-            "privileged"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
-      ],
-      "question_set": null,
-      "quality_score": null,
-      "source_exam_id": "04",
-      "source_exam_title": "CompTIA - Security+ - Simulado 4",
-      "legacy_source_file": "securityplus_sim4.json",
-      "options": [
-        {
-          "key": "A",
-          "text": "CIA (Confidencialidade, Integridade, Disponibilidade)."
-        },
-        {
-          "key": "B",
-          "text": "AAA (Autenticação, Autorização, Auditoria)."
-        },
-        {
-          "key": "C",
-          "text": "ACL (Lista de Controle de Acesso)."
-        },
-        {
-          "key": "D",
-          "text": "PEM (Privileged Execution Mode)."
-        }
-      ],
-      "correct_options": [
-        "B"
-      ],
-      "justification": "A opção B (AAA) é a resposta correta porque um servidor RADIUS (Remote Authentication Dial-In User Service) é usado para implementar os princípios de Autenticação, Autorização e Auditoria.\nAutenticação: Garante que os usuários sejam identificados e confirmados antes de acessar recursos.\nAutorização: Define quais recursos ou ações o usuário autenticado pode acessar.\nAuditoria: Registra as atividades do usuário para monitoramento e conformidade.\nEsse conceito é amplamente utilizado em redes corporativas para controlar o acesso seguro e centralizado a recursos, como VPNs ou redes Wi-Fi.",
       "needs_review": false,
       "review_notes": null
     },

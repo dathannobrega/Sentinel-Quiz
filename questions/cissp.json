@@ -3,7 +3,7 @@
     "id": "cissp",
     "title": "ISC2 CISSP - Banco de Questoes",
     "source": "cissp.json dataset",
-    "question_count": 1258,
+    "question_count": 1256,
     "certification": "CISSP",
     "language": "en",
     "schema_version": 3,
@@ -25287,7 +25287,7 @@
     },
     {
       "id": "ea32bad4-f694-43b8-820f-7acc0791d64b",
-      "question": "What would MOST likely happen if a company neglects regular security assessments in a highly regulated industry?",
+      "question": "From a regulatory standpoint, what would MOST likely happen if a company neglects regular security assessments in a highly regulated industry?",
       "language": "en",
       "multi_select": false,
       "domain": "Security Assessment and Testing",
@@ -53335,87 +53335,6 @@
       "review_notes": null
     },
     {
-      "id": "9f9612f8-e32a-48f8-85ba-a17770b146bd",
-      "question": "What would MOST likely happen if a financial institution fails to regularly review user access rights?",
-      "language": "en",
-      "multi_select": false,
-      "domain": "Identity and Access Management (IAM)",
-      "difficulty": "Easy",
-      "certification": "CISSP",
-      "tags": [
-        "Identity and Access Management (IAM)",
-        "Security Operations"
-      ],
-      "cross_domain_tags": [
-        "Identity and Access Management (IAM)",
-        "Security Operations"
-      ],
-      "question_type": "single_response",
-      "cognitive_level": "application",
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "Official (ISC)² CBK",
-          "reference": "Chapter 7, Identity and Access Management"
-        },
-        {
-          "source": "NIST SP 800-53",
-          "reference": "Control AC-6"
-        },
-        {
-          "source": "CISSP For Dummies (EPUB)",
-          "reference": "Identity and Access Management -> Design Identification and Authentication Strategy",
-          "material_path": "material/CISSP For Dummies.epub",
-          "locator": "OPS/c07.xhtml#h2-2",
-          "page_start": 328,
-          "page_end": 348,
-          "confidence": 0.75,
-          "chapter": "Identity and Access Management",
-          "section": "Design Identification and Authentication Strategy",
-          "match_terms": [
-            "access",
-            "accounts",
-            "across",
-            "any",
-            "attack",
-            "because"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CISSP For Dummies.epub"
-      ],
-      "question_set": "old",
-      "quality_score": 75.0,
-      "source_exam_id": null,
-      "source_exam_title": null,
-      "legacy_source_file": null,
-      "options": [
-        {
-          "key": "A",
-          "text": "Increased security risks"
-        },
-        {
-          "key": "B",
-          "text": "Enhanced compliance"
-        },
-        {
-          "key": "C",
-          "text": "Streamlined user access"
-        },
-        {
-          "key": "D",
-          "text": "Reduced operational costs"
-        }
-      ],
-      "correct_options": [
-        "A"
-      ],
-      "justification": "**Correct Answer:** A. Increased security risks\n\n**Explanation (CISSP Manager Logic):**\nFailing to review access rights leads to privilege creep and unauthorized data exposure, directly violating the principle of least privilege. From a business perspective, unmonitored access increases the attack surface for insider threats and external breaches, jeopardizing the organization's legal and financial standing.\n\n**By performing regular access reviews, you:**\n- Enforce the principle of least privilege across the enterprise.\n- Identify and revoke orphaned accounts or unnecessary permissions.\n- Maintain alignment with regulatory requirements and security frameworks.\n\n**While the other options** are relevant, they fall short because:\n- **B:** Neglecting reviews is a direct violation of compliance mandates, leading to audit failures.\n- **C:** Skipping reviews creates complex, outdated permission structures that complicate management.\n- **D:** The long-term costs of data breaches and regulatory fines far outweigh any temporary administrative savings.\n\n**Think like a manager:**\nSecurity is a continuous lifecycle, not a one-time event. Managers must prioritize periodic audits to ensure access remains commensurate with current job responsibilities and risk tolerance.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
       "id": "c81b449b-6ccf-4b91-b3ea-ee00010bc6b5",
       "question": "A system architect must ensure strict access control and data integrity for sensitive transmissions. Which security model is BEST suited to address these specific requirements?",
       "language": "en",
@@ -54492,85 +54411,6 @@
         "A"
       ],
       "justification": "**Correct Answer:** A. Increased risk of breach\n\n**Explanation (CISSP Manager Logic):**\nNeglecting firewall updates leaves known vulnerabilities unpatched, directly increasing the organization's attack surface and liability. Failing to maintain security infrastructure compromises the confidentiality and integrity of sensitive financial data, violating due care and due diligence.\n\n**By maintaining updated firewalls, you:**\n- Reduce the likelihood of successful external exploits.\n- Ensure compliance with industry regulations and security frameworks.\n- Protect the organization’s reputation and financial stability.\n\n**While the other options** are relevant, they fall short because:\n- **B:** Outdated firmware lacks the optimization required to handle modern traffic patterns and threats efficiently.\n- **C:** Short-term savings on maintenance are outweighed by the catastrophic legal and recovery costs of a breach.\n- **D:** Security lapses lead to service disruptions and loss of customer trust, degrading the overall experience.\n\n**Think like a manager:**\nSecurity is a continuous lifecycle process, not a one-time setup. Managers must prioritize lifecycle management and patching to mitigate operational risks and ensure business continuity.",
-      "needs_review": false,
-      "review_notes": null
-    },
-    {
-      "id": "7ac6dfe7-73d0-48e2-99cc-a3208dc5033f",
-      "question": "What would MOST likely happen if a company neglects to conduct regular vulnerability assessments?",
-      "language": "en",
-      "multi_select": false,
-      "domain": "Security Assessment and Testing",
-      "difficulty": "Medium",
-      "certification": "CISSP",
-      "tags": [
-        "Security Assessment and Testing"
-      ],
-      "cross_domain_tags": [
-        "Security Assessment and Testing"
-      ],
-      "question_type": "single_response",
-      "cognitive_level": "application",
-      "format_type": "scenario_based",
-      "citations": [
-        {
-          "source": "Official (ISC)² CBK",
-          "reference": "Chapter 11, Security Assessment and Testing"
-        },
-        {
-          "source": "NIST SP 800-115",
-          "reference": "Technical Guide to Information Security Testing and Assessment"
-        },
-        {
-          "source": "CISSP For Dummies (EPUB)",
-          "reference": "Security Assessment and Testing -> Conduct Security Control Testing",
-          "material_path": "material/CISSP For Dummies.epub",
-          "locator": "OPS/c08.xhtml#h2-2",
-          "page_start": 367,
-          "page_end": 381,
-          "confidence": 0.83,
-          "chapter": "Security Assessment and Testing",
-          "section": "Conduct Security Control Testing",
-          "match_terms": [
-            "any",
-            "assessment",
-            "assessments",
-            "attack",
-            "because",
-            "breach"
-          ]
-        }
-      ],
-      "source_materials": [
-        "material/CISSP For Dummies.epub"
-      ],
-      "question_set": "old",
-      "quality_score": 72.0,
-      "source_exam_id": null,
-      "source_exam_title": null,
-      "legacy_source_file": null,
-      "options": [
-        {
-          "key": "A",
-          "text": "Increased security incidents"
-        },
-        {
-          "key": "B",
-          "text": "Higher customer trust"
-        },
-        {
-          "key": "C",
-          "text": "Reduced operational costs"
-        },
-        {
-          "key": "D",
-          "text": "Improved business reputation"
-        }
-      ],
-      "correct_options": [
-        "A"
-      ],
-      "justification": "**Correct Answer:** A. Increased security incidents\n\n**Explanation (CISSP Manager Logic):**\nNeglecting vulnerability assessments leaves the organization blind to exploitable weaknesses within the infrastructure. From a managerial perspective, failing to proactively identify and remediate these gaps directly increases the probability of a successful breach and subsequent business disruption.\n\n**By implementing this solution, you:**\n- Reduce the attack surface through proactive discovery.\n- Enable risk-based prioritization of security patches.\n- Maintain compliance with industry standards and regulatory requirements.\n\n**While the other options** are relevant, they fall short because:\n- **B:** Neglecting security measures leads to breaches, which fundamentally erodes rather than builds customer trust.\n- **C:** Any short-term savings are eclipsed by the catastrophic long-term costs of incident response, fines, and litigation.\n- **D:** Security failures and data leaks cause significant, often permanent, damage to a company's brand and market standing.\n\n**Think like a manager:**\nSecurity is a continuous process, not a one-time event. Managers must prioritize visibility into the environment to make informed, risk-based decisions that protect organizational value.",
       "needs_review": false,
       "review_notes": null
     },
