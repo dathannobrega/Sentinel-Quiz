@@ -33,6 +33,7 @@ export const password = {
     successMessage: "O email {email} foi validado com sucesso.",
     failedTitle: "Falha na verificação",
     failedMessage: "Não foi possível validar o email.",
+    redirecting: "Sessão iniciada. Redirecionando…",
     goToLogin: "Ir para login"
   }
 } as const;

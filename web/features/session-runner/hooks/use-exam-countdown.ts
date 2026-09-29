@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { parseServerTimestamp } from "@/features/session-runner/lib/runner-utils";
+import { parseServerTimestamp } from "@/lib/utils/dates";
 
 const CLOCK_SKEW_TOLERANCE_MS = 5_000;
 

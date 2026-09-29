@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "i18n:check": "vitest run lib/i18n",
+    "e2e": "sh -c '[ -z \"$CI\" ] || playwright install --with-deps chromium' && playwright test",
+    "e2e:report": "playwright show-report playwright-report",
     "format": "prettier --write ."
   },
   "dependencies": {
@@ -22,7 +24,9 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/eslintrc": "^3.3.7",
+    "@playwright/test": "^1.63.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^22.10.0",

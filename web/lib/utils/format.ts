@@ -1,13 +1,8 @@
 import { getActiveLocale } from "@/lib/i18n/active-locale";
 import { getMessages, type AppLocale } from "@/lib/i18n/core";
+import { parseServerDate } from "@/lib/utils/dates";
 
-function parseDate(value?: string | null): Date | null {
-  if (!value) {
-    return null;
-  }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
+const parseDate = parseServerDate;
 
 export function formatDateTime(value?: string | null, locale: AppLocale = getActiveLocale()): string {
   const parsed = parseDate(value);

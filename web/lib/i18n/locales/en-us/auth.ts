@@ -61,8 +61,18 @@ export const auth = {
     goToRegister: "Go to registration",
     forgotPassword: "Forgot password"
   },
+  verification: {
+    checkEmailTitle: "Check your e-mail",
+    checkEmailMessage:
+      "If an account can be created for {email}, we sent a confirmation link. Open it to activate the account and sign in.",
+    checkEmailHint: "Didn't get it? Check your spam folder or resend the link in a few minutes.",
+    resend: "Resend verification e-mail",
+    useAnotherEmail: "Use another e-mail",
+    notVerifiedTitle: "E-mail not verified yet",
+    notVerifiedMessage: "Confirm your e-mail using the link we sent before signing in. You can request a new link below."
+  },
   account: {
-    roleLabel: "paper",
+    roleLabel: "role",
     emailVerified: "Verified email",
     emailPending: "Pending Email"
   },

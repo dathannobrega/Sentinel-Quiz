@@ -10,9 +10,10 @@ import { Field } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { ApiError, readErrorMessage } from "@/lib/api/client";
-import { requestEmailVerification, sanitizeNextPath } from "@/lib/auth/session";
+import { isEmailNotVerifiedError, requestEmailVerification, sanitizeNextPath } from "@/lib/auth/session";
 import { useI18n } from "@/lib/i18n";
 import { useCurrentUser, useLoginMutation, useLogoutMutation, useRegisterMutation } from "@/lib/query/hooks";
+import type { RegisterResult } from "@/types/api";
 
 type AuthMode = "login" | "register";
 type NoticeTone = "neutral" | "success" | "warning" | "danger";
@@ -21,10 +22,12 @@ interface NoticeState {
   tone: NoticeTone;
   title: string;
   message: string;
+  /** When set, the banner offers "resend verification" for this e-mail (login 403, r4 §1). */
+  resendEmail?: string;
 }
 
-function toNotice(tone: NoticeTone, title: string, message: string): NoticeState {
-  return { tone, title, message };
+function toNotice(tone: NoticeTone, title: string, message: string, resendEmail?: string): NoticeState {
+  return resendEmail ? { tone, title, message, resendEmail } : { tone, title, message };
 }
 
 function fieldError(error: unknown, field: string): string | undefined {
@@ -44,6 +47,8 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
   const registerMutation = useRegisterMutation();
   const logoutMutation = useLogoutMutation();
   const [isResending, setIsResending] = useState(false);
+  /** E-mail awaiting confirmation after a 202 verification_required registration (r4 §1). */
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [submitError, setSubmitError] = useState<unknown>(null);
   const [loginValues, setLoginValues] = useState({ email: "", password: "" });
@@ -94,6 +99,13 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
     };
     const onError = (error: unknown) => {
       setSubmitError(error);
+      if (mode === "login" && isEmailNotVerifiedError(error)) {
+        // 403 email_not_verified: correct password, account awaiting confirmation (r4 §1).
+        setNotice(
+          toNotice("warning", t("auth.verification.notVerifiedTitle"), t("auth.verification.notVerifiedMessage"), email)
+        );
+        return;
+      }
       setNotice(toNotice("danger", t("common.errors.authFailure"), readErrorMessage(error, t("auth.errors.authUnavailable"))));
     };
 
@@ -102,8 +114,32 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
     } else {
       registerMutation.mutate(
         { email, password, display_name: registerValues.displayName.trim() || null },
-        { onSuccess, onError }
+        {
+          onSuccess: (result: RegisterResult) => {
+            if (result.kind === "verification_required") {
+              // 202: no session yet; the same answer is given for new and existing e-mails.
+              setRegisterValues((current) => ({ ...current, password: "" }));
+              setPendingVerificationEmail(result.email);
+              return;
+            }
+            onSuccess();
+          },
+          onError
+        }
       );
+    }
+  }
+
+  async function resendVerification(email: string) {
+    setIsResending(true);
+    setNotice(null);
+    try {
+      await requestEmailVerification({ email });
+      setNotice(toNotice("success", t("auth.notices.verificationResent"), t("auth.notices.verificationResentMessage")));
+    } catch (error) {
+      setNotice(toNotice("danger", t("auth.notices.resendFailed"), readErrorMessage(error, t("auth.errors.authUnavailable"))));
+    } finally {
+      setIsResending(false);
     }
   }
 
@@ -116,19 +152,9 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
     });
   }
 
-  async function handleResendVerification() {
-    if (!currentUser) {
-      return;
-    }
-    setIsResending(true);
-    setNotice(null);
-    try {
-      await requestEmailVerification({ email: currentUser.email });
-      setNotice(toNotice("success", t("auth.notices.verificationResent"), t("auth.notices.verificationResentMessage")));
-    } catch (error) {
-      setNotice(toNotice("danger", t("auth.notices.resendFailed"), readErrorMessage(error, t("auth.errors.authUnavailable"))));
-    } finally {
-      setIsResending(false);
+  function handleResendVerification() {
+    if (currentUser) {
+      void resendVerification(currentUser.email);
     }
   }
 
@@ -196,6 +222,15 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                       <Button variant="ghost" size="sm" onClick={() => void currentUserQuery.refetch()}>
                         {t("common.actions.retry")}
                       </Button>
+                    ) : activeNotice.resendEmail ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        busy={isResending}
+                        onClick={() => void resendVerification(activeNotice.resendEmail as string)}
+                      >
+                        {t("auth.verification.resend")}
+                      </Button>
                     ) : undefined
                   }
                 />
@@ -218,7 +253,7 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                       {t("common.actions.goToDashboard")}
                     </Link>
                     {!currentUser.email_verified ? (
-                      <Button variant="ghost" busy={isResending} onClick={() => void handleResendVerification()}>
+                      <Button variant="ghost" busy={isResending} onClick={handleResendVerification}>
                         {t("common.actions.resendVerification")}
                       </Button>
                     ) : null}
@@ -227,6 +262,36 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
                     </Button>
                   </div>
                 </div>
+              ) : !isLogin && pendingVerificationEmail ? (
+                <section className="sq-surface-block" aria-labelledby="auth-check-email-title" data-testid="register-check-email">
+                  <h3 id="auth-check-email-title" className="sq-list-title">
+                    {t("auth.verification.checkEmailTitle")}
+                  </h3>
+                  <p className="sq-list-meta">
+                    {t("auth.verification.checkEmailMessage", { email: pendingVerificationEmail })}
+                  </p>
+                  <p className="sq-list-meta">{t("auth.verification.checkEmailHint")}</p>
+                  <div className="sq-actions">
+                    <Button busy={isResending} onClick={() => void resendVerification(pendingVerificationEmail)}>
+                      {t("auth.verification.resend")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setPendingVerificationEmail(null);
+                        setNotice(null);
+                      }}
+                    >
+                      {t("auth.verification.useAnotherEmail")}
+                    </Button>
+                    <Link
+                      href={`/login${searchParams.get("next") ? `?next=${encodeURIComponent(nextPath)}` : ""}`}
+                      className="sq-button sq-button--md sq-button--ghost"
+                    >
+                      {t("common.actions.alreadyHaveAccount")}
+                    </Link>
+                  </div>
+                </section>
               ) : (
                 <form
                   className="sq-surface-block"

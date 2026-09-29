@@ -61,6 +61,16 @@ export const auth = {
     goToRegister: "Ir para cadastro",
     forgotPassword: "Esqueci a senha"
   },
+  verification: {
+    checkEmailTitle: "Verifique seu e-mail",
+    checkEmailMessage:
+      "Se for possível criar uma conta para {email}, enviamos um link de confirmação. Abra o link para ativar a conta e entrar.",
+    checkEmailHint: "Não recebeu? Confira a caixa de spam ou reenvie o link em alguns minutos.",
+    resend: "Reenviar e-mail de verificação",
+    useAnotherEmail: "Usar outro e-mail",
+    notVerifiedTitle: "E-mail ainda não verificado",
+    notVerifiedMessage: "Confirme seu e-mail pelo link que enviamos antes de entrar. Você pode pedir um novo link abaixo."
+  },
   account: {
     roleLabel: "papel",
     emailVerified: "Email verificado",

@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { StudyTrackCard } from "@/features/dashboard/components/study-track-card";
 import { useI18n } from "@/lib/i18n";
 import { translateBackendMessage, translateReadinessBand } from "@/lib/i18n/backend-messages";
 import {
@@ -222,28 +223,6 @@ export function DashboardShell() {
                     ) : null}
                   </div>
                 ) : null}
-                {trackModules.length ? (
-                  <details className="sq-surface-block">
-                    <summary className="sq-list-meta">
-                      {t("dashboard.planCard.trackToggle", {
-                        certification: trackCertification ?? "",
-                        count: trackModules.length
-                      })}
-                    </summary>
-                    <ol className="sq-list" style={{ marginTop: "var(--sq-space-3)" }}>
-                      {trackModules.map((module) => (
-                        <li
-                          key={module.id}
-                          className="sq-list-meta"
-                          aria-current={module.id === recommendedModule?.id ? "step" : undefined}
-                          style={module.id === recommendedModule?.id ? { fontWeight: 600 } : undefined}
-                        >
-                          {t("dashboard.planCard.trackItem", { position: module.position, title: module.title })}
-                        </li>
-                      ))}
-                    </ol>
-                  </details>
-                ) : null}
                 {studyPlan.secondary_tasks.length ? (
                   <div className="sq-list">
                     {studyPlan.secondary_tasks.map((task) => (
@@ -283,6 +262,10 @@ export function DashboardShell() {
               ) : null}
             </Card>
           </div>
+        ) : null}
+
+        {trackCertification && trackModules.length ? (
+          <StudyTrackCard certification={trackCertification} modules={trackModules} recommendedModule={recommendedModule} />
         ) : null}
 
         <div className="sq-grid-3">

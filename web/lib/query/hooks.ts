@@ -7,7 +7,8 @@ import {
   fetchCurrentUser,
   loginUser,
   logoutUser,
-  registerUser
+  registerUser,
+  verifyEmailToken
 } from "@/lib/auth/session";
 import { queryKeys } from "@/lib/query/keys";
 import type {
@@ -18,6 +19,7 @@ import type {
   Exam,
   QuestionSearchResponse,
   ReadinessScore,
+  RegisterResult,
   ReviewQueueSnapshot,
   SessionHistoryItem,
   SessionReview,
@@ -27,6 +29,7 @@ import type {
   StudyPlanResponse,
   StudySessionReview,
   StudyWeeklyAnalytics,
+  VerifyEmailResult,
   WeakAreasResponse
 } from "@/types/api";
 
@@ -88,9 +91,32 @@ export function useRegisterMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: { email: string; password: string; display_name?: string | null }) => registerUser(payload),
-    onSuccess: (user: AuthUser) => {
-      queryClient.setQueryData(queryKeys.currentUser, user);
-      void refreshUserScopedData(queryClient);
+    onSuccess: (result: RegisterResult) => {
+      // 202 verification_required opens no session: the cached (anonymous) user stays as is.
+      if (result.kind === "signed_in") {
+        queryClient.setQueryData(queryKeys.currentUser, result.user);
+        void refreshUserScopedData(queryClient);
+      }
+    }
+  });
+}
+
+/**
+ * POST /auth/verify-email. When the backend opens a session (r4 §1) the verified user becomes
+ * the cached current user and user-scoped data is refetched (anonymous sessions were claimed).
+ */
+export function useVerifyEmailMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (token: string) => verifyEmailToken({ token }),
+    onSuccess: (result: VerifyEmailResult) => {
+      if (result.signedIn) {
+        queryClient.setQueryData(queryKeys.currentUser, result.user);
+        void refreshUserScopedData(queryClient);
+        return;
+      }
+      // Legacy backend: no session change; re-read /auth/me to refresh email_verified.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.currentUser });
     }
   });
 }

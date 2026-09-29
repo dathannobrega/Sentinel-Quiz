@@ -10,3 +10,69 @@ body {
 ::selection {
   background: rgba(21, 122, 110, 0.18);
 }
+
+/* Study track (dashboard, contract r4 §2). Status = icon + text; colors meet AA on white. */
+.sq-track-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sq-space-3);
+}
+
+.sq-track-item {
+  display: grid;
+  gap: var(--sq-space-2);
+  padding: var(--sq-space-3);
+  border: 1px solid var(--sq-border);
+  border-radius: var(--sq-radius-md);
+}
+
+.sq-track-item--recommended {
+  border: 2px solid var(--sq-accent-strong);
+  background: rgba(21, 122, 110, 0.06);
+}
+
+.sq-track-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sq-space-2);
+}
+
+.sq-track-badge,
+.sq-track-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.sq-track-badge--recommended {
+  background: var(--sq-accent-strong);
+  color: #ffffff;
+}
+
+.sq-track-status--completed {
+  background: rgba(22, 101, 52, 0.1);
+  color: #166534;
+}
+
+.sq-track-status--in_progress {
+  background: rgba(29, 78, 216, 0.1);
+  color: #1e40af;
+}
+
+.sq-track-status--available {
+  background: rgba(17, 94, 85, 0.1);
+  color: #115e55;
+}
+
+.sq-track-status--locked {
+  background: rgba(71, 85, 105, 0.12);
+  color: #374151;
+}

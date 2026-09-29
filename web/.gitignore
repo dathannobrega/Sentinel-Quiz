@@ -7,3 +7,9 @@ coverage/
 .env.local
 .env.*.local
 .DS_Store
+
+# Playwright (npm run e2e)
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/

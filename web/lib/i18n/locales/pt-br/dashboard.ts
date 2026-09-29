@@ -57,8 +57,24 @@ export const dashboard = {
     placementPending: "Diagnóstico pendente",
     nextModule: "Próximo módulo: {code} · {title}",
     nextModuleHint: "Sugerido para reforçar {domain} seguindo a ordem da trilha.",
-    trackToggle: "Ver trilha {certification} ({count} módulos)",
     trackItem: "{position}. {title}"
+  },
+  trackCard: {
+    title: "Trilha {certification}",
+    subtitle: "Módulos na ordem recomendada, com status, domínio e pré-requisitos.",
+    listLabel: "Módulos da trilha {certification}",
+    summary: "{completed} de {total} módulos concluídos",
+    recommended: "Recomendado agora",
+    mastery: "Domínio {value}",
+    masteryUnknown: "Domínio sem dados",
+    attempts: "{count} tentativa(s)",
+    pendingPrerequisites: "Pré-requisitos pendentes: {items}",
+    status: {
+      locked: "Bloqueado",
+      available: "Disponível",
+      in_progress: "Em andamento",
+      completed: "Concluído"
+    }
   },
   weekCard: {
     title: "Esta semana",
