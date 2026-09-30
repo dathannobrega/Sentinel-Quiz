@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 
-import { inputClassName, selectClassName } from "@/components/ui/input";
+import { inputSmClassName, selectSmClassName } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
 import {
@@ -87,7 +87,7 @@ export function PbqTableFormTask({
                           <select
                             id={controlId}
                             aria-label={label}
-                            className={cn(selectClassName, "h-9 min-w-40")}
+                            className={cn(selectSmClassName, "min-w-40")}
                             value={currentText}
                             disabled={disabled}
                             onChange={(event) => setCell(row.id, column.id, event.target.value)}
@@ -103,7 +103,7 @@ export function PbqTableFormTask({
                           <input
                             id={controlId}
                             aria-label={label}
-                            className={cn(inputClassName, "h-9 min-w-40")}
+                            className={cn(inputSmClassName, "min-w-40")}
                             type="text"
                             inputMode={kind === "number" ? "decimal" : undefined}
                             placeholder={kind === "number" ? t("pbq.tableForm.numberPlaceholder") : undefined}

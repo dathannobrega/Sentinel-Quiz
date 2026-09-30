@@ -2,7 +2,15 @@
 
 import { useId } from "react";
 
-import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
+import {
+  PbqItemExplanation,
+  PbqMark,
+  PbqProgress,
+  cardTone,
+  pbqStyles as pbq,
+  type PbqTaskProps
+} from "@/features/session-runner/components/pbq/pbq-shared";
+import { ArrowRightIcon } from "@/components/ui/icons";
 import { selectClassName } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 import type { PbqMatchingResponse, PbqMatchingTask, PbqTextItem } from "@/types/api";
@@ -63,49 +71,64 @@ export function PbqMatchingTask({
     onChange(next, announcements.join(" "));
   }
 
+  const paired = left.filter((item) => !!value[item.id]).length;
+
   return (
     <div className={pbq.taskBody} role="group" aria-labelledby={labelledBy}>
       <p className={pbq.hint}>{allowReuse ? t("pbq.matching.reuseHint") : t("pbq.matching.noReuseHint")}</p>
+      {!disabled ? (
+        <PbqProgress done={paired} total={left.length} label={t("pbq.matching.progress", { done: paired, total: left.length })} />
+      ) : null}
       <ul className={pbq.itemList}>
         {left.map((item) => {
           const selectId = `${baseId}-${item.id}`;
           const chosen = value[item.id] ?? "";
           const expectedRight = expected?.[item.id];
+          const ok = !!expectedRight && chosen === expectedRight;
           const usedElsewhere = new Set(
             Object.entries(value)
               .filter(([leftId]) => leftId !== item.id)
               .map(([, rightId]) => rightId)
           );
           return (
-            <li key={item.id} className={pbq.card} data-testid={`pbq-match-${item.id}`}>
-              <span className={pbq.cardText}>{item.text}</span>
-              <label className="sr-only" htmlFor={selectId}>
-                {t("pbq.matching.selectLabel", { item: item.text })}
-              </label>
-              <select
-                id={selectId}
-                className={cn(selectClassName, pbq.cardSelect)}
-                value={chosen}
-                disabled={disabled}
-                onChange={(event) => choose(item, event.target.value)}
-              >
-                <option value="">{t("pbq.matching.placeholder")}</option>
-                {right.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {!allowReuse && usedElsewhere.has(option.id) ? t("pbq.matching.inUse", { choice: option.text }) : option.text}
-                  </option>
-                ))}
-              </select>
-              {expected ? (
-                <PbqMark ok={!!expectedRight && chosen === expectedRight}>
-                  {chosen === expectedRight
-                    ? t("pbq.marks.correct")
-                    : t("pbq.matching.expected", {
-                        right: rightText.get(expectedRight ?? "") ?? expectedRight ?? "-"
-                      })}
-                </PbqMark>
-              ) : null}
-              {expected ? <PbqItemExplanation text={perItem[item.id]} /> : null}
+            <li
+              key={item.id}
+              className={cn(pbq.card, cardTone({ disabled, verdict: expected ? ok : null, filled: !!chosen }))}
+              data-testid={`pbq-match-${item.id}`}
+            >
+              <div className={pbq.cardBody}>
+                <div className={pbq.cardRow}>
+                  <span className={pbq.cardText}>{item.text}</span>
+                  <ArrowRightIcon className={pbq.arrow} />
+                  <label className="sr-only" htmlFor={selectId}>
+                    {t("pbq.matching.selectLabel", { item: item.text })}
+                  </label>
+                  <select
+                    id={selectId}
+                    className={cn(selectClassName, pbq.cardSelect)}
+                    value={chosen}
+                    disabled={disabled}
+                    onChange={(event) => choose(item, event.target.value)}
+                  >
+                    <option value="">{t("pbq.matching.placeholder")}</option>
+                    {right.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {!allowReuse && usedElsewhere.has(option.id) ? t("pbq.matching.inUse", { choice: option.text }) : option.text}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {expected ? (
+                  <PbqMark ok={ok}>
+                    {chosen === expectedRight
+                      ? t("pbq.marks.correct")
+                      : t("pbq.matching.expected", {
+                          right: rightText.get(expectedRight ?? "") ?? expectedRight ?? "-"
+                        })}
+                  </PbqMark>
+                ) : null}
+                {expected ? <PbqItemExplanation text={perItem[item.id]} /> : null}
+              </div>
             </li>
           );
         })}

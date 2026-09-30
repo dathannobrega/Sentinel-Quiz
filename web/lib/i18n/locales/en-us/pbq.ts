@@ -31,6 +31,7 @@ export const pbq = {
     unassignedAnnounce: "“{item}” moved back to the uncategorized items.",
     dragHint: "Drag each item to a category or pick the category in the item's own list.",
     bucketCount: "{count} items",
+    progress: "{done} of {total} items categorized",
     expected: "Correct: {bucket}"
   },
   matching: {
@@ -42,6 +43,7 @@ export const pbq = {
     noReuseHint: "Each right-hand option can be used at most once.",
     reuseHint: "The same right-hand option can be used more than once.",
     inUse: "{choice} (in use)",
+    progress: "{done} of {total} pairs set",
     expected: "Correct: {right}"
   },
   tableForm: {

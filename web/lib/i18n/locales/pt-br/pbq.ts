@@ -32,6 +32,7 @@ export const pbq = {
     unassignedAnnounce: "“{item}” voltou para os itens sem categoria.",
     dragHint: "Arraste cada item para uma categoria ou escolha a categoria na lista do próprio item.",
     bucketCount: "{count} itens",
+    progress: "{done} de {total} itens classificados",
     expected: "Correto: {bucket}"
   },
   matching: {
@@ -43,6 +44,7 @@ export const pbq = {
     noReuseHint: "Cada opção da direita pode ser usada no máximo uma vez.",
     reuseHint: "Uma mesma opção da direita pode ser usada mais de uma vez.",
     inUse: "{choice} (em uso)",
+    progress: "{done} de {total} pares definidos",
     expected: "Correto: {right}"
   },
   tableForm: {

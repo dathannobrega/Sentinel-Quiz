@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { CheckIcon } from "@/components/ui/icons";
 import { buttonClassName } from "@/components/ui/button";
 import { PbqCategorizationTask } from "@/features/session-runner/components/pbq/pbq-categorization-task";
 import { PbqExhibits } from "@/features/session-runner/components/pbq/pbq-exhibits";
@@ -14,6 +15,7 @@ import { PbqTableFormTask } from "@/features/session-runner/components/pbq/pbq-t
 import {
   countCompleteTasks,
   findTaskResult,
+  isTaskComplete,
   normalizeExhibit,
   normalizeExplanation,
   normalizeSolution,
@@ -22,6 +24,7 @@ import {
   taskResponse
 } from "@/features/session-runner/lib/pbq-utils";
 import type { Translate } from "@/features/session-runner/lib/runner-utils";
+import { cn } from "@/lib/utils/cn";
 import type {
   PbqCategorizationResponse,
   PbqMatchingResponse,
@@ -154,16 +157,28 @@ export function PbqQuestion({ payload, response, onChange, disabled, result, hea
   return (
     <div className={pbqStyles.root} data-testid="pbq-question">
       <div className={pbqStyles.head}>
-        <TitleTag className={pbqStyles.title} id={`${baseId}-title`}>
-          <span className={pbqStyles.badge}>{t("pbq.badge")}</span> {payload.title}
-        </TitleTag>
-        {!disabled ? (
-          <span className={pbqStyles.counter}>
-            {t("pbq.tasksComplete", {
-              complete: completeCount,
-              total: tasks.length
-            })}
-          </span>
+        <div className={pbqStyles.headRow}>
+          <TitleTag className={pbqStyles.title} id={`${baseId}-title`}>
+            <span className={pbqStyles.badge}>{t("pbq.badge")}</span> {payload.title}
+          </TitleTag>
+          {!disabled ? (
+            <span className={pbqStyles.counter}>
+              {t("pbq.tasksComplete", {
+                complete: completeCount,
+                total: tasks.length
+              })}
+            </span>
+          ) : null}
+        </div>
+        {!disabled && tasks.length > 1 ? (
+          <div className={pbqStyles.segments} aria-hidden="true">
+            {tasks.map((task) => (
+              <span
+                key={task.id}
+                className={cn(pbqStyles.segment, pbqStyles.segmentTone[isTaskComplete(task, taskResponse(task, response)) ? "done" : "pending"])}
+              />
+            ))}
+          </div>
         ) : null}
       </div>
 
@@ -205,6 +220,8 @@ export function PbqQuestion({ payload, response, onChange, disabled, result, hea
         const promptId = `${headingId}-prompt`;
         const taskResult = findTaskResult(result?.task_results, task.id);
         const percent = taskResult ? scoreToPercent(taskResult.score) : null;
+        // Step marker: completion while answering, correctness once graded.
+        const done = taskResult ? taskResult.is_correct : !disabled && isTaskComplete(task, taskResponse(task, response));
         const explanation =
           overlay || (!hasSolution && result?.pbq_explanations)
             ? normalizeExplanation(result?.pbq_explanations?.[task.id])
@@ -213,6 +230,9 @@ export function PbqQuestion({ payload, response, onChange, disabled, result, hea
           <section key={task.id} className={pbqStyles.task} aria-labelledby={headingId} data-testid={`pbq-task-${task.id}`}>
             <div className={pbqStyles.taskHead}>
               <SectionTag className={pbqStyles.taskHeading} id={headingId}>
+                <span className={cn(pbqStyles.taskStep, pbqStyles.taskStepTone[done ? "done" : "pending"])} aria-hidden="true">
+                  {done ? <CheckIcon size={14} /> : index + 1}
+                </span>
                 {t("pbq.taskHeading", {
                   current: index + 1,
                   total: tasks.length
