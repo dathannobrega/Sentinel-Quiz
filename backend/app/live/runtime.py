@@ -18,7 +18,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -276,6 +276,103 @@ def option_counts(db: Session, room: Room, position: int) -> dict[str, int]:
     return counts
 
 
+def _submitted_responses(db: Session, session_id: str, position: int) -> list[dict[str, Any]]:
+    return [
+        r or {}
+        for r in db.execute(
+            select(LiveAnswerEvent.response_json).where(
+                LiveAnswerEvent.session_id == session_id,
+                LiveAnswerEvent.position == position,
+                LiveAnswerEvent.event_type == "submitted",
+            )
+        ).scalars()
+    ]
+
+
+def hidden_words(session: LiveSession, position: int) -> set[str]:
+    return set(((session.hidden_words or {}).get(str(position))) or [])
+
+
+def word_cloud(db: Session, room: Room, position: int, responses: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Top words of a word cloud (RF-316): one count per participant and word, offensive
+    words (filter terms) and words the host hid never reach the projector."""
+    from app.services import live_moderation
+
+    counts: Counter[str] = Counter()
+    display: dict[str, Counter[str]] = {}
+    for response in responses:
+        for word, norm in zip(response.get("words") or [], response.get("normalized") or []):
+            if not norm:
+                continue
+            counts[norm] += 1
+            display.setdefault(norm, Counter())[word] += 1
+    hidden = hidden_words(room.session, position)
+    words: list[dict[str, Any]] = []
+    filtered = 0
+    for norm, n in counts.most_common():
+        text = display[norm].most_common(1)[0][0]
+        if norm in hidden or live_moderation.text_is_offensive(db, text):
+            filtered += 1
+            continue
+        if len(words) < registry.WORD_CLOUD_TOP:
+            words.append({"text": text, "key": norm, "n": n})
+    return {"words": words, "distinct": len(counts), "filtered": filtered}
+
+
+def numeric_summary(item: dict[str, Any], numbers: list[float]) -> dict[str, Any]:
+    """Histogram (20 bins over the author's range), mean and median of numeric answers."""
+    payload = item.get("payload") or {}
+    low = float(payload.get("min") or 0.0)
+    high = float(payload.get("max") or 0.0)
+    bins = [0] * registry.NUMERIC_BINS
+    span = high - low
+    for value in numbers:
+        index = int((value - low) / span * registry.NUMERIC_BINS) if span > 0 else 0
+        bins[min(max(index, 0), registry.NUMERIC_BINS - 1)] += 1
+    ordered = sorted(numbers)
+    median = None
+    if ordered:
+        mid = len(ordered) // 2
+        median = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+    return {
+        "min": low,
+        "max": high,
+        "bins": bins,
+        "n": len(numbers),
+        "mean": round(sum(numbers) / len(numbers), 4) if numbers else None,
+        "median": round(median, 4) if median is not None else None,
+    }
+
+
+def ordering_summary(session_id: str, position: int, item: dict[str, Any], orders: list[list[str]]) -> dict[str, Any]:
+    """Per-slot accuracy: the share of answers with the right item in each position."""
+    solution = [str(o["key"]) for o in (item.get("payload") or {}).get("options") or []]
+    key_to_id = {key: oid for oid, key in registry.option_id_map(session_id, position, item).items()}
+    slots = [
+        round(100.0 * sum(1 for order in orders if len(order) > i and order[i] == key) / len(orders), 1) if orders else None
+        for i, key in enumerate(solution)
+    ]
+    return {
+        "correct_order_ids": [key_to_id[k] for k in solution if k in key_to_id],
+        "slot_pct_correct": slots,
+        "exact": sum(1 for order in orders if order == solution),
+    }
+
+
+def type_results(db: Session, room: Room, position: int, item: dict[str, Any], responses: list[dict[str, Any]]) -> dict[str, Any]:
+    """Live/reveal aggregates of the GA types (empty for choice/typed items)."""
+    kind = item.get("item_type")
+    if kind == "word_cloud":
+        return {"word_cloud": word_cloud(db, room, position, responses)}
+    if kind == "numeric":
+        numbers = [float(r["number"]) for r in responses if isinstance(r.get("number"), (int, float))]
+        return {"numeric": numeric_summary(item, numbers)}
+    if kind == "ordering":
+        orders = [list(r.get("order") or []) for r in responses]
+        return {"ordering": ordering_summary(room.session.id, position, item, orders)}
+    return {}
+
+
 def lobby_state(db: Session, session_id: str) -> dict[str, Any]:
     rows = db.execute(
         select(LiveParticipant.id, LiveParticipant.display_name, LiveParticipant.avatar_seed)
@@ -473,7 +570,29 @@ def reveal_payload(db: Session, room: Room, position: int) -> dict[str, Any]:
             for norm, n in typed.most_common(12)
             for masked in [not typed_accepted.get(norm, False) and live_moderation.text_is_offensive(db, typed_display[norm])]
         ]
+    responses = [answer.response for (_p, pid), answer in answers.items() if pid in names]
+    payload.update(type_results(db, room, position, item, responses))
+    if item_type == "numeric":
+        answer_cfg = item.get("answer") or {}
+        payload["numeric"].update({
+            "value": answer_cfg.get("value"),
+            "tolerance": float(answer_cfg.get("tolerance") or 0.0),
+            "unit": (item.get("payload") or {}).get("unit") or "",
+        })
     return payload
+
+
+def without_correct(reveal: dict[str, Any]) -> dict[str, Any]:
+    """The reveal a participant sees when ``show_correct_on_device`` is off: counts and
+    their own result stay, the right answer does not."""
+    data = dict(reveal)
+    data["correct_option_ids"] = []
+    data["accepted_answers"] = []
+    if "ordering" in data:
+        data["ordering"] = {**data["ordering"], "correct_order_ids": [], "slot_pct_correct": []}
+    if "numeric" in data:
+        data["numeric"] = {**data["numeric"], "value": None, "tolerance": None}
+    return data
 
 
 def personal_blocks(db: Session, room: Room, kind: str, participant_ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -554,16 +673,17 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         data["timer"] = _timer_payload(session)
         if role in {HOST, DISPLAY} and item["item_type"] in registry.INTERACTIVE_TYPES:
             data["answered"] = _answered_count(db, session.id, position)
-            if role == HOST or show_distribution or item["item_type"] == "poll":
+            if role == HOST or show_distribution or item["item_type"] in {"poll", "word_cloud"}:
                 data["counts"] = option_counts(db, room, position)
+                if session.phase != "reveal":
+                    data.update(live_extra(db, room, position, item))
     if session.phase == "reveal" and position is not None:
         reveal = reveal_payload(db, room, position)
         hidden = bool(reveal.pop("hide_correct_on_device", False))
         if participant_id:
             reveal["my"] = personal_blocks(db, room, "reveal", [participant_id]).get(participant_id)
             if hidden:
-                reveal["correct_option_ids"] = []
-                reveal["accepted_answers"] = []
+                reveal = without_correct(reveal)
         data["reveal"] = reveal
     if session.phase == "leaderboard":
         data["leaderboard"], _ = leaderboard_payload(db, room)
@@ -607,11 +727,16 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
             if event is not None and item is not None:
                 key_to_id = {key: oid for oid, key in registry.option_id_map(session.id, position, item).items()}
                 response = event.response_json or {}
-                last_answer = (
-                    {"text": response.get("text")}
-                    if "text" in response
-                    else {"choice": [key_to_id[k] for k in response.get("keys") or [] if k in key_to_id]}
-                )
+                if "text" in response:
+                    last_answer = {"text": response.get("text")}
+                elif "order" in response:
+                    last_answer = {"order": [key_to_id[k] for k in response.get("order") or [] if k in key_to_id]}
+                elif "number" in response:
+                    last_answer = {"number": response.get("number")}
+                elif "words" in response:
+                    last_answer = {"words": list(response.get("words") or [])}
+                else:
+                    last_answer = {"choice": [key_to_id[k] for k in response.get("keys") or [] if k in key_to_id]}
         data["my"] = {
             "participant_id": participant_id,
             "display_name": participant.display_name if participant else "",
@@ -643,6 +768,7 @@ def _presenter_item(item: dict[str, Any]) -> dict[str, Any]:
         "points_multiplier": item.get("points_multiplier", 1),
         "explanation": item.get("explanation"),
         "presenter_notes": item.get("presenter_notes"),
+        **registry.type_fields(item.get("item_type") or "", payload, answer),
         "source_kind": item.get("source_kind", "custom"),
         "source_question_id": item.get("source_question_id"),
         "source_version_id": item.get("source_version_id"),
@@ -958,6 +1084,30 @@ def kick(db: Session, session_id: str, *, participant_id: str, ban: bool) -> Out
     return outcome
 
 
+def hide_word(db: Session, session_id: str, *, qi: int, word: str, hidden: bool = True) -> Outcome:
+    """Host hides (or shows again) a word of the current word cloud on every screen."""
+    room = load_room(db, session_id)
+    session = room.session
+    item = room.item(qi)
+    if item is None or item["item_type"] != "word_cloud" or session.current_position != qi or session.phase not in {"question", "locked", "reveal"}:
+        return Outcome(error="stale")
+    key = registry.normalize_word(word)
+    if not key:
+        return Outcome(error="invalid")
+    by_position = {k: list(v) for k, v in (session.hidden_words or {}).items()}
+    current = set(by_position.get(str(qi)) or [])
+    current = current | {key} if hidden else current - {key}
+    by_position[str(qi)] = sorted(current)[:500]
+    session.hidden_words = by_position
+    db.commit()
+    room = load_room(db, session_id)
+    active = {p.id for p in active_participants(db, session_id)}
+    answers = scoring.effective_answers(_events(db, session_id, qi))
+    responses = [a.response for (_p, pid), a in answers.items() if pid in active]
+    cloud = word_cloud(db, room, qi, responses)
+    return Outcome(broadcasts=[Broadcast("word_cloud.update", {"qi": qi, "word_cloud": cloud}, audience=ALL)])
+
+
 def accept_typed_answer(db: Session, session_id: str, *, qi: int, text: str, now: datetime | None = None) -> Outcome:
     """Host accepts a typed answer after the lock: every matching answer becomes correct."""
     room = load_room(db, session_id)
@@ -1160,6 +1310,7 @@ def erase_participant(db: Session, participant: LiveParticipant, *, now: datetim
 # ----------------------------------------------------------------------------- rehearsal bots
 
 BOT_ACCURACY = 0.7
+BOT_WORDS = ["segurança", "rede", "firewall", "senha", "nuvem", "backup", "criptografia", "phishing"]
 _BOT_NAMESPACE = __import__("uuid").UUID("6f1c2e0a-3b7d-4e55-9a41-5c0de7b0a7e1")
 
 
@@ -1205,8 +1356,23 @@ def bot_plan(db: Session, session_id: str, qi: int, *, now: datetime | None = No
         right = rng.random() < BOT_ACCURACY
         choice: list[str] | None = None
         text: str | None = None
+        words: list[str] | None = None
+        number: float | None = None
         kind = item["item_type"]
-        if kind == "type_answer":
+        if kind == "ordering":
+            solution = [ids_by_key[str(o["key"])] for o in (item.get("payload") or {}).get("options") or []]
+            choice = list(solution)
+            if not right:
+                while choice == solution and len(choice) > 1:
+                    rng.shuffle(choice)
+        elif kind == "numeric":
+            payload = item.get("payload") or {}
+            target = (item.get("answer") or {}).get("value")
+            low, high = float(payload.get("min") or 0.0), float(payload.get("max") or 0.0)
+            number = float(target) if (right and target is not None) else round(rng.uniform(low, high), 2)
+        elif kind == "word_cloud":
+            words = rng.sample(BOT_WORDS, k=min(int((item.get("payload") or {}).get("max_words") or 1), len(BOT_WORDS)))
+        elif kind == "type_answer":
             text = accepted[0] if (right and accepted) else rng.choice(["não sei", "talvez", "outro"])
         elif kind == "poll" or not correct_keys:
             choice = [rng.choice(option_ids)] if option_ids else None
@@ -1222,7 +1388,7 @@ def bot_plan(db: Session, session_id: str, qi: int, *, now: datetime | None = No
             choice = [ids_by_key[correct_keys[0]]] if (right or not wrong) else [rng.choice(wrong)]
         answer_id = str(uuid.uuid5(_BOT_NAMESPACE, f"{session_id}:{qi}:{pid}"))
         delay = open_in + window * rng.uniform(0.1, 0.8)
-        plan.append(BotAnswer(delay, AnswerIn(session_id, pid, answer_id, qi, choice=choice, text=text)))
+        plan.append(BotAnswer(delay, AnswerIn(session_id, pid, answer_id, qi, choice=choice, text=text, words=words, number=number)))
     plan.sort(key=lambda b: b.delay_s)
     return plan
 
@@ -1245,6 +1411,8 @@ class AnswerIn:
     text: str | None = None
     client_elapsed_ms: int | None = None
     rtt_min_ms: int | None = None
+    words: list[str] | None = None
+    number: float | None = None
 
 
 def submit_answer(
@@ -1258,9 +1426,11 @@ def submit_answer(
     text: str | None,
     client_elapsed_ms: int | None,
     rtt_min_ms: int | None,
+    words: list[str] | None = None,
+    number: float | None = None,
     now: datetime | None = None,
 ) -> AnswerResult:
-    answer = AnswerIn(session_id, participant_id, answer_id, qi, choice, text, client_elapsed_ms, rtt_min_ms)
+    answer = AnswerIn(session_id, participant_id, answer_id, qi, choice, text, client_elapsed_ms, rtt_min_ms, words, number)
     return submit_answers(db, [answer], now=now)[0]
 
 
@@ -1347,7 +1517,7 @@ def _submit_session_batch(db: Session, session_id: str, answers: list[AnswerIn],
             results[index] = AnswerResult("already_answered", Outcome())
             continue
         try:
-            graded = registry.grade(session_id, qi, item, choice=answer.choice, text=answer.text)
+            graded = registry.grade(session_id, qi, item, choice=answer.choice, text=answer.text, words=answer.words, number=answer.number)
         except registry.InvalidAnswer:
             results[index] = AnswerResult("invalid", Outcome())
             continue
@@ -1442,12 +1612,21 @@ def results_tick(db: Session, session_id: str) -> list[Broadcast]:
         "total": participant_count(db, session_id),
     }
     counts = option_counts(db, room, position)
-    public = bool(room.settings.get("show_live_distribution")) or item["item_type"] == "poll"
+    extra = live_extra(db, room, position, item)
+    public = bool(room.settings.get("show_live_distribution")) or item["item_type"] in {"poll", "word_cloud"}
     return [
         Broadcast("participant.progress", base, audience=PARTICIPANTS),
-        Broadcast("results.tick", {**base, "counts": counts}, audience=HOST),
-        Broadcast("results.tick", {**base, **({"counts": counts} if public else {})}, audience=DISPLAY),
+        Broadcast("results.tick", {**base, "counts": counts, **extra}, audience=HOST),
+        Broadcast("results.tick", {**base, **({"counts": counts, **extra} if public else {})}, audience=DISPLAY),
     ]
+
+
+def live_extra(db: Session, room: Room, position: int, item: dict[str, Any]) -> dict[str, Any]:
+    """Live aggregates while the question is open. Ordering shows nothing live (the
+    per-slot accuracy is the answer); numeric shows the histogram only (no target)."""
+    if item["item_type"] not in {"word_cloud", "numeric"}:
+        return {}
+    return type_results(db, room, position, item, _submitted_responses(db, room.session.id, position))
 
 
 def touch_participant(db: Session, participant_id: str, *, now: datetime | None = None) -> None:

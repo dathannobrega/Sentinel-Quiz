@@ -175,6 +175,7 @@ def serialize_item(item: LiveQuizItem) -> dict[str, Any]:
         "difficulty": item.difficulty,
         "updated_at": _iso(item.updated_at),
         "ai": _ai_meta(item),
+        **items_registry.type_fields(item.item_type, payload, answer),
     }
 
 
@@ -414,6 +415,11 @@ def update_item(db: Session, user: User, quiz_id: str, item_id: str, *, expected
             raise api_error(422, "item_invalid", "Items from the question bank keep their type.")
         new_payload, new_answer = items_registry.default_payload(item_type)
         # Keep what still makes sense (options between option types, prompt always).
+        listish = items_registry.OPTION_TYPES | {"ordering"}
+        if item_type == "ordering" and item.item_type in listish and item.item_type != "true_false":
+            new_payload["options"] = payload.get("options") or new_payload.get("options")
+        elif item.item_type == "ordering" and item_type in items_registry.OPTION_TYPES and item_type != "true_false":
+            new_payload["options"] = payload.get("options") or new_payload.get("options")
         if item_type in items_registry.OPTION_TYPES and item.item_type in items_registry.OPTION_TYPES and item_type != "true_false" and item.item_type != "true_false":
             new_payload["options"] = payload.get("options") or new_payload.get("options")
             if item_type != "poll":
@@ -422,7 +428,7 @@ def update_item(db: Session, user: User, quiz_id: str, item_id: str, *, expected
                     new_answer["correct_keys"] = new_answer["correct_keys"][:1]
         payload, answer = new_payload, new_answer
         item.item_type = item_type
-        if item_type in items_registry.PASSIVE_TYPES or item_type == "poll":
+        if item_type not in items_registry.SCORED_TYPES:
             item.points_multiplier = 0
         elif item.points_multiplier == 0:
             item.points_multiplier = 1
@@ -534,6 +540,7 @@ def _bank_rows(db: Session, question_ids: Iterable[str]) -> dict[str, dict[str, 
         q.id: {
             "question": q,
             "options": options.get(q.id, []),
+            "ordering": pbq_ordering_task(q),
             "explanation": explanations.get(q.id),
             "version_id": versions.get(q.id),
         }
@@ -541,20 +548,71 @@ def _bank_rows(db: Session, question_ids: Iterable[str]) -> dict[str, dict[str, 
     }
 
 
+def _json_or_empty(raw: str | None) -> dict[str, Any]:
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def pbq_ordering_task(question: Question) -> dict[str, Any] | None:
+    """The first ordering task of a PBQ that fits a live ``ordering`` item (3..6 items of
+    up to 120 characters, a complete solution): ``{title, prompt, items (in the correct
+    order), method, explanation}``."""
+    if question.question_format != "pbq":
+        return None
+    public = _json_or_empty(question.pbq_payload_json)
+    answer = _json_or_empty(question.pbq_answer_json)
+    solutions = answer.get("tasks") if isinstance(answer.get("tasks"), dict) else {}
+    for task in public.get("tasks") or []:
+        if not isinstance(task, dict) or task.get("type") != "ordering":
+            continue
+        items = {str(i.get("id")): str(i.get("text") or "").strip() for i in task.get("items") or [] if isinstance(i, dict)}
+        spec = solutions.get(str(task.get("id"))) or {}
+        order = [str(v) for v in ((spec.get("solution") or {}).get("order") or [])]
+        if not items_registry.ORDER_MIN <= len(items) <= items_registry.OPTIONS_MAX:
+            continue
+        if sorted(order) != sorted(items) or any(not text or len(text) > items_registry.OPTION_MAX for text in items.values()):
+            continue
+        method = str((spec.get("scoring") or {}).get("method") or "")
+        explanation = (spec.get("explanation") or {}).get("summary") or answer.get("explanation") or None
+        return {
+            "title": str(public.get("title") or "").strip(),
+            "prompt": str(task.get("prompt") or "").strip(),
+            "items": [items[i] for i in order],
+            "method": "exact" if method == "exact" else "kendall",
+            "explanation": explanation,
+        }
+    return None
+
+
 def _bank_reject_reason(row: dict[str, Any]) -> tuple[str | None, str | None]:
     question: Question = row["question"]
     if not question.is_active:
         return None, "inactive"
-    if question.question_format != "mcq":
+    if question.question_format not in {"mcq", "pbq"}:
         return None, "unsupported_format"
     if not licensing.is_live_usable(question.license_scope):
         return None, "license_personal_use"
+    if question.question_format == "pbq":
+        # Only PBQs with an ordering task that fits the projector become live items.
+        return ("ordering", None) if row.get("ordering") else (None, "unsupported_format")
     return items_registry.bank_conversion(row["options"], bool(question.multi_select))
 
 
 def _bank_item_values(row: dict[str, Any], item_type: str) -> dict[str, Any]:
     question: Question = row["question"]
-    if item_type == "true_false":
+    explanation = row["explanation"] or None
+    if item_type == "ordering":
+        task = row["ordering"]
+        prompt = f"{task['title']}: {task['prompt']}" if task["title"] else task["prompt"]
+        payload: dict[str, Any] = {
+            "options": [{"key": key, "text": text} for key, text in zip(items_registry.OPTION_KEYS, task["items"])]
+        }
+        answer: dict[str, Any] = {"method": task["method"]}
+        explanation = task["explanation"] or explanation
+    elif item_type == "true_false":
         options, correct = [], []
         by_truth = sorted(
             row["options"],
@@ -567,12 +625,16 @@ def _bank_item_values(row: dict[str, Any], item_type: str) -> dict[str, Any]:
     else:
         options = [{"key": key, "text": o["text"]} for key, o in zip(items_registry.OPTION_KEYS, row["options"])]
         correct = [key for key, o in zip(items_registry.OPTION_KEYS, row["options"]) if o["correct"]]
+    if item_type != "ordering":
+        prompt = question.prompt or ""
+        payload = {"options": options, **({"all_or_nothing": False} if item_type == "multi_choice" else {})}
+        answer = {"correct_keys": correct}
     return {
         "item_type": item_type,
-        "prompt": (question.prompt or "")[: items_registry.PROMPT_MAX],
-        "payload_json": {"options": options, **({"all_or_nothing": False} if item_type == "multi_choice" else {})},
-        "answer_json": {"correct_keys": correct},
-        "explanation": (row["explanation"] or None),
+        "prompt": prompt[: items_registry.PROMPT_MAX],
+        "payload_json": payload,
+        "answer_json": answer,
+        "explanation": explanation,
         "time_limit_s": items_registry.DEFAULT_TIME_LIMIT.get(item_type),
         "points_multiplier": 1,
         "source_kind": "bank",
@@ -620,7 +682,7 @@ def add_items_from_bank(db: Session, user: User, quiz_id: str, *, expected_versi
 def _bank_base_query():
     return select(Question).where(
         Question.is_active.is_(True),
-        Question.question_format == "mcq",
+        Question.question_format.in_(("mcq", "pbq")),
         Question.license_scope != licensing.PERSONAL_USE,
     )
 
@@ -682,7 +744,12 @@ def bank_search(
             {
                 "question_id": question.id,
                 "prompt": question.prompt,
-                "options": [{"key": o["key"], "text": o["text"]} for o in row["options"]],
+                "options": (
+                    [{"key": key, "text": text} for key, text in zip(items_registry.OPTION_KEYS, row["ordering"]["items"])]
+                    if row["ordering"]
+                    else [{"key": o["key"], "text": o["text"]} for o in row["options"]]
+                ),
+                "question_format": question.question_format,
                 "multi_select": bool(question.multi_select),
                 "certification": question.certification,
                 "domain": question.domain,

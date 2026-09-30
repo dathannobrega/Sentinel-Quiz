@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -42,6 +42,7 @@ HOST_COMMANDS = frozenset(
         "host.resume",
         "host.extend",
         "host.set_time",
+        "host.hide_word",
     }
 )
 COMMON_COMMANDS = frozenset({"time.sync", "pong"})
@@ -99,6 +100,10 @@ class AnswerSubmitData(_Strict):
     qi: int = Field(ge=0, le=10000)
     choice: Optional[list[str]] = Field(default=None, max_length=6)
     text: Optional[str] = Field(default=None, max_length=120)
+    # word_cloud: up to 3 words of up to 25 characters (the item's max_words decides).
+    words: Optional[list[Annotated[str, Field(max_length=25)]]] = Field(default=None, max_length=3)
+    # numeric: the value parsed on the device in the user's locale (preferred over ``text``).
+    number: Optional[float] = Field(default=None, allow_inf_nan=False, ge=-1e12, le=1e12)
     client_elapsed_ms: Optional[int] = Field(default=None, ge=0, le=3_600_000)
 
 
@@ -129,6 +134,12 @@ class ExtendData(_Strict):
     seconds: int = Field(ge=5, le=300)
 
 
+class HideWordData(_Strict):
+    qi: int = Field(ge=0, le=10000)
+    word: str = Field(min_length=1, max_length=25)
+    hidden: bool = True
+
+
 class SetTimeData(_Strict):
     participant_id: str = Field(max_length=36)
     multiplier: Literal[0, 1, 1.5, 2]
@@ -152,6 +163,7 @@ DATA_MODELS: dict[str, type[BaseModel]] = {
     "host.resume": ExpectedQiData,
     "host.extend": ExtendData,
     "host.set_time": SetTimeData,
+    "host.hide_word": HideWordData,
 }
 
 
