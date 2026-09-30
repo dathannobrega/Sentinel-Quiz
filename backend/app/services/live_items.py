@@ -245,6 +245,8 @@ def public_question(session_id: str, position: int, snapshot: dict) -> dict[str,
         "points_multiplier": multiplier,
         "scored": is_scored(item_type, multiplier),
         "select_count": len(answer.get("correct_keys") or []) if item_type == "multi_choice" else None,
+        # Removed by moderation (RF-1114): clients show a neutral placeholder.
+        "removed": bool(snapshot.get("removed")),
     }
 
 

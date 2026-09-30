@@ -71,6 +71,8 @@ class Outcome:
     kicked_participant: tuple[str, bool] | None = None
     # The pending auto-lock no longer applies (pause, untimed participant).
     clear_lock: bool = False
+    # Every connection needs a fresh snapshot (moderation removed visible content).
+    resnapshot: bool = False
 
 
 class RoomNotFound(LookupError):
@@ -132,7 +134,20 @@ def load_room(db: Session, session_id: str) -> Room:
         if len(_version_cache) > 512:
             _version_cache.clear()
         _version_cache[session.quiz_version_id] = cached
-    return Room(session=session, items=cached[0], title=cached[1])
+    items = cached[0]
+    hidden = {int(p) for p in (session.hidden_positions or [])}
+    if hidden:
+        # Removed by moderation: a neutral, unscored content slide with no original text.
+        items = [removed_placeholder(item) if index in hidden else item for index, item in enumerate(items)]
+    return Room(session=session, items=items, title=cached[1])
+
+
+def removed_placeholder(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "item_id": item.get("item_id"), "position": item.get("position"), "item_type": "content", "prompt": "",
+        "payload": {"body": ""}, "answer": {}, "explanation": None, "presenter_notes": None, "time_limit_s": None,
+        "points_multiplier": 0, "license_scope": item.get("license_scope"), "removed": True,
+    }
 
 
 def _ms(value: datetime | None) -> int | None:
@@ -444,9 +459,19 @@ def reveal_payload(db: Session, room: Room, position: int) -> dict[str, Any]:
     if not room.settings.get("show_correct_on_device", True):
         payload["hide_correct_on_device"] = True
     if item_type == "type_answer":
+        from app.services import live_moderation
+
+        # The projector shows the most common typed answers: offensive ones are masked
+        # (never an accepted answer, which the author wrote).
         payload["top_answers"] = [
-            {"text": typed_display[norm], "n": n, "accepted": typed_accepted.get(norm, False)}
+            {
+                "text": "•••" if masked else typed_display[norm],
+                "n": n,
+                "accepted": typed_accepted.get(norm, False),
+                **({"masked": True} if masked else {}),
+            }
             for norm, n in typed.most_common(12)
+            for masked in [not typed_accepted.get(norm, False) and live_moderation.text_is_offensive(db, typed_display[norm])]
         ]
     return payload
 
@@ -519,6 +544,8 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         },
         "room_locked": bool(session.room_locked),
         "participant_count": count,
+        "max_participants": int(session.max_participants),  # host warning at 80% (RF-1205)
+        "rehearsal": session.mode == "rehearsal",
     }
     if session.phase == "lobby":
         data["lobby"] = lobby_state(db, session.id)
@@ -559,6 +586,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
                 "connected": bool(p.is_bot or (p.last_seen_at and p.last_seen_at >= cutoff)),
                 "time_multiplier": _multiplier(p.time_multiplier),
                 "is_bot": bool(p.is_bot),
+                "is_preview": bool(p.is_preview),
             }
             for p in active_participants(db, session.id)
         ]
@@ -1091,6 +1119,42 @@ def set_time_multiplier(db: Session, session_id: str, *, participant_id: str, mu
     elif session.phase == "question":
         outcome.clear_lock = True  # someone became untimed: the host locks
     return outcome
+
+
+# ----------------------------------------------------------------------------- moderation
+
+def remove_item(db: Session, session_id: str, *, position: int) -> Outcome:
+    """Hide one item in an open room (RF-1114). The current item turns into the neutral
+    placeholder at once; the gateway then re-sends a snapshot to every connection."""
+    room = load_room(db, session_id)
+    session = room.session
+    if session.status == "finished" or not 0 <= position < room.total:
+        return Outcome(error="stale")
+    hidden = sorted({int(p) for p in (session.hidden_positions or [])} | {int(position)})
+    values: dict[str, Any] = {"hidden_positions": hidden}
+    current = session.current_position == position and session.phase in {"question", "locked", "reveal"}
+    if current:
+        values.update({"phase": "content", "answers_open_at": None, "deadline_at": None, "paused_at": None})
+    seq = _cas(db, room, expect_phase={session.phase}, values=values)
+    if seq is None:
+        return Outcome(error="stale")
+    db.commit()
+    return Outcome(broadcasts=[Broadcast("item.removed", {"qi": position, "current": current}, seq=seq)], resnapshot=True)
+
+
+def erase_participant(db: Session, participant: LiveParticipant, *, now: datetime | None = None) -> None:
+    """LGPD erasure (RF-650): the person disappears from every nominal view; answers stay
+    as anonymous statistics of the session."""
+    now = now or utcnow()
+    participant.erased_at = now
+    participant.display_name = "Participante removido"[:24]
+    participant.nickname_norm = f"erased{participant.id.replace('-', '')[:16]}"
+    participant.avatar_seed = "erased"
+    participant.user_id = None
+    participant.token_hash = None
+    participant.return_code_hash = None
+    participant.dev_hash = None
+    participant.kicked_at = participant.kicked_at or now  # leaves live rankings at once
 
 
 # ----------------------------------------------------------------------------- rehearsal bots

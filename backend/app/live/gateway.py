@@ -123,6 +123,9 @@ class RoomChannel:
         if control == "presence":
             self.presence_dirty = True
             return
+        if control == "resnapshot":
+            await self.resnapshot_all()
+            return
         if control == "kick":
             pid = message.get("participant_id")
             banned = bool(message.get("banned"))
@@ -211,6 +214,23 @@ class RoomChannel:
             text = protocol.dumps(frame)
             for conn in hosts:
                 conn.send(text)
+
+    async def resnapshot_all(self) -> None:
+        """Moderation removed content: every local connection gets a fresh snapshot."""
+        targets = [c for c in list(self.connections) if not c.closed]
+        if not targets:
+            return
+        identities = {(c.role, c.participant_id) for c in targets}
+
+        def _build() -> dict[tuple[str, str | None], str]:
+            return {
+                key: protocol.dumps(_snapshot(Identity(role=key[0], session_id=self.session_id, participant_id=key[1])))
+                for key in identities
+            }
+
+        frames = await run_in_threadpool(_build)
+        for conn in targets:
+            conn.send(frames[(conn.role, conn.participant_id)])
 
     async def refresh_hosts(self) -> None:
         hosts = [c for c in self.connections if c.role == "host"]
@@ -442,6 +462,8 @@ class LiveHub:
         if outcome.kicked_participant:
             pid, banned = outcome.kicked_participant
             await self.bus.publish(session_id, {"control": "kick", "participant_id": pid, "banned": banned})
+        if outcome.resnapshot:
+            await self.bus.publish(session_id, {"control": "resnapshot"})
 
     async def submit_answer(self, answer: runtime.AnswerIn) -> runtime.AnswerResult:
         loop = asyncio.get_running_loop()

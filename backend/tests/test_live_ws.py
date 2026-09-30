@@ -354,3 +354,34 @@ def test_rehearsal_bots_are_driven_by_the_host_process(live_on, login_client, mo
         expect(conn, "question.intro")
         locked = expect(conn, "question.locked")  # all 5 bots answered
         assert locked["data"]["reason"] == "all_answered"
+
+
+def test_moderation_removal_and_erasure_reach_open_sockets(room, login_client):
+    with ExitStack() as stack:
+        host = _open_host(stack, room)
+        expect(host, "welcome"), expect(host, "room.snapshot")
+        ana = _open_token(stack, room["host"], room["guests"]["Ana"]["token"])
+        expect(ana, "welcome"), expect(ana, "room.snapshot")
+        send(host, "host.start")
+        expect(ana, "question.intro")
+
+        guest = room["make_client"]()
+        sent = guest.post("/api/live/me/report", headers={"Authorization": f"Bearer {room['guests']['Bia']['token']}"},
+                          json={"target": "item", "qi": 0, "reason": "offensive"})
+        assert sent.status_code == 202
+        admin, _ = login_client(role="admin")
+        case = admin.get("/api/admin/live/cases").json()["items"][0]
+        # The admin client runs in another event loop: the removal reaches the sockets via the bus.
+        resolved = admin.post(f"/api/admin/live/cases/{case['id']}/resolve", json={"action": "remove_item", "note": "ofensivo"})
+        assert resolved.status_code == 200
+        removed = expect(ana, "item.removed")
+        assert removed["data"] == {"qi": 0, "current": True}
+        snap = expect(ana, "room.snapshot")["data"]
+        assert snap["phase"] == "content" and snap["question"]["removed"] is True and snap["question"]["prompt"] == ""
+        host_snap = expect(host, "room.snapshot")["data"]
+        assert host_snap["max_participants"] >= 2 and all("is_preview" in p for p in host_snap["participants"])
+
+        erased = guest.delete("/api/live/me", headers={"Authorization": f"Bearer {room['guests']['Ana']['token']}"})
+        assert erased.status_code == 200
+        kicked = expect(ana, "participant.kicked", skip=("lobby.update", "srv.ping", "room.snapshot", "results.tick"))
+        assert kicked["data"] == {"banned": False}

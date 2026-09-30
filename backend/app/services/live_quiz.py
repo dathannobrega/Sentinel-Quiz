@@ -776,8 +776,7 @@ def publish_quiz(db: Session, user: User, quiz_id: str, *, expected_version: int
     )
     version_no = int(quiz.published_version_no or 0) + 1
     now = utcnow()
-    db.add(
-        LiveQuizVersion(
+    version = LiveQuizVersion(
             quiz_id=quiz.id,
             version_no=version_no,
             title=quiz.title,
@@ -788,7 +787,10 @@ def publish_quiz(db: Session, user: User, quiz_id: str, *, expected_version: int
             published_by_user_id=user.id,
             published_at=now,
         )
-    )
+    db.add(version)
+    from app.services import live_admin  # local: live_admin imports the runtime
+
+    findings = live_admin.moderate_version(db, version, quiz)
     quiz.published_version_no = version_no
     _touch(quiz)
     quiz.published_at_version = quiz.version
@@ -799,6 +801,8 @@ def publish_quiz(db: Session, user: User, quiz_id: str, *, expected_version: int
         "version_no": version_no,
         "published_at": _iso(now),
         "warnings": [_public_issue(issue) for issue in issues if issue["severity"] == "warning"],
+        # RF-1112: flagged content still publishes, but rooms with guests wait for an admin.
+        "moderation": {"state": version.moderation_state, "findings": findings[:20]},
     }
 
 

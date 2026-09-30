@@ -72,6 +72,9 @@ def app():
     # disabled for the shared app via the huge limits above; rate-limit tests build
     # their own app with create_app().
     fastapi_app.state.rate_limit_store = InMemoryRateLimitStore()
+    from app.services import live_moderation
+
+    live_moderation.invalidate_cache()  # admin terms are cached per process
     yield fastapi_app
     Base.metadata.drop_all(bind=engine)
 

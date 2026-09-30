@@ -150,6 +150,10 @@ class Settings(BaseSettings):
     # never exposes it.
     # SSE fallback streams are closed (code 1012) after this long; the client reconnects.
     live_sse_max_seconds: float = Field(default=300.0, alias="LIVE_SSE_MAX_SECONDS")
+    # Retention (RF-1109): names anonymized N days after a session ends, raw answers deleted
+    # after M days (the report is frozen first). N is capped at M.
+    live_retention_names_days: int = Field(default=180, alias="LIVE_RETENTION_NAMES_DAYS")
+    live_retention_events_days: int = Field(default=365, alias="LIVE_RETENTION_EVENTS_DAYS")
     live_metrics_token: str = Field(default="", alias="LIVE_METRICS_TOKEN")
     # Extra WebSocket origins; CORS_ORIGINS and PUBLIC_WEB_ORIGIN are always allowed.
     live_allowed_origins: str = Field(default="", alias="LIVE_ALLOWED_ORIGINS")

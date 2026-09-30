@@ -34,14 +34,19 @@ from app.schemas_live import (
     QuizUpdateIn,
     RejoinIn,
     ReorderIn,
+    AccessIn,
+    ClaimIn,
+    ReportIn,
     ReviewIn,
     SessionCreateIn,
 )
 from app.schemas_ai import BankSampleIn
-from app.services import live_names, live_quiz, live_results, live_session
+from app.services import live_admin, live_names, live_preflight, live_quiz, live_results, live_rights, live_session
 from app.services.auth import parse_bearer_token
 
 router = APIRouter(prefix="/api/live", tags=["live"])
+
+ACCESS_MAX_FAILURES = 10  # wrong return codes per (session, name) per 15 min
 
 
 async def _enabled() -> None:  # async: no threadpool hop on the public hot paths
@@ -262,12 +267,15 @@ def session_qr(session_id: str, db: Session = Depends(get_db), user: User = Depe
 
 @router.get("/sessions/{session_id}/report")
 def session_report(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
-    return live_results.build_report(db, live_session.get_owned_session(db, user, session_id))
+    session = live_session.get_owned_session(db, user, session_id)
+    live_admin.audit_access(db, user, action="report_view", session=session)  # RF-1110
+    return live_results.session_report(db, session)
 
 
 @router.get("/sessions/{session_id}/export.csv")
 def session_export(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> StreamingResponse:
     session = live_session.get_owned_session(db, user, session_id)
+    live_admin.audit_access(db, user, action="export_csv", session=session)  # RF-1110
     rows = list(live_results.iter_csv(db, session))  # built before the DB session closes
     return StreamingResponse(
         iter(rows),
@@ -360,6 +368,117 @@ def live_metrics(request: Request, format: str = Query(default="prometheus", pat
     if format == "json":
         return metrics.summary()
     return PlainTextResponse(metrics.prometheus(), media_type="text/plain; version=0.0.4")
+
+
+def _participant(token: str) -> Any:
+    with live_db() as db:
+        return live_session.participant_from_token(db, token)
+
+
+def _bearer(authorization: Optional[str]) -> str:
+    token = parse_bearer_token(authorization)
+    if not token:
+        raise api_error(401, "token_invalid", "Participant token required.")
+    return token
+
+
+@router.get("/me", dependencies=[Depends(_enabled)])
+async def my_data(authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """RF-650: what the room keeps about me."""
+    token = _bearer(authorization)
+
+    def _data() -> dict[str, Any]:
+        with live_db() as db:
+            return live_rights.my_data(db, live_session.participant_from_token(db, token))
+
+    return await run_in_threadpool(_data)
+
+
+@router.delete("/me", dependencies=[Depends(_enabled)])
+async def erase_me(request: Request, authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """RF-650: anonymize me now (leaves rankings and reports; the socket is closed)."""
+    token = _bearer(authorization)
+
+    def _erase() -> tuple[str, runtime.Outcome]:
+        with live_db() as db:
+            participant = live_session.participant_from_token(db, token)
+            return participant.session_id, live_rights.erase(db, participant)
+
+    session_id, outcome = await run_in_threadpool(_erase)
+    await get_hub(request.app).publish_outcome(session_id, outcome)
+    return {"erased": True}
+
+
+@router.post("/me/access", dependencies=[Depends(_enabled)])
+async def access_with_return_code(request: Request, body: AccessIn) -> dict[str, Any]:
+    """A fresh token from name + return code (expired token, finished session)."""
+    store = getattr(request.app.state, "rate_limit_store", None)
+    guard_key = f"live-access:{body.session_id}:{live_names.nickname_key(live_names.clean_display_name(body.display_name))}"
+    if store is not None:
+        failures = await store.peek_counter(key=guard_key)
+        if failures is not None and failures >= ACCESS_MAX_FAILURES:
+            raise api_error(429, "too_many_attempts", "Too many attempts. Try again later.")
+
+    def _access() -> dict[str, Any]:
+        with live_db() as db:
+            return live_rights.access_with_return_code(
+                db, session_id=body.session_id, display_name=body.display_name, return_code=body.return_code
+            )
+
+    try:
+        return await run_in_threadpool(_access)
+    except Exception as exc:
+        if store is not None and getattr(exc, "status_code", None) == 403:
+            await store.increment_counter(key=guard_key, ttl_seconds=900)
+        raise
+
+
+@router.post("/me/claim", dependencies=[Depends(_enabled)])
+async def claim_me(body: ClaimIn, user: User = Depends(get_current_user_required)) -> dict[str, Any]:
+    """RF-633: link this participation (participant token in the body) to the signed-in account."""
+    token = body.token
+
+    def _claim() -> dict[str, Any]:
+        with live_db() as db:
+            participant = live_session.participant_from_token(db, token)
+            account = db.get(User, user.id)
+            return live_rights.claim(db, participant, account)
+
+    return await run_in_threadpool(_claim)
+
+
+@router.post("/me/report", status_code=202, dependencies=[Depends(_enabled)])
+async def report_content(body: ReportIn, authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """RF-1104: a participant reports the session or one item."""
+    token = _bearer(authorization)
+    if body.target == "item" and body.qi is None:
+        raise api_error(422, "invalid_item", "Tell which item you are reporting.")
+
+    def _report() -> dict[str, Any]:
+        with live_db() as db:
+            participant = live_session.participant_from_token(db, token)
+            case = live_admin.report(db, participant, target=body.target, qi=body.qi, reason=body.reason, note=body.note)
+            return {"report_id": case.id}
+
+    return await run_in_threadpool(_report)
+
+
+@router.post("/sessions/{session_id}/preview", status_code=201)
+def create_preview(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    """RF-514: the host's phone preview in a rehearsal (the same participant client)."""
+    return live_session.preview_participant(db, live_session.get_owned_session(db, user, session_id))
+
+
+@router.get("/sessions/{session_id}/preflight")
+async def preflight(request: Request, session_id: str, user: User = Depends(host_user)) -> dict[str, Any]:
+    """RF-1115: is everything ready for this room?"""
+
+    def _owned() -> Any:
+        with live_db() as db:
+            return live_session.get_owned_session(db, user, session_id)
+
+    session = await run_in_threadpool(_owned)
+    return await live_preflight.run(get_hub(request.app), session)
 
 
 @router.get("/healthz")

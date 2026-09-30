@@ -122,3 +122,21 @@ class JoinIn(_Strict):
 class RejoinIn(_Strict):
     display_name: str = Field(max_length=64)
     return_code: str = Field(min_length=4, max_length=8)
+
+
+class ReportIn(_Strict):
+    target: Literal["session", "item"] = "item"
+    qi: Optional[int] = Field(default=None, ge=0, le=10000)
+    reason: Literal["offensive", "spam", "cheating", "copyright", "privacy", "other"]
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class AccessIn(_Strict):
+    session_id: Uuid
+    display_name: str = Field(min_length=1, max_length=64)
+    return_code: str = Field(min_length=4, max_length=12)
+
+
+class ClaimIn(_Strict):
+    # In the body: the Authorization header carries the signed-in user's session.
+    token: str = Field(min_length=10, max_length=1024)
