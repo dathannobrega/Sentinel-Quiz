@@ -43,6 +43,9 @@ INVALID_CODES_MESSAGE = "Too many invalid room codes. Check the code and retry l
 _LIVE_ROOM_PATH = re.compile(r"^/api/live/rooms/(?P<code>[^/]{1,32})(?:/(?:join|rejoin))?$")
 _LIVE_TOKEN_PATH = re.compile(r"^/api/live/me/")
 _LIVE_PUBLIC_PATHS = frozenset({"/api/live/names/suggest", "/api/live/capabilities", "/api/live/healthz"})
+# SSE fallback (RNF-309): the stream (token in the query string) and its commands
+# (token as Bearer) are limited per participant token; the host (cookie) per IP.
+_LIVE_TRANSPORT_PATHS = frozenset({"/api/live/sse", "/api/live/cmd"})
 
 AUTH_SENSITIVE_PATHS = frozenset(
     {
@@ -497,9 +500,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             limit=max(int(settings.rate_limit_live_ip_requests or 0), 1),
             window_seconds=max(int(settings.rate_limit_live_ip_window_seconds or 0), 1),
         )
+        self._live_cmd_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_live_cmd_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_live_cmd_window_seconds or 0), 1),
+        )
         self._invalid_code_limit = max(int(settings.live_invalid_code_limit or 0), 1)
         self._invalid_code_window_seconds = max(int(settings.live_invalid_code_window_seconds or 0), 1)
         self._max_window_seconds = max(
+            self._live_cmd_policy.window_seconds,
             self._live_room_policy.window_seconds,
             self._live_token_policy.window_seconds,
             self._live_ip_policy.window_seconds,
@@ -533,7 +541,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path in {"/api/health"}:
             return await call_next(request)
 
-        bucket_name, policy, scope = self._resolve_policy(path, request.method, request.headers.get("authorization"))
+        bucket_name, policy, scope = self._resolve_policy(
+            path, request.method, request.headers.get("authorization"), request.query_params.get("token")
+        )
         identity = resolve_rate_limit_identity(request)
         request.state.rate_limit_bucket = bucket_name
         request.state.identity_hint = getattr(request.state, "identity_hint", None) or resolve_request_identity(request)
@@ -554,7 +564,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             max_keys=self._max_keys,
             max_window_seconds=self._max_window_seconds,
         )
-        if self._abuse_enabled and bucket_name not in {"live_room", "live_token"}:
+        if self._abuse_enabled and bucket_name not in {"live_room", "live_token", "live_cmd"}:
             # Live buckets have their own guards (invalid codes per IP, per-token limit);
             # a join storm would make the per-IP activity scan O(n) per request.
             abuse_signal = await self._store.register_activity(
@@ -644,9 +654,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         )
 
     def _resolve_policy(
-        self, path: str, method: str = "GET", authorization: str | None = None
+        self, path: str, method: str = "GET", authorization: str | None = None, query_token: str | None = None
     ) -> tuple[str, RateLimitPolicy, str | None]:
         """Bucket name, policy and key scope (``None`` = the client IP)."""
+        if path in _LIVE_TRANSPORT_PATHS:
+            token = str(authorization or "").removeprefix("Bearer ").strip() or str(query_token or "").strip()
+            if token:
+                return "live_cmd", self._live_cmd_policy, hashlib.sha256(token.encode("utf-8")).hexdigest()[:32]
+            return "live_ip", self._live_ip_policy, None
         if path.startswith("/api/live/"):
             room = _LIVE_ROOM_PATH.match(path)
             if room:

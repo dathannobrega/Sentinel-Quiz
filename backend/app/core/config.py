@@ -148,6 +148,8 @@ class Settings(BaseSettings):
     live_ws_rate_burst: int = Field(default=40, alias="LIVE_WS_RATE_BURST")
     # GET /api/live/metrics (RNF-1001). Empty: only loopback clients may scrape. nginx
     # never exposes it.
+    # SSE fallback streams are closed (code 1012) after this long; the client reconnects.
+    live_sse_max_seconds: float = Field(default=300.0, alias="LIVE_SSE_MAX_SECONDS")
     live_metrics_token: str = Field(default="", alias="LIVE_METRICS_TOKEN")
     # Extra WebSocket origins; CORS_ORIGINS and PUBLIC_WEB_ORIGIN are always allowed.
     live_allowed_origins: str = Field(default="", alias="LIVE_ALLOWED_ORIGINS")
@@ -176,6 +178,8 @@ class Settings(BaseSettings):
     rate_limit_live_room_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_ROOM_WINDOW_SECONDS")
     rate_limit_live_token_requests: int = Field(default=30, alias="RATE_LIMIT_LIVE_TOKEN_REQUESTS")
     rate_limit_live_token_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_TOKEN_WINDOW_SECONDS")
+    rate_limit_live_cmd_requests: int = Field(default=300, alias="RATE_LIMIT_LIVE_CMD_REQUESTS")
+    rate_limit_live_cmd_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_CMD_WINDOW_SECONDS")
     rate_limit_live_ip_requests: int = Field(default=3000, alias="RATE_LIMIT_LIVE_IP_REQUESTS")
     rate_limit_live_ip_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_IP_WINDOW_SECONDS")
     live_invalid_code_limit: int = Field(default=60, alias="LIVE_INVALID_CODE_LIMIT")

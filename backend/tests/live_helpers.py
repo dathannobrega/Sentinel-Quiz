@@ -15,6 +15,8 @@ def live_on(monkeypatch):
     monkeypatch.setattr(settings, "live_enabled", True)
     monkeypatch.setattr(settings, "live_host_policy", "all")
     monkeypatch.setattr(settings, "live_ws_heartbeat_ms", 60000)
+    # TestClient buffers a streaming body until it ends: keep SSE streams short.
+    monkeypatch.setattr(settings, "live_sse_max_seconds", 0.3)
     yield settings
 
 

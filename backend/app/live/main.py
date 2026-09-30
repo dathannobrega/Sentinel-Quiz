@@ -19,6 +19,7 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.live.bus import build_live_bus
 from app.live.gateway import LiveHub, router as live_ws_router
+from app.live.sse import router as live_sse_router
 from app.middleware.observability import ObservabilityMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware, build_rate_limit_store
 
@@ -48,6 +49,7 @@ def create_live_app(app_settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RateLimitMiddleware, settings=app_settings, store=rate_limit_store)
     app.add_middleware(ObservabilityMiddleware, settings=app_settings)
     app.include_router(live_ws_router)
+    app.include_router(live_sse_router)
     # Room lookup/join are the hot path when a QR code is shown to a big audience.
     app.include_router(live_rest_router)
     return app
