@@ -372,6 +372,7 @@ class LiveHub:
         self._background: set[asyncio.Task] = set()
         # One group-commit writer per event loop (tests run one loop per client).
         self._batchers: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, AnswerBatcher]" = weakref.WeakKeyDictionary()
+        bus.on_recovered(self._after_bus_recovery)
         metrics.gauge("live_connections", self._connections_by_role)
         metrics.gauge("live_rooms_active", lambda: {(): float(len(self.rooms))})
 
@@ -388,6 +389,17 @@ class LiveHub:
         self._lag_task = self._presence_task = None
         await self.flush_presence()
         await self.bus.close()
+
+    async def _after_bus_recovery(self) -> None:
+        """Events may have been lost while Redis was away: every local socket gets the
+        authoritative snapshot again and each room re-reads its auto-lock deadline."""
+        metrics.inc("live_bus_recoveries_total")
+        for channel in list(self.rooms.values()):
+            try:
+                channel.lock_at_ms = await run_in_threadpool(_with_db, runtime.pending_lock_at_ms, channel.session_id)
+                await channel.resnapshot_all()
+            except Exception:
+                logger.exception("live room resync failed", extra={"event": "live_room_resync_error", "session_id": channel.session_id})
 
     def mark_seen(self, participant_id: str) -> None:
         self._seen.add(participant_id)
@@ -484,7 +496,13 @@ class LiveHub:
         self._dirty_pending.discard(session_id)
         task = asyncio.create_task(self.bus.publish(session_id, {"control": "dirty"}))
         self._background.add(task)
-        task.add_done_callback(self._background.discard)
+        task.add_done_callback(self._background_done)
+
+    def _background_done(self, task: asyncio.Task) -> None:
+        self._background.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            # A lost "dirty" mark only delays the counters until the next answer.
+            logger.warning("live background publish failed", extra={"event": "live_background_publish_error"})
 
     async def mark_lobby_dirty(self, session_id: str) -> None:
         await self.bus.publish(session_id, {"control": "lobby"})

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import random
 import sys
 import time
@@ -32,6 +33,23 @@ import httpx
 import websockets
 
 SUBPROTOCOL = "sq.live.v1"
+
+
+def _insecure() -> bool:
+    # Self-signed TLS on a local nginx (--insecure); read from the environment so the
+    # join/result child processes inherit it.
+    return os.environ.get("LOADTEST_INSECURE") == "1"
+
+
+def _ws_ssl():
+    if not _insecure():
+        return None
+    import ssl
+
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
 
 
 def pct(values: list[float], q: float) -> float | None:
@@ -95,7 +113,7 @@ def _join_slice(base: str, code: str, indexes: list[int], concurrency: int) -> t
         latencies: list[float] = []
         sem = asyncio.Semaphore(concurrency)
         limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
-        async with httpx.AsyncClient(base_url=base, timeout=30.0, limits=limits) as guests:
+        async with httpx.AsyncClient(base_url=base, timeout=30.0, limits=limits, verify=not _insecure()) as guests:
             async def join(index: int) -> None:
                 async with sem:
                     body = {"display_name": f"Carga {index:04d}", "consent": True}
@@ -134,7 +152,7 @@ def _results_slice(base: str, tokens: list[str], concurrency: int) -> tuple[dict
         latencies: list[float] = []
         sem = asyncio.Semaphore(concurrency)
         limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
-        async with httpx.AsyncClient(base_url=base, timeout=30.0, limits=limits) as client:
+        async with httpx.AsyncClient(base_url=base, timeout=30.0, limits=limits, verify=not _insecure()) as client:
             async def fetch(token: str) -> None:
                 async with sem:
                     t0 = time.perf_counter()
@@ -167,14 +185,18 @@ async def main() -> int:
     ap.add_argument("--join-concurrency", type=int, default=200)
     ap.add_argument("--join-procs", type=int, default=3, help="client processes for the join storm")
     ap.add_argument("--origin", default="http://localhost:3000")
+    ap.add_argument("--metrics-base", default="", help="API origin for /api/live/metrics when --base is a proxy")
+    ap.add_argument("--insecure", action="store_true", help="accept a self-signed TLS certificate (local nginx)")
     args = ap.parse_args()
+    if args.insecure:
+        os.environ["LOADTEST_INSECURE"] = "1"
     base = args.base.rstrip("/")
     ws_base = base.replace("http", "ws", 1) + "/api/live/ws"
     limits = httpx.Limits(max_connections=args.join_concurrency, max_keepalive_connections=args.join_concurrency)
     results: dict = {"participants": args.participants, "questions": args.questions}
     failures: list[str] = []
 
-    async with httpx.AsyncClient(base_url=base, timeout=30.0, limits=limits) as http:
+    async with httpx.AsyncClient(base_url=base, timeout=30.0, limits=limits, verify=not _insecure()) as http:
         email = f"load-{uuid.uuid4().hex[:8]}@example.com"
         await http.post("/api/auth/register", json={"email": email, "password": "correct-horse-battery"})
         login = await http.post("/api/auth/login", json={"email": email, "password": "correct-horse-battery"})
@@ -226,7 +248,7 @@ async def main() -> int:
 
         async def connect(p: Participant) -> None:
             async with sem:
-                p.ws = await websockets.connect(ws_base, subprotocols=[SUBPROTOCOL], max_size=2**20, open_timeout=30)
+                p.ws = await websockets.connect(ws_base, subprotocols=[SUBPROTOCOL], max_size=2**20, open_timeout=30, ssl=_ws_ssl() if ws_base.startswith("wss") else None)
                 await p.ws.send(frame("hello", {"token": p.token}))
                 p.reader = asyncio.create_task(reader(p))
                 await wait_for(p, "room.snapshot")
@@ -235,7 +257,7 @@ async def main() -> int:
         await asyncio.gather(*(connect(p) for p in joined))
         results["connect_seconds"] = round(time.perf_counter() - t0, 2)
         host = Participant(-1)
-        host.ws = await websockets.connect(ws_base, subprotocols=[SUBPROTOCOL], additional_headers={"Cookie": cookies, "Origin": args.origin}, max_size=2**24)
+        host.ws = await websockets.connect(ws_base, subprotocols=[SUBPROTOCOL], additional_headers={"Cookie": cookies, "Origin": args.origin}, max_size=2**24, ssl=_ws_ssl() if ws_base.startswith("wss") else None)
         await host.ws.send(frame("hello", {"session_id": session["id"], "role": "host"}))
         host.reader = asyncio.create_task(reader(host))
         await wait_for(host, "room.snapshot")
@@ -309,7 +331,9 @@ async def main() -> int:
         if my_status.get(200, 0) != len(joined) or results["my_results"]["seconds"] > storm_budget:
             failures.append(f"RNF-109 my results burst: {results['my_results']}")
 
-        server = await http.get("/api/live/metrics", params={"format": "json"})
+        # nginx never exposes /api/live/metrics: scrape the API directly when behind a proxy.
+        metrics_url = f"{args.metrics_base.rstrip('/')}/api/live/metrics" if args.metrics_base else "/api/live/metrics"
+        server = await http.get(metrics_url, params={"format": "json"})
         if server.status_code == 200:  # loopback or LIVE_METRICS_TOKEN (one worker's view)
             results["server_metrics"] = server.json()["histograms"]
             reveal = results["server_metrics"].get('live_broadcast_seconds{type="question.reveal"}') or {}

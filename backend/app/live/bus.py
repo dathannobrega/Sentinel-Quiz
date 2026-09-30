@@ -7,6 +7,10 @@
 Delivery is at-most-once; clients recover from any gap with the authoritative
 ``room.snapshot`` the server sends on (re)connect, and state transitions carry ``seq``.
 Handlers must be fast (they only enqueue frames).
+
+Redis outages (RNF-305): publishes retry briefly; the reader rebuilds its pub/sub
+connection, re-subscribes every room and then calls the ``on_recovered`` hooks, which
+re-send snapshots to local sockets (events published during the outage are lost).
 """
 from __future__ import annotations
 
@@ -22,11 +26,16 @@ logger = logging.getLogger("app.live.bus")
 Handler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
+PUBLISH_RETRY_DELAYS = (0.2, 0.5, 1.0)  # ~1.7 s of retries covers a quick Redis restart
+
+
 def channel_name(session_id: str) -> str:
     return f"live:room:{session_id}:ev"
 
 
 class LiveBus(Protocol):
+    def on_recovered(self, hook: Callable[[], Awaitable[None]]) -> None: ...
+
     async def publish(self, session_id: str, message: dict[str, Any]) -> None: ...
 
     async def subscribe(self, session_id: str, handler: Handler) -> None: ...
@@ -41,6 +50,9 @@ class LiveBus(Protocol):
 class InMemoryLiveBus:
     def __init__(self) -> None:
         self._handlers: dict[str, list[Handler]] = {}
+
+    def on_recovered(self, hook: Callable[[], Awaitable[None]]) -> None:
+        return None  # nothing to recover in-process
 
     async def publish(self, session_id: str, message: dict[str, Any]) -> None:
         # Round-trip through JSON so both backends deliver identical, detached payloads.
@@ -83,9 +95,24 @@ class RedisLiveBus:
         self._handlers: dict[str, list[Handler]] = {}
         self._reader: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self._recovered_hooks: list[Callable[[], Awaitable[None]]] = []
+
+    def on_recovered(self, hook: Callable[[], Awaitable[None]]) -> None:
+        self._recovered_hooks.append(hook)
 
     async def publish(self, session_id: str, message: dict[str, Any]) -> None:
-        await self._redis.publish(channel_name(session_id), json.dumps(message, default=str, separators=(",", ":")))
+        data = json.dumps(message, default=str, separators=(",", ":"))
+        delays = PUBLISH_RETRY_DELAYS
+        for attempt, delay in enumerate((*delays, None)):
+            try:
+                await self._redis.publish(channel_name(session_id), data)
+                return
+            except Exception:
+                if delay is None:
+                    raise
+                if attempt == 0:
+                    logger.warning("live bus publish failed; retrying", extra={"event": "live_bus_publish_retry"})
+                await asyncio.sleep(delay)
 
     async def subscribe(self, session_id: str, handler: Handler) -> None:
         async with self._lock:
@@ -127,15 +154,35 @@ class RedisLiveBus:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.warning("live bus read failed; retrying", extra={"event": "live_bus_read_error"}, exc_info=True)
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 5.0)
-                try:
+                logger.warning("live bus read failed; reconnecting", extra={"event": "live_bus_read_error"}, exc_info=True)
+                backoff = await self._reconnect(backoff)
+
+    async def _reconnect(self, backoff: float) -> float:
+        """A fresh pub/sub connection with every room re-subscribed, then the recovery hooks."""
+        while True:
+            await asyncio.sleep(backoff)
+            try:
+                async with self._lock:
+                    old, self._pubsub = self._pubsub, self._redis.pubsub(ignore_subscribe_messages=True)
+                    try:
+                        await old.aclose()
+                    except Exception:
+                        pass
                     channels = [channel_name(sid) for sid in self._handlers]
                     if channels:
                         await self._pubsub.subscribe(*channels)
-                except Exception:  # pragma: no cover
-                    pass
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                backoff = min(backoff * 2, 5.0)
+        logger.warning("live bus recovered", extra={"event": "live_bus_recovered", "rooms": len(self._handlers)})
+        for hook in list(self._recovered_hooks):
+            try:
+                await hook()
+            except Exception:  # pragma: no cover
+                logger.exception("live bus recovery hook failed", extra={"event": "live_bus_recovery_error"})
+        return 0.5
 
     async def ping(self) -> bool:
         try:

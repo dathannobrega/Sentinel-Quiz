@@ -216,3 +216,67 @@ def test_dev_key_is_shared_by_every_worker(monkeypatch):
     monkeypatch.setattr(live_tokens.settings, "database_url", "sqlite:///other.db")
     with pytest.raises(live_tokens.LiveTokenError):
         live_tokens.verify_token(token)
+
+
+def test_redis_bus_retries_publish_and_recovers(monkeypatch):
+    """RNF-305: a publish survives a short Redis blip; the reader rebuilds the pub/sub,
+    re-subscribes every room and runs the recovery hooks (local sockets get snapshots)."""
+    import asyncio
+
+    from app.live import bus as bus_module
+
+    monkeypatch.setattr(bus_module, "PUBLISH_RETRY_DELAYS", (0.0, 0.0))
+
+    class FakePubSub:
+        def __init__(self) -> None:
+            self.subscribed: list[str] = []
+
+        async def subscribe(self, *channels: str) -> None:
+            self.subscribed.extend(channels)
+
+        async def aclose(self) -> None:
+            return None
+
+    class FakeRedis:
+        def __init__(self) -> None:
+            self.failures = 2
+            self.published: list[str] = []
+
+        async def publish(self, channel: str, data: str) -> None:
+            if self.failures:
+                self.failures -= 1
+                raise ConnectionError("redis restarting")
+            self.published.append(channel)
+
+        def pubsub(self, **_: object) -> FakePubSub:
+            return FakePubSub()
+
+    async def scenario() -> None:
+        live_bus = bus_module.RedisLiveBus.__new__(bus_module.RedisLiveBus)
+        live_bus._redis = FakeRedis()
+        live_bus._pubsub = FakePubSub()
+        live_bus._handlers = {"s1": [lambda payload: None]}
+        live_bus._reader = None
+        live_bus._lock = asyncio.Lock()
+        live_bus._recovered_hooks = []
+        recovered: list[bool] = []
+
+        async def hook() -> None:
+            recovered.append(True)
+
+        live_bus.on_recovered(hook)
+        await live_bus.publish("s1", {"control": "dirty"})
+        assert live_bus._redis.published == [bus_module.channel_name("s1")]
+
+        live_bus._redis.failures = 5
+        try:
+            await live_bus.publish("s1", {"control": "dirty"})
+        except ConnectionError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError("a long outage must surface to the caller")
+
+        assert await live_bus._reconnect(0.0) == 0.5
+        assert live_bus._pubsub.subscribed == [bus_module.channel_name("s1")] and recovered == [True]
+
+    asyncio.run(scenario())
