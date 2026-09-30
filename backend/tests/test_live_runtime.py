@@ -284,3 +284,41 @@ def test_extended_time_per_participant(live_on, login_client, make_client, db):
     assert runtime.next_step(db, sid, expected_qi=0).lock_at is None
     snap = runtime.snapshot(db, runtime.load_room(db, sid), role="host")
     assert {p["display_name"]: p["time_multiplier"] for p in snap["participants"]} == {"Ana": 1.0, "Bia": 0.0}
+
+
+def test_rehearsal_bots_answer_and_stay_out_of_reports(live_on, login_client, make_client, db):
+    import random
+
+    from app.services import live_results
+
+    host, _ = login_client()
+    quiz_session = _session(host, settings_patch={"reading_phase_s": 0}, items=[SINGLE])
+    live = host.post("/api/live/sessions", json={"quiz_id": quiz_session["quiz_id"], "bots": 3})
+    assert live.status_code == 422 and live.json()["code"] == "bots_require_rehearsal"
+    created = host.post("/api/live/sessions", json={"quiz_id": quiz_session["quiz_id"], "rehearsal": True, "bots": 12})
+    assert created.status_code == 201, created.text
+    session = created.json()
+    assert session["rehearsal"] is True and session["participant_count"] == 12
+    sid = session["id"]
+    guest = make_client()
+    ana = _join(guest, session["join_code"], "Ana")
+
+    t0 = utcnow()
+    runtime.start(db, sid, now=t0)
+    plan = runtime.bot_plan(db, sid, 0, now=t0, rng=random.Random(7))
+    assert len(plan) == 12 and plan == sorted(plan, key=lambda b: b.delay_s)
+    assert all(0 <= b.delay_s <= 10 for b in plan)
+    assert runtime.bot_plan(db, sid, 1, now=t0) == []  # not the open question
+    results = runtime.submit_answers(db, [b.answer for b in plan], now=t0 + timedelta(seconds=1))
+    assert {r.status for r in results} == {"accepted"}
+    # Deterministic ids: a second driver only produces duplicates.
+    again = runtime.submit_answers(db, [b.answer for b in runtime.bot_plan(db, sid, 0, now=t0)], now=t0 + timedelta(seconds=2))
+    assert {r.status for r in again} == {"duplicate"}
+    assert _submit(db, sid, ana, 0, "a", t0 + timedelta(seconds=3)).status == "accepted"
+    assert runtime.load_room(db, sid).session.phase == "locked"  # bots count as "everyone answered"
+
+    report = live_results.build_report(db, runtime.load_room(db, sid).session)
+    assert report["kpis"]["participants"] == 1 and [p["display_name"] for p in report["participants"]] == ["Ana"]
+    assert report["session"]["rehearsal"] is True
+    # Live leaderboards do include them (it is a dress rehearsal).
+    assert len(runtime.standings(db, runtime.load_room(db, sid), up_to=0)) == 13

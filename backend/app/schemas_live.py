@@ -107,6 +107,9 @@ class SessionCreateIn(_Strict):
     max_participants: Optional[int] = Field(default=None, ge=1, le=10000)
     preset: Preset = "turma"
     audience: Audience = "adulto"
+    # Rehearsal (RF-513): a private dry run, optionally with bots that answer.
+    rehearsal: bool = False
+    bots: int = Field(default=0, ge=0, le=200)
 
 
 class JoinIn(_Strict):

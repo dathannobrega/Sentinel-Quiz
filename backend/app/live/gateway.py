@@ -106,6 +106,7 @@ class RoomChannel:
         self.dirty = False
         self.lobby_dirty = False
         self.lobby_sent_at = 0.0
+        self.bots_task: asyncio.Task | None = None
         self.lock_at_ms: int | None = None
         self.task: asyncio.Task | None = None
 
@@ -136,6 +137,40 @@ class RoomChannel:
         if "lock_at_ms" in meta:
             self.lock_at_ms = meta["lock_at_ms"]
         await self.deliver(runtime.Broadcast(**broadcast))
+        self._drive_bots(broadcast["type"], broadcast.get("data") or {})
+
+    def _drive_bots(self, type_: str, data: dict[str, Any]) -> None:
+        """Rehearsal bots (RF-513) are driven by the process holding the host socket."""
+        if type_ in {"question.locked", "question.reveal", "question.paused", "podium.show", "session.ended"} and self.bots_task:
+            self.bots_task.cancel()
+            self.bots_task = None
+        if type_ in {"question.intro", "question.timer"} and any(c.role == "host" for c in self.connections):
+            if self.bots_task is not None:
+                self.bots_task.cancel()
+            self.bots_task = asyncio.create_task(self._run_bots(int(data.get("qi", -1))), name=f"live-bots-{self.session_id[:8]}")
+
+    async def _run_bots(self, qi: int) -> None:
+        try:
+            plan = await run_in_threadpool(_with_db, runtime.bot_plan, self.session_id, qi)
+            started = time.monotonic()
+            pending = list(plan)
+            while pending:
+                bot = pending.pop(0)
+                await asyncio.sleep(max(0.0, bot.delay_s - (time.monotonic() - started)))
+                result = await self.hub.submit_answer(bot.answer)
+                if result.status == "paused":  # answer again after the host resumes
+                    bot.delay_s = time.monotonic() - started + 1.0
+                    pending.append(bot)
+                    continue
+                if result.status == "accepted":
+                    await self.hub.mark_dirty(self.session_id)
+                await self.hub.publish_outcome(self.session_id, result.outcome)
+                if result.status in {"late", "closed"}:
+                    return
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("live bots failed", extra={"event": "live_bots_error", "session_id": self.session_id})
 
     async def deliver(self, broadcast: runtime.Broadcast) -> None:
         started = time.perf_counter()

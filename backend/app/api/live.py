@@ -207,7 +207,7 @@ def create_session(body: SessionCreateIn, db: Session = Depends(get_db), user: U
     session = live_session.create_session(
         db, user,
         quiz_id=body.quiz_id, allow_guests=body.allow_guests, max_participants=body.max_participants,
-        preset=body.preset, audience=body.audience,
+        preset=body.preset, audience=body.audience, rehearsal=body.rehearsal, bots=body.bots,
     )
     return live_session.serialize_session(db, session)
 

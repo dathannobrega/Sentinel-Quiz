@@ -328,3 +328,29 @@ def test_metrics_endpoint(live_on, client):
         assert set(summary) == {"counters", "gauges", "histograms"}
     finally:
         settings.live_metrics_token = original
+
+
+def test_rehearsal_bots_are_driven_by_the_host_process(live_on, login_client, monkeypatch):
+    from app.live import runtime
+
+    real_plan = runtime.bot_plan
+
+    def instant_plan(db, session_id, qi, **kwargs):
+        plan = real_plan(db, session_id, qi, **kwargs)
+        for bot in plan:
+            bot.delay_s = 0.0
+        return plan
+
+    monkeypatch.setattr(runtime, "bot_plan", instant_plan)
+    host, _ = login_client()
+    quiz = published_quiz(host)
+    session = host.post("/api/live/sessions", json={"quiz_id": quiz["id"], "rehearsal": True, "bots": 5}).json()
+    with ExitStack() as stack:
+        conn = stack.enter_context(host.websocket_connect("/api/live/ws", subprotocols=SUBPROTOCOLS, headers={"origin": ORIGIN}))
+        send(conn, "hello", {"session_id": session["id"], "role": "host"})
+        snap = expect(conn, "room.snapshot")["data"]
+        assert sum(p["is_bot"] for p in snap["participants"]) == 5
+        send(conn, "host.start")
+        expect(conn, "question.intro")
+        locked = expect(conn, "question.locked")  # all 5 bots answered
+        assert locked["data"]["reason"] == "all_answered"

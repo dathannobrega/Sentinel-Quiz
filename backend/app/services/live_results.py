@@ -43,7 +43,11 @@ class _Data:
         self.participants = list(
             db.execute(
                 select(LiveParticipant)
-                .where(LiveParticipant.session_id == session.id, LiveParticipant.kicked_at.is_(None))
+                .where(
+                    LiveParticipant.session_id == session.id,
+                    LiveParticipant.kicked_at.is_(None),
+                    LiveParticipant.is_bot.is_(False),  # rehearsal bots never reach reports (RF-513)
+                )
                 .order_by(LiveParticipant.joined_at)
             ).scalars()
         )

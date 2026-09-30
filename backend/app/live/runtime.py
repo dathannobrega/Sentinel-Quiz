@@ -1093,6 +1093,76 @@ def set_time_multiplier(db: Session, session_id: str, *, participant_id: str, mu
     return outcome
 
 
+# ----------------------------------------------------------------------------- rehearsal bots
+
+BOT_ACCURACY = 0.7
+_BOT_NAMESPACE = __import__("uuid").UUID("6f1c2e0a-3b7d-4e55-9a41-5c0de7b0a7e1")
+
+
+@dataclass
+class BotAnswer:
+    delay_s: float  # from now
+    answer: "AnswerIn"
+
+
+def bot_plan(db: Session, session_id: str, qi: int, *, now: datetime | None = None, rng: Any = None) -> list[BotAnswer]:
+    """Answers of the rehearsal bots for the open question (RF-513): ~70% right, spread
+    over the answer window. Answer ids are deterministic, so two processes driving the
+    same bots only produce duplicates."""
+    import random
+    import uuid
+
+    now = now or utcnow()
+    rng = rng or random.Random()
+    room = load_room(db, session_id)
+    session = room.session
+    if session.mode != "rehearsal" or session.phase != "question" or session.current_position != qi:
+        return []
+    item = room.item(qi)
+    if item is None or item["item_type"] not in registry.INTERACTIVE_TYPES or session.answers_open_at is None:
+        return []
+    bots = [
+        pid for (pid,) in db.execute(
+            select(LiveParticipant.id).where(
+                LiveParticipant.session_id == session_id, LiveParticipant.is_bot.is_(True), LiveParticipant.kicked_at.is_(None)
+            )
+        )
+    ]
+    if not bots:
+        return []
+    ids_by_key = {key: oid for oid, key in registry.option_id_map(session_id, qi, item).items()}
+    option_ids = list(ids_by_key.values())
+    correct_keys = list((item.get("answer") or {}).get("correct_keys") or [])
+    accepted = list((item.get("answer") or {}).get("accepted_answers") or [])
+    open_in = max((session.answers_open_at - now).total_seconds(), 0.0)
+    window = (session.deadline_at - session.answers_open_at).total_seconds() if session.deadline_at else 10.0
+    plan: list[BotAnswer] = []
+    for pid in bots:
+        right = rng.random() < BOT_ACCURACY
+        choice: list[str] | None = None
+        text: str | None = None
+        kind = item["item_type"]
+        if kind == "type_answer":
+            text = accepted[0] if (right and accepted) else rng.choice(["não sei", "talvez", "outro"])
+        elif kind == "poll" or not correct_keys:
+            choice = [rng.choice(option_ids)] if option_ids else None
+        elif kind == "multi_choice":
+            wrong = [oid for key, oid in ids_by_key.items() if key not in correct_keys]
+            choice = [ids_by_key[k] for k in correct_keys if k in ids_by_key] if right else rng.sample(
+                option_ids, k=max(1, min(len(option_ids), len(correct_keys)))
+            )
+            if not right and sorted(choice) == sorted(ids_by_key[k] for k in correct_keys if k in ids_by_key) and wrong:
+                choice = [wrong[0]]
+        else:
+            wrong = [oid for key, oid in ids_by_key.items() if key not in correct_keys]
+            choice = [ids_by_key[correct_keys[0]]] if (right or not wrong) else [rng.choice(wrong)]
+        answer_id = str(uuid.uuid5(_BOT_NAMESPACE, f"{session_id}:{qi}:{pid}"))
+        delay = open_in + window * rng.uniform(0.1, 0.8)
+        plan.append(BotAnswer(delay, AnswerIn(session_id, pid, answer_id, qi, choice=choice, text=text)))
+    plan.sort(key=lambda b: b.delay_s)
+    return plan
+
+
 # ----------------------------------------------------------------------------- answers
 
 @dataclass
