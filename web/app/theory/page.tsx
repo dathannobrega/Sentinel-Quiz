@@ -1,3 +1,4 @@
+import { SectionReader } from "@/features/theory/components/section-reader";
 import { TheoryReader } from "@/features/theory/components/theory-reader";
 import { pageMetadata } from "@/lib/i18n/metadata";
 
@@ -16,6 +17,11 @@ export default async function TheoryPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  const section = takeFirst(params.section);
+  if (section) {
+    // Normalized book section (study_links): native reader.
+    return <SectionReader sectionId={section} />;
+  }
 
   return (
     <TheoryReader

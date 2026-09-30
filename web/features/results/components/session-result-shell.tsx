@@ -20,6 +20,7 @@ import { Stat, StatList } from "@/components/ui/stat";
 import { PbqQuestion } from "@/features/session-runner/components/pbq/pbq-question";
 import { OptionFace, optionRowClassName, resolveOptionState } from "@/features/session-runner/components/question-options";
 import { extractPbqResponse, isPbqQuestion, pbqCreditLabel, scoreToPercent } from "@/features/session-runner/lib/pbq-utils";
+import { StudySections } from "@/features/study-sections/components/study-sections";
 import { ApiError, apiClient, getTutorTimeoutMs, readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { translateBackendMessage, translateReadinessBand } from "@/lib/i18n/backend-messages";
@@ -451,7 +452,11 @@ function ReviewBlock({
           <p className="font-serif text-[1.0625rem] leading-[1.7] whitespace-pre-line text-fg">{question.justification}</p>
         </div>
       ) : null}
-      <CitationLinks citations={question.citations} openMaterialLabel={openMaterialLabel} title={t("results.reviewBlock.references")} />
+      {question.study_sections?.length ? (
+        <StudySections sections={question.study_sections} t={t} allowPractice headingLevel={4} />
+      ) : (
+        <CitationLinks citations={question.citations} openMaterialLabel={openMaterialLabel} title={t("results.reviewBlock.references")} />
+      )}
 
       {enableTutor ? (
         <div className="flex flex-col gap-3 border-t border-line pt-5">

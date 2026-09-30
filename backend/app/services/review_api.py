@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models import Exam, ExamSession, Explanation, Option, Question, SessionAnswer, SessionQuestion
 from app.services.option_order import OptionMapping
 from app.services.pbq_runtime import MCQ_FORMAT, pbq_review_fields
+from app.services.study_links import build_study_sections
 
 
 def iso(dt: datetime | None) -> str | None:
@@ -206,6 +207,14 @@ def build_exam_review_questions(db: Session, session: ExamSession) -> list[dict[
             "justification": mapping.remap_text(exp_map.get(qid)),
             "tags": _parse_list(tags_json),
             "citations": _parse_list(citations_json, dicts=True),
+            "study_sections": build_study_sections(
+                db,
+                qid,
+                selected_original=answer.get("selected_keys", []),
+                correct_original=[o["key"] for o in raw_opts if o["is_correct"]],
+                is_correct=answer.get("is_correct"),
+                to_display=mapping.to_display,
+            ),
             "format": MCQ_FORMAT,
         })
         pbq_question = pbq_questions.get(qid)

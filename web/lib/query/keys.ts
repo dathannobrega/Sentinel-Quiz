@@ -16,5 +16,7 @@ export const queryKeys = {
   activeExamSessions: (limit: number) => ["active-sessions", "exam", limit] as const,
   activeStudySessions: (limit: number) => ["active-sessions", "study", limit] as const,
   reviewQueue: (params: string) => ["review-queue", params] as const,
-  sessionReview: (mode: "exam" | "study", sessionId: string) => ["session-review", mode, sessionId] as const
+  sessionReview: (mode: "exam" | "study", sessionId: string) => ["session-review", mode, sessionId] as const,
+  studySection: (sectionId: string) => ["study-section", sectionId] as const,
+  weakSections: (limit: number) => ["weak-sections", limit] as const
 };

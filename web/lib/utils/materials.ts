@@ -67,3 +67,8 @@ export function sanitizeMaterialPreviewHtml(html: string): string {
   });
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
+
+/** Reader for one normalized book section (study_links): /theory?section=<id>. */
+export function buildSectionReaderHref(sectionId: string): string {
+  return `/theory?section=${encodeURIComponent(sectionId)}`;
+}

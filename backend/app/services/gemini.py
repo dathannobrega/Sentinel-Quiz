@@ -99,6 +99,7 @@ def _build_prompt(
     selected_keys: Optional[list[str]],
     is_correct: Optional[bool],
     justification: Optional[str],
+    study_material: Optional[str] = None,
 ) -> str:
     """Build the user-turn content. Rules live in the system instruction (see
     ``build_system_instruction``); the student's text is wrapped in delimiters and
@@ -160,6 +161,13 @@ def _build_prompt(
             "<referencia_oficial>\n"
             + _neutralize_delimiters(str(justification))
             + "\n</referencia_oficial>\n(Use como referencia conceitual, sem revelar a alternativa correta.)"
+        )
+    if study_material:
+        sections.append(
+            "<material_de_estudo>\n"
+            + _neutralize_delimiters(str(study_material))
+            + "\n</material_de_estudo>\n(Trecho do livro de referencia do aluno. Baseie a explicacao nele e cite o"
+            " livro e a secao para o aluno revisar.)"
         )
     if extra_instructions:
         sections.append("Orientacoes para este modo:\n" + extra_instructions.rstrip())
@@ -348,6 +356,7 @@ def ask_gemini(
     selected_keys: Optional[list[str]] = None,
     is_correct: Optional[bool] = None,
     justification: Optional[str] = None,
+    study_material: Optional[str] = None,
 ) -> GeminiResult:
     if not _is_enabled():
         raise GeminiDisabled("Gemini is disabled or API key is missing.")
@@ -364,6 +373,7 @@ def ask_gemini(
         selected_keys=selected_keys,
         is_correct=is_correct,
         justification=justification,
+        study_material=study_material,
     )
     system_text = build_system_instruction()
 

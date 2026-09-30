@@ -145,6 +145,67 @@ class PedagogicalReferenceOut(BaseModel):
     is_official: bool = False
 
 
+class StudySectionOut(BaseModel):
+    """A book section to study after answering (study_links). reason="your_choice": the section
+    behind the wrong option the student picked (option_key, display key); "explanation": sections
+    that explain the question."""
+
+    section_id: str
+    book_title: str
+    chapter_title: Optional[str] = None
+    title: str
+    breadcrumb: List[str] = Field(default_factory=list)
+    page_start: Optional[int] = None
+    page_end: Optional[int] = None
+    excerpt: str = ""
+    excerpt_truncated: bool = False
+    reason: str = "explanation"
+    option_key: Optional[str] = None
+
+
+class StudySectionBlockOut(BaseModel):
+    text: str
+    label: Optional[str] = None
+
+
+class StudySectionPartOut(BaseModel):
+    id: str
+    title: str
+    depth: int
+    blocks: List[StudySectionBlockOut] = Field(default_factory=list)
+
+
+class StudySectionLinkOut(BaseModel):
+    id: str
+    title: str
+
+
+class StudySectionDetailOut(BaseModel):
+    section_id: str
+    book_title: str
+    certification: Optional[str] = None
+    chapter_title: Optional[str] = None
+    title: str
+    breadcrumb: List[str] = Field(default_factory=list)
+    page_start: Optional[int] = None
+    page_end: Optional[int] = None
+    objectives: List[str] = Field(default_factory=list)
+    parts: List[StudySectionPartOut] = Field(default_factory=list)
+    truncated: bool = False
+    parent: Optional[StudySectionLinkOut] = None
+    previous: Optional[StudySectionLinkOut] = None
+    next: Optional[StudySectionLinkOut] = None
+    practice_questions: int = 0
+
+
+class WeakSectionOut(StudySectionOut):
+    mistakes: int = 0
+    open_questions: int = 0
+    missed_questions: int = 0
+    practice_questions: int = 0
+    last_mistake_at: Optional[str] = None
+
+
 class QuestionHintOut(BaseModel):
     question_id: str
     level: int
@@ -360,6 +421,8 @@ class AnswerFeedbackOut(PBQFieldsMixin):
     # Correct option keys in this session's display-key space (omitted in exam_day mode).
     correct_keys: Optional[List[str]] = None
     selected_keys: List[str] = Field(default_factory=list)
+    # Book sections to study (empty in exam_day mode until the session is completed).
+    study_sections: List[StudySectionOut] = Field(default_factory=list)
 
 class ResultOut(BaseModel):
     session_id: str
@@ -438,6 +501,7 @@ class ReviewQuestionOut(PBQFieldsMixin):
     justification: Optional[str] = None
     tags: Optional[List[str]] = None
     citations: Optional[List[Dict[str, Any]]] = None
+    study_sections: List[StudySectionOut] = Field(default_factory=list)
 
 class SessionReviewOut(BaseModel):
     session: SessionHistoryOut
@@ -500,6 +564,7 @@ class StudySessionCreateIn(BaseModel):
     queue_only: bool = Field(default=False, description="If true, use only due review items as the pool.")
     review_states: Optional[List[FilterValue]] = Field(default=None, max_length=MAX_FILTER_ITEMS, description="Optional review queue states for review sessions.")
     pbq_count: int = Field(default=0, ge=0, le=5, description="Performance-based questions placed first (part of total_questions).")
+    section_id: Optional[str] = Field(default=None, max_length=256, description="Practice only questions explained by this book section.")
 
 
 class StudySessionOut(BaseModel):
@@ -557,6 +622,7 @@ class StudyAnswerFeedbackOut(PBQFieldsMixin):
     # Correct option keys in this session's display-key space.
     correct_keys: Optional[List[str]] = None
     selected_keys: List[str] = Field(default_factory=list)
+    study_sections: List[StudySectionOut] = Field(default_factory=list)
 
 
 class StudyResultOut(BaseModel):
@@ -767,6 +833,7 @@ class StudyReviewQuestionOut(PBQFieldsMixin):
     justification: Optional[str] = None
     tags: Optional[List[str]] = None
     citations: Optional[List[Dict[str, Any]]] = None
+    study_sections: List[StudySectionOut] = Field(default_factory=list)
 
 
 class StudySessionReviewOut(BaseModel):

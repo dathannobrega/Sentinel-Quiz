@@ -7,6 +7,7 @@ from app.api.deps import get_client_key, get_current_user_optional
 from app.db.session import get_db
 from app.models import StudySession, User
 from app.schemas import (
+    WeakSectionOut,
     ActiveSessionOut,
     QuestionHintOut,
     ReviewQueueSnapshotOut,
@@ -29,6 +30,7 @@ from app.schemas import (
 from app.services.discovery import list_active_study_sessions
 from app.services.owner_scope import session_belongs_to
 from app.services.pedagogy import build_question_hint, study_question_option_mapping
+from app.services.study_links import questions_for_section, weak_sections
 from app.services.study import (
     answer_study_question,
     build_study_overview,
@@ -229,6 +231,18 @@ def study_question_hint(
     return QuestionHintOut(**payload)
 
 
+@router.get("/weak-sections", response_model=list[WeakSectionOut])
+def get_weak_sections(
+    limit: int = Query(default=8, ge=1, le=30),
+    current_user: User | None = Depends(get_current_user_optional),
+    client_key: str | None = Depends(get_client_key),
+    db: Session = Depends(get_db),
+):
+    """Book sections behind the owner's mistakes, most urgent first."""
+    owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
+    return [WeakSectionOut(**item) for item in weak_sections(db, owner_user_id=owner_user_id, owner_client_key=owner_client_key, limit=limit)]
+
+
 @router.post("/sessions", response_model=StudySessionOut)
 def start_study_session(
     payload: StudySessionCreateIn,
@@ -237,12 +251,18 @@ def start_study_session(
     db: Session = Depends(get_db),
 ):
     owner_user_id, owner_client_key = _owner_scope(current_user, client_key)
+    section_question_ids = None
+    if payload.section_id:
+        # "Practice this section": only questions whose explanation lives in that book section.
+        section_question_ids = questions_for_section(payload.section_id)
+        if not section_question_ids:
+            raise HTTPException(status_code=404, detail="No questions found for this section.")
     try:
         session = create_study_session(
             db,
             payload.exam_id,
             payload.total_questions,
-            None,
+            section_question_ids,
             payload.domains,
             payload.difficulties,
             payload.tags,

@@ -99,11 +99,64 @@ def resolve_material_file(material_path: str) -> Path:
 
 
 def build_material_preview(material_path: str, locator: str | None = None) -> dict:
-    material_file = resolve_material_file(material_path)
+    try:
+        material_file = resolve_material_file(material_path)
+    except FileNotFoundError:
+        # Books may be mounted only as JSON (material/json); serve the same citation from there.
+        return _build_corpus_preview(material_path, locator)
     suffix = material_file.suffix.lower()
     if suffix == ".epub":
         return _build_epub_preview(material_file, locator)
     return _build_text_preview(material_file)
+
+
+PREVIEW_MAX_WORDS = 2500
+
+
+def render_section_html(corpus, section, *, include_descendants: bool = True, max_words: int = PREVIEW_MAX_WORDS) -> str:
+    """Section text (plus its subsections, like the EPUB preview) as simple escaped HTML."""
+    parts: list[str] = []
+    budget = max_words
+
+    def emit(current, depth: int) -> None:
+        nonlocal budget
+        if budget <= 0:
+            return
+        if depth > 0:
+            level = min(2 + depth, 6)
+            parts.append(f"<h{level}>{escape(current.title)}</h{level}>")
+        for block in current.blocks:
+            if budget <= 0:
+                break
+            label = f"<strong>{escape(block.label)}.</strong> " if block.label else ""
+            parts.append(f"<p>{label}{escape(block.text)}</p>")
+            budget -= len(block.text.split())
+        if include_descendants:
+            for child_id in current.child_ids:
+                child = corpus.get(child_id)
+                if child is not None:
+                    emit(child, depth + 1)
+
+    emit(section, 0)
+    if budget <= 0:
+        parts.append("<p><em>…</em></p>")
+    return "".join(parts) or "<p>Sem conteudo suficiente para este trecho.</p>"
+
+
+def _build_corpus_preview(material_path: str, locator: str | None) -> dict:
+    from app.services.material_corpus import get_corpus
+
+    corpus = get_corpus()
+    section = corpus.resolve_locator(material_path, locator or "") if corpus else None
+    if section is None:
+        raise FileNotFoundError(f"Material not found: {material_path}")
+    return {
+        "title": section.title or section.chapter_title,
+        "chapter": section.chapter_title,
+        "body_html": render_section_html(corpus, section),
+        "material_name": section.book_title,
+        "locator": locator,
+    }
 
 
 def _build_text_preview(material_file: Path) -> dict:

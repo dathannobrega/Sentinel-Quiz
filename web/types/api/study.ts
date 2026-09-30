@@ -147,3 +147,64 @@ export interface ReviewQueueSnapshot {
   applied_filters: Record<string, unknown>;
   items: ReviewQueueEntry[];
 }
+
+/** A book section to study after answering (backend study_links). */
+export interface StudySection {
+  section_id: string;
+  book_title: string;
+  chapter_title?: string | null;
+  title: string;
+  breadcrumb: string[];
+  page_start?: number | null;
+  page_end?: number | null;
+  excerpt: string;
+  excerpt_truncated: boolean;
+  /** "your_choice": explains the wrong option the student picked (option_key, display key). */
+  reason: "your_choice" | "explanation" | (string & {});
+  option_key?: string | null;
+}
+
+export interface StudySectionBlock {
+  text: string;
+  label?: string | null;
+}
+
+export interface StudySectionPart {
+  id: string;
+  title: string;
+  depth: number;
+  blocks: StudySectionBlock[];
+}
+
+export interface StudySectionLink {
+  id: string;
+  title: string;
+}
+
+/** GET /api/materials/sections/{id} */
+export interface StudySectionDetail {
+  section_id: string;
+  book_title: string;
+  certification?: string | null;
+  chapter_title?: string | null;
+  title: string;
+  breadcrumb: string[];
+  page_start?: number | null;
+  page_end?: number | null;
+  objectives: string[];
+  parts: StudySectionPart[];
+  truncated: boolean;
+  parent?: StudySectionLink | null;
+  previous?: StudySectionLink | null;
+  next?: StudySectionLink | null;
+  practice_questions: number;
+}
+
+/** GET /api/study/weak-sections */
+export interface WeakSection extends StudySection {
+  mistakes: number;
+  open_questions: number;
+  missed_questions: number;
+  practice_questions: number;
+  last_mistake_at?: string | null;
+}
