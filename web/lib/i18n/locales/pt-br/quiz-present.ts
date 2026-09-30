@@ -229,5 +229,83 @@ export const quizPresent = {
     content: "Slide.",
     paused: "Pergunta pausada.",
     resumed: "Pergunta retomada."
+  },
+  capacity: {
+    near: "Sala com {percent}% da capacidade ({count}/{max})",
+    full: "Sala lotada ({count}/{max})",
+    hint: "Novas entradas são recusadas no limite. Aumente o limite em uma nova sessão se precisar."
+  },
+  preflight: {
+    button: "Checagem pré-evento",
+    title: "Checagem pré-evento",
+    description: "Confere banco de dados, tempo real, capacidade, conteúdo e limites antes de o público entrar.",
+    run: "Checar de novo",
+    running: "Checando…",
+    ready: "Pronto",
+    attention: "Atenção",
+    readyText: "Tudo certo para começar.",
+    attentionText: "Há pontos de atenção. Veja os itens marcados abaixo.",
+    largeRoom: "Sala grande (300+ vagas): a checagem roda sozinha ao abrir a sala.",
+    error: "Não foi possível rodar a checagem.",
+    autoAttention: "Checagem pré-evento: há pontos de atenção.",
+    checkedAt: "Checado às {time}",
+    statuses: {
+      ok: "OK",
+      warn: "Atenção",
+      fail: "Falha"
+    },
+    keys: {
+      database: "Banco de dados",
+      capacity: "Capacidade da sala",
+      content: "Conteúdo e moderação",
+      realtime_bus: "Tempo real",
+      rate_limit: "Limite de requisições",
+      token_keys: "Chaves dos tokens",
+      event_loop: "Responsividade do servidor",
+      other: "Outra checagem"
+    },
+    details: {
+      ok: "Sem problemas.",
+      slow: "Respondendo devagar.",
+      unreachable: "Fora do ar ou inacessível.",
+      near_limit: "Perto do limite de participantes (80% ou mais).",
+      above_platform_limit: "O limite da sala passa do limite da plataforma.",
+      moderation_pending: "Há conteúdo aguardando moderação: convidados não podem entrar até a revisão.",
+      quiz_blocked: "O quiz foi bloqueado pela moderação.",
+      memory_bus_with_workers: "Barramento em memória com vários processos: o tempo real não chega a todos.",
+      memory_backend: "Limite de requisições em memória (use Redis em produção).",
+      dev_key: "Tokens assinados com a chave de desenvolvimento.",
+      lagging: "O servidor está com atraso para responder.",
+      other: "Verifique este item."
+    },
+    values: {
+      latency: "{ms} ms",
+      capacity: "{participants} de {max} vagas · limite da plataforma {platform}",
+      p95: "p95 {ms} ms",
+      backend: "backend: {backend}"
+    }
+  },
+  preview: {
+    toggle: "Prévia do celular",
+    hide: "Fechar prévia",
+    title: "Prévia do celular",
+    hint: "É o cliente real do participante. A prévia fica fora do placar dos relatórios.",
+    frameLabel: "Prévia do celular do participante",
+    opening: "Abrindo prévia…",
+    errors: {
+      preview_requires_rehearsal: "A prévia do celular só existe em sessões de ensaio.",
+      session_finished: "A sessão terminou.",
+      generic: "Não foi possível abrir a prévia."
+    }
+  },
+  moderation: {
+    toast: "Item removido pela moderação",
+    toastCurrent: "Item {position} removido pela moderação: a tela mostra um slide neutro.",
+    title: "Conteúdo removido pela moderação",
+    text: "Este item foi retirado pela equipe de moderação.",
+    presenter: "Item removido pela moderação: sem gabarito nem notas. Avance para o próximo.",
+    masked: "Resposta ocultada pela moderação",
+    previewBadge: "Prévia",
+    previewLabel: "Prévia do celular do apresentador (fora dos relatórios)"
   }
 } as const;

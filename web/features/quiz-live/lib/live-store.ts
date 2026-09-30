@@ -11,6 +11,9 @@
  * - `timer` is always the ROOM timer (pause state included). A participant's own deadline (extended
  *   time, RF-622) is derived with `selectMyTimer`, never stored, so pause/resume/extend frames that
  *   only carry the room timer keep it right.
+ * - `item.removed` (moderation, Incremento 4) swaps the item on screen for the neutral placeholder
+ *   at once (no answers, no timer); the fresh `room.snapshot` the server sends right after is still
+ *   authoritative. `removedItem` records the event so the host can show a toast.
  */
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
@@ -83,6 +86,13 @@ export interface LiveErrorEvent {
   sts: number;
 }
 
+/** Last moderation removal seen on this connection (host toast). `sts` makes repeats distinct. */
+export interface LiveRemovedItem {
+  qi: number;
+  current: boolean;
+  sts: number;
+}
+
 export interface LiveMe {
   participant_id: string;
   display_name: string;
@@ -109,6 +119,10 @@ export interface LiveState {
   settings: SnapshotSettings | null;
   roomLocked: boolean;
   participantCount: number;
+  /** Room limit from the snapshot (RF-1205); null on older servers. */
+  maxParticipants: number | null;
+  /** Rehearsal session (RF-513/RF-514). */
+  rehearsal: boolean;
 
   question: PublicQuestion | null;
   /** Room timer of the current item, including the host pause. */
@@ -138,6 +152,7 @@ export interface LiveState {
   ended: { report_available: boolean } | null;
   kicked: { banned: boolean } | null;
   lastError: LiveErrorEvent | null;
+  removedItem: LiveRemovedItem | null;
 }
 
 export type LiveAction =
@@ -178,6 +193,8 @@ export function createInitialLiveState(role: LiveRole | null = null): LiveState 
     settings: null,
     roomLocked: false,
     participantCount: 0,
+    maxParticipants: null,
+    rehearsal: false,
     question: null,
     timer: null,
     answered: null,
@@ -197,7 +214,25 @@ export function createInitialLiveState(role: LiveRole | null = null): LiveState 
     previousRank: null,
     ended: null,
     kicked: null,
-    lastError: null
+    lastError: null,
+    removedItem: null
+  };
+}
+
+/** The neutral slide that replaces a removed item (mirrors the server placeholder). */
+export function removedPlaceholder(question: PublicQuestion): PublicQuestion {
+  return {
+    ...question,
+    item_type: "content",
+    prompt: "",
+    options: [],
+    allow_multiple: false,
+    body: null,
+    time_limit_s: null,
+    points_multiplier: 0,
+    scored: false,
+    select_count: null,
+    removed: true
   };
 }
 
@@ -255,6 +290,8 @@ function applySnapshot(state: LiveState, snapshot: Snapshot, seq: number | undef
     settings: snapshot.settings,
     roomLocked: snapshot.room_locked,
     participantCount: snapshot.participant_count,
+    maxParticipants: typeof snapshot.max_participants === "number" ? snapshot.max_participants : state.maxParticipants,
+    rehearsal: typeof snapshot.rehearsal === "boolean" ? snapshot.rehearsal : state.rehearsal,
     question: snapshot.question ?? null,
     timer: snapshot.timer ?? null,
     answered: snapshot.answered ?? null,
@@ -320,7 +357,7 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
         const known = new Set(participants.map((person) => person.participant_id));
         const added = recent
           .filter((person) => !known.has(person.participant_id))
-          .map<HostParticipant>((person) => ({ ...person, score: 0, connected: true, time_multiplier: 1, is_bot: false }));
+          .map<HostParticipant>((person) => ({ ...person, score: 0, connected: true, time_multiplier: 1, is_bot: false, is_preview: false }));
         participants = added.length ? [...participants, ...added] : participants;
       }
       return { ...state, seq, lobby, participantCount: count, participants };
@@ -476,6 +513,33 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
 
     case "participant.kicked":
       return { ...state, seq, kicked: message.data };
+
+    case "item.removed": {
+      const { qi, current } = message.data;
+      const removedItem: LiveRemovedItem = { qi, current, sts: message.sts };
+      if (!sameQi(state, qi) || !state.question) {
+        // Another item (not on screen yet): the follow-up snapshot carries the placeholder.
+        return { ...state, seq, removedItem };
+      }
+      return {
+        ...state,
+        seq,
+        removedItem,
+        phase: state.status === "finished" ? state.phase : "content",
+        question: removedPlaceholder(state.question),
+        timer: null,
+        answered: null,
+        answerTotal: null,
+        counts: null,
+        lockReason: null,
+        reveal: null,
+        submission: null,
+        // The presenter item (answer key, notes) of a removed item must not stay on screen.
+        presenter: state.presenterQi === qi ? null : state.presenter,
+        presenterQi: state.presenterQi === qi ? null : state.presenterQi,
+        my: state.my ? { ...state.my, answered_current: false, last_answer: null } : null
+      };
+    }
 
     case "error":
       return {

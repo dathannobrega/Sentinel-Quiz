@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { m } from "motion/react";
 
@@ -10,15 +10,20 @@ import { LqButton, LqError, lqButtonClass, lqCardClass } from "@/features/quiz-l
 import {
   clearParticipantCredentials,
   credentialsFromJoin,
+  forgetParticipant,
   getRoom,
   loadParticipantCredentials,
+  loadParticipantIdentity,
   saveParticipantCredentials,
   saveReturnCode,
   toJoinErrorCode,
-  type ParticipantCredentials
+  type ParticipantCredentials,
+  type ParticipantIdentity
 } from "@/features/quiz-live/lib/live-fetch";
 import { formatJoinCode, isValidJoinCode, normalizeJoinCode } from "@/features/quiz-live/lib/protocol";
+import { AccessForm } from "@/features/quiz-play/components/access-form";
 import { GuestJoinForm, RejoinForm, ReturnCodeCard } from "@/features/quiz-play/components/join-forms";
+import { MyDataDialog } from "@/features/quiz-play/components/my-data-panel";
 import { PlayScreen } from "@/features/quiz-play/components/play-screen";
 import { useI18n } from "@/lib/i18n";
 import { useCurrentUser } from "@/lib/query/hooks";
@@ -28,19 +33,30 @@ import { cn } from "@/lib/utils/cn";
 type Stage =
   | { kind: "boot" }
   | { kind: "loading" }
-  | { kind: "error"; message: string; retry: boolean }
+  | { kind: "error"; message: string; retry: boolean; finished?: boolean }
+  /** Name + return code after the token is gone (finished session, other tab): RF-606/RF-633. */
+  | { kind: "access"; sessionId: string }
+  /** "Excluir meus dados" done (RF-650). */
+  | { kind: "erased" }
   | { kind: "form" }
   | { kind: "rejoin"; notice: string | null }
   | { kind: "returnCode"; returnCode: string; credentials: ParticipantCredentials }
   | { kind: "play"; credentials: ParticipantCredentials };
 
-/** `/j/{code}`: room lookup → join (guest/logged/rejoin) → return code once → live play screen. */
+/**
+ * `/j/{code}`: room lookup → join (guest/logged/rejoin) → return code once → live play screen.
+ * Incremento 4: "Meus dados" from the consent area, access with the return code once the token is
+ * gone (finished sessions: results, data and the claim), and the "data deleted" end state.
+ */
 export function JoinFlow({ rawCode }: { rawCode: string }) {
   const { t } = useI18n();
   const code = normalizeJoinCode(rawCode);
   const [stage, setStage] = useState<Stage>({ kind: "boot" });
   const [room, setRoom] = useState<LiveRoomInfo | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [myDataOpen, setMyDataOpen] = useState(false);
+  // Who joined from this tab (kept even after the token expires); read after mount.
+  const [identity, setIdentity] = useState<ParticipantIdentity | null>(null);
   const userQuery = useCurrentUser({ enabled: Boolean(room?.requires_login) });
 
   // Credentials live in sessionStorage (client only), so the first decision happens after mount.
@@ -50,6 +66,7 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
       return;
     }
     const stored = loadParticipantCredentials(code);
+    setIdentity(loadParticipantIdentity(code));
     if (stored) {
       setStage({ kind: "play", credentials: stored });
     } else {
@@ -62,7 +79,7 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
         setRoom(info);
         if (!stored) {
           if (info.status === "finished") {
-            setStage({ kind: "error", message: t("quizPlay.errors.session_finished"), retry: false });
+            setStage({ kind: "error", message: t("quizPlay.errors.session_finished"), retry: false, finished: true });
           } else {
             setStage({ kind: "form" });
           }
@@ -73,7 +90,12 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
           return;
         }
         const kind = toJoinErrorCode(error);
-        setStage({ kind: "error", message: t(`quizPlay.errors.${kind}`), retry: kind !== "room_not_found" && kind !== "session_finished" });
+        setStage({
+          kind: "error",
+          message: t(`quizPlay.errors.${kind}`),
+          retry: kind !== "room_not_found" && kind !== "session_finished",
+          finished: kind === "session_finished"
+        });
       });
     return () => controller.abort();
     // `t` changes with the locale only; the flow should not restart for it.
@@ -99,6 +121,13 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
     setStage({ kind: "rejoin", notice: t("quizPlay.errors.tokenLost") });
   }, [code, t]);
 
+  const onErased = useCallback(() => {
+    forgetParticipant(code);
+    setIdentity(null);
+    setMyDataOpen(false);
+    setStage({ kind: "erased" });
+  }, [code]);
+
   const onLeave = useCallback(() => {
     clearParticipantCredentials(code);
     setStage({ kind: "form" });
@@ -106,8 +135,11 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
   }, [code]);
 
   if (stage.kind === "play") {
-    return <PlayScreen code={code} credentials={stage.credentials} onTokenLost={onTokenLost} onLeave={onLeave} />;
+    return <PlayScreen code={code} credentials={stage.credentials} onTokenLost={onTokenLost} onLeave={onLeave} onErased={onErased} />;
   }
+
+  // The session this tab took part in; for a finished room the code still points at it.
+  const knownSessionId = identity?.sessionId ?? (room ? room.session_id : null);
 
   const theme = room?.theme_key ?? "sentinel";
   const closedForJoins = room ? !room.accepting_joins : false;
@@ -130,6 +162,15 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
             <LqButton variant="secondary" onClick={() => setAttempt((value) => value + 1)}>
               {t("quizPlay.room.retry")}
             </LqButton>
+          ) : null}
+          {stage.finished && knownSessionId ? (
+            <div className="flex flex-col gap-2 rounded-[calc(var(--lq-radius)*0.6)] border border-lq-line bg-lq-surface-2 p-4">
+              <p className="font-semibold text-lq-fg">{t("quizPlay.afterSession.title")}</p>
+              <p className="text-sm text-lq-fg-muted">{t("quizPlay.afterSession.text")}</p>
+              <LqButton className="mt-1" onClick={() => setStage({ kind: "access", sessionId: knownSessionId })}>
+                {t("quizPlay.afterSession.cta")}
+              </LqButton>
+            </div>
           ) : null}
           <Link href="/j" className={lqButtonClass("primary")}>
             {t("quizPlay.room.changeCode")}
@@ -155,11 +196,29 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
             defaultName={userQuery.data?.display_name ?? ""}
             onJoined={onJoined}
             onWantRejoin={() => setStage({ kind: "rejoin", notice: null })}
+            onOpenMyData={() => setMyDataOpen(true)}
           />
         ) : null;
       break;
     case "rejoin":
       content = <RejoinForm code={code} notice={stage.notice} onJoined={onJoined} onBack={() => setStage({ kind: "form" })} />;
+      break;
+    case "access":
+      content = (
+        <div className="flex flex-col gap-4">
+          <AccessForm variant="live" sessionId={stage.sessionId} defaultName={identity?.displayName ?? ""} onAccess={onJoined} />
+          <button
+            type="button"
+            onClick={() => setAttempt((value) => value + 1)}
+            className="focus-ring min-h-11 self-center rounded-md px-2 text-sm font-semibold text-lq-accent underline-offset-4 hover:underline"
+          >
+            {t("quizPlay.afterSession.back")}
+          </button>
+        </div>
+      );
+      break;
+    case "erased":
+      content = <ErasedCard />;
       break;
     case "returnCode":
       content = <ReturnCodeCard returnCode={stage.returnCode} onContinue={() => setStage({ kind: "play", credentials: stage.credentials })} />;
@@ -184,7 +243,42 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
             {content}
           </m.div>
         </main>
+        <MyDataDialog
+          open={myDataOpen}
+          onClose={() => setMyDataOpen(false)}
+          intro={t("quizPlay.myData.rightsText")}
+          token={null}
+          sessionId={identity?.sessionId ?? null}
+          defaultName={identity?.displayName}
+          onTokenRefreshed={(result) => saveParticipantCredentials(code, credentialsFromJoin(result))}
+          onErased={onErased}
+        />
       </LiveThemeRoot>
     </LiveMotionProvider>
+  );
+}
+
+/** End state after "Excluir meus dados": focus lands on the confirmation. */
+function ErasedCard() {
+  const { t } = useI18n();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
+  return (
+    <div className="flex flex-col items-center gap-4 text-center">
+      <span aria-hidden="true" className="grid size-14 place-items-center rounded-full bg-lq-success text-2xl font-black text-lq-on-success">
+        ✓
+      </span>
+      <h2 ref={headingRef} tabIndex={-1} className="font-lq text-2xl font-extrabold text-lq-fg outline-none">
+        {t("quizPlay.erased.title")}
+      </h2>
+      <p role="status" className="text-sm text-lq-fg-muted">
+        {t("quizPlay.erased.text")}
+      </p>
+      <Link href="/j" className={cn(lqButtonClass("primary"), "w-full")}>
+        {t("quizPlay.erased.back")}
+      </Link>
+    </div>
   );
 }

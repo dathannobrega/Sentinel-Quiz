@@ -430,5 +430,26 @@ export const quizBuilder = {
     loginOnly: "Signed-in only",
     rehearsal: "Rehearsal",
     rehearsalHint: "Rehearsal session: bots are left out of the report."
+  },
+  moderation: {
+    flaggedTitle: "Content under moderation review",
+    flaggedText: "The filter found sensitive terms. The version was published, but sessions with guests only open after the team reviews it. “Signed-in only” sessions are still allowed.",
+    findingItem: "Item {position}",
+    findingQuiz: "Quiz",
+    findingTerm: "term “{term}”",
+    more: "+ {count} matches",
+    fields: {
+      prompt: "prompt",
+      explanation: "explanation",
+      body: "slide text",
+      option: "option {n}",
+      accepted: "accepted answer {n}",
+      other: "content"
+    },
+    pendingTitle: "Content awaiting moderation",
+    pendingText: "This version has terms under review and cannot be shown to guests yet. Open the room for signed-in users only, or wait for the review.",
+    pendingLoginOnly: "Open for signed-in users only",
+    blockedTitle: "Quiz blocked by moderation",
+    blockedText: "No session can be opened with this quiz. Contact the platform team if you think this is a mistake."
   }
 } as const;

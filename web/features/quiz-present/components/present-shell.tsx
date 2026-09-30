@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, m } from "motion/react";
@@ -14,6 +14,7 @@ import { isAnswerableType } from "@/features/quiz-live/lib/protocol";
 import { LiveProvider, useLive, useLiveConnection, useLiveState } from "@/features/quiz-live/lib/use-live-session";
 import { HostControlBar, HotkeysHelp, ParticipantsPanel } from "@/features/quiz-present/components/host-controls";
 import { PresenterView } from "@/features/quiz-present/components/presenter-view";
+import { PhonePreviewPanel, PreflightDialog, usePhonePreview, usePreflight } from "@/features/quiz-present/components/room-ops";
 import { Stage } from "@/features/quiz-present/components/stage";
 import { useElementHeight, useFullscreen, usePresenterHotkeys, useWakeLock, type HotkeyCommand } from "@/features/quiz-present/hooks/use-stage-hooks";
 import {
@@ -27,6 +28,7 @@ import {
   type HostAction,
   type HostContext
 } from "@/features/quiz-present/lib/host-actions";
+import { preflightOverall, shouldAutoRunPreflight } from "@/features/quiz-present/lib/room-ops";
 import { isApiError } from "@/lib/api/errors";
 import { useI18n } from "@/lib/i18n";
 import type { LiveSession } from "@/types/api/live";
@@ -34,6 +36,8 @@ import type { LiveSession } from "@/types/api/live";
 type Mode = { kind: "resolving" } | { kind: "host" } | { kind: "presenter" } | { kind: "display"; token: string } | { kind: "display-missing" };
 
 const CALM_KEY = "lq:calm";
+/** The presenter view keeps its control bar in flow (sticky): leave roughly its height free. */
+const PRESENTER_BAR_ALLOWANCE = 96;
 
 function readDisplayTokenFromUrl(): string | null {
   if (typeof window === "undefined") {
@@ -162,7 +166,12 @@ const selectHostMeta = (state: LiveState) => ({
   participants: state.participants,
   connection: state.connection,
   lastError: state.lastError,
-  sessionId: state.sessionId
+  sessionId: state.sessionId,
+  hydrated: state.hydrated,
+  joinCode: state.joinCode,
+  maxParticipants: state.maxParticipants,
+  rehearsal: state.rehearsal,
+  removedItem: state.removedItem
 });
 
 function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "presenter" }) {
@@ -184,6 +193,11 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const [openingDisplay, setOpeningDisplay] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const preflight = usePreflight(sessionId);
+  const preview = usePhonePreview(sessionId);
+  const autoPreflightDone = useRef(false);
+  const lastRemovedSts = useRef<number | null>(null);
 
   useWakeLock(mode === "host");
 
@@ -201,6 +215,33 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
       });
     return () => controller.abort();
   }, [sessionId]);
+
+  const maxParticipants = meta.maxParticipants ?? session?.max_participants ?? null;
+  const rehearsal = Boolean(session?.rehearsal || meta.rehearsal);
+
+  // RF-1115: large rooms (300+ seats) run the pre-event check once, as soon as the lobby is up.
+  const { run: runPreflight } = preflight;
+  useEffect(() => {
+    if (autoPreflightDone.current || !meta.hydrated || meta.phase !== "lobby" || !shouldAutoRunPreflight(maxParticipants)) {
+      return;
+    }
+    autoPreflightDone.current = true;
+    void runPreflight().then((result) => {
+      if (result && preflightOverall(result) === "attention") {
+        setNotice(t("quizPresent.preflight.autoAttention"));
+      }
+    });
+  }, [meta.hydrated, meta.phase, maxParticipants, runPreflight, t]);
+
+  // Moderation removed an item (RF-1114): tell the host once per event.
+  const removed = meta.removedItem;
+  useEffect(() => {
+    if (!removed || lastRemovedSts.current === removed.sts) {
+      return;
+    }
+    lastRemovedSts.current = removed.sts;
+    setNotice(removed.current ? t("quizPresent.moderation.toastCurrent", { position: removed.qi + 1 }) : t("quizPresent.moderation.toast"));
+  }, [removed, t]);
 
   // Server errors (stale/forbidden/rate_limited...) and local notices → a short toast.
   const toast = notice ?? (meta.lastError ? t(`quizPresent.errors.${meta.lastError.code}`) : null);
@@ -396,6 +437,9 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
       onOpenParticipants={() => setParticipantsOpen(true)}
       onOpenHelp={() => setHelpOpen(true)}
       onHide={mode === "host" ? () => setControlsVisible(false) : undefined}
+      maxParticipants={maxParticipants}
+      preflight={{ overall: preflight.overall, running: preflight.state.kind === "running", onOpen: () => setPreflightOpen(true) }}
+      preview={rehearsal ? { active: preview.active, busy: preview.state.kind === "opening", onToggle: preview.toggle } : undefined}
     />
   );
 
@@ -407,7 +451,15 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
         <PresenterView controls={controls} />
       ) : (
         <>
-          <Stage view={stageView} clock={live.clock} calm={calm} reportHref={reportHref} libraryHref="/quizzes" bottomInset={controlsVisible ? barHeight : 0} />
+          <Stage
+            view={stageView}
+            clock={live.clock}
+            calm={calm}
+            reportHref={reportHref}
+            libraryHref="/quizzes"
+            bottomInset={controlsVisible ? barHeight : 0}
+            className={preview.state.kind !== "closed" ? "lg:pr-[25.5rem]" : undefined}
+          />
           <div ref={barRef} data-lq-theme={stageView.themeKey} className="fixed inset-x-0 bottom-0 z-40">
             <AnimatePresence initial={false}>
               {controlsVisible ? (
@@ -437,24 +489,32 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
         </div>
       ) : null}
 
-      <AnimatePresence>
-        {toast ? (
-          <m.div
-            key={toast}
-            data-lq-theme={stageView.themeKey}
-            role="status"
-            className="fixed top-4 left-1/2 z-50 flex max-w-[min(90vw,36rem)] -translate-x-1/2 items-center gap-3 rounded-[var(--lq-radius)] border border-lq-line bg-lq-surface-2 px-4 py-3 text-sm font-semibold text-lq-fg shadow-[0_20px_50px_-20px_rgb(0_0_0/0.7)]"
-            initial={{ y: -40 }}
-            animate={{ y: 0 }}
-            exit={{ y: -40, opacity: 0 }}
-          >
-            <span>{toast}</span>
-            <button type="button" onClick={dismissToast} className="focus-ring rounded-md px-2 text-lq-fg-muted hover:text-lq-fg" aria-label={t("quizPresent.errors.dismiss")}>
-              ✕
-            </button>
-          </m.div>
-        ) : null}
-      </AnimatePresence>
+      {/* The live region exists before any toast, so screen readers announce each one. */}
+      <div aria-live="polite" aria-atomic="true">
+        <AnimatePresence>
+          {toast ? (
+            <m.div
+              key={toast}
+              data-lq-theme={stageView.themeKey}
+              role="status"
+              className="fixed top-4 left-1/2 z-50 flex max-w-[min(90vw,36rem)] -translate-x-1/2 items-center gap-3 rounded-[var(--lq-radius)] border border-lq-line bg-lq-surface-2 px-4 py-3 text-sm font-semibold text-lq-fg shadow-[0_20px_50px_-20px_rgb(0_0_0/0.7)]"
+              initial={{ y: -40 }}
+              animate={{ y: 0 }}
+              exit={{ y: -40, opacity: 0 }}
+            >
+              <span>{toast}</span>
+              <button type="button" onClick={dismissToast} className="focus-ring rounded-md px-2 text-lq-fg-muted hover:text-lq-fg" aria-label={t("quizPresent.errors.dismiss")}>
+                ✕
+              </button>
+            </m.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
+
+      <div data-lq-theme={stageView.themeKey}>
+        <PhonePreviewPanel state={preview.state} onClose={preview.close} bottomInset={mode === "presenter" ? PRESENTER_BAR_ALLOWANCE : controlsVisible ? barHeight : 0} code={meta.joinCode} />
+      </div>
+      <PreflightDialog open={preflightOpen} onClose={() => setPreflightOpen(false)} preflight={preflight} />
 
       <HotkeysHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ParticipantsPanel

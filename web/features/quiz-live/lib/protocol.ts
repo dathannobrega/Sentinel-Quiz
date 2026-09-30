@@ -1,6 +1,7 @@
 /**
  * WebSocket protocol `sq.live.v1` (docs/live-quiz/CONTRATO-INCREMENTO-1.md §6, plus the time controls
- * and SSE fallback of CONTRATO-INCREMENTO-3.md §3–§4).
+ * and SSE fallback of CONTRATO-INCREMENTO-3.md §3–§4 and the moderation fields of
+ * CONTRATO-INCREMENTO-4.md §2/§4).
  * Discriminated unions for every frame plus small type guards. Keep in sync with
  * backend/app/live/protocol.py.
  */
@@ -63,6 +64,16 @@ export interface PublicQuestion {
   scored: boolean;
   /** multi_choice: number of correct options (for the "select N" hint). */
   select_count: number | null;
+  /**
+   * Removed by moderation (RF-1114, Incremento 4): a neutral, unscored slide with an empty prompt.
+   * Clients show "content removed" and never the original text. Older servers omit it.
+   */
+  removed?: boolean;
+}
+
+/** Whether the item was removed by moderation (neutral placeholder slide). */
+export function isRemovedQuestion(question: Pick<PublicQuestion, "removed"> | null | undefined): boolean {
+  return Boolean(question?.removed);
 }
 
 export interface LiveTimer {
@@ -97,6 +108,17 @@ export interface MyReveal {
   streak: number;
 }
 
+/**
+ * A typed answer on the projector. Offensive ones arrive as `{text: "•••", masked: true}`
+ * (Incremento 4 §2); an answer accepted by the author is never masked.
+ */
+export interface TopAnswer {
+  text: string;
+  n: number;
+  accepted: boolean;
+  masked?: boolean;
+}
+
 export interface Reveal {
   qi: number;
   item_type: LiveItemType;
@@ -109,7 +131,7 @@ export interface Reveal {
   avg_ms: number | null;
   fastest?: { display_name: string; ms: number } | null;
   explanation: string | null;
-  top_answers?: Array<{ text: string; n: number; accepted: boolean }>;
+  top_answers?: TopAnswer[];
   my?: MyReveal;
 }
 
@@ -169,6 +191,8 @@ export interface HostParticipant {
   /** Incremento 3 (older servers omit them). */
   time_multiplier?: number;
   is_bot?: boolean;
+  /** The host's phone preview in a rehearsal (RF-514, Incremento 4); never in reports. */
+  is_preview?: boolean;
 }
 
 export interface Snapshot {
@@ -184,6 +208,9 @@ export interface Snapshot {
   settings: SnapshotSettings;
   room_locked: boolean;
   participant_count: number;
+  /** Incremento 4: room limit (host warning at 80%, RF-1205) and rehearsal flag. */
+  max_participants?: number;
+  rehearsal?: boolean;
   question?: PublicQuestion;
   timer?: LiveTimer;
   answered?: number;
@@ -265,6 +292,8 @@ export type ServerMessage =
   | ServerBase<"session.ended", { report_available: boolean }>
   | ServerBase<"room.locked", { locked: boolean }>
   | ServerBase<"participant.kicked", { banned: boolean }>
+  /** Moderation removed item `qi` (`current`: it was on screen). A fresh `room.snapshot` follows. */
+  | ServerBase<"item.removed", { qi: number; current: boolean }>
   | ServerBase<"srv.ping", { ts: number }>
   | ServerBase<"error", { code: LiveErrorCode; ref_mid?: string; detail?: string }>;
 
@@ -324,6 +353,7 @@ const SERVER_TYPES: ReadonlySet<string> = new Set<ServerMessageType>([
   "session.ended",
   "room.locked",
   "participant.kicked",
+  "item.removed",
   "srv.ping",
   "error"
 ]);

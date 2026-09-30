@@ -142,6 +142,21 @@ function ReportView({ report, refetch, refreshing }: { report: LiveReport; refet
       </header>
 
       {exportError ? <Alert tone="danger" role="alert" message={exportError} /> : null}
+      {report.retention?.snapshot ? (
+        // RF-1109: after the purge the report is the frozen aggregate (no per-answer data left).
+        <Alert
+          tone="neutral"
+          title={t("quizReports.retention.title")}
+          message={
+            <>
+              {t("quizReports.retention.text")}
+              {report.retention.events_purged_at ? (
+                <> {t("quizReports.retention.purgedAt", { date: formatDateTime(report.retention.events_purged_at, locale) })}</>
+              ) : null}
+            </>
+          }
+        />
+      ) : null}
       {session.status !== "finished" ? (
         <Alert
           tone="warning"

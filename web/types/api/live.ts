@@ -165,11 +165,28 @@ export interface LiveIssue {
   message: string;
 }
 
+/** One filter-term hit found when a version was published (RF-1112). `position` is 0-based. */
+export interface LiveModerationFinding {
+  position: number | null;
+  /** "prompt", "explanation", "body", "option_{n}" or "accepted_{n}". */
+  field: string;
+  term: string;
+  excerpt: string;
+}
+
+/** Content moderation of the published version (Incremento 4 §2). */
+export interface LiveModerationSummary {
+  state: "clear" | "flagged" | "approved" | "blocked";
+  findings: LiveModerationFinding[];
+}
+
 export interface LivePublishResult {
   quiz: LiveQuizDetail;
   version_no: number;
   published_at: string;
   warnings: LiveIssue[];
+  /** Incremento 4: older servers omit it. */
+  moderation?: LiveModerationSummary;
 }
 
 export interface LiveFromBankResult {
@@ -369,4 +386,97 @@ export interface LiveReport {
   items: LiveReportItem[];
   participants: LiveReportParticipant[];
   domains: LiveReportDomain[];
+  /**
+   * Retention (RF-1109, Incremento 4). `snapshot`: the raw answer log was purged and this is the
+   * aggregate report frozen before the purge. Older servers omit it.
+   */
+  retention?: LiveReportRetention;
+}
+
+export interface LiveReportRetention {
+  events_purged_at: string | null;
+  snapshot: boolean;
+}
+
+// ----------------------------------------------------------------------------- participant rights (Incremento 4 §3)
+
+export type LiveReportReason = "offensive" | "spam" | "cheating" | "copyright" | "privacy" | "other";
+
+export interface LiveContentReport {
+  target: "session" | "item";
+  /** 0-based position; required when `target` is "item". */
+  qi?: number;
+  reason: LiveReportReason;
+  note?: string;
+}
+
+export type LiveClaimReason = "session_active" | "already_linked" | "expired" | "not_available";
+
+export interface LiveClaimStatus {
+  available: boolean;
+  reason: LiveClaimReason | null;
+  /** ISO deadline (7 days after the end) when available. */
+  until?: string | null;
+}
+
+export interface LiveMyDataAnswer {
+  position: number;
+  prompt: string;
+  event_type: string;
+  response: { choice?: string[]; text?: string } & Record<string, unknown>;
+  correct: boolean | null;
+  points: number | null;
+  server_ms: number | null;
+  received_at: string | null;
+}
+
+/** GET /api/live/me: everything the room keeps about the participant (RF-650). */
+export interface LiveMyData {
+  participant: {
+    participant_id: string;
+    display_name: string;
+    avatar_seed: string;
+    joined_at: string | null;
+    last_seen_at: string | null;
+    consent_version: string | null;
+    linked_account: boolean;
+    claimed_at: string | null;
+    time_multiplier: number;
+    final_score: number | null;
+    final_rank: number | null;
+  };
+  session: {
+    session_id: string | null;
+    title: string;
+    status: LiveSessionStatus | null;
+    started_at: string | null;
+    ended_at: string | null;
+  };
+  answers: LiveMyDataAnswer[];
+  retention: { note?: string } & Record<string, unknown>;
+  claim: LiveClaimStatus;
+}
+
+export interface LiveClaimResult {
+  claimed: true;
+  bank_answers_recorded: number;
+}
+
+// ----------------------------------------------------------------------------- host operations (Incremento 4 §4)
+
+export type LivePreflightStatus = "ok" | "warn" | "fail";
+export type LivePreflightKey = "database" | "capacity" | "content" | "realtime_bus" | "rate_limit" | "token_keys" | "event_loop";
+
+export interface LivePreflightCheck {
+  key: LivePreflightKey | (string & {});
+  status: LivePreflightStatus;
+  /** Short code the UI translates ("near_limit", "moderation_pending"...); "" when fine. */
+  detail: string;
+  values?: Record<string, string | number | boolean | null>;
+}
+
+export interface LivePreflight {
+  status: "ready" | "attention";
+  large_room: boolean;
+  checks: LivePreflightCheck[];
 }

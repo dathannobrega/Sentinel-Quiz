@@ -6,6 +6,7 @@ import { CountdownRing } from "@/components/quiz-kit/countdown-ring";
 import { OptionBadge } from "@/components/quiz-kit/option-shape";
 import { LiveThemeRoot, PauseGlyph } from "@/features/quiz-live/components/live-chrome";
 import { LqButton, LqInput } from "@/features/quiz-live/components/lq-ui";
+import { CapacityWarning } from "@/features/quiz-present/components/room-ops";
 import type { LiveState } from "@/features/quiz-live/lib/live-store";
 import { useLive, useLiveState } from "@/features/quiz-live/lib/use-live-session";
 import { useI18n } from "@/lib/i18n";
@@ -25,7 +26,8 @@ const selectPresenter = (state: LiveState) => ({
   participantCount: state.participantCount,
   reveal: state.reveal,
   presenter: state.presenter,
-  presenterQi: state.presenterQi
+  presenterQi: state.presenterQi,
+  maxParticipants: state.maxParticipants
 });
 
 function Panel({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
@@ -84,6 +86,7 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
         <header className="flex flex-wrap items-center gap-3 px-5 pt-4">
           <h1 className="font-lq text-xl font-extrabold text-lq-fg">{t("quizPresent.presenter.title")}</h1>
           <span className="truncate text-sm text-lq-fg-muted">{view.title}</span>
+          <CapacityWarning count={view.participantCount} max={view.maxParticipants} className="ml-auto" />
           {view.qi !== null && view.total ? (
             <span className="ml-auto rounded-full bg-lq-surface-2 px-3 py-1 font-lq-mono text-sm text-lq-fg">
               {t("quizPresent.intro.counter", { current: view.qi + 1, total: view.total })}
@@ -94,7 +97,11 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
         <main className="grid min-h-0 flex-1 gap-4 p-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <div className="flex min-h-0 flex-col gap-4">
             <Panel title={t("quizPresent.presenter.current")}>
-              {question ? (
+              {question?.removed ? (
+                <p role="status" className="rounded-[calc(var(--lq-radius)*0.6)] border border-dashed border-lq-line bg-lq-surface-2 px-4 py-3 font-semibold text-lq-fg">
+                  {t("quizPresent.moderation.presenter")}
+                </p>
+              ) : question ? (
                 <>
                   <div className="flex items-start gap-4">
                     <p className="flex-1 font-lq-prompt text-2xl leading-snug font-bold text-lq-fg">{question.prompt}</p>
@@ -155,12 +162,25 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
                 {item?.accepted_answers.length ? <p className="text-lq-fg">{item.accepted_answers.join(" · ")}</p> : null}
                 {view.reveal?.top_answers?.length ? (
                   <ul className="flex flex-wrap gap-2">
-                    {view.reveal.top_answers.map((answer) => (
-                      <li key={answer.text} className={cn("rounded-full border px-3 py-1 text-sm", answer.accepted ? "border-lq-success text-lq-fg" : "border-lq-line text-lq-fg-muted")}>
-                        {answer.accepted ? "✓ " : ""}
-                        {answer.text} · {answer.n}
-                      </li>
-                    ))}
+                    {view.reveal.top_answers.map((answer, index) =>
+                      answer.masked ? (
+                        <li
+                          key={`masked-${index}`}
+                          className="rounded-full border border-dashed border-lq-line bg-lq-surface-2 px-3 py-1 text-sm text-lq-fg-muted"
+                          title={t("quizPresent.moderation.masked")}
+                        >
+                          <span role="img" aria-label={t("quizPresent.moderation.masked")} className="font-lq-mono tracking-[0.3em]">
+                            {answer.text || "•••"}
+                          </span>{" "}
+                          · {answer.n}
+                        </li>
+                      ) : (
+                        <li key={answer.text} className={cn("rounded-full border px-3 py-1 text-sm", answer.accepted ? "border-lq-success text-lq-fg" : "border-lq-line text-lq-fg-muted")}>
+                          {answer.accepted ? "✓ " : ""}
+                          {answer.text} · {answer.n}
+                        </li>
+                      )
+                    )}
                   </ul>
                 ) : null}
                 {canAccept ? (

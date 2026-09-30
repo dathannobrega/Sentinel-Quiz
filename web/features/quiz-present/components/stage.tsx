@@ -99,6 +99,9 @@ export function Stage({
         {t("quizPresent.loading")}
       </p>
     );
+  } else if (view.question?.removed && view.phase !== "lobby" && view.phase !== "podium" && view.phase !== "finished" && view.phase !== "leaderboard") {
+    // Removed by moderation (RF-1114): a neutral slide, whatever phase the frame raced in with.
+    screen = <RemovedScreen />;
   } else {
     switch (view.phase) {
       case "lobby":
@@ -641,7 +644,8 @@ function TopAnswers({ reveal }: { reveal: NonNullable<StageView["reveal"]> }) {
       <ul className="flex min-h-0 flex-col gap-[1cqh] overflow-hidden">
         {answers.slice(0, 8).map((answer, position) => (
           <m.li
-            key={answer.text}
+            // Masked answers all read "•••": the position keeps keys unique.
+            key={answer.masked ? `masked-${position}` : answer.text}
             className={cn(
               "relative flex items-center gap-[1.4cqmin] overflow-hidden rounded-[var(--lq-radius)] border px-[1.6cqmin] py-[1cqmin]",
               answer.accepted ? "border-lq-success bg-lq-surface-2" : "border-lq-line bg-lq-surface"
@@ -666,7 +670,20 @@ function TopAnswers({ reveal }: { reveal: NonNullable<StageView["reveal"]> }) {
               <span aria-hidden="true">{answer.accepted ? "✓" : "✕"}</span>
               <span className="sr-only">{answer.accepted ? t("quizPresent.reveal.acceptedMark") : t("quizPresent.reveal.notAcceptedMark")}</span>
             </span>
-            <span className="relative min-w-0 flex-1 truncate font-lq text-[max(1rem,2.6cqmin)] font-bold text-lq-fg">{answer.text}</span>
+            {answer.masked ? (
+              <span className="relative min-w-0 flex-1">
+                <span
+                  role="img"
+                  aria-label={t("quizPresent.moderation.masked")}
+                  title={t("quizPresent.moderation.masked")}
+                  className="inline-flex items-center rounded-full border border-dashed border-lq-line bg-lq-surface-2 px-[1.4cqmin] py-[0.3cqmin] font-lq-mono text-[max(0.9rem,2.2cqmin)] tracking-[0.3em] text-lq-fg-muted"
+                >
+                  {answer.text || "•••"}
+                </span>
+              </span>
+            ) : (
+              <span className="relative min-w-0 flex-1 truncate font-lq text-[max(1rem,2.6cqmin)] font-bold text-lq-fg">{answer.text}</span>
+            )}
             <span className="relative font-lq-mono text-[max(0.9rem,2.2cqmin)] text-lq-fg">{answer.n}</span>
           </m.li>
         ))}
@@ -710,6 +727,23 @@ function ContentScreen({ question }: { question: PublicQuestion | null }) {
           {question.body}
         </FitText>
       ) : null}
+    </div>
+  );
+}
+
+/** Neutral slide for an item removed by moderation: no prompt, options or answers. */
+function RemovedScreen() {
+  const { t } = useI18n();
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[3cqh] px-[8cqw] text-center">
+      <span aria-hidden="true" className="grid size-[16cqmin] place-items-center rounded-full border-[0.5cqmin] border-dashed border-lq-line text-lq-fg-muted">
+        <svg viewBox="0 0 24 24" className="size-[8cqmin]" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3l7.5 3v5.5c0 4.4-3.1 8.2-7.5 9.5-4.4-1.3-7.5-5.1-7.5-9.5V6L12 3Z" />
+          <path d="M9 12h6" />
+        </svg>
+      </span>
+      <h1 className="font-lq text-[max(1.5rem,5.5cqmin)] font-black text-balance text-lq-fg">{t("quizPresent.moderation.title")}</h1>
+      <p className="max-w-[60cqw] font-lq text-[max(1rem,2.6cqmin)] text-lq-fg-muted">{t("quizPresent.moderation.text")}</p>
     </div>
   );
 }

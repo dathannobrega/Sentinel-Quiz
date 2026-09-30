@@ -444,3 +444,75 @@ describe("liveReducer: time controls (Incremento 3)", () => {
     expect(state.connection.transport).toBe("sse");
   });
 });
+
+describe("liveReducer: moderation and room limits (Incremento 4)", () => {
+  function openQuestion(): LiveState {
+    return apply(
+      createInitialLiveState("participant"),
+      frame("room.snapshot", snapshot({ status: "live", phase: "question", qi: 0, question, timer: { answers_open_at_ms: 0, deadline_ms: 20_000 }, my: mySnap }), 1)
+    );
+  }
+
+  it("keeps max_participants and rehearsal from the snapshot (and the last known values without them)", () => {
+    let state = apply(createInitialLiveState("host"), frame("room.snapshot", snapshot({ max_participants: 500, rehearsal: true }), 1));
+    expect(state.maxParticipants).toBe(500);
+    expect(state.rehearsal).toBe(true);
+    state = apply(state, frame("room.snapshot", snapshot(), 2));
+    expect(state.maxParticipants).toBe(500);
+    expect(createInitialLiveState().maxParticipants).toBeNull();
+  });
+
+  it("item.removed on the item on screen swaps it for the neutral placeholder at once", () => {
+    let state = liveReducer(openQuestion(), { type: "local.submit", qi: 0, answerId: "a1", answer: { choice: ["B"] } });
+    state = apply(state, frame("item.removed", { qi: 0, current: true }, 2));
+    expect(state.seq).toBe(2);
+    expect(state.phase).toBe("content");
+    expect(state.question?.removed).toBe(true);
+    expect(state.question?.prompt).toBe("");
+    expect(state.question?.options).toEqual([]);
+    expect(state.question?.scored).toBe(false);
+    expect(state.timer).toBeNull();
+    expect(state.submission).toBeNull();
+    expect(state.removedItem).toMatchObject({ qi: 0, current: true });
+    expect(selectCanAnswer(state, 5_000)).toBe(false);
+  });
+
+  it("item.removed for another item only records the event (the snapshot that follows carries it)", () => {
+    const before = openQuestion();
+    const state = apply(before, frame("item.removed", { qi: 3, current: false }, 2));
+    expect(state.question).toBe(before.question);
+    expect(state.phase).toBe("question");
+    expect(state.removedItem).toMatchObject({ qi: 3, current: false });
+  });
+
+  it("drops the presenter item (answer key, notes) of the removed item", () => {
+    const host = apply(
+      createInitialLiveState("host"),
+      frame(
+        "room.snapshot",
+        snapshot({ status: "live", phase: "question", qi: 0, question, timer: { answers_open_at_ms: 0, deadline_ms: 1 }, presenter: { item: presenterItem, next_prompt: null } }),
+        1
+      )
+    );
+    expect(host.presenter).not.toBeNull();
+    const state = apply(host, frame("item.removed", { qi: 0, current: true }, 2));
+    expect(state.presenter).toBeNull();
+    expect(state.presenterQi).toBeNull();
+  });
+
+  it("ignores a stale item.removed and lets the fresh snapshot win", () => {
+    let state = apply(openQuestion(), frame("room.snapshot", snapshot({ status: "live", phase: "question", qi: 0, question }), 5));
+    state = apply(state, frame("item.removed", { qi: 0, current: true }, 4));
+    expect(state.question?.removed).toBeUndefined();
+    const placeholder = { ...question, item_type: "content" as const, prompt: "", options: [], scored: false, removed: true };
+    state = apply(state, frame("room.snapshot", snapshot({ status: "live", phase: "content", qi: 0, question: placeholder }), 6));
+    expect(state.phase).toBe("content");
+    expect(selectStageView(state).question?.removed).toBe(true);
+  });
+
+  it("host participants added from lobby.update are never previews", () => {
+    let state = apply(createInitialLiveState("host"), frame("room.snapshot", snapshot({ participants: [] }), 1));
+    state = apply(state, frame("lobby.update", { count: 1, recent: [{ participant_id: "p9", display_name: "Caio", avatar_seed: "c" }] }, 2));
+    expect(state.participants?.[0]?.is_preview).toBe(false);
+  });
+});

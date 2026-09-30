@@ -11,8 +11,11 @@ import { Field } from "@/components/ui/field";
 import { Checkbox, Input, Select } from "@/components/ui/input";
 import { PresentIcon } from "@/features/quiz-builder/components/icons";
 import { IssueList } from "@/features/quiz-builder/components/issue-list";
+import { ModerationFindings } from "@/features/quiz-builder/components/moderation-findings";
 import {
   isLicenseRequiresLogin,
+  isModerationPending,
+  isQuizBlocked,
   isQuizInvalid,
   isQuizNotPublished,
   type LiveLicenseBlockedItem
@@ -21,7 +24,7 @@ import { readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { useCreateLiveSession } from "@/lib/query/live-hooks";
 import { cn } from "@/lib/utils/cn";
-import type { LiveAudience, LiveIssue, LivePreset, LivePublishResult, LiveQuizSummary } from "@/types/api";
+import type { LiveAudience, LiveIssue, LiveModerationFinding, LivePreset, LivePublishResult, LiveQuizSummary } from "@/types/api";
 
 interface StartSessionDialogProps {
   open: boolean;
@@ -66,6 +69,8 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
   const [blocked, setBlocked] = useState<LiveLicenseBlockedItem[]>([]);
   const [loginHelps, setLoginHelps] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 422 moderation_pending (guests refused) or 403 quiz_blocked, Incremento 4. */
+  const [moderation, setModeration] = useState<{ kind: "pending"; findings: LiveModerationFinding[] } | { kind: "blocked" } | null>(null);
   const [publishedNow, setPublishedNow] = useState<number | null>(null);
 
   const neverPublished = quiz.published_version_no === null && publishedNow === null;
@@ -84,6 +89,7 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
     setIssues([]);
     setBlocked([]);
     setError(null);
+    setModeration(null);
   }
 
   async function openRoom(guests: boolean) {
@@ -119,6 +125,10 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
       } else if (isLicenseRequiresLogin(caught)) {
         setBlocked(caught.items);
         setLoginHelps(caught.code === "license_requires_login");
+      } else if (isModerationPending(caught)) {
+        setModeration({ kind: "pending", findings: caught.findings });
+      } else if (isQuizBlocked(caught)) {
+        setModeration({ kind: "blocked" });
       } else if (isQuizNotPublished(caught)) {
         setError(t("quizBuilder.present.notPublished"));
       } else {
@@ -336,6 +346,31 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
               </Button>
             </div>
           </div>
+        ) : null}
+
+        {moderation?.kind === "pending" ? (
+          <ModerationFindings
+            title={t("quizBuilder.moderation.pendingTitle")}
+            message={t("quizBuilder.moderation.pendingText")}
+            findings={moderation.findings}
+            action={
+              <Button
+                size="sm"
+                busy={busy}
+                onClick={() => {
+                  // Signed-in-only rooms are still allowed while the review is pending.
+                  setAllowGuests(false);
+                  void start({ publishFirst: false, guests: false });
+                }}
+              >
+                {t("quizBuilder.moderation.pendingLoginOnly")}
+              </Button>
+            }
+          />
+        ) : null}
+
+        {moderation?.kind === "blocked" ? (
+          <Alert tone="danger" role="alert" title={t("quizBuilder.moderation.blockedTitle")} message={t("quizBuilder.moderation.blockedText")} />
         ) : null}
 
         {issues.length ? (

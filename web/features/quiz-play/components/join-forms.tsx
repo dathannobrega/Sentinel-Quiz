@@ -58,13 +58,16 @@ export function GuestJoinForm({
   room,
   defaultName = "",
   onJoined,
-  onWantRejoin
+  onWantRejoin,
+  onOpenMyData
 }: {
   code: string;
   room: LiveRoomInfo;
   defaultName?: string;
   onJoined: (result: LiveJoinResult) => void;
   onWantRejoin: () => void;
+  /** "Meus dados" (RF-650/RF-606) from the consent area. */
+  onOpenMyData?: () => void;
 }) {
   const { t, locale } = useI18n();
   const [name, setName] = useState(defaultName);
@@ -227,6 +230,15 @@ export function GuestJoinForm({
           </span>
         </label>
         {error?.field === "consent" ? <LqError>{error.message}</LqError> : null}
+        {onOpenMyData ? (
+          <button
+            type="button"
+            onClick={onOpenMyData}
+            className="focus-ring inline-flex min-h-11 items-center self-start rounded-md px-1 text-xs font-semibold text-lq-fg-muted underline underline-offset-4 hover:text-lq-fg"
+          >
+            {t("quizPlay.myData.link")}
+          </button>
+        ) : null}
       </div>
 
       {error?.field === "form" ? <LqError id={formErrorId}>{error.message}</LqError> : null}

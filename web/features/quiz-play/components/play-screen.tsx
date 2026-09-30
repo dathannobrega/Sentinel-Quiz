@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { Avatar } from "@/components/quiz-kit/avatar";
@@ -8,12 +8,20 @@ import { CountdownBar } from "@/components/quiz-kit/countdown-ring";
 import { LiveMotionProvider, useLqReducedMotion } from "@/components/quiz-kit/motion";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ConnectionBanner, LiveAnnouncer, LiveThemeRoot, TransportBadge } from "@/features/quiz-live/components/live-chrome";
+import { LiveToast, useLiveToast } from "@/features/quiz-live/components/live-toast";
 import { LqButton, LqError, lqCardClass } from "@/features/quiz-live/components/lq-ui";
-import { loadReturnCode, type ParticipantCredentials } from "@/features/quiz-live/lib/live-fetch";
+import {
+  credentialsFromJoin,
+  loadReturnCode,
+  saveParticipantCredentials,
+  type ParticipantCredentials
+} from "@/features/quiz-live/lib/live-fetch";
 import { selectCanAnswer, selectMyTimer, type LiveState } from "@/features/quiz-live/lib/live-store";
 import { formatJoinCode, isAnswerableType } from "@/features/quiz-live/lib/protocol";
 import { LiveProvider, useCountdown, useLive, useLiveConnection, useLiveState } from "@/features/quiz-live/lib/use-live-session";
 import { AnswerPad } from "@/features/quiz-play/components/answer-pad";
+import { MyDataDialog } from "@/features/quiz-play/components/my-data-panel";
+import { ParticipantMenu } from "@/features/quiz-play/components/participant-menu";
 import {
   ContentView,
   ExtendedTimeBadge,
@@ -22,12 +30,15 @@ import {
   PausedView,
   PhaseHeading,
   ReadingView,
+  RemovedView,
   RevealFeedback,
   StandingView,
   SubmittedView,
   WaitingLobby
 } from "@/features/quiz-play/components/participant-phases";
+import { ReportDialog } from "@/features/quiz-play/components/report-dialog";
 import { useI18n } from "@/lib/i18n";
+import type { LiveJoinResult } from "@/types/api/live";
 import { cn } from "@/lib/utils/cn";
 
 const selectView = (state: LiveState) => ({
@@ -60,30 +71,35 @@ const selectView = (state: LiveState) => ({
 
 type View = ReturnType<typeof selectView>;
 
-/** Participant live screen: connects with the stored token and renders the current phase. */
-export function PlayScreen({
-  code,
-  credentials,
-  onTokenLost,
-  onLeave
-}: {
+export interface PlayScreenProps {
   code: string;
   credentials: ParticipantCredentials;
   onTokenLost: () => void;
   onLeave: () => void;
-}) {
+  /** "Excluir meus dados" finished (RF-650): the caller forgets the credentials. */
+  onErased?: () => void;
+  /**
+   * Host phone preview (RF-514): the same client inside a phone frame. Fills its container
+   * instead of the viewport and never writes participant credentials to this tab's storage.
+   */
+  embedded?: boolean;
+}
+
+/** Participant live screen: connects with the stored token and renders the current phase. */
+export function PlayScreen(props: PlayScreenProps) {
+  const { credentials } = props;
   const liveCredentials = useMemo(() => ({ kind: "participant" as const, token: credentials.token }), [credentials.token]);
   const connection = useLiveConnection("participant", liveCredentials);
   return (
     <LiveProvider value={connection}>
       <LiveMotionProvider>
-        <PlayInner code={code} credentials={credentials} onTokenLost={onTokenLost} onLeave={onLeave} />
+        <PlayInner {...props} />
       </LiveMotionProvider>
     </LiveProvider>
   );
 }
 
-function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; credentials: ParticipantCredentials; onTokenLost: () => void; onLeave: () => void }) {
+function PlayInner({ code, credentials, onTokenLost, onLeave, onErased, embedded = false }: PlayScreenProps) {
   const { t } = useI18n();
   const live = useLive();
   const view = useLiveState(selectView);
@@ -91,7 +107,24 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [showCode, setShowCode] = useState(false);
   // PlayScreen only mounts on the client (after the join flow read sessionStorage).
-  const [returnCode] = useState<string | null>(() => loadReturnCode(code));
+  const [returnCode] = useState<string | null>(() => (embedded ? null : loadReturnCode(code)));
+  const [reportOpen, setReportOpen] = useState(false);
+  const [myDataOpen, setMyDataOpen] = useState(false);
+  const { toast, show: showToast, dismiss: dismissToast } = useLiveToast();
+
+  // A token refreshed with the return code (inside "Meus dados" or the claim) replaces the stored one.
+  const onTokenRefreshed = useCallback(
+    (result: LiveJoinResult) => {
+      if (!embedded) {
+        saveParticipantCredentials(code, credentialsFromJoin(result));
+      }
+    },
+    [code, embedded]
+  );
+  const onDataErased = useCallback(() => {
+    setMyDataOpen(false);
+    (onErased ?? onLeave)();
+  }, [onErased, onLeave]);
 
   const closed = view.connection.status === "closed" ? view.connection.reason : null;
   useEffect(() => {
@@ -101,6 +134,9 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
   }, [closed, onTokenLost]);
 
   const name = view.me?.display_name ?? credentials.displayName;
+  // The item on screen can be reported on its own (not a removed placeholder).
+  const reportableQi =
+    view.question && !view.question.removed && view.qi !== null && ["question", "locked", "reveal", "content"].includes(view.phase) ? view.qi : null;
   const seed = view.me?.avatar_seed ?? credentials.avatarSeed;
   const score = view.my?.score ?? 0;
   const current = (view.qi ?? 0) + 1;
@@ -159,7 +195,16 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
     );
     if (closed === "session_ended") {
       key = "ended-early";
-      body = <FinalView rank={null} total={0} score={0} podiumPhase={false} token={credentials.token} />;
+      body = (
+        <FinalView
+          rank={null}
+          total={0}
+          score={0}
+          podiumPhase={false}
+          token={credentials.token}
+          rights={{ code, sessionId: credentials.sessionId, displayName: name, finished: !embedded, onOpenMyData: () => setMyDataOpen(true), onTokenRefreshed }}
+        />
+      );
     }
   } else {
     switch (view.phase) {
@@ -206,6 +251,15 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
             score={view.podium?.my?.score ?? score}
             podiumPhase={view.phase === "podium"}
             token={credentials.token}
+            rights={{
+              code,
+              sessionId: credentials.sessionId,
+              displayName: name,
+              // The host preview never offers the claim (it would link the preview to the host's account).
+              finished: !embedded && (view.phase === "finished" || view.status === "finished"),
+              onOpenMyData: () => setMyDataOpen(true),
+              onTokenRefreshed
+            }}
           />
         );
         break;
@@ -216,7 +270,7 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
   }
 
   return (
-    <LiveThemeRoot theme={view.themeKey} className="min-h-dvh" particles={view.phase === "lobby"}>
+    <LiveThemeRoot theme={view.themeKey} className={embedded ? "h-full min-h-full" : "min-h-dvh"} particles={view.phase === "lobby"}>
       <ConnectionBanner connection={view.connection} labels={{ connecting: t("quizPlay.connection.connecting"), reconnecting: t("quizPlay.connection.reconnecting"), offline: t("quizPlay.connection.offline") }} />
       <header className="mx-auto flex w-full max-w-xl items-center gap-3 px-4 pt-4">
         <Avatar seed={seed} size={40} />
@@ -230,6 +284,16 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
         <TransportBadge transport={view.connection.transport} label={t("quizPlay.connection.transportSse")} hint={t("quizPlay.connection.transportSseHint")} />
         {view.phase !== "lobby" ? (
           <span className="rounded-full bg-lq-surface-2 px-3 py-1.5 font-lq-mono text-sm font-medium text-lq-fg tabular-nums">{new Intl.NumberFormat().format(score)}</span>
+        ) : null}
+        {view.hydrated && !view.kicked ? (
+          <ParticipantMenu
+            label={t("quizPlay.menu.label")}
+            className="-mr-2"
+            items={[
+              { id: "report", label: reportableQi !== null ? t("quizPlay.menu.reportQuestion") : t("quizPlay.menu.report"), onSelect: () => setReportOpen(true) },
+              { id: "data", label: t("quizPlay.menu.myData"), onSelect: () => setMyDataOpen(true) }
+            ]}
+          />
         ) : null}
       </header>
       {view.phase === "question" && view.timer ? (
@@ -270,6 +334,26 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
       ) : null}
 
       <LiveAnnouncer message={announcement} />
+      <LiveToast toast={toast} onDismiss={dismissToast} dismissLabel={t("quizPlay.toast.dismiss")} contained={embedded} />
+      <ReportDialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        token={credentials.token}
+        itemQi={reportableQi}
+        onSent={() => {
+          setReportOpen(false);
+          showToast(t("quizPlay.report.success"), "success");
+        }}
+      />
+      <MyDataDialog
+        open={myDataOpen}
+        onClose={() => setMyDataOpen(false)}
+        token={credentials.token}
+        sessionId={credentials.sessionId}
+        defaultName={name}
+        onTokenRefreshed={onTokenRefreshed}
+        onErased={onDataErased}
+      />
       <ConfirmDialog
         open={confirmLeave}
         title={t("quizPlay.leave.confirmTitle")}
@@ -295,6 +379,9 @@ function QuestionPhase({ view }: { view: View }) {
   const question = view.question;
   if (!question) {
     return null;
+  }
+  if (question.removed) {
+    return <RemovedView />;
   }
   if (countdown.stage === "reading" && !countdown.paused) {
     return <ReadingView question={question} seconds={countdown.seconds} />;
