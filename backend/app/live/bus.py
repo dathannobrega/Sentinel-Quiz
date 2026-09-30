@@ -73,7 +73,12 @@ class RedisLiveBus:
         from redis import asyncio as redis_asyncio
 
         # No socket_timeout: the pub/sub connection blocks while waiting for messages.
-        self._redis = redis_asyncio.from_url(url, decode_responses=True, health_check_interval=30)
+        # Bounded blocking pool: a burst of publishes waits for a connection instead of
+        # failing with "Too many connections" (1,500 answers in flight).
+        pool = redis_asyncio.BlockingConnectionPool.from_url(
+            url, decode_responses=True, health_check_interval=30, max_connections=64, timeout=5
+        )
+        self._redis = redis_asyncio.Redis(connection_pool=pool)
         self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)
         self._handlers: dict[str, list[Handler]] = {}
         self._reader: asyncio.Task | None = None

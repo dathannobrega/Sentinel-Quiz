@@ -309,13 +309,16 @@ class RedisRateLimitStore(RateLimitStore):
             if self._client is None:
                 import redis.asyncio as redis_asyncio
 
-                self._client = redis_asyncio.from_url(
+                pool = redis_asyncio.BlockingConnectionPool.from_url(
                     self._redis_url,
                     decode_responses=True,
                     socket_connect_timeout=1.0,
                     socket_timeout=1.0,
                     health_check_interval=30,
+                    max_connections=64,
+                    timeout=1.0,  # waiting longer than this fails open like any Redis error
                 )
+                self._client = redis_asyncio.Redis(connection_pool=pool)
         return self._client
 
     def _log_failure(self, operation: str, exc: Exception) -> None:

@@ -37,6 +37,7 @@ SEND_QUEUE_MAX = 64
 TICK_INTERVAL_S = 0.25
 LOBBY_INTERVAL_S = 0.5
 PRESENCE_FLUSH_S = 3.0
+DIRTY_COALESCE_S = 0.1
 RTT_WINDOW = 8
 
 
@@ -332,6 +333,8 @@ class LiveHub:
         self._lag_task: asyncio.Task | None = None
         self._presence_task: asyncio.Task | None = None
         self._seen: set[str] = set()
+        self._dirty_pending: set[str] = set()
+        self._background: set[asyncio.Task] = set()
         # One group-commit writer per event loop (tests run one loop per client).
         self._batchers: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, AnswerBatcher]" = weakref.WeakKeyDictionary()
         metrics.gauge("live_connections", self._connections_by_role)
@@ -430,7 +433,18 @@ class LiveHub:
         return await batcher.submit(answer)
 
     async def mark_dirty(self, session_id: str) -> None:
-        await self.bus.publish(session_id, {"control": "dirty"})
+        """Counters changed. Coalesced per process: at most one bus message per session per
+        DIRTY_COALESCE_S (the room tick reads the counters anyway), never one per answer."""
+        if session_id in self._dirty_pending:
+            return
+        self._dirty_pending.add(session_id)
+        asyncio.get_running_loop().call_later(DIRTY_COALESCE_S, self._flush_dirty, session_id)
+
+    def _flush_dirty(self, session_id: str) -> None:
+        self._dirty_pending.discard(session_id)
+        task = asyncio.create_task(self.bus.publish(session_id, {"control": "dirty"}))
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
 
     async def mark_lobby_dirty(self, session_id: str) -> None:
         await self.bus.publish(session_id, {"control": "lobby"})
