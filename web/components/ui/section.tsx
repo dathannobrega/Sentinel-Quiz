@@ -102,11 +102,12 @@ export function PageHeader({ title, description, context, actions, className }: 
 }
 
 interface PageProps extends HTMLAttributes<HTMLElement> {
-  width?: "narrow" | "default" | "wide";
+  width?: "narrow" | "reading" | "default" | "wide";
 }
 
 const widths = {
   narrow: "max-w-xl",
+  reading: "max-w-reading",
   default: "max-w-page",
   wide: "max-w-[88rem]"
 };

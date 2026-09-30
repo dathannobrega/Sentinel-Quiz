@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 
 import { AlertIcon, CheckIcon, InfoIcon, XIcon } from "@/components/ui/icons";
 import { ReferencesList } from "@/features/session-runner/components/references-list";
+import { StudySections } from "@/features/study-sections/components/study-sections";
 import { formatPbqScoreLine, pbqCreditLabel } from "@/features/session-runner/lib/pbq-utils";
 import { buildLiveFeedbackBits, type AnswerFeedback, type Translate } from "@/features/session-runner/lib/runner-utils";
 import { cn } from "@/lib/utils/cn";
@@ -94,7 +95,9 @@ export function AnswerFeedbackView({ feedback, isPbq, isExamDayMode, t }: Answer
   }
 
   const style = verdictStyle[verdict];
-  const references = feedback.official_references ?? [];
+  const studySections = feedback.study_sections ?? [];
+  // With exact sections to study, book citations would repeat them; keep objective references.
+  const references = (feedback.official_references ?? []).filter((reference) => !(studySections.length && reference.material_path));
 
   return (
     <section className="flex flex-col gap-6 motion-safe:animate-[rise-in_200ms_var(--ease-out)]" aria-label={title}>
@@ -109,6 +112,8 @@ export function AnswerFeedbackView({ feedback, isPbq, isExamDayMode, t }: Answer
       </div>
 
       {explanation ? <Explanation text={explanation} t={t} /> : null}
+
+      <StudySections sections={studySections} t={t} />
 
       {bits.length ? (
         <div className="flex flex-col gap-2">

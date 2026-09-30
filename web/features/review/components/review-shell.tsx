@@ -13,6 +13,7 @@ import { XIcon } from "@/components/ui/icons";
 import { Checkbox, Select } from "@/components/ui/input";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Page, PageHeader, Panel, Section } from "@/components/ui/section";
+import { WeakSections } from "@/features/study-sections/components/weak-sections";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Stat, StatList } from "@/components/ui/stat";
 import { ReviewQueueList } from "@/features/review/components/review-queue-list";
@@ -231,6 +232,8 @@ export function ReviewShell() {
           </div>
         ) : null}
       </Panel>
+
+      <WeakSections />
 
       <Section title={t("review.priorityCard.title")} description={t("review.priorityCard.subtitle")}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,14rem)_minmax(0,14rem)_1fr] lg:items-end">

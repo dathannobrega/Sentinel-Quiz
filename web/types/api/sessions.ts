@@ -2,6 +2,7 @@
 import type { LiveInsight, ResultInsight } from "./analytics";
 import type { QuestionItem } from "./catalog";
 import type { CitationItem, OptionItem, PedagogicalReferenceItem } from "./common";
+import type { StudySection } from "./study";
 import type { PbqFeedbackFields, PbqPayload, PbqResponse, QuestionFormat } from "./pbq";
 
 /** ExamRuntimeQuestionOut */
@@ -76,6 +77,8 @@ export interface StudySessionRequest {
   review_states?: string[] | null;
   /** PBQs placed at the start of the session (0–5, default 0). */
   pbq_count?: number;
+  /** Practice only the questions explained by this book section. */
+  section_id?: string | null;
 }
 
 /** SessionOut / SessionStateOut (exam sessions). All fields are always serialized. */
@@ -204,6 +207,8 @@ interface AnswerFeedbackBase extends PbqFeedbackFields {
   wrong_count: number | null;
   finished: boolean;
   official_references: PedagogicalReferenceItem[];
+  /** Book sections to study (wrong answer: the chosen option's section first). Empty in exam_day. */
+  study_sections?: StudySection[];
   insight: LiveInsight | null;
   /**
    * Correct option keys in this session's display-key space (options are shuffled per session).
@@ -284,6 +289,7 @@ export interface ReviewQuestion extends Omit<PbqFeedbackFields, "format"> {
   justification: string | null;
   tags: string[] | null;
   citations: CitationItem[] | null;
+  study_sections?: StudySection[];
   format?: QuestionFormat | (string & {});
   pbq?: PbqPayload | null;
   pbq_response?: PbqResponse | null;
