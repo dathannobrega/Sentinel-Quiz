@@ -1186,6 +1186,8 @@ class LiveSession(Base):
     current_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     answers_open_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     deadline_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # Host pause: the timer is frozen from here; resume shifts answers_open_at/deadline_at.
+    paused_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     join_code: Mapped[str] = mapped_column(String(8), nullable=False)
     allow_guests: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     room_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -1252,6 +1254,10 @@ class LiveParticipant(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     kicked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Extended time (RF-622): 1 (default), 1.5, 2 or 0 (untimed).
+    time_multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
+    # Rehearsal bot (RF-513): excluded from reports and exports.
+    is_bot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     final_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     final_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -1266,6 +1272,7 @@ class LiveParticipant(Base):
             sqlite_where=text("user_id IS NOT NULL"),
         ),
         Index("ix_live_participant_user", "user_id"),
+        CheckConstraint("time_multiplier IN (0, 1, 1.5, 2)", name="ck_live_participant_time_multiplier"),
     )
 
 

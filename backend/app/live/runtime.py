@@ -69,6 +69,8 @@ class Outcome:
     error: str | None = None
     ack: str | None = None
     kicked_participant: tuple[str, bool] | None = None
+    # The pending auto-lock no longer applies (pause, untimed participant).
+    clear_lock: bool = False
 
 
 class RoomNotFound(LookupError):
@@ -139,6 +141,61 @@ def _ms(value: datetime | None) -> int | None:
 
 def _grace(room: Room) -> timedelta:
     return timedelta(milliseconds=int(room.settings.get("grace_ms", settings.live_grace_ms_default)))
+
+
+TIME_MULTIPLIERS = (0.0, 1.0, 1.5, 2.0)  # 0 = untimed (RF-622)
+EXTEND_MIN_S, EXTEND_MAX_S = 5, 300
+
+
+def _time_accommodations(db: Session, session_id: str) -> tuple[float, bool]:
+    """(largest multiplier among active participants, anyone untimed)."""
+    largest, smallest = db.execute(
+        select(func.max(LiveParticipant.time_multiplier), func.min(LiveParticipant.time_multiplier)).where(
+            LiveParticipant.session_id == session_id,
+            LiveParticipant.kicked_at.is_(None),
+            LiveParticipant.time_multiplier != 1.0,
+        )
+    ).one()
+    return float(largest or 1.0), smallest is not None and float(smallest) == 0.0
+
+
+def effective_lock_at(db: Session, room: Room) -> datetime | None:
+    """When the open question auto-locks: the base deadline stretched to the largest
+    extended time in the room (RF-622); never while paused or with an untimed participant."""
+    session = room.session
+    if session.phase != "question" or session.deadline_at is None or session.answers_open_at is None:
+        return None
+    if session.paused_at is not None:
+        return None
+    largest, untimed = _time_accommodations(db, session.id)
+    if untimed:
+        return None
+    window = session.deadline_at - session.answers_open_at
+    return session.answers_open_at + window * max(largest, 1.0) + _grace(room)
+
+
+def _multiplier(value: float | None) -> float:
+    return 1.0 if value is None else float(value)  # 0 (untimed) is a real value
+
+
+def participant_deadline(session: LiveSession, multiplier: float) -> datetime | None:
+    """A participant's own deadline (None: no timer or untimed)."""
+    if session.deadline_at is None or session.answers_open_at is None or multiplier == 0:
+        return None
+    return session.answers_open_at + (session.deadline_at - session.answers_open_at) * max(multiplier, 1.0)
+
+
+def _timer_payload(session: LiveSession, now: datetime | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "answers_open_at_ms": _ms(session.answers_open_at),
+        "deadline_ms": _ms(session.deadline_at),
+        "paused": session.paused_at is not None,
+    }
+    if session.paused_at is not None:
+        payload["paused_at_ms"] = _ms(session.paused_at)
+        if session.deadline_at is not None:
+            payload["remaining_ms"] = max(0, int((session.deadline_at - session.paused_at).total_seconds() * 1000))
+    return payload
 
 
 # ----------------------------------------------------------------------------- queries
@@ -467,7 +524,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         data["lobby"] = lobby_state(db, session.id)
     if item is not None and session.phase in {"question", "locked", "reveal", "content"}:
         data["question"] = registry.public_question(session.id, position, item)
-        data["timer"] = {"answers_open_at_ms": _ms(session.answers_open_at), "deadline_ms": _ms(session.deadline_at)}
+        data["timer"] = _timer_payload(session)
         if role in {HOST, DISPLAY} and item["item_type"] in registry.INTERACTIVE_TYPES:
             data["answered"] = _answered_count(db, session.id, position)
             if role == HOST or show_distribution or item["item_type"] == "poll":
@@ -499,7 +556,9 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
                 "display_name": p.display_name,
                 "avatar_seed": p.avatar_seed,
                 "score": board.get(p.id, 0),
-                "connected": bool(p.last_seen_at and p.last_seen_at >= cutoff),
+                "connected": bool(p.is_bot or (p.last_seen_at and p.last_seen_at >= cutoff)),
+                "time_multiplier": _multiplier(p.time_multiplier),
+                "is_bot": bool(p.is_bot),
             }
             for p in active_participants(db, session.id)
         ]
@@ -533,6 +592,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
             "last_answer": last_answer,
             "score": mine.score if mine else 0,
             "rank": mine.rank if mine else None,
+            "time_multiplier": _multiplier(participant.time_multiplier) if participant else 1.0,
         }
     return data
 
@@ -637,6 +697,7 @@ def _enter_item(db: Session, room: Room, position: int, now: datetime) -> Outcom
         "current_position": position,
         "answers_open_at": answers_open_at if phase == "question" else None,
         "deadline_at": deadline,
+        "paused_at": None,
         **({"started_at": now} if room.session.started_at is None else {}),
     })
     if seq is None:
@@ -663,7 +724,9 @@ def _enter_item(db: Session, room: Room, position: int, now: datetime) -> Outcom
         )
     )
     if deadline is not None:
-        outcome.lock_at = (position, deadline + _grace(room))
+        lock_at = effective_lock_at(db, load_room(db, room.session.id))
+        if lock_at is not None:
+            outcome.lock_at = (position, lock_at)
     return outcome
 
 
@@ -692,10 +755,12 @@ def lock(db: Session, session_id: str, *, expected_qi: int | None, reason: str, 
     now = now or utcnow()
     if session.phase != "question" or (expected_qi is not None and expected_qi != session.current_position):
         return Outcome(error="stale")
-    if reason == "timer" and session.deadline_at is not None and now < session.deadline_at + _grace(room):
-        return Outcome(error="too_early")
+    if reason == "timer":
+        due = effective_lock_at(db, room)
+        if due is None or now < due:
+            return Outcome(error="too_early")
     position = session.current_position
-    seq = _cas(db, room, expect_phase={"question"}, expect_position=position, values={"phase": "locked"})
+    seq = _cas(db, room, expect_phase={"question"}, expect_position=position, values={"phase": "locked", "paused_at": None})
     if seq is None:
         return Outcome(error="stale")
     row = db.get(LiveSessionItem, (session.id, position))
@@ -712,9 +777,8 @@ def auto_lock_if_due(db: Session, session_id: str, *, now: datetime | None = Non
     now = now or utcnow()
     room = load_room(db, session_id)
     session = room.session
-    if session.phase != "question" or session.deadline_at is None:
-        return Outcome()
-    if now < session.deadline_at + _grace(room):
+    due = effective_lock_at(db, room)
+    if due is None or now < due:
         return Outcome()
     outcome = lock(db, session_id, expected_qi=session.current_position, reason="timer", now=now)
     return outcome if outcome.error is None else Outcome()
@@ -922,6 +986,113 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+# ----------------------------------------------------------------------------- timer control
+
+def pause(db: Session, session_id: str, *, expected_qi: int | None, now: datetime | None = None) -> Outcome:
+    """Freeze the open question: no answers, no auto-lock, countdown stopped."""
+    now = now or utcnow()
+    room = load_room(db, session_id)
+    session = room.session
+    if session.phase != "question" or (expected_qi is not None and expected_qi != session.current_position):
+        return Outcome(error="stale")
+    if session.paused_at is not None:
+        return Outcome(error="already_paused")
+    position = session.current_position
+    seq = _cas(db, room, expect_phase={"question"}, expect_position=position, values={"paused_at": now})
+    if seq is None:
+        return Outcome(error="stale")
+    db.commit()
+    session = load_room(db, session_id).session
+    return Outcome(broadcasts=[Broadcast("question.paused", {"qi": position, **_timer_payload(session)}, seq=seq)])
+
+
+def resume(db: Session, session_id: str, *, expected_qi: int | None, now: datetime | None = None) -> Outcome:
+    """Unfreeze: the reading phase and the deadline move forward by the pause, so the
+    time left and speed points are what they were when the host paused."""
+    now = now or utcnow()
+    room = load_room(db, session_id)
+    session = room.session
+    if session.phase != "question" or (expected_qi is not None and expected_qi != session.current_position):
+        return Outcome(error="stale")
+    if session.paused_at is None:
+        return Outcome(error="not_paused")
+    shift = max(now - session.paused_at, timedelta(0))
+    return _retime(db, room, now=now, open_shift=shift, deadline_shift=shift, reason="resume", clear_pause=True)
+
+
+def extend(db: Session, session_id: str, *, expected_qi: int | None, seconds: int, now: datetime | None = None) -> Outcome:
+    now = now or utcnow()
+    room = load_room(db, session_id)
+    session = room.session
+    if session.phase != "question" or (expected_qi is not None and expected_qi != session.current_position):
+        return Outcome(error="stale")
+    if session.deadline_at is None:
+        return Outcome(error="no_timer")
+    if session.paused_at is not None:
+        return Outcome(error="paused")
+    seconds = max(EXTEND_MIN_S, min(EXTEND_MAX_S, int(seconds)))
+    return _retime(db, room, now=now, open_shift=timedelta(0), deadline_shift=timedelta(seconds=seconds), reason="extend")
+
+
+def _retime(
+    db: Session, room: Room, *, now: datetime, open_shift: timedelta, deadline_shift: timedelta, reason: str,
+    clear_pause: bool = False,
+) -> Outcome:
+    session = room.session
+    position = session.current_position
+    values: dict[str, Any] = {}
+    if session.answers_open_at is not None:
+        values["answers_open_at"] = session.answers_open_at + open_shift
+    if session.deadline_at is not None:
+        values["deadline_at"] = session.deadline_at + deadline_shift
+    if clear_pause:
+        values["paused_at"] = None
+    seq = _cas(db, room, expect_phase={"question"}, expect_position=position, values=values)
+    if seq is None:
+        return Outcome(error="stale")
+    row = db.get(LiveSessionItem, (session.id, position))
+    if row is not None:
+        row.answers_open_at = values.get("answers_open_at", row.answers_open_at)
+        row.deadline_at = values.get("deadline_at", row.deadline_at)
+    db.commit()
+    room = load_room(db, session.id)
+    outcome = Outcome(broadcasts=[Broadcast("question.timer", {"qi": position, "reason": reason, **_timer_payload(room.session)}, seq=seq)])
+    lock_at = effective_lock_at(db, room)
+    if lock_at is not None:
+        outcome.lock_at = (position, lock_at)
+    return outcome
+
+
+def set_time_multiplier(db: Session, session_id: str, *, participant_id: str, multiplier: float) -> Outcome:
+    """Extended time for one participant (RF-622): 1, 1.5, 2 or 0 (untimed). Speed points
+    are scaled by the multiplier, so extra time never costs points."""
+    if float(multiplier) not in TIME_MULTIPLIERS:
+        return Outcome(error="invalid")
+    room = load_room(db, session_id)
+    participant = db.get(LiveParticipant, participant_id)
+    if participant is None or participant.session_id != session_id:
+        return Outcome(error="not_found")
+    participant.time_multiplier = float(multiplier)
+    db.commit()
+    room = load_room(db, session_id)
+    session = room.session
+    personal: dict[str, Any] = {"time_multiplier": float(multiplier)}
+    deadline = participant_deadline(session, float(multiplier))
+    if session.phase == "question":
+        personal["qi"] = session.current_position
+        personal["deadline_ms"] = _ms(deadline)
+    outcome = Outcome(broadcasts=[
+        Broadcast("participant.time", personal, participant_id=participant_id),
+        Broadcast("participant.updated", {"participant_id": participant_id, "time_multiplier": float(multiplier)}, audience=HOST),
+    ])
+    lock_at = effective_lock_at(db, room)
+    if lock_at is not None:
+        outcome.lock_at = (session.current_position, lock_at)
+    elif session.phase == "question":
+        outcome.clear_lock = True  # someone became untimed: the host locks
+    return outcome
+
+
 # ----------------------------------------------------------------------------- answers
 
 @dataclass
@@ -990,13 +1161,16 @@ def _submit_session_batch(db: Session, session_id: str, answers: list[AnswerIn],
     room = load_room(db, session_id)
     session = room.session
     pids = list({a.participant_id for a in answers})
-    active = {
-        pid
-        for pid, sid, kicked in db.execute(
-            select(LiveParticipant.id, LiveParticipant.session_id, LiveParticipant.kicked_at).where(LiveParticipant.id.in_(pids))
+    multipliers = {
+        pid: float(mult if mult is not None else 1.0)
+        for pid, sid, kicked, mult in db.execute(
+            select(
+                LiveParticipant.id, LiveParticipant.session_id, LiveParticipant.kicked_at, LiveParticipant.time_multiplier
+            ).where(LiveParticipant.id.in_(pids))
         ).all()
         if sid == session_id and kicked is None
     }
+    active = set(multipliers)
     late_lock: Outcome | None = None
     rows: list[dict[str, Any]] = []
     row_index: list[int] = []
@@ -1020,10 +1194,15 @@ def _submit_session_batch(db: Session, session_id: str, answers: list[AnswerIn],
         if item is None or item["item_type"] not in registry.INTERACTIVE_TYPES:
             results[index] = AnswerResult("invalid", Outcome())
             continue
+        if session.paused_at is not None:
+            results[index] = AnswerResult("paused", Outcome())
+            continue
         if now < session.answers_open_at - timedelta(milliseconds=EARLY_TOLERANCE_MS):
             results[index] = AnswerResult("closed", Outcome())
             continue
-        if session.deadline_at is not None and now > session.deadline_at + _grace(room):
+        multiplier = multipliers[answer.participant_id]
+        own_deadline = participant_deadline(session, multiplier)
+        if own_deadline is not None and now > own_deadline + _grace(room):
             if late_lock is None:
                 late_lock = auto_lock_if_due(db, session_id, now=now)
                 results[index] = AnswerResult("late", late_lock)
@@ -1041,6 +1220,13 @@ def _submit_session_batch(db: Session, session_id: str, answers: list[AnswerIn],
         server_ms = max(0, int((now - session.answers_open_at).total_seconds() * 1000))
         credited = scoring.credited_elapsed_ms(server_ms, answer.rtt_min_ms)
         client_ms = answer.client_elapsed_ms
+        # Extended time never costs points: speed is measured against the participant's
+        # own window; untimed participants get the neutral mid-window speed.
+        limit_s = item.get("time_limit_s")
+        if multiplier == 0:
+            speed_ms = int(limit_s * 500) if limit_s else None
+        else:
+            speed_ms = int(credited / max(multiplier, 1.0))
         rows.append(
             {
                 "session_id": session_id,
@@ -1054,8 +1240,8 @@ def _submit_session_batch(db: Session, session_id: str, answers: list[AnswerIn],
                     fraction=graded.fraction,
                     scoring=room.settings.get("scoring", "speed"),
                     multiplier=int(item.get("points_multiplier", 1)),
-                    elapsed_ms=credited,
-                    time_limit_s=item.get("time_limit_s"),
+                    elapsed_ms=speed_ms,
+                    time_limit_s=limit_s,
                 ),
                 "server_ms": server_ms,
                 "latency_ms": credited,
@@ -1153,9 +1339,5 @@ def touch_participants(db: Session, participant_ids: list[str], *, now: datetime
 
 
 def pending_lock_at_ms(db: Session, session_id: str) -> int | None:
-    """When the current question must auto-lock (deadline + grace), if one is open."""
-    room = load_room(db, session_id)
-    session = room.session
-    if session.phase != "question" or session.deadline_at is None:
-        return None
-    return _ms(session.deadline_at + _grace(room))
+    """When the current question must auto-lock (deadline + grace, extended time), if one is open."""
+    return _ms(effective_lock_at(db, load_room(db, session_id)))

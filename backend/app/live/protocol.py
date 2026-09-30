@@ -38,6 +38,10 @@ HOST_COMMANDS = frozenset(
         "host.kick",
         "host.room_lock",
         "host.accept_answer",
+        "host.pause",
+        "host.resume",
+        "host.extend",
+        "host.set_time",
     }
 )
 COMMON_COMMANDS = frozenset({"time.sync", "pong"})
@@ -120,6 +124,16 @@ class AcceptAnswerData(_Strict):
     text: str = Field(min_length=1, max_length=120)
 
 
+class ExtendData(_Strict):
+    expected_qi: Optional[int] = Field(default=None, ge=0, le=10000)
+    seconds: int = Field(ge=5, le=300)
+
+
+class SetTimeData(_Strict):
+    participant_id: str = Field(max_length=36)
+    multiplier: Literal[0, 1, 1.5, 2]
+
+
 DATA_MODELS: dict[str, type[BaseModel]] = {
     "hello": HelloData,
     "time.sync": TimeSyncData,
@@ -134,6 +148,10 @@ DATA_MODELS: dict[str, type[BaseModel]] = {
     "host.kick": KickData,
     "host.room_lock": RoomLockData,
     "host.accept_answer": AcceptAnswerData,
+    "host.pause": ExpectedQiData,
+    "host.resume": ExpectedQiData,
+    "host.extend": ExtendData,
+    "host.set_time": SetTimeData,
 }
 
 

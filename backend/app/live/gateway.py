@@ -129,10 +129,12 @@ class RoomChannel:
         if not broadcast:
             return
         meta = message.get("meta") or {}
+        if broadcast["type"] in {"question.locked", "question.reveal", "podium.show", "session.ended", "leaderboard.show", "question.paused"}:
+            self.lock_at_ms = None
+        if meta.get("clear_lock"):
+            self.lock_at_ms = None
         if "lock_at_ms" in meta:
             self.lock_at_ms = meta["lock_at_ms"]
-        if broadcast["type"] in {"question.locked", "question.reveal", "podium.show", "session.ended", "leaderboard.show"}:
-            self.lock_at_ms = None
         await self.deliver(runtime.Broadcast(**broadcast))
 
     async def deliver(self, broadcast: runtime.Broadcast) -> None:
@@ -368,9 +370,17 @@ class LiveHub:
         meta: dict[str, Any] = {}
         if outcome.lock_at is not None:
             meta["lock_at_ms"] = int(outcome.lock_at[1].timestamp() * 1000)
+        if outcome.clear_lock:
+            meta["clear_lock"] = True
+        # The auto-lock schedule rides on the broadcast that changed it, so every
+        # process updates its room loop in the same order as the event.
+        carrier = next(
+            (b for b in outcome.broadcasts if b.type in {"question.intro", "question.timer"}),
+            outcome.broadcasts[0] if outcome.broadcasts else None,
+        )
         for broadcast in outcome.broadcasts:
             message: dict[str, Any] = {"broadcast": broadcast.__dict__}
-            if meta and broadcast.type == "question.intro":
+            if meta and broadcast is carrier:
                 message["meta"] = meta
             await self.bus.publish(session_id, message)
         if outcome.kicked_participant:
@@ -440,7 +450,12 @@ def _authenticate(hello: protocol.HelloData, cookie_token: str | None, origin_ok
                 role="participant",
                 session_id=session.id,
                 participant_id=participant.id,
-                me={"participant_id": participant.id, "display_name": participant.display_name, "avatar_seed": participant.avatar_seed},
+                me={
+                    "participant_id": participant.id,
+                    "display_name": participant.display_name,
+                    "avatar_seed": participant.avatar_seed,
+                    "time_multiplier": 1.0 if participant.time_multiplier is None else float(participant.time_multiplier),
+                },
             )
         if hello.role == "host" and hello.session_id:
             if not origin_ok or not cookie_token:
@@ -527,6 +542,12 @@ HOST_ACTIONS: dict[str, Callable[..., runtime.Outcome]] = {
     "host.kick": lambda db, sid, d: runtime.kick(db, sid, participant_id=d.participant_id, ban=d.ban),
     "host.room_lock": lambda db, sid, d: runtime.set_room_lock(db, sid, locked=d.locked),
     "host.accept_answer": lambda db, sid, d: runtime.accept_typed_answer(db, sid, qi=d.qi, text=d.text),
+    "host.pause": lambda db, sid, d: runtime.pause(db, sid, expected_qi=d.expected_qi),
+    "host.resume": lambda db, sid, d: runtime.resume(db, sid, expected_qi=d.expected_qi),
+    "host.extend": lambda db, sid, d: runtime.extend(db, sid, expected_qi=d.expected_qi, seconds=d.seconds),
+    "host.set_time": lambda db, sid, d: runtime.set_time_multiplier(
+        db, sid, participant_id=d.participant_id, multiplier=float(d.multiplier)
+    ),
 }
 
 
