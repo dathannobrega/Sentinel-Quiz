@@ -10,7 +10,7 @@ import { Leaderboard } from "@/components/quiz-kit/leaderboard";
 import { springs, useLqReducedMotion } from "@/components/quiz-kit/motion";
 import { OptionBadge } from "@/components/quiz-kit/option-shape";
 import { TrophyIcon } from "@/components/quiz-kit/podium";
-import { vibrate } from "@/features/quiz-live/components/live-chrome";
+import { PauseGlyph, vibrate } from "@/features/quiz-live/components/live-chrome";
 import { LqButton, lqCardClass } from "@/features/quiz-live/components/lq-ui";
 import type { LiveLeaderboard, LiveSubmission } from "@/features/quiz-live/lib/live-store";
 import { OPTION_SHAPE_GLYPHS, optionLetter, type MyReveal, type PublicQuestion, type Reveal } from "@/features/quiz-live/lib/protocol";
@@ -115,6 +115,70 @@ export function ReadingView({ question, seconds }: { question: PublicQuestion; s
   );
 }
 
+// ----------------------------------------------------------------------------- paused (host pause)
+
+/**
+ * The host paused the open question: nothing can be answered and the timer is frozen. Shows the
+ * time that will be left (the participant's own, extended time included) when the host resumes.
+ */
+export function PausedView({ question, secondsLeft }: { question: PublicQuestion | null; secondsLeft: number | null }) {
+  const { t } = useI18n();
+  const reduced = useLqReducedMotion();
+  useEffect(() => {
+    vibrate([15, 60, 15]);
+  }, []);
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
+      <m.div
+        className="relative grid size-28 place-items-center rounded-full bg-lq-warning text-lq-on-warning"
+        initial={reduced ? false : { scale: 0.6, rotate: -12 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={springs.bouncy}
+      >
+        {!reduced ? (
+          <m.span
+            aria-hidden="true"
+            className="absolute inset-0 rounded-full border-4 border-lq-warning"
+            initial={{ scale: 1, opacity: 0.7 }}
+            animate={{ scale: 1.6, opacity: 0 }}
+            transition={{ duration: 1.8, ease: "easeOut", repeat: Infinity, repeatDelay: 0.6 }}
+          />
+        ) : null}
+        <PauseGlyph className="lq-paused-breathe size-12" />
+      </m.div>
+      <div className="flex flex-col gap-2">
+        <PhaseHeading className="text-3xl">{t("quizPlay.paused.title")}</PhaseHeading>
+        <p className="text-lq-fg-muted">{t("quizPlay.paused.subtitle")}</p>
+      </div>
+      {typeof secondsLeft === "number" ? (
+        <p className="rounded-full bg-lq-surface-2 px-4 py-1.5 font-lq-mono text-sm text-lq-fg tabular-nums">{t("quizPlay.paused.timeLeft", { seconds: secondsLeft })}</p>
+      ) : null}
+      {question ? <p className="line-clamp-3 max-w-md font-lq-prompt text-lg leading-snug font-semibold text-balance text-lq-fg-muted">{question.prompt}</p> : null}
+    </div>
+  );
+}
+
+/** Personal extended-time badge (RF-622): "Tempo estendido: 1,5×" or "Sem limite de tempo". */
+export function ExtendedTimeBadge({ multiplier, className }: { multiplier: number; className?: string }) {
+  const { t, locale } = useI18n();
+  if (multiplier === 1) {
+    return null;
+  }
+  const untimed = multiplier === 0;
+  return (
+    <span
+      title={untimed ? t("quizPlay.question.untimedHint") : undefined}
+      className={cn("inline-flex items-center gap-1.5 rounded-full border border-lq-line bg-lq-surface px-3 py-1 text-xs font-semibold text-lq-fg", className)}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5 fill-none stroke-current" strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="8" cy="9" r="5.5" />
+        <path d="M8 6.2V9l1.8 1.2M6.5 1.8h3" />
+      </svg>
+      {untimed ? t("quizPlay.question.untimed") : t("quizPlay.question.extendedTime", { multiplier: new Intl.NumberFormat(locale).format(multiplier) })}
+    </span>
+  );
+}
+
 // ----------------------------------------------------------------------------- submitted / locked
 
 function ChosenAnswer({ question, submission }: { question: PublicQuestion | null; submission: LiveSubmission | null }) {
@@ -160,7 +224,7 @@ export function SubmittedView({
   const { t } = useI18n();
   const reduced = useLqReducedMotion();
   if (submission.status === "rejected") {
-    const key = submission.ack === "late" || submission.ack === "closed" ? submission.ack : "invalid";
+    const key = submission.ack === "late" || submission.ack === "closed" || submission.ack === "paused" ? submission.ack : "invalid";
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
         <PhaseHeading className="text-2xl">{t(`quizPlay.submitted.rejected.${key}`)}</PhaseHeading>

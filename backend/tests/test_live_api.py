@@ -212,3 +212,57 @@ def test_public_routes_hidden_when_disabled(client):
 @pytest.mark.parametrize("path", ["/api/live/names/suggest", "/api/live/names/suggest?lang=en"])
 def test_name_suggestion(live_on, client, path):
     assert len(client.get(path).json()["name"]) >= 3
+
+
+def test_live_rate_limits_are_per_room_and_token_not_per_ip(live_on, login_client):
+    """RNF-205 / DC-22: a whole room behind one IP joins; code guessing is limited per IP."""
+    from fastapi.testclient import TestClient
+
+    from app.core.config import Settings
+    from app.main import create_app
+
+    host, _ = login_client()
+    quiz = published_quiz(host)
+    code = host.post("/api/live/sessions", json={"quiz_id": quiz["id"], "max_participants": 50}).json()["join_code"]
+    limited = create_app(Settings(
+        _env_file=None, RATE_LIMIT_PUBLIC_REQUESTS=2, ABUSE_SIGNAL_ENABLED=False, CORS_ORIGINS="http://localhost:3000",
+        RATE_LIMIT_LIVE_TOKEN_REQUESTS=2, LIVE_INVALID_CODE_LIMIT=3,
+    ))
+    with TestClient(limited) as guests:  # every request comes from the same address
+        assert guests.get(f"/api/live/rooms/{code}").status_code == 200
+        tokens = []
+        for i in range(12):
+            joined = guests.post(f"/api/live/rooms/{code}/join", json={"display_name": f"Aluno {i}", "consent": True})
+            assert joined.status_code == 201, joined.text
+            tokens.append(joined.json()["token"])
+
+        # /me/* is limited per participant token.
+        me = [guests.get("/api/live/me/results", headers={"Authorization": f"Bearer {tokens[0]}"}).status_code for _ in range(3)]
+        assert me[2] == 429
+        assert guests.get("/api/live/me/results", headers={"Authorization": f"Bearer {tokens[1]}"}).status_code != 429
+
+        # Guessing codes: after 3 unknown codes this IP is blocked from new codes...
+        wrong = "999999" if code != "999999" else "888888"
+        assert [guests.get(f"/api/live/rooms/{wrong}").status_code for _ in range(3)] == [404, 404, 404]
+        blocked = guests.get("/api/live/rooms/123123")
+        assert blocked.status_code == 429 and blocked.json()["code"] == "too_many_invalid_codes"
+        assert blocked.headers["Retry-After"]
+        # ...but the room it already reached keeps working (a typo in class does not lock everyone out).
+        assert guests.get(f"/api/live/rooms/{code}").status_code == 200
+        assert guests.post(f"/api/live/rooms/{code}/join", json={"display_name": "Atrasado", "consent": True}).status_code == 201
+
+
+def test_live_rate_limit_buckets():
+    from app.core.config import Settings
+    from app.middleware.rate_limit import RateLimitMiddleware
+
+    mw = RateLimitMiddleware(lambda *a: None, Settings(_env_file=None))
+    assert mw._resolve_policy("/api/live/rooms/123 456")[0::2] == ("live_room", "123456")
+    assert mw._resolve_policy("/api/live/rooms/123456/join", "POST")[0::2] == ("live_room", "123456")
+    assert mw._resolve_policy("/api/live/rooms/123456/rejoin", "POST")[0] == "live_room"
+    bucket, _, scope = mw._resolve_policy("/api/live/me/results", "GET", "Bearer v1.abc")
+    assert bucket == "live_token" and scope and "abc" not in scope
+    assert mw._resolve_policy("/api/live/me/results")[0] == "live_ip"
+    assert mw._resolve_policy("/api/live/names/suggest")[0] == "live_ip"
+    assert mw._resolve_policy("/api/live/sessions")[0] == "public"
+    assert mw._resolve_policy("/api/live/quizzes/x/items", "POST")[0] == "public"

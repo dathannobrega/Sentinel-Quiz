@@ -13,7 +13,8 @@ export const quizReports = {
     print: "Imprimir",
     sections: "Seções do relatório",
     live: "A sessão ainda está em andamento; os números podem mudar.",
-    refresh: "Atualizar"
+    refresh: "Atualizar",
+    rehearsalHint: "Sessão de ensaio. Os bots não entram neste relatório nem no CSV."
   },
   kpis: {
     title: "Resumo",

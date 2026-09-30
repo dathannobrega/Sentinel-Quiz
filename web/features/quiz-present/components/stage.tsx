@@ -14,7 +14,7 @@ import { Leaderboard, type LeaderboardLabels } from "@/components/quiz-kit/leade
 import { springs, staggerDelay, staggers, useLqReducedMotion } from "@/components/quiz-kit/motion";
 import { OptionBadge, OptionPattern } from "@/components/quiz-kit/option-shape";
 import { QrCode } from "@/components/quiz-kit/qr-code";
-import { LiveAnnouncer, LiveThemeRoot } from "@/features/quiz-live/components/live-chrome";
+import { LiveAnnouncer, LiveThemeRoot, PauseGlyph } from "@/features/quiz-live/components/live-chrome";
 import type { ClockSync } from "@/features/quiz-live/lib/clock-sync";
 import type { StageView } from "@/features/quiz-live/lib/live-store";
 import { formatJoinCode, isAnswerableType, isChoiceType, optionLetter, type PublicQuestion } from "@/features/quiz-live/lib/protocol";
@@ -87,10 +87,10 @@ export function Stage({
 
   const announcement = useMemo(() => {
     if (view.phase === "question") {
-      return t("quizPresent.announce.question", { current, total: view.total });
+      return view.paused ? t("quizPresent.announce.paused") : t("quizPresent.announce.question", { current, total: view.total });
     }
     return view.phase in { lobby: 1, locked: 1, reveal: 1, leaderboard: 1, podium: 1, finished: 1, content: 1 } ? t(`quizPresent.announce.${view.phase}`) : "";
-  }, [view.phase, current, view.total, t]);
+  }, [view.phase, view.paused, current, view.total, t]);
 
   let screen: ReactNode;
   if (!view.hydrated) {
@@ -145,6 +145,7 @@ export function Stage({
             {joinHostLabel(view.joinUrl)} · <span className="font-medium text-lq-fg">{formatJoinCode(view.joinCode)}</span>
           </p>
         ) : null}
+        <AnimatePresence initial={false}>{view.hydrated && view.paused ? <PausedOverlay key="paused" /> : null}</AnimatePresence>
         <AnimatePresence mode="wait" initial={false}>
           <m.div
             key={screenKey}
@@ -160,6 +161,45 @@ export function Stage({
       </div>
       <LiveAnnouncer message={announcement} />
     </LiveThemeRoot>
+  );
+}
+
+// ----------------------------------------------------------------------------- paused (host pause)
+
+/**
+ * Frozen-question overlay on the projector: a soft veil over the stage and a "Pausado" badge that
+ * drops in from the top. The countdown underneath stays visible (frozen at the pause instant).
+ */
+function PausedOverlay() {
+  const { t } = useI18n();
+  const reduced = useLqReducedMotion();
+  return (
+    <>
+      <m.div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-[5] bg-[color-mix(in_srgb,var(--lq-bg)_38%,transparent)]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: reduced ? 0 : 0.3 }}
+      />
+      <div className="pointer-events-none absolute inset-x-0 top-[2cqmin] z-20 flex justify-center">
+        <m.div
+          role="status"
+          className="flex items-center gap-[1.4cqmin] rounded-full bg-lq-warning px-[2.4cqmin] py-[1cqmin] text-lq-on-warning shadow-[0_18px_50px_-18px_rgb(0_0_0/0.7)]"
+          initial={reduced ? { opacity: 0 } : { y: "-120%", scale: 0.9 }}
+          animate={reduced ? { opacity: 1 } : { y: 0, scale: 1 }}
+          exit={reduced ? { opacity: 0 } : { y: "-120%", opacity: 0, transition: { duration: 0.2 } }}
+          transition={springs.bouncy}
+        >
+          <PauseGlyph className="lq-paused-breathe size-[4cqmin]" />
+          <span className="flex flex-col leading-tight">
+            <span className="font-lq text-[max(1rem,3.2cqmin)] font-extrabold tracking-wide uppercase">{t("quizPresent.question.paused")}</span>
+            <span className="text-[max(0.75rem,1.6cqmin)] font-semibold opacity-90">{t("quizPresent.question.pausedHint")}</span>
+          </span>
+        </m.div>
+      </div>
+    </>
   );
 }
 
@@ -415,7 +455,12 @@ function QuestionScreen({ view, question, current, clock }: { view: StageView; q
               {view.lockReason ? <span className="text-[max(0.8rem,1.8cqmin)] text-lq-fg-muted">{t(`quizPresent.locked.reasons.${view.lockReason}`)}</span> : null}
             </m.div>
           ) : view.timer?.deadline_ms !== null ? (
-            <CountdownRing timer={view.timer} clock={clock} size="16cqmin" label={(value) => t("quizPresent.question.timeLeft", { seconds: value.seconds })} />
+            <CountdownRing
+              timer={view.timer}
+              clock={clock}
+              size="16cqmin"
+              label={(value) => (value.paused ? t("quizPresent.question.pausedTime", { seconds: value.seconds }) : t("quizPresent.question.timeLeft", { seconds: value.seconds }))}
+            />
           ) : (
             <span className="rounded-full border border-lq-line bg-lq-surface px-[1.6cqmin] py-[0.6cqmin] text-[max(0.8rem,1.8cqmin)] text-lq-fg-muted">{t("quizPresent.question.untimed")}</span>
           )}
@@ -435,7 +480,7 @@ function QuestionScreen({ view, question, current, clock }: { view: StageView; q
             labels={{ correct: t("quizPresent.reveal.correct"), summary: (letter, text, count, percent) => t("quizPresent.reveal.summary", { letter, text, count, percent }) }}
           />
         ) : (
-          <OptionTiles question={question} dimmed={locked} />
+          <OptionTiles question={question} dimmed={locked || view.paused} />
         )}
         {question.item_type === "multi_choice" && question.select_count ? (
           <p className="mt-[1.4cqh] text-center font-lq text-[max(0.9rem,2cqmin)] font-semibold text-lq-fg-muted">{t("quizPresent.question.selectN", { count: question.select_count })}</p>

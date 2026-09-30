@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -70,6 +71,7 @@ def serialize_session(db: Session, session: LiveSession, *, quiz_title: str | No
         "allow_guests": session.allow_guests,
         "max_participants": session.max_participants,
         "preset": session.preset,
+        "rehearsal": session.mode == "rehearsal",
         "audience": session.audience,
         "theme_key": session.theme_key,
         "item_count": len(version.items_snapshot_json or []) if version else 0,
@@ -106,7 +108,11 @@ def create_session(
     max_participants: int | None,
     preset: str,
     audience: str,
+    rehearsal: bool = False,
+    bots: int = 0,
 ) -> LiveSession:
+    if bots and not rehearsal:
+        raise api_error(422, "bots_require_rehearsal", "Bots are only available in rehearsal mode.")
     quiz = get_owned_quiz(db, user, quiz_id)
     version = latest_version(db, quiz.id)
     if version is None:
@@ -138,7 +144,7 @@ def create_session(
             quiz_id=quiz.id,
             quiz_version_id=version.id,
             owner_user_id=user.id,
-            mode="live",
+            mode="rehearsal" if rehearsal else "live",
             status="lobby",
             phase="lobby",
             state_seq=1,
@@ -161,8 +167,34 @@ def create_session(
             db.rollback()
             continue
         db.refresh(session)
+        if bots:
+            _add_bots(db, session, min(int(bots), session.max_participants))
         return session
     raise api_error(503, "join_code_exhausted", "Could not allocate a room code; try again.")
+
+
+def _add_bots(db: Session, session: LiveSession, count: int) -> None:
+    """Rehearsal bots (RF-513): participants without a token, driven by the server."""
+    taken: set[str] = set()
+    now = utcnow()
+    for index in range(count):
+        for _ in range(8):
+            name = f"Bot {live_names.suggest_name()}"[: live_names.MAX_LEN]
+            key = live_names.nickname_key(name)
+            if key not in taken:
+                break
+        else:
+            name = f"Bot {index + 1}"
+            key = live_names.nickname_key(name)
+        taken.add(key)
+        db.add(
+            LiveParticipant(
+                id=str(uuid.uuid4()), session_id=session.id, display_name=name, nickname_norm=key,
+                avatar_seed=live_names.avatar_seed(), consent_version=session.consent_version,
+                joined_at=now, banned=False, is_bot=True, time_multiplier=1.0,
+            )
+        )
+    db.commit()
 
 
 def get_owned_session(db: Session, user: User, session_id: str) -> LiveSession:
@@ -299,6 +331,7 @@ def join(
 
     return_code = None if user is not None else "".join(secrets.choice(RETURN_CODE_ALPHABET) for _ in range(RETURN_CODE_LENGTH))
     participant = LiveParticipant(
+        id=str(uuid.uuid4()),  # known before the INSERT: the token hash goes in the same statement
         session_id=session.id,
         user_id=user.id if user else None,
         display_name=name,
@@ -310,15 +343,15 @@ def join(
         joined_at=utcnow(),
         banned=False,
     )
+    token, expires_at = _issue_participant_token(participant)
+    result = _join_result(participant, token, expires_at, return_code)  # before commit: no reload
     db.add(participant)
     try:
-        db.flush()
+        db.commit()
     except IntegrityError:
         db.rollback()
         raise api_error(409, "name_taken", "This name is already in use in the room.") from None
-    token, expires_at = _issue_participant_token(participant)
-    db.commit()
-    return _join_result(participant, token, expires_at, return_code)
+    return result
 
 
 def _nickname_taken(db: Session, session_id: str, key: str) -> bool:

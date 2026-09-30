@@ -4,7 +4,7 @@ import { useId, useState, type FormEvent, type ReactNode } from "react";
 
 import { CountdownRing } from "@/components/quiz-kit/countdown-ring";
 import { OptionBadge } from "@/components/quiz-kit/option-shape";
-import { LiveThemeRoot } from "@/features/quiz-live/components/live-chrome";
+import { LiveThemeRoot, PauseGlyph } from "@/features/quiz-live/components/live-chrome";
 import { LqButton, LqInput } from "@/features/quiz-live/components/lq-ui";
 import type { LiveState } from "@/features/quiz-live/lib/live-store";
 import { useLive, useLiveState } from "@/features/quiz-live/lib/use-live-session";
@@ -98,8 +98,19 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
                 <>
                   <div className="flex items-start gap-4">
                     <p className="flex-1 font-lq-prompt text-2xl leading-snug font-bold text-lq-fg">{question.prompt}</p>
+                    {view.phase === "question" && view.timer?.paused ? (
+                      <span role="status" className="lq-paused-breathe inline-flex shrink-0 items-center gap-1.5 self-center rounded-full bg-lq-warning px-3 py-1 text-sm font-bold text-lq-on-warning">
+                        <PauseGlyph className="size-3.5" />
+                        {t("quizPresent.question.paused")}
+                      </span>
+                    ) : null}
                     {view.phase === "question" && view.timer?.deadline_ms ? (
-                      <CountdownRing timer={view.timer} clock={live.clock} size={84} label={(value) => t("quizPresent.question.timeLeft", { seconds: value.seconds })} />
+                      <CountdownRing
+                        timer={view.timer}
+                        clock={live.clock}
+                        size={84}
+                        label={(value) => (value.paused ? t("quizPresent.question.pausedTime", { seconds: value.seconds }) : t("quizPresent.question.timeLeft", { seconds: value.seconds }))}
+                      />
                     ) : null}
                   </div>
                   {question.options.length ? (

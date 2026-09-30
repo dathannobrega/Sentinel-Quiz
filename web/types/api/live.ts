@@ -213,6 +213,8 @@ export interface LiveSession {
   allow_guests: boolean;
   max_participants: number;
   preset: LivePreset;
+  /** Rehearsal (RF-513): bots may take part; they never enter reports or the CSV. */
+  rehearsal: boolean;
   audience: LiveAudience;
   theme_key: LiveThemeKey;
   item_count: number;
@@ -228,6 +230,10 @@ export interface LiveSessionCreate {
   max_participants?: number;
   preset?: LivePreset;
   audience?: LiveAudience;
+  /** Rehearsal session (RF-513). */
+  rehearsal?: boolean;
+  /** 0..200 server-driven bots; only with `rehearsal` (422 `bots_require_rehearsal`). */
+  bots?: number;
 }
 
 export interface LiveDisplayToken {

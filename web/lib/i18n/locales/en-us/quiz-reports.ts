@@ -13,7 +13,8 @@ export const quizReports = {
     print: "Print",
     sections: "Report sections",
     live: "The session is still running; numbers may change.",
-    refresh: "Refresh"
+    refresh: "Refresh",
+    rehearsalHint: "Rehearsal session. Bots are left out of this report and the CSV."
   },
   kpis: {
     title: "Summary",

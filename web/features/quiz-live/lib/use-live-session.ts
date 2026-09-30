@@ -11,7 +11,7 @@ import { ClockSync } from "@/features/quiz-live/lib/clock-sync";
 import { computeCountdown, elapsedSinceOpen, type CountdownValue } from "@/features/quiz-live/lib/countdown";
 import { LiveSocket, toWebSocketUrl, type LiveCredentials } from "@/features/quiz-live/lib/live-socket";
 import { createInitialLiveState, LiveStore, useLiveSelector, type LiveAnswerDraft, type LiveState } from "@/features/quiz-live/lib/live-store";
-import { LIVE_WS_PATH, type ClientMessage, type LiveRole, type LiveTimer } from "@/features/quiz-live/lib/protocol";
+import { LIVE_CMD_PATH, LIVE_SSE_PATH, LIVE_WS_PATH, type ClientMessage, type LiveRole, type LiveTimer } from "@/features/quiz-live/lib/protocol";
 
 export interface LiveConnection {
   role: LiveRole;
@@ -27,6 +27,15 @@ export interface LiveConnection {
 
 export function liveSocketUrl(): string {
   return toWebSocketUrl(buildApiUrl(LIVE_WS_PATH));
+}
+
+/** SSE + POST fallback endpoints (RNF-309), same API origin as the socket. */
+export function liveSseUrl(): string {
+  return buildApiUrl(LIVE_SSE_PATH);
+}
+
+export function liveCmdUrl(): string {
+  return buildApiUrl(LIVE_CMD_PATH);
 }
 
 function credentialsKey(credentials: LiveCredentials | null): string | null {
@@ -57,7 +66,12 @@ export function useLiveConnection(role: LiveRole, credentials: LiveCredentials |
     if (!key || !current) {
       return undefined;
     }
-    const socket = new LiveSocket({ url: liveSocketUrl, credentials: current, clock });
+    const socket = new LiveSocket({
+      url: liveSocketUrl,
+      credentials: current,
+      clock,
+      fallback: { sseUrl: liveSseUrl, cmdUrl: liveCmdUrl }
+    });
     socketRef.current = socket;
     const offMessage = socket.onMessage((message) => store.dispatch({ type: "server", message }));
     const offStatus = socket.onStatus((event) =>
@@ -67,7 +81,8 @@ export function useLiveConnection(role: LiveRole, credentials: LiveCredentials |
         attempt: event.attempt,
         reason: event.reason ?? null,
         closeCode: event.closeCode ?? null,
-        retryInMs: event.retryInMs ?? null
+        retryInMs: event.retryInMs ?? null,
+        transport: event.transport
       })
     );
     socket.connect();
@@ -139,6 +154,8 @@ export function useCountdown(
 ): CountdownValue {
   const openAt = timer?.answers_open_at_ms ?? null;
   const deadline = timer?.deadline_ms ?? null;
+  // Frozen while paused: the pause instant replaces "now" (see computeCountdown).
+  const pausedAt = timer?.paused && typeof timer.paused_at_ms === "number" ? timer.paused_at_ms : null;
   const frameRef = useRef(onFrame);
   useEffect(() => {
     frameRef.current = onFrame;
@@ -149,7 +166,8 @@ export function useCountdown(
       if (openAt === null) {
         return () => undefined;
       }
-      const stableTimer = { answers_open_at_ms: openAt, deadline_ms: deadline };
+      const stableTimer: LiveTimer =
+        pausedAt === null ? { answers_open_at_ms: openAt, deadline_ms: deadline } : { answers_open_at_ms: openAt, deadline_ms: deadline, paused: true, paused_at_ms: pausedAt };
       let raf = 0;
       let lastKey = "";
       const hasRaf = typeof requestAnimationFrame === "function";
@@ -161,7 +179,7 @@ export function useCountdown(
           lastKey = next;
           notify();
         }
-        if (value.stage === "reading" || value.stage === "open") {
+        if (!value.paused && (value.stage === "reading" || value.stage === "open")) {
           raf = hasRaf ? requestAnimationFrame(loop) : (setTimeout(loop, 100) as unknown as number);
         }
       };
@@ -174,12 +192,19 @@ export function useCountdown(
         }
       };
     };
-  }, [openAt, deadline, clock, precision]);
+  }, [openAt, deadline, pausedAt, clock, precision]);
 
   const cacheRef = useRef<{ key: string; value: CountdownValue } | null>(null);
   const getSnapshot = () => {
-    const value = computeCountdown(openAt === null ? null : { answers_open_at_ms: openAt, deadline_ms: deadline }, clock.serverNow());
-    const nextKey = precision === "stage" ? `${openAt}:${deadline}:${value.stage}` : `${openAt}:${deadline}:${value.stage}:${value.seconds}:${value.warning}`;
+    const current: LiveTimer | null =
+      openAt === null
+        ? null
+        : pausedAt === null
+          ? { answers_open_at_ms: openAt, deadline_ms: deadline }
+          : { answers_open_at_ms: openAt, deadline_ms: deadline, paused: true, paused_at_ms: pausedAt };
+    const value = computeCountdown(current, clock.serverNow());
+    const base = `${openAt}:${deadline}:${pausedAt}`;
+    const nextKey = precision === "stage" ? `${base}:${value.stage}` : `${base}:${value.stage}:${value.seconds}:${value.warning}`;
     const cached = cacheRef.current;
     if (cached && cached.key === nextKey) {
       return cached.value;

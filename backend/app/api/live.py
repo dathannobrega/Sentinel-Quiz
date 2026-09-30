@@ -8,10 +8,11 @@ resulting events on the live bus.
 from __future__ import annotations
 
 import io
+import secrets
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -22,6 +23,7 @@ from app.db.session import get_db
 from app.live.db import live_db
 from app.live import runtime
 from app.live.gateway import get_hub
+from app.live.metrics import metrics
 from app.models import User
 from app.schemas_live import (
     ExpectedVersionIn,
@@ -42,7 +44,7 @@ from app.services.auth import parse_bearer_token
 router = APIRouter(prefix="/api/live", tags=["live"])
 
 
-def _enabled() -> None:
+async def _enabled() -> None:  # async: no threadpool hop on the public hot paths
     if not settings.live_enabled:
         raise api_error(404, "live_disabled", "Live quizzes are not enabled.")
 
@@ -205,7 +207,7 @@ def create_session(body: SessionCreateIn, db: Session = Depends(get_db), user: U
     session = live_session.create_session(
         db, user,
         quiz_id=body.quiz_id, allow_guests=body.allow_guests, max_participants=body.max_participants,
-        preset=body.preset, audience=body.audience,
+        preset=body.preset, audience=body.audience, rehearsal=body.rehearsal, bots=body.bots,
     )
     return live_session.serialize_session(db, session)
 
@@ -276,19 +278,23 @@ def session_export(session_id: str, db: Session = Depends(get_db), user: User = 
 
 # ----------------------------------------------------------------------------- participants (public)
 
+# Public hot paths (a whole audience at once) open and close their DB session inside ONE
+# worker-thread call. A sync ``Depends(get_db)`` would keep the pooled connection until its
+# teardown gets a thread of its own, and under a burst the teardowns queue behind the new
+# requests while those wait for the pool (pool starvation, RNF-205/RNF-109).
+
 @router.get("/rooms/{code}", dependencies=[Depends(_enabled)])
-def get_room(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
-    return live_session.room_info(db, code)
+async def get_room(code: str) -> dict[str, Any]:
+    def _room() -> dict[str, Any]:
+        with live_db() as db:
+            return live_session.room_info(db, code)
+
+    return await run_in_threadpool(_room)
 
 
 async def _publish_lobby(request: Request, session_id: str) -> None:
-    def _lobby() -> dict[str, Any]:
-        with live_db() as db:
-            return runtime.lobby_state(db, session_id)
-
-    await get_hub(request.app).publish_outcome(
-        session_id, runtime.Outcome(broadcasts=[runtime.Broadcast("lobby.update", await run_in_threadpool(_lobby))])
-    )
+    # Coalesced by the room loop (at most one lobby.update per LOBBY_INTERVAL_S).
+    await get_hub(request.app).mark_lobby_dirty(session_id)
 
 
 @router.post("/rooms/{code}/join", status_code=201, dependencies=[Depends(_enabled)])
@@ -327,12 +333,33 @@ def suggest_name(lang: Optional[str] = Query(default="pt-BR", max_length=8)) -> 
 
 
 @router.get("/me/results", dependencies=[Depends(_enabled)])
-def my_results(authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)) -> dict[str, Any]:
+async def my_results(authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
     token = parse_bearer_token(authorization)
     if not token:
         raise api_error(401, "token_invalid", "Participant token required.")
-    participant = live_session.participant_from_token(db, token)
-    return live_results.my_results(db, participant)
+
+    def _results() -> dict[str, Any]:
+        with live_db() as db:
+            return live_results.my_results(db, live_session.participant_from_token(db, token))
+
+    return await run_in_threadpool(_results)
+
+
+@router.get("/metrics", include_in_schema=False)
+def live_metrics(request: Request, format: str = Query(default="prometheus", pattern="^(prometheus|json)$"),
+                 authorization: Optional[str] = Header(default=None)) -> Any:
+    """RNF-1001. Bearer LIVE_METRICS_TOKEN. Without a token: loopback only, and never in
+    production (behind proxy headers the client address is only as good as the proxy)."""
+    expected = str(settings.live_metrics_token or "")
+    if expected:
+        allowed = secrets.compare_digest(parse_bearer_token(authorization) or "", expected)
+    else:
+        allowed = not settings.is_production() and (request.client.host if request.client else "") in {"127.0.0.1", "::1"}
+    if not allowed:
+        raise api_error(404, "not_found", "Not found.")
+    if format == "json":
+        return metrics.summary()
+    return PlainTextResponse(metrics.prometheus(), media_type="text/plain; version=0.0.4")
 
 
 @router.get("/healthz")

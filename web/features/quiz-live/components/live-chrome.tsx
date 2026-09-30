@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import type { LiveConnectionState } from "@/features/quiz-live/lib/live-store";
+import type { LiveTransport } from "@/features/quiz-live/lib/protocol";
 import type { LiveThemeKey } from "@/types/api/live";
 import { cn } from "@/lib/utils/cn";
 
@@ -134,6 +135,42 @@ export function ConnectionBanner({ connection, labels, className }: { connection
       <span aria-hidden="true" className="inline-block size-2 animate-pulse rounded-full bg-current" />
       {text}
     </div>
+  );
+}
+
+/** Pause glyph: two rounded bars (paired with a text label, never colour alone). */
+export function PauseGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      <rect x="5.5" y="4" width="4.5" height="16" rx="1.4" fill="currentColor" />
+      <rect x="14" y="4" width="4.5" height="16" rx="1.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+/**
+ * Unobtrusive "fallback connection" pill (RNF-309): shown only while the client runs on SSE + POST.
+ * The hint is exposed as the accessible description and as a native tooltip.
+ */
+export function TransportBadge({ transport, label, hint, className }: { transport: LiveTransport; label: string; hint: string; className?: string }) {
+  if (transport !== "sse") {
+    return null;
+  }
+  return (
+    <span
+      title={hint}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border border-lq-line bg-lq-surface px-2.5 py-0.5 text-[0.7rem] font-semibold text-lq-fg-muted motion-safe:animate-[rise-in_260ms_ease-out_both]",
+        className
+      )}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M2 6.5a9 9 0 0 1 12 0M4.5 9a5.5 5.5 0 0 1 7 0" />
+        <circle cx="8" cy="12" r="1.2" className="fill-current stroke-none" />
+      </svg>
+      {label}
+      <span className="sr-only">: {hint}</span>
+    </span>
   );
 }
 

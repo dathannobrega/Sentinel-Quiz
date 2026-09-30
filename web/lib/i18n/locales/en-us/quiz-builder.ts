@@ -387,6 +387,11 @@ export const quizBuilder = {
     },
     maxParticipants: "Maximum participants",
     maxParticipantsHint: "Up to {max}.",
+    rehearsal: "Rehearsal",
+    rehearsalHint: "A private session to test the pace before presenting for real.",
+    bots: "Bots",
+    botsHint: "From 0 to 200. Bots join the room and answer on their own; they never go into reports or the CSV.",
+    botsError: "Use a whole number from 0 to 200.",
     licenseBlocked: {
       title: "Some questions cannot be shown to guests",
       message: "The license of these questions requires signed-in participants. You can require sign-in for this room.",
@@ -422,6 +427,8 @@ export const quizBuilder = {
       confirm: "End session"
     },
     guests: "Guests allowed",
-    loginOnly: "Signed-in only"
+    loginOnly: "Signed-in only",
+    rehearsal: "Rehearsal",
+    rehearsalHint: "Rehearsal session: bots are left out of the report."
   }
 } as const;

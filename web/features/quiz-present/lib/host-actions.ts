@@ -1,4 +1,4 @@
-import type { ClientMessage } from "@/features/quiz-live/lib/protocol";
+import type { ClientMessage, TimeMultiplier } from "@/features/quiz-live/lib/protocol";
 import type { LivePhase } from "@/types/api/live";
 
 export type HostAction = "start" | "lock" | "reveal" | "next" | "leaderboard" | "podium" | "end";
@@ -9,6 +9,10 @@ export interface HostContext {
   total: number;
   /** Whether the current item takes answers (not content/leaderboard). */
   answerable: boolean;
+  /** The open question is paused by the host (Incremento 3). */
+  paused?: boolean;
+  /** The open question has a deadline (extend needs one). */
+  timed?: boolean;
 }
 
 /** Whether the current item is the last one (host.next then goes to the podium). */
@@ -71,4 +75,35 @@ export function hostCommand(action: HostAction, qi: number | null): ClientMessag
     case "end":
       return { type: "host.end", data: {} };
   }
+}
+
+// ----------------------------------------------------------------------------- time controls (RF-622)
+
+/** "+N s" steps offered to the host (server accepts 5..300). */
+export const EXTEND_STEPS_S = [15, 30] as const;
+export const DEFAULT_EXTEND_S = EXTEND_STEPS_S[0];
+
+/** Which time controls apply: pause/resume only on an open question, extend only when timed and running. */
+export function timeControls(context: HostContext): { pause: boolean; resume: boolean; extend: boolean } {
+  const open = context.phase === "question" && context.qi !== null;
+  const paused = Boolean(context.paused);
+  return {
+    pause: open && !paused,
+    resume: open && paused,
+    extend: open && !paused && Boolean(context.timed)
+  };
+}
+
+/** `host.pause` / `host.resume` for the current state (toggle). */
+export function pauseToggleCommand(context: Pick<HostContext, "qi" | "paused">): ClientMessage {
+  const expected = context.qi ?? 0;
+  return context.paused ? { type: "host.resume", data: { expected_qi: expected } } : { type: "host.pause", data: { expected_qi: expected } };
+}
+
+export function extendCommand(qi: number | null, seconds: number): ClientMessage {
+  return { type: "host.extend", data: { expected_qi: qi ?? 0, seconds: Math.max(5, Math.min(300, Math.round(seconds))) } };
+}
+
+export function setTimeCommand(participantId: string, multiplier: TimeMultiplier): ClientMessage {
+  return { type: "host.set_time", data: { participant_id: participantId, multiplier } };
 }

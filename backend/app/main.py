@@ -19,6 +19,7 @@ from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.live.bus import build_live_bus
 from app.live.gateway import LiveHub, router as live_ws_router
+from app.live.sse import router as live_sse_router
 from app.middleware.observability import ObservabilityMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware, build_rate_limit_store
 from app.services.ingest import ingest_questions_from_dir
@@ -99,11 +100,12 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         _run_startup(app_settings)
+        await live_hub.start()
         try:
             yield
         finally:
             await rate_limit_store.close()
-            await live_hub.bus.close()
+            await live_hub.close()
 
     docs_enabled = app_settings.api_docs_enabled()
     app = FastAPI(
@@ -142,6 +144,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     # dedicated `live` service (app.live.main) when it is deployed separately.
     app.include_router(live_router)
     app.include_router(live_ws_router)
+    app.include_router(live_sse_router)
     app.include_router(ai_router)
     # NOTE: the original material files are intentionally NOT served (no StaticFiles
     # mount). Excerpts are only available through the authenticated

@@ -16,7 +16,17 @@ import { HostControlBar, HotkeysHelp, ParticipantsPanel } from "@/features/quiz-
 import { PresenterView } from "@/features/quiz-present/components/presenter-view";
 import { Stage } from "@/features/quiz-present/components/stage";
 import { useElementHeight, useFullscreen, usePresenterHotkeys, useWakeLock, type HotkeyCommand } from "@/features/quiz-present/hooks/use-stage-hooks";
-import { contextualAction, hostCommand, type HostAction, type HostContext } from "@/features/quiz-present/lib/host-actions";
+import {
+  contextualAction,
+  DEFAULT_EXTEND_S,
+  extendCommand,
+  hostCommand,
+  pauseToggleCommand,
+  setTimeCommand,
+  timeControls,
+  type HostAction,
+  type HostContext
+} from "@/features/quiz-present/lib/host-actions";
 import { isApiError } from "@/lib/api/errors";
 import { useI18n } from "@/lib/i18n";
 import type { LiveSession } from "@/types/api/live";
@@ -145,6 +155,8 @@ const selectHostMeta = (state: LiveState) => ({
   qi: state.qi,
   total: state.total,
   itemType: state.question?.item_type ?? null,
+  paused: state.phase === "question" && Boolean(state.timer?.paused),
+  timed: state.timer ? state.timer.deadline_ms !== null : false,
   roomLocked: state.roomLocked,
   participantCount: state.participantCount,
   participants: state.participants,
@@ -206,8 +218,15 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
   }, [toast, dismissToast]);
 
   const context: HostContext = useMemo(
-    () => ({ phase: meta.phase, qi: meta.qi, total: meta.total, answerable: meta.itemType ? isAnswerableType(meta.itemType) : false }),
-    [meta.phase, meta.qi, meta.total, meta.itemType]
+    () => ({
+      phase: meta.phase,
+      qi: meta.qi,
+      total: meta.total,
+      answerable: meta.itemType ? isAnswerableType(meta.itemType) : false,
+      paused: meta.paused,
+      timed: meta.timed
+    }),
+    [meta.phase, meta.qi, meta.total, meta.itemType, meta.paused, meta.timed]
   );
 
   const runAction = useCallback(
@@ -216,6 +235,27 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
         return;
       }
       live.send(hostCommand(action, live.store.getState().qi), { queueWhileOffline: false });
+    },
+    [live]
+  );
+
+  // Time controls (RF-622): the current qi is read at click time, so a stale button never pauses
+  // the next question (the server also checks expected_qi).
+  const togglePause = useCallback(() => {
+    const state = live.store.getState();
+    if (state.connection.status !== "open" || state.phase !== "question") {
+      return;
+    }
+    live.send(pauseToggleCommand({ qi: state.qi, paused: Boolean(state.timer?.paused) }), { queueWhileOffline: false });
+  }, [live]);
+
+  const extendTime = useCallback(
+    (seconds: number) => {
+      const state = live.store.getState();
+      if (state.connection.status !== "open" || state.phase !== "question" || state.timer?.paused || !state.timer || state.timer.deadline_ms === null) {
+        return;
+      }
+      live.send(extendCommand(state.qi, seconds), { queueWhileOffline: false });
     },
     [live]
   );
@@ -284,6 +324,16 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
         case "leaderboard":
           runAction("leaderboard");
           break;
+        case "pause":
+          if (timeControls(context).pause || timeControls(context).resume) {
+            togglePause();
+          }
+          break;
+        case "extend":
+          if (timeControls(context).extend) {
+            extendTime(DEFAULT_EXTEND_S);
+          }
+          break;
         case "fullscreen":
           void fullscreen.toggle();
           break;
@@ -301,7 +351,7 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
           break;
       }
     },
-    [context, runAction, fullscreen, toggleCalm]
+    [context, runAction, togglePause, extendTime, fullscreen, toggleCalm]
   );
   usePresenterHotkeys(onHotkey);
 
@@ -326,6 +376,9 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
   const controls = (
     <HostControlBar
       context={context}
+      rehearsal={Boolean(session?.rehearsal)}
+      onTogglePause={togglePause}
+      onExtend={extendTime}
       connection={meta.connection}
       participantCount={meta.participantCount}
       roomLocked={meta.roomLocked}
@@ -408,6 +461,10 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
         open={participantsOpen}
         onClose={() => setParticipantsOpen(false)}
         participants={meta.participants ?? []}
+        canSetTime={meta.connection.status === "open"}
+        onSetTime={(participantId, multiplier) => {
+          live.send(setTimeCommand(participantId, multiplier), { queueWhileOffline: false });
+        }}
         onKick={(participantId, ban) => {
           live.send({ type: "host.kick", data: { participant_id: participantId, ban } }, { queueWhileOffline: false });
           live.store.dispatch({ type: "local.kick", participantId });

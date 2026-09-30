@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -20,6 +21,7 @@ from starlette.websockets import WebSocketState
 
 from app.core.config import settings
 from app.live.db import live_db
+from app.live.metrics import BATCH_BUCKETS, loop_lag_sampler, metrics
 from app.live import protocol, runtime
 from app.live.bus import LiveBus
 from app.models import LiveParticipant, LiveSession
@@ -33,6 +35,9 @@ router = APIRouter()
 HELLO_TIMEOUT_S = 5.0
 SEND_QUEUE_MAX = 64
 TICK_INTERVAL_S = 0.25
+LOBBY_INTERVAL_S = 0.5
+PRESENCE_FLUSH_S = 3.0
+DIRTY_COALESCE_S = 0.1
 RTT_WINDOW = 8
 
 
@@ -76,6 +81,7 @@ class Connection:
         except asyncio.QueueFull:
             # Slow consumer: drop the connection; it reconnects and gets a fresh snapshot.
             logger.info("live slow consumer closed", extra={"event": "live_slow_consumer", "role": self.role})
+            metrics.inc("live_slow_consumer_total", {"role": self.role})
             self.close(1013)
 
     def close(self, code: int) -> None:
@@ -99,6 +105,10 @@ class RoomChannel:
         self.session_id = session_id
         self.connections: set[Connection] = set()
         self.dirty = False
+        self.lobby_dirty = False
+        self.lobby_sent_at = 0.0
+        self.bots_task: asyncio.Task | None = None
+        self.presence_dirty = False
         self.lock_at_ms: int | None = None
         self.task: asyncio.Task | None = None
 
@@ -106,6 +116,12 @@ class RoomChannel:
         control = message.get("control")
         if control == "dirty":
             self.dirty = True
+            return
+        if control == "lobby":
+            self.lobby_dirty = True
+            return
+        if control == "presence":
+            self.presence_dirty = True
             return
         if control == "kick":
             pid = message.get("participant_id")
@@ -119,13 +135,50 @@ class RoomChannel:
         if not broadcast:
             return
         meta = message.get("meta") or {}
+        if broadcast["type"] in {"question.locked", "question.reveal", "podium.show", "session.ended", "leaderboard.show", "question.paused"}:
+            self.lock_at_ms = None
+        if meta.get("clear_lock"):
+            self.lock_at_ms = None
         if "lock_at_ms" in meta:
             self.lock_at_ms = meta["lock_at_ms"]
-        if broadcast["type"] in {"question.locked", "question.reveal", "podium.show", "session.ended", "leaderboard.show"}:
-            self.lock_at_ms = None
         await self.deliver(runtime.Broadcast(**broadcast))
+        self._drive_bots(broadcast["type"], broadcast.get("data") or {})
+
+    def _drive_bots(self, type_: str, data: dict[str, Any]) -> None:
+        """Rehearsal bots (RF-513) are driven by the process holding the host socket."""
+        if type_ in {"question.locked", "question.reveal", "question.paused", "podium.show", "session.ended"} and self.bots_task:
+            self.bots_task.cancel()
+            self.bots_task = None
+        if type_ in {"question.intro", "question.timer"} and any(c.role == "host" for c in self.connections):
+            if self.bots_task is not None:
+                self.bots_task.cancel()
+            self.bots_task = asyncio.create_task(self._run_bots(int(data.get("qi", -1))), name=f"live-bots-{self.session_id[:8]}")
+
+    async def _run_bots(self, qi: int) -> None:
+        try:
+            plan = await run_in_threadpool(_with_db, runtime.bot_plan, self.session_id, qi)
+            started = time.monotonic()
+            pending = list(plan)
+            while pending:
+                bot = pending.pop(0)
+                await asyncio.sleep(max(0.0, bot.delay_s - (time.monotonic() - started)))
+                result = await self.hub.submit_answer(bot.answer)
+                if result.status == "paused":  # answer again after the host resumes
+                    bot.delay_s = time.monotonic() - started + 1.0
+                    pending.append(bot)
+                    continue
+                if result.status == "accepted":
+                    await self.hub.mark_dirty(self.session_id)
+                await self.hub.publish_outcome(self.session_id, result.outcome)
+                if result.status in {"late", "closed"}:
+                    return
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("live bots failed", extra={"event": "live_bots_error", "session_id": self.session_id})
 
     async def deliver(self, broadcast: runtime.Broadcast) -> None:
+        started = time.perf_counter()
         targets = [c for c in self.connections if _wants(c, broadcast)]
         if not targets:
             return
@@ -133,18 +186,23 @@ class RoomChannel:
         staff_frame = protocol.dumps(protocol.envelope(broadcast.type, staff_data, seq=broadcast.seq))
         participants = [c for c in targets if c.role == "participant"]
         public_data = _participant_view(broadcast)
-        personal: dict[str, dict] = {}
+        personal: dict[str, str] = {}
         if broadcast.personalize and participants:
             pids = sorted({c.participant_id for c in participants if c.participant_id})
-            personal = await run_in_threadpool(_personal_blocks, self.session_id, broadcast.personalize, pids)
+            # Blocks AND their JSON are built in a worker thread: 1,000 dumps on the event
+            # loop would stall every other room for ~100 ms (RNF-106/RNF-108).
+            personal = await run_in_threadpool(
+                _personal_frames, self.session_id, broadcast.personalize, pids, broadcast.type, public_data, broadcast.seq
+            )
         shared_participant_frame = protocol.dumps(protocol.envelope(broadcast.type, public_data, seq=broadcast.seq))
         for conn in targets:
             if conn.role != "participant":
                 conn.send(staff_frame)
-            elif conn.participant_id in personal:
-                conn.send(protocol.envelope(broadcast.type, {**public_data, "my": personal[conn.participant_id]}, seq=broadcast.seq))
             else:
-                conn.send(shared_participant_frame)
+                conn.send(personal.get(conn.participant_id or "", shared_participant_frame))
+        # RNF-101: from publish to the last local enqueue (the writers drain concurrently).
+        metrics.observe("live_broadcast_seconds", time.perf_counter() - started, {"type": broadcast.type})
+        metrics.inc("live_frames_out_total", {"type": broadcast.type}, len(targets))
         hosts = [c for c in self.connections if c.role == "host"]
         if hosts and (broadcast.seq is not None or broadcast.type in {"lobby.update", "room.locked"}):
             # State changed: hosts get a fresh authoritative snapshot (answer key, notes,
@@ -153,6 +211,14 @@ class RoomChannel:
             text = protocol.dumps(frame)
             for conn in hosts:
                 conn.send(text)
+
+    async def refresh_hosts(self) -> None:
+        hosts = [c for c in self.connections if c.role == "host"]
+        if not hosts:
+            return
+        text = protocol.dumps(await run_in_threadpool(_snapshot, Identity(role="host", session_id=self.session_id)))
+        for conn in hosts:
+            conn.send(text)
 
     async def run(self) -> None:
         try:
@@ -167,6 +233,16 @@ class RoomChannel:
                     ticks = await run_in_threadpool(_with_db, runtime.results_tick, self.session_id)
                     for tick in ticks:
                         await self.deliver(tick)
+                if self.presence_dirty:
+                    self.presence_dirty = False
+                    await self.refresh_hosts()
+                if self.lobby_dirty and time.monotonic() - self.lobby_sent_at >= LOBBY_INTERVAL_S:
+                    # Joins are coalesced: one lobby.update (and one host snapshot) per
+                    # interval, not one per join (a 1,000-person join storm is O(N) frames).
+                    self.lobby_dirty = False
+                    self.lobby_sent_at = time.monotonic()
+                    lobby = await run_in_threadpool(_with_db, runtime.lobby_state, self.session_id)
+                    await self.deliver(runtime.Broadcast("lobby.update", lobby))
         except asyncio.CancelledError:
             pass
         except Exception:  # pragma: no cover - keep the room alive, log and restart on next join
@@ -201,10 +277,65 @@ def _with_db(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         return fn(db, *args, **kwargs)
 
 
-def _personal_blocks(session_id: str, kind: str, pids: list[str]) -> dict[str, dict]:
+def _personal_frames(
+    session_id: str, kind: str, pids: list[str], type_: str, public_data: dict[str, Any], seq: int | None
+) -> dict[str, str]:
     with live_db() as db:
         room = runtime.load_room(db, session_id)
-        return runtime.personal_blocks(db, room, kind, pids)
+        blocks = runtime.personal_blocks(db, room, kind, pids)
+    return {pid: protocol.dumps(protocol.envelope(type_, {**public_data, "my": block}, seq=seq)) for pid, block in blocks.items()}
+
+
+# ----------------------------------------------------------------------------- answers
+
+class AnswerBatcher:
+    """Group commit for ``answer.submit`` (RNF-103/RNF-204).
+
+    Answers that arrive while a batch is being written wait for the next one, so under
+    load a burst of 1,000 answers becomes a few multi-row INSERTs with one commit each
+    instead of 1,000 transactions competing for the pool. Each caller still waits for
+    its own commit before it is acked.
+    """
+
+    MAX_BATCH = 500
+    IDLE_EXIT_S = 30.0
+
+    def __init__(self) -> None:
+        self._pending: list[tuple[runtime.AnswerIn, asyncio.Future]] = []
+        self._wake = asyncio.Event()
+        self._task: asyncio.Task | None = None
+
+    async def submit(self, answer: runtime.AnswerIn) -> runtime.AnswerResult:
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending.append((answer, future))
+        self._wake.set()
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._run(), name="live-answer-writer")
+        return await future
+
+    async def _run(self) -> None:
+        while True:
+            if not self._pending:
+                self._wake.clear()
+                try:
+                    await asyncio.wait_for(self._wake.wait(), timeout=self.IDLE_EXIT_S)
+                except asyncio.TimeoutError:
+                    return  # restarted by the next submit
+                continue
+            batch = self._pending[: self.MAX_BATCH]
+            del self._pending[: self.MAX_BATCH]
+            metrics.observe("live_answer_batch_size", float(len(batch)), buckets=BATCH_BUCKETS)
+            try:
+                results = await run_in_threadpool(_with_db, runtime.submit_answers, [answer for answer, _ in batch])
+            except Exception as exc:
+                logger.exception("live answer batch failed", extra={"event": "live_answer_batch_error", "size": len(batch)})
+                for _, future in batch:
+                    if not future.done():
+                        future.set_exception(exc)
+                continue
+            for (_, future), result in zip(batch, results):
+                if not future.done():
+                    future.set_result(result)
 
 
 # ----------------------------------------------------------------------------- hub
@@ -214,6 +345,57 @@ class LiveHub:
         self.bus = bus
         self.rooms: dict[str, RoomChannel] = {}
         self._lock = asyncio.Lock()
+        self._lag_task: asyncio.Task | None = None
+        self._presence_task: asyncio.Task | None = None
+        self._seen: set[str] = set()
+        self._dirty_pending: set[str] = set()
+        self._background: set[asyncio.Task] = set()
+        # One group-commit writer per event loop (tests run one loop per client).
+        self._batchers: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, AnswerBatcher]" = weakref.WeakKeyDictionary()
+        metrics.gauge("live_connections", self._connections_by_role)
+        metrics.gauge("live_rooms_active", lambda: {(): float(len(self.rooms))})
+
+    async def start(self) -> None:
+        if self._lag_task is None:
+            self._lag_task = asyncio.create_task(loop_lag_sampler(), name="live-loop-lag")
+        if self._presence_task is None:
+            self._presence_task = asyncio.create_task(self._presence_loop(), name="live-presence")
+
+    async def close(self) -> None:
+        for task in (self._lag_task, self._presence_task):
+            if task is not None:
+                task.cancel()
+        self._lag_task = self._presence_task = None
+        await self.flush_presence()
+        await self.bus.close()
+
+    def mark_seen(self, participant_id: str) -> None:
+        self._seen.add(participant_id)
+
+    async def flush_presence(self) -> None:
+        if not self._seen:
+            return
+        seen, self._seen = list(self._seen), set()
+        try:
+            sessions = await run_in_threadpool(_with_db, runtime.touch_participants, seen)
+        except Exception:
+            logger.exception("live presence flush failed", extra={"event": "live_presence_error", "size": len(seen)})
+            return
+        for session_id in sessions:  # hosts see "online" without waiting for the next state change
+            await self.bus.publish(session_id, {"control": "presence"})
+
+    async def _presence_loop(self) -> None:
+        # One UPDATE every few seconds instead of a commit per heartbeat/connect.
+        while True:
+            await asyncio.sleep(PRESENCE_FLUSH_S)
+            await self.flush_presence()
+
+    def _connections_by_role(self) -> dict[tuple[tuple[str, str], ...], float]:
+        counts: dict[str, int] = {"host": 0, "display": 0, "participant": 0}
+        for channel in list(self.rooms.values()):
+            for conn in list(channel.connections):
+                counts[conn.role] = counts.get(conn.role, 0) + 1
+        return {(("role", role),): float(n) for role, n in counts.items()}
 
     async def attach(self, conn: Connection) -> RoomChannel:
         async with self._lock:
@@ -244,17 +426,46 @@ class LiveHub:
         meta: dict[str, Any] = {}
         if outcome.lock_at is not None:
             meta["lock_at_ms"] = int(outcome.lock_at[1].timestamp() * 1000)
+        if outcome.clear_lock:
+            meta["clear_lock"] = True
+        # The auto-lock schedule rides on the broadcast that changed it, so every
+        # process updates its room loop in the same order as the event.
+        carrier = next(
+            (b for b in outcome.broadcasts if b.type in {"question.intro", "question.timer"}),
+            outcome.broadcasts[0] if outcome.broadcasts else None,
+        )
         for broadcast in outcome.broadcasts:
             message: dict[str, Any] = {"broadcast": broadcast.__dict__}
-            if meta and broadcast.type == "question.intro":
+            if meta and broadcast is carrier:
                 message["meta"] = meta
             await self.bus.publish(session_id, message)
         if outcome.kicked_participant:
             pid, banned = outcome.kicked_participant
             await self.bus.publish(session_id, {"control": "kick", "participant_id": pid, "banned": banned})
 
+    async def submit_answer(self, answer: runtime.AnswerIn) -> runtime.AnswerResult:
+        loop = asyncio.get_running_loop()
+        batcher = self._batchers.get(loop)
+        if batcher is None:
+            batcher = self._batchers[loop] = AnswerBatcher()
+        return await batcher.submit(answer)
+
     async def mark_dirty(self, session_id: str) -> None:
-        await self.bus.publish(session_id, {"control": "dirty"})
+        """Counters changed. Coalesced per process: at most one bus message per session per
+        DIRTY_COALESCE_S (the room tick reads the counters anyway), never one per answer."""
+        if session_id in self._dirty_pending:
+            return
+        self._dirty_pending.add(session_id)
+        asyncio.get_running_loop().call_later(DIRTY_COALESCE_S, self._flush_dirty, session_id)
+
+    def _flush_dirty(self, session_id: str) -> None:
+        self._dirty_pending.discard(session_id)
+        task = asyncio.create_task(self.bus.publish(session_id, {"control": "dirty"}))
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    async def mark_lobby_dirty(self, session_id: str) -> None:
+        await self.bus.publish(session_id, {"control": "lobby"})
 
     def connection_count(self) -> int:
         return sum(len(channel.connections) for channel in self.rooms.values())
@@ -306,7 +517,12 @@ def _authenticate(hello: protocol.HelloData, cookie_token: str | None, origin_ok
                 role="participant",
                 session_id=session.id,
                 participant_id=participant.id,
-                me={"participant_id": participant.id, "display_name": participant.display_name, "avatar_seed": participant.avatar_seed},
+                me={
+                    "participant_id": participant.id,
+                    "display_name": participant.display_name,
+                    "avatar_seed": participant.avatar_seed,
+                    "time_multiplier": 1.0 if participant.time_multiplier is None else float(participant.time_multiplier),
+                },
             )
         if hello.role == "host" and hello.session_id:
             if not origin_ok or not cookie_token:
@@ -335,11 +551,16 @@ def _origin_allowed(websocket: WebSocket) -> tuple[bool, bool]:
 
 
 def _snapshot(identity: Identity) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        return _build_snapshot(identity)
+    finally:
+        metrics.observe("live_snapshot_seconds", time.perf_counter() - started, {"role": identity.role})
+
+
+def _build_snapshot(identity: Identity) -> dict[str, Any]:
     with live_db() as db:
         room = runtime.load_room(db, identity.session_id)
-        if identity.participant_id:
-            runtime.touch_participant(db, identity.participant_id)
-            room = runtime.load_room(db, identity.session_id)
         role = "participant" if identity.role == "participant" else identity.role
         data = runtime.snapshot(db, room, role=role, participant_id=identity.participant_id)
         return protocol.envelope("room.snapshot", data, seq=room.session.state_seq)
@@ -366,7 +587,7 @@ async def _writer(conn: Connection) -> None:
                 pass
 
 
-async def _heartbeat(conn: Connection) -> None:
+async def _heartbeat(conn: Connection, hub: "LiveHub") -> None:
     interval = max(settings.live_ws_heartbeat_ms, 1000) / 1000.0
     while not conn.closed:
         await asyncio.sleep(interval)
@@ -375,7 +596,7 @@ async def _heartbeat(conn: Connection) -> None:
             return
         conn.send(protocol.envelope("srv.ping", {"ts": protocol.now_ms()}))
         if conn.participant_id:
-            await run_in_threadpool(_with_db, runtime.touch_participant, conn.participant_id)
+            hub.mark_seen(conn.participant_id)
 
 
 HOST_ACTIONS: dict[str, Callable[..., runtime.Outcome]] = {
@@ -388,6 +609,12 @@ HOST_ACTIONS: dict[str, Callable[..., runtime.Outcome]] = {
     "host.kick": lambda db, sid, d: runtime.kick(db, sid, participant_id=d.participant_id, ban=d.ban),
     "host.room_lock": lambda db, sid, d: runtime.set_room_lock(db, sid, locked=d.locked),
     "host.accept_answer": lambda db, sid, d: runtime.accept_typed_answer(db, sid, qi=d.qi, text=d.text),
+    "host.pause": lambda db, sid, d: runtime.pause(db, sid, expected_qi=d.expected_qi),
+    "host.resume": lambda db, sid, d: runtime.resume(db, sid, expected_qi=d.expected_qi),
+    "host.extend": lambda db, sid, d: runtime.extend(db, sid, expected_qi=d.expected_qi, seconds=d.seconds),
+    "host.set_time": lambda db, sid, d: runtime.set_time_multiplier(
+        db, sid, participant_id=d.participant_id, multiplier=float(d.multiplier)
+    ),
 }
 
 
@@ -406,19 +633,22 @@ async def _handle(conn: Connection, hub: LiveHub, frame: protocol.ClientFrame, d
             conn.rtts = (conn.rtts + [rtt])[-RTT_WINDOW:]
         return
     if kind == "answer.submit":
-        result = await run_in_threadpool(
-            _with_db,
-            runtime.submit_answer,
-            conn.session_id,
-            participant_id=conn.participant_id,
-            answer_id=data.answer_id,
-            qi=data.qi,
-            choice=data.choice,
-            text=data.text,
-            client_elapsed_ms=data.client_elapsed_ms,
-            rtt_min_ms=conn.rtt_min,
+        started = time.perf_counter()
+        result = await hub.submit_answer(
+            runtime.AnswerIn(
+                session_id=conn.session_id,
+                participant_id=conn.participant_id or "",
+                answer_id=data.answer_id,
+                qi=data.qi,
+                choice=data.choice,
+                text=data.text,
+                client_elapsed_ms=data.client_elapsed_ms,
+                rtt_min_ms=conn.rtt_min,
+            )
         )
         conn.send(protocol.envelope("answer.ack", {"answer_id": data.answer_id, "qi": data.qi, "status": result.status}))
+        metrics.observe("live_answer_accept_seconds", time.perf_counter() - started)  # RNF-103 (server side)
+        metrics.inc("live_answers_total", {"status": result.status})
         if result.status == "accepted":
             await hub.mark_dirty(conn.session_id)
         await hub.publish_outcome(conn.session_id, result.outcome)
@@ -477,9 +707,12 @@ async def live_ws(websocket: WebSocket) -> None:
     if identity.me:
         welcome["me"] = identity.me
     conn.send(protocol.envelope("welcome", welcome))
+    metrics.inc("live_ws_connects_total", {"role": identity.role})
     await hub.attach(conn)
     conn.send(await run_in_threadpool(_snapshot, identity))
-    heartbeat = asyncio.create_task(_heartbeat(conn))
+    if conn.participant_id:
+        hub.mark_seen(conn.participant_id)
+    heartbeat = asyncio.create_task(_heartbeat(conn, hub))
     logger.info("live connection opened", extra={"event": "live_ws_open", "role": identity.role, "session_id": identity.session_id})
 
     try:
@@ -498,6 +731,7 @@ async def live_ws(websocket: WebSocket) -> None:
                     conn.close(protocol.CLOSE_RATE_LIMITED)
                     break
                 conn.send(protocol.envelope("error", {"code": "rate_limited"}))
+                metrics.inc("live_ws_rate_limited_total", {"role": conn.role})
                 continue
             conn.violations = 0
             try:
@@ -505,6 +739,7 @@ async def live_ws(websocket: WebSocket) -> None:
             except protocol.FrameError as exc:
                 conn.send(protocol.envelope("error", {"code": "invalid", "ref_mid": exc.mid, "detail": exc.detail[:200]}))
                 continue
+            metrics.inc("live_messages_in_total", {"type": frame.type})
             try:
                 await _handle(conn, hub, frame, data)
             except runtime.RoomNotFound:
@@ -520,4 +755,5 @@ async def live_ws(websocket: WebSocket) -> None:
             await asyncio.wait_for(writer, timeout=2.0)
         except (asyncio.TimeoutError, Exception):
             writer.cancel()
+        metrics.inc("live_ws_closes_total", {"role": identity.role, "code": conn.close_code or 1000})
         logger.info("live connection closed", extra={"event": "live_ws_close", "role": identity.role, "code": conn.close_code})

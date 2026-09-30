@@ -8,26 +8,34 @@
  * - Incremental events update the fields they own; events for another `qi` are ignored.
  * - Frames carrying a `seq` at or below the last applied one are ignored (duplicates/out of order);
  *   a snapshot always wins.
+ * - `timer` is always the ROOM timer (pause state included). A participant's own deadline (extended
+ *   time, RF-622) is derived with `selectMyTimer`, never stored, so pause/resume/extend frames that
+ *   only carry the room timer keep it right.
  */
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
+import { personalTimer } from "@/features/quiz-live/lib/countdown";
 import type { LiveCloseReason, LiveSocketStatus } from "@/features/quiz-live/lib/live-socket";
-import type {
-  AnswerAckStatus,
-  HostParticipant,
-  LiveErrorCode,
-  LiveRole,
-  LobbyPerson,
-  LobbyState,
-  MySnapshot,
-  OptionCounts,
-  PodiumStats,
-  PublicQuestion,
-  Reveal,
-  ServerMessage,
-  Snapshot,
-  SnapshotSettings,
-  Standing
+import {
+  normalizeTimeMultiplier,
+  type AnswerAckStatus,
+  type HostParticipant,
+  type LiveErrorCode,
+  type LiveRole,
+  type LiveTimer,
+  type LiveTransport,
+  type LobbyPerson,
+  type LobbyState,
+  type MySnapshot,
+  type OptionCounts,
+  type PodiumStats,
+  type PublicQuestion,
+  type Reveal,
+  type ServerMessage,
+  type Snapshot,
+  type SnapshotSettings,
+  type Standing,
+  type TimeMultiplier
 } from "@/features/quiz-live/lib/protocol";
 import type { LiveItem, LivePhase, LiveSessionStatus, LiveThemeKey } from "@/types/api/live";
 
@@ -37,6 +45,8 @@ export interface LiveConnectionState {
   reason: LiveCloseReason | null;
   closeCode: number | null;
   retryInMs: number | null;
+  /** "sse" once the client fell back to SSE + POST (RNF-309). */
+  transport: LiveTransport;
 }
 
 export interface LiveAnswerDraft {
@@ -101,7 +111,8 @@ export interface LiveState {
   participantCount: number;
 
   question: PublicQuestion | null;
-  timer: { answers_open_at_ms: number; deadline_ms: number | null } | null;
+  /** Room timer of the current item, including the host pause. */
+  timer: LiveTimer | null;
   answered: number | null;
   answerTotal: number | null;
   counts: OptionCounts | null;
@@ -118,6 +129,8 @@ export interface LiveState {
 
   /** Participant only. */
   my: MySnapshot | null;
+  /** Participant only: extended time granted by the host (RF-622). 0 = no timer. */
+  myTimeMultiplier: TimeMultiplier;
   submission: LiveSubmission | null;
   /** Rank before the latest reveal/leaderboard (drives ▲▼ on the phone). */
   previousRank: number | null;
@@ -136,6 +149,7 @@ export type LiveAction =
       reason?: LiveCloseReason | null;
       closeCode?: number | null;
       retryInMs?: number | null;
+      transport?: LiveTransport;
     }
   | { type: "local.submit"; qi: number; answerId: string | null; answer: LiveAnswerDraft }
   | { type: "local.kick"; participantId: string }
@@ -151,7 +165,7 @@ export function createInitialLiveState(role: LiveRole | null = null): LiveState 
     me: null,
     heartbeatMs: null,
     seq: 0,
-    connection: { status: "idle", attempt: 0, reason: null, closeCode: null, retryInMs: null },
+    connection: { status: "idle", attempt: 0, reason: null, closeCode: null, retryInMs: null, transport: "ws" },
     sessionId: null,
     title: "",
     themeKey: "sentinel",
@@ -178,6 +192,7 @@ export function createInitialLiveState(role: LiveRole | null = null): LiveState 
     presenterQi: null,
     participants: null,
     my: null,
+    myTimeMultiplier: 1,
     submission: null,
     previousRank: null,
     ended: null,
@@ -254,6 +269,7 @@ function applySnapshot(state: LiveState, snapshot: Snapshot, seq: number | undef
     presenterQi: snapshot.presenter ? snapshot.qi : null,
     participants: snapshot.participants ?? null,
     my: snapshot.my ?? null,
+    myTimeMultiplier: snapshot.my ? normalizeTimeMultiplier(snapshot.my.time_multiplier) : state.myTimeMultiplier,
     submission: submissionFromSnapshot(snapshot, state.submission),
     previousRank: snapshot.my?.rank ?? state.previousRank,
     ended: snapshot.status === "finished" ? (state.ended ?? { report_available: true }) : null
@@ -281,7 +297,17 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
   switch (message.type) {
     case "welcome": {
       const { role, session_id: sessionId, me, hb_ms: heartbeatMs } = message.data;
-      return { ...state, role, sessionId, me: me ?? state.me, heartbeatMs };
+      if (!me) {
+        return { ...state, role, sessionId, heartbeatMs };
+      }
+      return {
+        ...state,
+        role,
+        sessionId,
+        heartbeatMs,
+        me: { participant_id: me.participant_id, display_name: me.display_name, avatar_seed: me.avatar_seed },
+        myTimeMultiplier: normalizeTimeMultiplier(me.time_multiplier)
+      };
     }
     case "room.snapshot":
       return applySnapshot(state, message.data, message.seq);
@@ -294,7 +320,7 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
         const known = new Set(participants.map((person) => person.participant_id));
         const added = recent
           .filter((person) => !known.has(person.participant_id))
-          .map<HostParticipant>((person) => ({ ...person, score: 0, connected: true }));
+          .map<HostParticipant>((person) => ({ ...person, score: 0, connected: true, time_multiplier: 1, is_bot: false }));
         participants = added.length ? [...participants, ...added] : participants;
       }
       return { ...state, seq, lobby, participantCount: count, participants };
@@ -330,6 +356,7 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
       if (submission.answerId && submission.answerId !== message.data.answer_id) {
         return state;
       }
+      // "paused" is a rejection too: nothing was recorded, the pad reopens when the host resumes.
       const ack = message.data.status;
       const accepted = ack === "accepted" || ack === "duplicate" || ack === "already_answered";
       return {
@@ -347,6 +374,39 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
       }
       const counts = message.type === "results.tick" && message.data.counts ? message.data.counts : state.counts;
       return { ...state, seq, answered: message.data.answered, answerTotal: message.data.total, counts };
+    }
+
+    case "question.paused":
+    case "question.timer": {
+      if (!sameQi(state, message.data.qi) || state.phase !== "question") {
+        return state;
+      }
+      const data = message.data;
+      const timer: LiveTimer = { answers_open_at_ms: data.answers_open_at_ms, deadline_ms: data.deadline_ms, paused: data.paused };
+      if (data.paused) {
+        timer.paused_at_ms = data.paused_at_ms;
+        timer.remaining_ms = data.remaining_ms;
+      }
+      return { ...state, seq, timer };
+    }
+
+    case "participant.time":
+      return { ...state, myTimeMultiplier: normalizeTimeMultiplier(message.data.time_multiplier) };
+
+    case "participant.updated": {
+      if (!state.participants) {
+        return state;
+      }
+      const { participant_id: participantId, time_multiplier: multiplier } = message.data;
+      if (!state.participants.some((person) => person.participant_id === participantId)) {
+        return state;
+      }
+      return {
+        ...state,
+        participants: state.participants.map((person) =>
+          person.participant_id === participantId ? { ...person, time_multiplier: normalizeTimeMultiplier(multiplier) } : person
+        )
+      };
     }
 
     case "question.locked": {
@@ -442,10 +502,12 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         attempt: action.attempt,
         reason: action.reason ?? null,
         closeCode: action.closeCode ?? null,
-        retryInMs: action.retryInMs ?? null
+        retryInMs: action.retryInMs ?? null,
+        transport: action.transport ?? state.connection.transport
       };
       const current = state.connection;
       if (
+        current.transport === connection.transport &&
         current.status === connection.status &&
         current.attempt === connection.attempt &&
         current.reason === connection.reason &&
@@ -487,7 +549,26 @@ export function selectCanAnswer(state: LiveState, serverNow: number): boolean {
   if (state.submission && state.submission.status !== "rejected") {
     return false;
   }
+  if (state.timer.paused) {
+    return false;
+  }
   return serverNow >= state.timer.answers_open_at_ms;
+}
+
+let myTimerCache: { timer: LiveTimer | null; multiplier: number; value: LiveTimer | null } | null = null;
+
+/**
+ * The participant's own timer: the room timer stretched by the extended-time multiplier (RF-622),
+ * or without a deadline for `0`. Referentially stable while its inputs do not change.
+ */
+export function selectMyTimer(state: Pick<LiveState, "timer" | "myTimeMultiplier">): LiveTimer | null {
+  const cached = myTimerCache;
+  if (cached && cached.timer === state.timer && cached.multiplier === state.myTimeMultiplier) {
+    return cached.value;
+  }
+  const value = personalTimer(state.timer, state.myTimeMultiplier);
+  myTimerCache = { timer: state.timer, multiplier: state.myTimeMultiplier, value };
+  return value;
 }
 
 /**
@@ -508,6 +589,8 @@ export interface StageView {
   participantCount: number;
   question: PublicQuestion | null;
   timer: LiveState["timer"];
+  /** The host paused the open question (frozen countdown on the projector). */
+  paused: boolean;
   answered: number | null;
   answerTotal: number | null;
   /** Live distribution only when the quiz shows it (or for polls); never before reveal otherwise. */
@@ -538,6 +621,7 @@ export function selectStageView(state: LiveState): StageView {
     participantCount: state.participantCount,
     question: state.question,
     timer: state.timer,
+    paused: state.phase === "question" && Boolean(state.timer?.paused),
     answered: state.answered,
     answerTotal: state.answerTotal,
     liveCounts: showLive ? state.counts : null,

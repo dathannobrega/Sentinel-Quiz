@@ -9,11 +9,28 @@
  * - echo `srv.ping` with `pong` and run 5 `time.sync` round trips after every `welcome`;
  * - answers outbox: every `answer.submit` keeps its `answer_id` and is re-sent (after reconnects and
  *   on a timer) until the matching `answer.ack` arrives — the server deduplicates by id;
- * - rate-limit-safe send queue (token bucket well below the server's 20 msg/s, burst 40).
+ * - rate-limit-safe send queue (token bucket well below the server's 20 msg/s, burst 40);
+ * - SSE + POST fallback (RNF-309, `live-fallback.ts`): when the socket cannot open, or drops twice in
+ *   a row before `welcome` within 5 s, the same client switches to `EventSource` + `fetch` for the rest
+ *   of its life. Callers keep using `send`/`submitAnswer`/`onMessage`; `getTransport()` and the
+ *   status events say which transport is active.
  *
  * The class never touches React; `use-live-session.ts` wires it to the store.
  */
 import { ClockSync } from "@/features/quiz-live/lib/clock-sync";
+import {
+  buildSseUrl,
+  defaultEventSourceFactory,
+  EVENT_SOURCE_CLOSED,
+  parseSseClose,
+  postLiveCommand,
+  shouldFallbackToSse,
+  sseWithCredentials,
+  type EventSourceFactory,
+  type EventSourceLike,
+  type FetchLike,
+  type WsAttemptFailure
+} from "@/features/quiz-live/lib/live-fallback";
 import {
   createLiveId,
   encodeClientMessage,
@@ -22,6 +39,7 @@ import {
   LIVE_SUBPROTOCOL,
   parseServerMessage,
   type ClientMessage,
+  type LiveTransport,
   type ServerMessage
 } from "@/features/quiz-live/lib/protocol";
 
@@ -56,6 +74,8 @@ export interface LiveSocketStatusEvent {
   closeCode?: number;
   /** Delay before the next attempt (reconnecting only). */
   retryInMs?: number;
+  /** Active transport: "sse" after the fallback (RNF-309). */
+  transport: LiveTransport;
 }
 
 type AnswerData = Extract<ClientMessage, { type: "answer.submit" }>["data"];
@@ -74,6 +94,25 @@ export interface WebSocketLike {
 }
 
 export type WebSocketFactory = (url: string, protocols: string[]) => WebSocketLike;
+
+/** SSE + POST fallback wiring (RNF-309). Without it the client only ever uses the WebSocket. */
+export interface LiveFallbackOptions {
+  /** `…/api/live/sse` (http/https, no query string needed). */
+  sseUrl: string | (() => string);
+  /** `…/api/live/cmd`. */
+  cmdUrl: string | (() => string);
+  /** Defaults to `new EventSource(...)`; the fallback is disabled when EventSource is missing. */
+  createEventSource?: EventSourceFactory;
+  /** Defaults to the global `fetch`. */
+  fetch?: FetchLike;
+  /** Defaults to `navigator.onLine`. */
+  isOnline?: () => boolean;
+  /**
+   * Silence tolerated on the stream before it is considered dead. `: keepalive` comments are
+   * invisible to EventSource and the server recycles streams every 300 s, so this is long.
+   */
+  watchdogMs?: number;
+}
 
 /** Event target used for `visibilitychange`/`online` (defaults to window + document). */
 export interface LiveEnvironment {
@@ -99,12 +138,17 @@ export interface LiveSocketOptions {
   sendBurst?: number;
   /** Queue cap while offline (oldest non-answer messages are dropped first). */
   maxQueue?: number;
+  /** SSE + POST fallback (RNF-309); null/omitted = WebSocket only. */
+  fallback?: LiveFallbackOptions | null;
 }
 
 export const BACKOFF_BASE_MS = 500;
 export const BACKOFF_MAX_MS = 10_000;
 const RATE_LIMITED_MIN_DELAY_MS = 2_000;
 const WS_OPEN = 1;
+/** `POST /api/live/cmd` is limited to 300/min per token: stay well below it. */
+const SSE_SEND_RATE_PER_SECOND = 4;
+const SSE_WATCHDOG_MS = 330_000;
 
 /**
  * Delay before reconnect attempt `attempt` (1-based count of consecutive failures):
@@ -166,6 +210,43 @@ function defaultFactory(url: string, protocols: string[]): WebSocketLike {
   return new WebSocket(url, protocols) as unknown as WebSocketLike;
 }
 
+function defaultIsOnline(): boolean {
+  return typeof navigator === "undefined" || navigator.onLine !== false;
+}
+
+interface ResolvedFallback {
+  sseUrl: string | (() => string);
+  cmdUrl: string | (() => string);
+  createEventSource: EventSourceFactory;
+  fetch: FetchLike;
+  isOnline: () => boolean;
+  watchdogMs: number;
+}
+
+function resolveFallback(options: LiveFallbackOptions | null | undefined): ResolvedFallback | null {
+  if (!options) {
+    return null;
+  }
+  const createEventSource = options.createEventSource ?? defaultEventSourceFactory();
+  // Wrapped so `fetch` is never called detached from the global object ("Illegal invocation").
+  const fetchImpl: FetchLike | null = options.fetch ?? (typeof fetch === "function" ? (url, init) => fetch(url, init) : null);
+  if (!createEventSource || !fetchImpl) {
+    return null;
+  }
+  return {
+    sseUrl: options.sseUrl,
+    cmdUrl: options.cmdUrl,
+    createEventSource,
+    fetch: fetchImpl,
+    isOnline: options.isOnline ?? defaultIsOnline,
+    watchdogMs: options.watchdogMs ?? SSE_WATCHDOG_MS
+  };
+}
+
+function resolve(value: string | (() => string)): string {
+  return typeof value === "function" ? value() : value;
+}
+
 interface QueuedFrame {
   message: ClientMessage;
   mid?: string;
@@ -191,9 +272,17 @@ export class LiveSocket {
   private readonly random: () => number;
   private readonly environment: LiveEnvironment | null;
   private readonly url: string | (() => string);
+  private readonly fallback: ResolvedFallback | null;
   private credentials: LiveCredentials;
 
+  private transport: LiveTransport = "ws";
   private ws: WebSocketLike | null = null;
+  private es: EventSourceLike | null = null;
+  /** Current WebSocket attempt: when it started and whether `open` fired (fallback decision). */
+  private wsStartedAt = 0;
+  private wsOpened = false;
+  private wsFailures: WsAttemptFailure[] = [];
+  private everWelcomed = false;
   private status: LiveSocketStatus = "idle";
   private attempt = 0;
   private welcomed = false;
@@ -224,6 +313,7 @@ export class LiveSocket {
     this.clock = options.clock ?? new ClockSync();
     this.random = options.random ?? Math.random;
     this.environment = options.environment === undefined ? browserEnvironment() : options.environment;
+    this.fallback = resolveFallback(options.fallback);
     this.options = {
       defaultHeartbeatMs: options.defaultHeartbeatMs ?? 15_000,
       handshakeTimeoutMs: options.handshakeTimeoutMs ?? 8_000,
@@ -250,6 +340,11 @@ export class LiveSocket {
 
   getStatus(): LiveSocketStatus {
     return this.status;
+  }
+
+  /** "ws", or "sse" once the client fell back to SSE + POST. */
+  getTransport(): LiveTransport {
+    return this.transport;
   }
 
   /** Number of answers still waiting for `answer.ack`. */
@@ -335,10 +430,6 @@ export class LiveSocket {
 
   // ------------------------------------------------------------------------- connection lifecycle
 
-  private resolveUrl(): string {
-    return typeof this.url === "function" ? this.url() : this.url;
-  }
-
   private open(): void {
     this.clearTimer("reconnectTimer");
     if (this.stopped) {
@@ -346,21 +437,29 @@ export class LiveSocket {
     }
     this.welcomed = false;
     this.setStatus({ status: this.attempt === 0 ? "connecting" : "reconnecting", attempt: this.attempt });
+    if (this.transport === "sse") {
+      this.openStream();
+      return;
+    }
+    this.wsStartedAt = this.clock.localNow();
+    this.wsOpened = false;
     let socket: WebSocketLike;
     try {
-      socket = this.createWebSocket(this.resolveUrl(), [LIVE_SUBPROTOCOL]);
+      socket = this.createWebSocket(resolve(this.url), [LIVE_SUBPROTOCOL]);
     } catch {
+      if (this.recordWsFailure("network")) {
+        return;
+      }
       this.scheduleReconnect("network");
       return;
     }
     this.ws = socket;
-    // One budget for TCP/TLS connect + upgrade + hello → welcome (a hanging connect never stalls us).
-    this.clearTimer("handshakeTimer");
-    this.handshakeTimer = setTimeout(() => this.handleDisconnect(undefined, "handshake"), this.options.handshakeTimeoutMs);
+    this.armHandshake();
     socket.onopen = () => {
       if (this.ws !== socket) {
         return;
       }
+      this.wsOpened = true;
       this.sendRaw({ message: this.helloMessage() });
     };
     socket.onmessage = (event) => {
@@ -380,6 +479,102 @@ export class LiveSocket {
     };
   }
 
+  /** One budget for connect + upgrade + hello → welcome (a hanging connect never stalls us). */
+  private armHandshake(): void {
+    this.clearTimer("handshakeTimer");
+    this.handshakeTimer = setTimeout(() => this.handleDisconnect(undefined, "handshake"), this.options.handshakeTimeoutMs);
+  }
+
+  /** SSE fallback: the stream authenticates by query string (or host cookie) and sends `welcome`. */
+  private openStream(): void {
+    const fallback = this.fallback;
+    if (!fallback) {
+      return;
+    }
+    const credentials = this.credentials;
+    let source: EventSourceLike;
+    try {
+      source = fallback.createEventSource(buildSseUrl(resolve(fallback.sseUrl), credentials), {
+        withCredentials: sseWithCredentials(credentials)
+      });
+    } catch {
+      this.scheduleReconnect("network");
+      return;
+    }
+    this.es = source;
+    this.armHandshake();
+    source.onmessage = (event) => {
+      if (this.es !== source) {
+        return;
+      }
+      this.handleFrame(event.data);
+    };
+    source.addEventListener("close", (event) => {
+      if (this.es !== source) {
+        return;
+      }
+      // `{"code": n}`: 4003/4004 are terminal like on the socket, 1012 = stream recycled → reconnect.
+      const code = parseSseClose(event.data) ?? 1000;
+      this.handleDisconnect(code, closeReasonForCode(code));
+    });
+    source.onerror = () => {
+      if (this.es !== source) {
+        return;
+      }
+      if (source.readyState === EVENT_SOURCE_CLOSED && !this.welcomed) {
+        // The stream was refused (401/403/429...). EventSource hides the status: ask /cmd why.
+        void this.probeStreamFailure(source);
+        return;
+      }
+      // Dropped mid-stream: reconnect through our own backoff (a fresh snapshot follows `welcome`).
+      this.handleDisconnect(undefined, "network");
+    };
+  }
+
+  private async probeStreamFailure(source: EventSourceLike): Promise<void> {
+    const fallback = this.fallback;
+    if (!fallback) {
+      return;
+    }
+    const outcome = await postLiveCommand(fallback.fetch, resolve(fallback.cmdUrl), this.credentials, {
+      type: "time.sync",
+      data: { t0: this.clock.localNow() }
+    });
+    if (this.es !== source) {
+      return;
+    }
+    if (outcome.kind === "auth") {
+      this.handleDisconnect(outcome.closeCode, closeReasonForCode(outcome.closeCode));
+    } else if (outcome.kind === "rate_limited") {
+      this.handleDisconnect(undefined, "rate_limited");
+    } else {
+      this.handleDisconnect(undefined, "network");
+    }
+  }
+
+  /**
+   * Remembers a WebSocket attempt that ended before `welcome` and switches to SSE when the rule of
+   * RNF-309 says so. Returns true when the switch happened (the caller must not reconnect).
+   */
+  private recordWsFailure(reason: LiveCloseReason): boolean {
+    if (!this.fallback || this.transport !== "ws" || reason === "rate_limited" || reason === "manual") {
+      return false;
+    }
+    this.wsFailures.push({ opened: this.wsOpened, durationMs: Math.max(0, this.clock.localNow() - this.wsStartedAt) });
+    if (this.wsFailures.length > 4) {
+      this.wsFailures.shift();
+    }
+    if (!shouldFallbackToSse(this.wsFailures, { online: this.fallback.isOnline(), everWelcomed: this.everWelcomed })) {
+      return false;
+    }
+    this.transport = "sse";
+    this.wsFailures = [];
+    this.attempt += 1;
+    this.setStatus({ status: "reconnecting", attempt: this.attempt, reason, retryInMs: 0 });
+    this.open();
+    return true;
+  }
+
   private helloMessage(): ClientMessage {
     const credentials = this.credentials;
     if (credentials.kind === "host") {
@@ -389,6 +584,7 @@ export class LiveSocket {
   }
 
   private handleDisconnect(code: number | undefined, reason: LiveCloseReason): void {
+    const beforeWelcome = !this.welcomed && this.transport === "ws" && this.ws !== null;
     this.dropSocket(reason === "heartbeat" || reason === "handshake" ? 1000 : undefined);
     this.clearTimer("handshakeTimer");
     this.clearTimer("watchdogTimer");
@@ -405,6 +601,9 @@ export class LiveSocket {
       this.detachEnvironment?.();
       this.detachEnvironment = null;
       this.setStatus({ status: "closed", attempt: this.attempt, reason: this.terminal.reason, closeCode: this.terminal.code ?? code });
+      return;
+    }
+    if (beforeWelcome && this.recordWsFailure(reason)) {
       return;
     }
     this.scheduleReconnect(reason, code);
@@ -428,7 +627,8 @@ export class LiveSocket {
     }
     if (this.status === "open") {
       // Background tabs throttle timers: a frozen socket may still look open. Probe it.
-      if (this.clock.localNow() - this.lastFrameAt > this.heartbeatMs) {
+      const tolerance = this.transport === "sse" ? this.watchdogMs() : this.heartbeatMs;
+      if (this.clock.localNow() - this.lastFrameAt > tolerance) {
         this.handleDisconnect(undefined, "heartbeat");
       }
       return;
@@ -440,6 +640,18 @@ export class LiveSocket {
   }
 
   private dropSocket(code?: number, reason?: string): void {
+    const source = this.es;
+    this.es = null;
+    if (source) {
+      source.onopen = null;
+      source.onmessage = null;
+      source.onerror = null;
+      try {
+        source.close();
+      } catch {
+        // Already closed.
+      }
+    }
     const socket = this.ws;
     this.ws = null;
     this.welcomed = false;
@@ -468,6 +680,11 @@ export class LiveSocket {
     if (!message) {
       return;
     }
+    this.processMessage(message);
+  }
+
+  /** Shared by stream/socket frames and the frames of `POST /api/live/cmd` responses. */
+  private processMessage(message: ServerMessage): void {
     if (!this.clock.isSynced) {
       this.clock.seedFromServerTime(message.sts);
     }
@@ -476,7 +693,10 @@ export class LiveSocket {
         this.onWelcome(message.data.hb_ms);
         break;
       case "srv.ping":
-        this.sendRaw({ message: { type: "pong", data: { ts: message.data.ts } } }, true);
+        // No pong over SSE (no RTT credit there, CONTRATO-INCREMENTO-3 §3).
+        if (this.transport === "ws") {
+          this.sendRaw({ message: { type: "pong", data: { ts: message.data.ts } } }, true);
+        }
         break;
       case "time.sync.reply":
         this.clock.addReply(message.data);
@@ -511,6 +731,10 @@ export class LiveSocket {
     this.clearTimer("handshakeTimer");
     this.welcomed = true;
     this.attempt = 0;
+    if (this.transport === "ws") {
+      this.everWelcomed = true;
+      this.wsFailures = [];
+    }
     if (Number.isFinite(hbMs) && hbMs > 0) {
       this.heartbeatMs = hbMs;
     }
@@ -538,12 +762,19 @@ export class LiveSocket {
     if (this.stopped) {
       return;
     }
-    this.watchdogTimer = setTimeout(() => this.handleDisconnect(undefined, "heartbeat"), this.heartbeatMs * 2);
+    this.watchdogTimer = setTimeout(() => this.handleDisconnect(undefined, "heartbeat"), this.watchdogMs());
+  }
+
+  private watchdogMs(): number {
+    return this.transport === "sse" && this.fallback ? this.fallback.watchdogMs : this.heartbeatMs * 2;
   }
 
   // ------------------------------------------------------------------------- outbound frames
 
   private isReady(): boolean {
+    if (this.transport === "sse") {
+      return this.es !== null && this.welcomed;
+    }
     return this.ws !== null && this.welcomed && this.ws.readyState === WS_OPEN;
   }
 
@@ -584,7 +815,7 @@ export class LiveSocket {
     this.clearTimer("drainTimer");
     while (this.queue.length > 0 && this.isReady()) {
       if (!this.takeToken()) {
-        const wait = Math.ceil(1000 / this.options.sendRatePerSecond);
+        const wait = Math.ceil(1000 / this.sendRate());
         this.drainTimer = setTimeout(() => this.drain(), wait);
         return;
       }
@@ -599,7 +830,7 @@ export class LiveSocket {
     const now = this.clock.localNow();
     const elapsed = Math.max(0, now - this.lastRefill);
     this.lastRefill = now;
-    this.tokens = Math.min(this.options.sendBurst, this.tokens + (elapsed / 1000) * this.options.sendRatePerSecond);
+    this.tokens = Math.min(this.options.sendBurst, this.tokens + (elapsed / 1000) * this.sendRate());
     if (this.tokens >= 1) {
       this.tokens -= 1;
       return true;
@@ -607,8 +838,20 @@ export class LiveSocket {
     return false;
   }
 
+  private sendRate(): number {
+    return this.transport === "sse" ? Math.min(this.options.sendRatePerSecond, SSE_SEND_RATE_PER_SECOND) : this.options.sendRatePerSecond;
+  }
+
   /** Writes a frame; `requireOpen` frames are only written after `welcome`. */
   private sendRaw(frame: QueuedFrame, requireOpen = false): boolean {
+    if (this.transport === "sse") {
+      // `hello` is implicit on the stream; every other frame is one POST.
+      if (!this.es || !this.welcomed || frame.message.type === "hello") {
+        return false;
+      }
+      void this.postCommand(frame);
+      return true;
+    }
     const socket = this.ws;
     if (!socket || socket.readyState !== WS_OPEN || (requireOpen && !this.welcomed)) {
       return false;
@@ -621,12 +864,42 @@ export class LiveSocket {
     }
   }
 
+  /** SSE mode: one command per request; replies to the sender come back in the response. */
+  private async postCommand(frame: QueuedFrame): Promise<void> {
+    const fallback = this.fallback;
+    const source = this.es;
+    if (!fallback || !source) {
+      return;
+    }
+    const outcome = await postLiveCommand(fallback.fetch, resolve(fallback.cmdUrl), this.credentials, frame.message, frame.mid);
+    if (this.stopped || this.transport !== "sse") {
+      return;
+    }
+    switch (outcome.kind) {
+      case "frames":
+        for (const message of outcome.frames) {
+          this.processMessage(message);
+        }
+        break;
+      case "auth":
+        // Same meaning as a socket closed with that code (kicked, banned, token revoked...).
+        if (this.es === source) {
+          this.handleDisconnect(outcome.closeCode, closeReasonForCode(outcome.closeCode));
+        }
+        break;
+      default:
+        // 429 / network: answers stay in the outbox and are re-sent; host commands are user-driven.
+        break;
+    }
+  }
+
   // ------------------------------------------------------------------------- utils
 
-  private setStatus(event: LiveSocketStatusEvent): void {
+  private setStatus(event: Omit<LiveSocketStatusEvent, "transport">): void {
     this.status = event.status;
+    const full: LiveSocketStatusEvent = { ...event, transport: this.transport };
     for (const listener of this.statusListeners) {
-      listener(event);
+      listener(full);
     }
   }
 

@@ -1,5 +1,6 @@
 /**
- * WebSocket protocol `sq.live.v1` (docs/live-quiz/CONTRATO-INCREMENTO-1.md §6).
+ * WebSocket protocol `sq.live.v1` (docs/live-quiz/CONTRATO-INCREMENTO-1.md §6, plus the time controls
+ * and SSE fallback of CONTRATO-INCREMENTO-3.md §3–§4).
  * Discriminated unions for every frame plus small type guards. Keep in sync with
  * backend/app/live/protocol.py.
  */
@@ -8,6 +9,11 @@ import type { LiveItem, LiveItemType, LivePhase, LiveScoring, LiveSessionStatus,
 export const LIVE_SUBPROTOCOL = "sq.live.v1";
 export const LIVE_PROTOCOL_VERSION = 1;
 export const LIVE_WS_PATH = "/api/live/ws";
+/** SSE + POST fallback (RNF-309): same frames over `EventSource`, commands over `fetch`. */
+export const LIVE_SSE_PATH = "/api/live/sse";
+export const LIVE_CMD_PATH = "/api/live/cmd";
+
+export type LiveTransport = "ws" | "sse";
 
 export const LIVE_CLOSE_CODES = {
   policy: 1008,
@@ -19,7 +25,9 @@ export const LIVE_CLOSE_CODES = {
   roomFull: 4008,
   sessionEnded: 4010,
   protocol: 4011,
-  rateLimited: 4029
+  rateLimited: 4029,
+  /** Server restart / SSE stream recycling: reconnect right away. */
+  restart: 1012
 } as const;
 
 /** Close codes after which the client must NOT reconnect automatically. */
@@ -60,6 +68,20 @@ export interface PublicQuestion {
 export interface LiveTimer {
   answers_open_at_ms: number;
   deadline_ms: number | null;
+  /** Host paused the question (Incremento 3): the countdown is frozen at `paused_at_ms`. */
+  paused?: boolean;
+  paused_at_ms?: number;
+  /** Time left at the pause (only when there is a deadline). */
+  remaining_ms?: number;
+}
+
+/** Extended time per participant (RF-622). `0` = no timer at all. */
+export type TimeMultiplier = 0 | 1 | 1.5 | 2;
+export const TIME_MULTIPLIERS: readonly TimeMultiplier[] = [1, 1.5, 2, 0];
+
+/** Coerces whatever the server sent into a known multiplier (unknown → 1). */
+export function normalizeTimeMultiplier(value: unknown): TimeMultiplier {
+  return value === 0 || value === 1.5 || value === 2 ? value : 1;
 }
 
 export type OptionCounts = Record<string, number>;
@@ -135,6 +157,7 @@ export interface MySnapshot {
   last_answer?: { choice?: string[]; text?: string } | null;
   score: number;
   rank: number | null;
+  time_multiplier?: number;
 }
 
 export interface HostParticipant {
@@ -143,6 +166,9 @@ export interface HostParticipant {
   avatar_seed: string;
   score: number;
   connected: boolean;
+  /** Incremento 3 (older servers omit them). */
+  time_multiplier?: number;
+  is_bot?: boolean;
 }
 
 export interface Snapshot {
@@ -182,8 +208,28 @@ interface ServerBase<T extends string, D> {
   data: D;
 }
 
-export type AnswerAckStatus = "accepted" | "duplicate" | "already_answered" | "late" | "closed" | "invalid";
-export type LiveErrorCode = "stale" | "forbidden" | "invalid" | "too_early" | "rate_limited" | "not_found";
+export type AnswerAckStatus = "accepted" | "duplicate" | "already_answered" | "late" | "closed" | "invalid" | "paused";
+export type LiveErrorCode =
+  | "stale"
+  | "forbidden"
+  | "invalid"
+  | "too_early"
+  | "rate_limited"
+  | "not_found"
+  | "already_paused"
+  | "not_paused"
+  | "paused"
+  | "no_timer";
+
+/** `question.paused` / `question.timer`: the whole timer of the open question. */
+export interface QuestionTimerData {
+  qi: number;
+  answers_open_at_ms: number;
+  deadline_ms: number | null;
+  paused: boolean;
+  paused_at_ms?: number;
+  remaining_ms?: number;
+}
 
 export type ServerMessage =
   | ServerBase<
@@ -191,9 +237,11 @@ export type ServerMessage =
       {
         role: LiveRole;
         session_id: string;
-        me?: { participant_id: string; display_name: string; avatar_seed: string };
+        me?: { participant_id: string; display_name: string; avatar_seed: string; time_multiplier?: number };
         hb_ms: number;
         proto: number;
+        /** Only sent by the SSE stream (`"sse"`). */
+        transport?: LiveTransport;
       }
     >
   | ServerBase<"room.snapshot", Snapshot>
@@ -207,6 +255,10 @@ export type ServerMessage =
   | ServerBase<"results.tick", { qi: number; answered: number; total: number; counts?: OptionCounts }>
   | ServerBase<"participant.progress", { qi: number; answered: number; total: number }>
   | ServerBase<"question.locked", { qi: number; reason: "timer" | "all_answered" | "host" }>
+  | ServerBase<"question.paused", QuestionTimerData & { paused: true }>
+  | ServerBase<"question.timer", QuestionTimerData & { reason: "resume" | "extend"; paused: false }>
+  | ServerBase<"participant.time", { time_multiplier: number; qi?: number; deadline_ms?: number | null }>
+  | ServerBase<"participant.updated", { participant_id: string; time_multiplier: number }>
   | ServerBase<"question.reveal", Reveal>
   | ServerBase<"leaderboard.show", { top: Standing[]; total: number; my?: { rank: number | null; score: number; behind_by: number | null } }>
   | ServerBase<"podium.show", { top: Standing[]; stats: PodiumStats; my?: { rank: number | null; score: number } }>
@@ -237,7 +289,11 @@ export type ClientMessage =
   | { type: "host.end"; data: Record<string, never> }
   | { type: "host.kick"; data: { participant_id: string; ban?: boolean } }
   | { type: "host.room_lock"; data: { locked: boolean } }
-  | { type: "host.accept_answer"; data: { qi: number; text: string } };
+  | { type: "host.accept_answer"; data: { qi: number; text: string } }
+  | { type: "host.pause"; data: { expected_qi: number } }
+  | { type: "host.resume"; data: { expected_qi: number } }
+  | { type: "host.extend"; data: { expected_qi: number; seconds: number } }
+  | { type: "host.set_time"; data: { participant_id: string; multiplier: TimeMultiplier } };
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -258,6 +314,10 @@ const SERVER_TYPES: ReadonlySet<string> = new Set<ServerMessageType>([
   "results.tick",
   "participant.progress",
   "question.locked",
+  "question.paused",
+  "question.timer",
+  "participant.time",
+  "participant.updated",
   "question.reveal",
   "leaderboard.show",
   "podium.show",
@@ -279,6 +339,11 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
   } catch {
     return null;
   }
+  return toServerMessage(value);
+}
+
+/** Validates an already-decoded frame (e.g. an item of `POST /api/live/cmd` → `frames`). */
+export function toServerMessage(value: unknown): ServerMessage | null {
   if (typeof value !== "object" || value === null) {
     return null;
   }

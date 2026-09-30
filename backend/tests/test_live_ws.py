@@ -282,3 +282,75 @@ def test_invalid_frames_are_reported_not_fatal(room):
         assert expect(ana, "error")["data"]["code"] == "invalid"
         send(ana, "answer.submit", {"answer_id": str(uuid.uuid4()), "qi": 0, "choice": ["o_x"]})
         assert expect(ana, "answer.ack")["data"]["status"] == "closed"  # still in the lobby
+
+
+def test_lobby_and_progress_are_coalesced(room):
+    """Joins and answers do not fan out one frame each: the room tick sends one
+    lobby.update / participant.progress per interval (RNF-205, RNF-204)."""
+    with ExitStack() as stack:
+        host = _open_host(stack, room)
+        expect(host, "welcome"), expect(host, "room.snapshot")
+        ana = _open_token(stack, room["host"], room["guests"]["Ana"]["token"])
+        expect(ana, "welcome"), expect(ana, "room.snapshot")
+        for name in ("Caio", "Duda", "Edu"):
+            joined = room["make_client"]().post(
+                f"/api/live/rooms/{room['session']['join_code']}/join", json={"display_name": name, "consent": True}
+            )
+            assert joined.status_code == 201
+        lobby = expect(ana, "lobby.update")
+        # Coalesced: the first update after the burst may already count all three.
+        counts = [lobby["data"]["count"]]
+        while counts[-1] < 5:
+            counts.append(expect(ana, "lobby.update")["data"]["count"])
+        assert counts[-1] == 5 and len(counts) <= 3
+
+        send(host, "host.start")
+        intro = expect(ana, "question.intro")
+        answer(ana, 0, choice=[option_ids(intro)["Treinamento"]])
+        assert expect(ana, "answer.ack")["data"]["status"] == "accepted"
+        progress = expect(ana, "participant.progress")
+        assert progress["data"] == {"qi": 0, "answered": 1, "total": 5}
+
+
+def test_metrics_endpoint(live_on, client):
+    body = client.get("/api/live/metrics")
+    # TestClient's peer is "testclient", not loopback: refused without a token.
+    assert body.status_code == 404
+    from app.core.config import settings
+
+    original = settings.live_metrics_token
+    settings.live_metrics_token = "scrape-me"
+    try:
+        assert client.get("/api/live/metrics", headers={"Authorization": "Bearer nope"}).status_code == 404
+        text = client.get("/api/live/metrics", headers={"Authorization": "Bearer scrape-me"})
+        assert text.status_code == 200 and "# TYPE live_connections gauge" in text.text
+        summary = client.get("/api/live/metrics?format=json", headers={"Authorization": "Bearer scrape-me"}).json()
+        assert set(summary) == {"counters", "gauges", "histograms"}
+    finally:
+        settings.live_metrics_token = original
+
+
+def test_rehearsal_bots_are_driven_by_the_host_process(live_on, login_client, monkeypatch):
+    from app.live import runtime
+
+    real_plan = runtime.bot_plan
+
+    def instant_plan(db, session_id, qi, **kwargs):
+        plan = real_plan(db, session_id, qi, **kwargs)
+        for bot in plan:
+            bot.delay_s = 0.0
+        return plan
+
+    monkeypatch.setattr(runtime, "bot_plan", instant_plan)
+    host, _ = login_client()
+    quiz = published_quiz(host)
+    session = host.post("/api/live/sessions", json={"quiz_id": quiz["id"], "rehearsal": True, "bots": 5}).json()
+    with ExitStack() as stack:
+        conn = stack.enter_context(host.websocket_connect("/api/live/ws", subprotocols=SUBPROTOCOLS, headers={"origin": ORIGIN}))
+        send(conn, "hello", {"session_id": session["id"], "role": "host"})
+        snap = expect(conn, "room.snapshot")["data"]
+        assert sum(p["is_bot"] for p in snap["participants"]) == 5
+        send(conn, "host.start")
+        expect(conn, "question.intro")
+        locked = expect(conn, "question.locked")  # all 5 bots answered
+        assert locked["data"]["reason"] == "all_answered"

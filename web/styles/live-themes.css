@@ -462,6 +462,16 @@
   animation: lq-shake 400ms var(--lq-ease-out) 1;
 }
 
+/* Paused question (host pause): a slow "breathing" on the frozen timer and badge. */
+.lq-paused-breathe {
+  animation: lq-paused-breathe 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes lq-paused-breathe {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+
 .lq-stage-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--lq-line) transparent;
@@ -535,6 +545,7 @@
   .lq-particles > i,
   .lq-qr-band,
   .lq-warn-pulse,
+  .lq-paused-breathe,
   .lq-shake {
     animation: none !important;
   }
@@ -554,6 +565,7 @@
 [data-lq-calm="true"] .lq-backdrop > span,
 [data-lq-calm="true"] .lq-qr-band,
 [data-lq-calm="true"] .lq-warn-pulse,
+[data-lq-calm="true"] .lq-paused-breathe,
 [data-lq-calm="true"] .lq-shake {
   animation: none !important;
 }
