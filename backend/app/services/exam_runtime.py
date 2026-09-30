@@ -37,6 +37,7 @@ from app.services.exam_results import _analyze_session, _get_session_rows, compu
 from app.services.exam_session_create import get_question_for_session
 from app.services.exam_timing import exam_answers_are_hidden
 from app.services.reference_resolver import build_feedback_summary, build_official_reference_summaries
+from app.services.study_links import build_study_sections
 
 
 def _answered_count(session: ExamSession) -> int:
@@ -281,6 +282,14 @@ def save_exam_response(
         "wrong_count": session.wrong_count,
         "finished": session.completed_at is not None,
         "official_references": official_references,
+        "study_sections": build_study_sections(
+            db,
+            question_id,
+            selected_original=original_selected,
+            correct_original=correct_keys,
+            is_correct=is_correct,
+            to_display=mapping.to_display,
+        ),
         "insight": result_snapshot["insight"]["live"],
         "marked_for_review_count": _marked_for_review_count(session),
         # Answer key in this session's display keys.

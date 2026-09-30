@@ -15,6 +15,7 @@ from app.core.errors import api_error
 from app.db.session import get_db
 from app.models import Exam, ExamSession, User
 from app.schemas import (
+    StudySectionDetailOut,
     ActiveSessionOut,
     AnswerFeedbackOut,
     AnswerIn,
@@ -64,6 +65,7 @@ from app.services.gemini import ask_gemini, GeminiDisabled, GeminiError
 from app.services.materials import build_material_preview
 from app.services.owner_scope import session_belongs_to
 from app.services.readiness import build_readiness_snapshot
+from app.services.study_links import questions_for_section, section_detail
 from app.services.review_api import (
     build_exam_review_questions,
     build_exam_session_meta,
@@ -438,6 +440,17 @@ def get_review(
     )
 
 
+@router.get("/materials/sections/{section_id:path}", response_model=StudySectionDetailOut)
+def material_section(section_id: str, _: User = Depends(get_current_user_required)):
+    """One normalized book section (plus its subsections) for the study reader."""
+    if len(section_id) > 256:
+        raise api_error(404, "section_not_found", "Section not found.")
+    detail = section_detail(section_id)
+    if detail is None:
+        raise api_error(404, "section_not_found", "Section not found.")
+    return StudySectionDetailOut(**detail, practice_questions=len(questions_for_section(section_id)))
+
+
 @router.get("/materials/preview", response_class=HTMLResponse)
 def material_preview(
     material_path: str = Query(..., max_length=512),
@@ -577,6 +590,7 @@ def tutor_question(
             selected_keys=context.selected_keys,
             is_correct=context.is_correct,
             justification=context.justification,
+            study_material=context.study_material,
         )
     except GeminiDisabled:
         raise api_error(503, "tutor_disabled", "AI tutor is not configured.")

@@ -38,6 +38,8 @@ material/*.epub
 material/**/*.epub
 material/*.pdf
 material/**/*.pdf
+# The same books converted to JSON (scripts/convert_*_to_json.py) are licensed text too.
+material/json/
 
 # Private-study question imports (registry status personal_use): no redistribution
 # rights, so they stay on the owner's machine (python -m scripts.question_sources import --personal-use).

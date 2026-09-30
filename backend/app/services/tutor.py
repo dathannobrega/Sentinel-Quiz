@@ -27,6 +27,7 @@ from app.core.config import settings
 from app.models import ExamSession, Option, Question, SessionAnswer, SessionQuestion
 from app.services.option_order import OptionMapping, split_keys
 from app.services.reference_resolver import resolve_full_explanation_text
+from app.services.study_links import tutor_grounding
 
 
 ALLOWED_TUTOR_MODES = frozenset({"help", "why_wrong", "review"})
@@ -58,6 +59,8 @@ class TutorContext:
     selected_keys: list[str] = field(default_factory=list)
     is_correct: Optional[bool] = None
     justification: Optional[str] = None
+    # Book section that explains the question (study_links); shared only after answering.
+    study_material: Optional[str] = None
     # When set, the route answers with this message without calling the provider.
     short_circuit_message: Optional[str] = None
     short_circuit_blocked: bool = False
@@ -158,6 +161,7 @@ def build_tutor_context(
     if is_correct is not None:
         # Cited letters follow the learner's (shuffled) option keys, like the options above.
         context.justification = mapping.remap_text(resolve_full_explanation_text(db, question_id))
+        context.study_material = tutor_grounding(question_id)
     return context
 
 

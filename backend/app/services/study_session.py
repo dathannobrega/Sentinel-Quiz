@@ -47,6 +47,7 @@ from app.services.question_pool import (
 )
 from app.services.readiness import build_readiness_snapshot
 from app.services.reference_resolver import build_feedback_summary, build_official_reference_summaries
+from app.services.study_links import build_study_sections
 from app.services.review_queue import (
     _classify_review_queue_item,
     _normalize_confidence_level,
@@ -706,6 +707,14 @@ def answer_study_question(
         "next_review_at": next_review_at,
         "review_due_count": due_count,
         "official_references": official_references,
+        "study_sections": build_study_sections(
+            db,
+            question_id,
+            selected_original=original_selected,
+            correct_original=correct_keys,
+            is_correct=is_correct,
+            to_display=mapping.to_display,
+        ),
         "insight": {
             "message": message,
             # i18n (M-C7): "study_feedback.<snake_case>" + params; message is the pt-BR fallback.
@@ -1102,6 +1111,14 @@ def get_study_session_review(db: Session, session: StudySession) -> dict[str, An
             "justification": mapping.remap_text(explanation_map.get(question_id)),
             "tags": parse_tags(tags_json),
             "citations": parse_citation_dicts(citations_json),
+            "study_sections": build_study_sections(
+                db,
+                question_id,
+                selected_original=split_keys(selected_keys_raw),
+                correct_original=[item["key"] for item in raw_options if item["is_correct"]],
+                is_correct=is_correct,
+                to_display=mapping.to_display,
+            ),
             "format": MCQ_FORMAT,
         })
         if question_id in pbq_questions:
