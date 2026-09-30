@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin import router as admin_router
+from app.api.live_admin import router as live_admin_router
 from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.live import router as live_router
@@ -138,6 +139,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     app.include_router(api_router)
     app.include_router(admin_router)
+    app.include_router(live_admin_router)
     app.include_router(auth_router)
     app.include_router(study_router)
     # Sentinel Arena (live quizzes): REST + WebSocket. The same routers are served by the

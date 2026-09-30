@@ -138,5 +138,10 @@ export const quizReports = {
   errors: {
     load: "Não foi possível carregar o relatório.",
     notFound: "Sessão não encontrada ou sem relatório."
+  },
+  retention: {
+    title: "Retrato agregado",
+    text: "Dados brutos expurgados pela política de retenção; este é o retrato agregado.",
+    purgedAt: "Expurgo em {date}."
   }
 } as const;

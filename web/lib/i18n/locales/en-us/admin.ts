@@ -8,7 +8,8 @@ export const admin = {
     questions: "Questions",
     operations: "Operations",
     issues: "Reports",
-    people: "Users and catalog"
+    people: "Users and catalog",
+    arena: "Arena"
   },
   guard: {
     checking: "Checking your session...",
@@ -456,5 +457,230 @@ export const admin = {
     editorRequiredAction: "This action requires the editor, reviewer or admin role.",
     adminRequiredAction: "This action requires the admin role.",
     reviewerRequiredAction: "This action requires the reviewer or admin role."
+  },
+  arena: {
+    title: "Sentinel Arena",
+    subtitle: "Live rooms, moderation queue, filter terms and audit log.",
+    reviewerNote: "You moderate the queue. Ending sessions, blocking quizzes, changing terms and reading the audit log need the admin role.",
+    forbidden: "This area requires the reviewer or admin role.",
+    tabs: {
+      label: "Arena areas",
+      overview: "Overview",
+      queue: "Moderation",
+      terms: "Filter terms",
+      audit: "Audit log"
+    },
+    common: {
+      refresh: "Refresh",
+      cancel: "Cancel",
+      loading: "Loading…",
+      none: "—",
+      reasonLabel: "Reason",
+      reasonHint: "At least 5 characters. It is kept in the audit log.",
+      reasonRequired: "Explain the reason (at least 5 characters).",
+      adminOnly: "Admin only"
+    },
+    overview: {
+      title: "Active rooms",
+      subtitle: "Refreshes every 30 seconds. Bots and presenter previews are not counted.",
+      totals: {
+        active_sessions: "Active sessions",
+        participants: "Participants",
+        online: "Online now",
+        open_cases: "Open cases"
+      },
+      caption: "Active sessions on the platform",
+      columns: {
+        code: "PIN",
+        quiz: "Quiz",
+        owner: "Owner",
+        phase: "Phase",
+        people: "People",
+        created: "Created",
+        actions: "Actions"
+      },
+      people: "{participants} · {online} online",
+      limit: "limit {max}",
+      rehearsal: "Rehearsal",
+      guests: "Guests",
+      loginOnly: "Signed-in",
+      empty: "No active rooms right now.",
+      loadError: "Could not load the active rooms.",
+      end: "End",
+      endTitle: "End session {code}?",
+      endText: "Every participant is disconnected and the session ends now. The action is logged with the reason.",
+      confirmEnd: "End session",
+      ended: "Session {code} ended.",
+      phases: {
+        lobby: "Lobby",
+        question: "Question",
+        locked: "Locked",
+        reveal: "Answer",
+        leaderboard: "Leaderboard",
+        content: "Slide",
+        podium: "Podium",
+        finished: "Ended"
+      }
+    },
+    queue: {
+      title: "Moderation queue",
+      subtitle: "Participant reports and filter matches found at publish time.",
+      statusFilter: "Status",
+      statuses: {
+        open: "Open",
+        dismissed: "Dismissed",
+        actioned: "Actioned",
+        all: "All"
+      },
+      total: "{count} cases",
+      empty: "No cases with this status.",
+      loadError: "Could not load the queue.",
+      sources: {
+        participant: "Report",
+        filter: "Filter",
+        admin: "Admin"
+      },
+      reasons: {
+        offensive: "Offensive content",
+        spam: "Spam",
+        cheating: "Cheating",
+        copyright: "Copyright",
+        privacy: "Personal data",
+        other: "Other",
+        filter_match: "Filter term"
+      },
+      quiz: "Quiz: {title}",
+      owner: "Owner: {email}",
+      session: "Session {code}",
+      position: "Item {position}",
+      note: "Participant note",
+      excerpt: "Excerpt",
+      findings: "{count} filter matches",
+      finding: "Item {position} · {field} · “{term}”",
+      resolved: "Resolved: {action}",
+      resolvedAt: "on {date}",
+      resolutionNote: "Note: {note}",
+      actions: {
+        dismiss: "Dismiss",
+        approve: "Approve content",
+        remove_item: "Remove item",
+        end_session: "End session",
+        block_quiz: "Block quiz"
+      },
+      actionText: {
+        dismiss: "The case is closed without changing the content.",
+        approve: "The version is approved and can be used with guests again.",
+        remove_item: "The item becomes a neutral slide in every open room of this version and in future ones.",
+        end_session: "The reported session ends now for everyone.",
+        block_quiz: "The quiz is blocked: open rooms end and no new session can be created."
+      },
+      noteLabel: "Moderation note",
+      noteOptional: "Optional. It is kept in the audit log.",
+      confirm: "Confirm",
+      done: "Case resolved.",
+      doneSessions: "Case resolved. Sessions affected: {count}.",
+      previous: "Previous",
+      next: "Next",
+      page: "{from}–{to} of {total}"
+    },
+    terms: {
+      title: "Filter terms",
+      subtitle: "Apply to names and content within 30 seconds on every server.",
+      addTitle: "Add a term",
+      termLabel: "Term",
+      termHint: "2 to 64 characters. Accents and case are ignored.",
+      termInvalid: "Use 2 to 64 characters.",
+      matchLabel: "Matching",
+      match: {
+        token: "Whole word",
+        substring: "Part of a word"
+      },
+      kindLabel: "Kind",
+      kind: {
+        block: "Block",
+        allow: "Allow (exception)"
+      },
+      scopeLabel: "Applies to",
+      scope: {
+        names: "Names",
+        content: "Content",
+        all: "Names and content"
+      },
+      noteLabel: "Note (optional)",
+      submit: "Add term",
+      adding: "Adding…",
+      added: "Term “{term}” added.",
+      caption: "Registered terms",
+      columns: {
+        term: "Term",
+        match: "Matching",
+        kind: "Kind",
+        scope: "Applies to",
+        note: "Note",
+        created: "Created",
+        actions: "Actions"
+      },
+      delete: "Delete",
+      deleteLabel: "Delete the term {term}",
+      deleteTitle: "Delete the term “{term}”?",
+      deleteText: "The filter stops using this term within 30 seconds. The deletion is logged.",
+      deleted: "Term deleted.",
+      empty: "No terms besides the default list.",
+      loadError: "Could not load the terms.",
+      adminOnly: "Only admins add or delete terms."
+    },
+    audit: {
+      title: "Audit log",
+      subtitle: "Administrative actions, named report access and LGPD requests.",
+      sessionFilter: "Session ID",
+      sessionFilterHint: "Leave blank to see the latest actions.",
+      apply: "Filter",
+      clear: "Clear",
+      caption: "Audit events",
+      columns: {
+        when: "When",
+        action: "Action",
+        actor: "Who",
+        session: "Session",
+        target: "Target",
+        reason: "Reason"
+      },
+      actorParticipant: "Participant",
+      actorSystem: "System",
+      empty: "No events found.",
+      loadError: "Could not load the audit log.",
+      adminOnly: "The audit log is visible to admins only.",
+      actions: {
+        force_end: "Forced end",
+        case_dismiss: "Case dismissed",
+        case_approve: "Content approved",
+        case_remove_item: "Item removed",
+        case_end_session: "Session ended (case)",
+        case_block_quiz: "Quiz blocked",
+        term_added: "Term added",
+        term_removed: "Term deleted",
+        quiz_unblocked: "Quiz unblocked",
+        report_view: "Report opened",
+        export_csv: "CSV exported",
+        admin_report_view: "Report opened by admin",
+        participant_erased: "Data deleted (LGPD)",
+        participant_claimed: "Participation linked",
+        retention_anonymize: "Names anonymized",
+        retention_purge: "Events purged",
+        retention_manual_run: "Retention run"
+      }
+    },
+    errors: {
+      forbidden: "Your role does not allow this action.",
+      unauthorized: "Your session expired. Sign in again.",
+      reason_required: "Explain the reason (at least 5 characters).",
+      case_closed: "Someone else already resolved this case.",
+      session_not_active: "The session is no longer active.",
+      term_exists: "This term is already in the list.",
+      invalid_term: "Invalid term: use 2 to 64 characters.",
+      not_found: "Record not found.",
+      offline: "You are offline. Try again.",
+      generic: "Could not complete the action."
+    }
   }
 } as const;

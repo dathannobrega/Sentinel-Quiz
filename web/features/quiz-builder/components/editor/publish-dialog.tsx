@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { CircleCheckIcon } from "@/components/ui/icons";
 import { IssueList } from "@/features/quiz-builder/components/issue-list";
+import { ModerationFindings } from "@/features/quiz-builder/components/moderation-findings";
+import { isFlagged } from "@/features/quiz-builder/lib/moderation";
 import { PresentIcon, UploadIcon } from "@/features/quiz-builder/components/icons";
 import { isQuizInvalid } from "@/lib/api/live-authoring";
 import { readErrorMessage } from "@/lib/api/client";
@@ -127,6 +129,14 @@ export function PublishDialog({ open, onClose, itemCount, scoredCount, localIssu
               onClose();
               onSelectItem(itemId);
             }}
+          />
+        ) : null}
+
+        {success && isFlagged(success.moderation) ? (
+          <ModerationFindings
+            title={t("quizBuilder.moderation.flaggedTitle")}
+            message={t("quizBuilder.moderation.flaggedText")}
+            findings={success.moderation?.findings ?? []}
           />
         ) : null}
 

@@ -6,9 +6,13 @@
  * ApiError). Three contract errors are re-thrown as typed subclasses so screens can react to them
  * without parsing bodies: 409 version_conflict, 422 quiz_invalid (details.issues),
  * 422 license_requires_login (details.items) and 422 confirm_key_required (Incremento 2). 409 quiz_not_published is exposed via a guard.
+ * Incremento 4: 422 moderation_pending (details.findings) and 403 quiz_blocked on session create,
+ * plus the participant claim (RF-633), which authenticates with the account session.
  */
 import { ApiError, apiClient, buildApiUrl, type DownloadedFile } from "@/lib/api/client";
 import type {
+  LiveClaimResult,
+  LiveModerationFinding,
   LiveBankFacets,
   LiveBankSearchResult,
   LiveCapabilities,
@@ -93,6 +97,28 @@ export class LiveConfirmKeyRequiredError extends ApiError {
   }
 }
 
+/**
+ * 422 moderation_pending (POST /sessions with guests): the published version has filter hits
+ * waiting for review. Sessions only for signed-in users are still allowed.
+ */
+export class LiveModerationPendingError extends ApiError {
+  findings: LiveModerationFinding[];
+  constructor(source: ApiError, findings: LiveModerationFinding[]) {
+    super(baseFrom(source));
+    this.name = "LiveModerationPendingError";
+    this.findings = findings;
+  }
+}
+
+export function isModerationPending(error: unknown): error is LiveModerationPendingError {
+  return error instanceof LiveModerationPendingError;
+}
+
+/** 403 quiz_blocked: moderation blocked the quiz; no session can be opened. */
+export function isQuizBlocked(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "quiz_blocked";
+}
+
 export function isConfirmKeyRequired(error: unknown): error is LiveConfirmKeyRequiredError {
   return error instanceof LiveConfirmKeyRequiredError;
 }
@@ -161,6 +187,18 @@ export function parseIssues(value: unknown): LiveIssue[] {
   }));
 }
 
+export function parseFindings(value: unknown): LiveModerationFinding[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isRecord).map((finding) => ({
+    position: asNumber(finding.position),
+    field: asString(finding.field) ?? "",
+    term: asString(finding.term) ?? "",
+    excerpt: asString(finding.excerpt) ?? ""
+  }));
+}
+
 export function parseLicenseItems(value: unknown): LiveLicenseBlockedItem[] {
   if (!Array.isArray(value)) {
     return [];
@@ -189,9 +227,13 @@ export function toLiveError(error: unknown): unknown {
   if (
     error instanceof LiveQuizInvalidError ||
     error instanceof LiveLicenseRequiresLoginError ||
-    error instanceof LiveConfirmKeyRequiredError
+    error instanceof LiveConfirmKeyRequiredError ||
+    error instanceof LiveModerationPendingError
   ) {
     return error;
+  }
+  if (error.status === 422 && error.code === "moderation_pending") {
+    return new LiveModerationPendingError(error, parseFindings(readErrorDetails(error)?.findings));
   }
   if (error.status === 422 && error.code === "confirm_key_required") {
     return new LiveConfirmKeyRequiredError(error);
@@ -408,4 +450,47 @@ export function sessionQrSvgUrl(sessionId: string): string {
 
 export function downloadSessionCsv(sessionId: string): Promise<DownloadedFile> {
   return mapErrors(apiClient.download(`${sessionPath(sessionId)}/export.csv`, { timeoutMs: 60_000 }));
+}
+
+// ---------------------------------------------------------------------------
+// Participant claim (RF-633, Incremento 4 §3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Links a guest participation to the signed-in account: the participant token goes in the BODY
+ * (the Authorization header, when present, is the account's). 401 when not signed in.
+ */
+export function claimLiveParticipation(participantToken: string) {
+  return apiClient.post<LiveClaimResult>(`${LIVE_API_BASE}/me/claim`, { token: participantToken }, {
+    // A 401 here may be about the PARTICIPANT token (`token_*`): never drop the account session for it.
+    notifyUnauthorized: false,
+    retryOnUnauthorized: false
+  });
+}
+
+export const CLAIM_ERROR_CODES = [
+  "claim_session_active",
+  "claim_already_linked",
+  "claim_expired",
+  "claim_not_available",
+  "claim_already_in_session"
+] as const;
+export type ClaimErrorCode = (typeof CLAIM_ERROR_CODES)[number] | "login_required" | "token" | "offline" | "generic";
+
+export function toClaimErrorCode(error: unknown): ClaimErrorCode {
+  if (error instanceof ApiError) {
+    if ((CLAIM_ERROR_CODES as readonly string[]).includes(error.code)) {
+      return error.code as ClaimErrorCode;
+    }
+    if (error.code.startsWith("token_")) {
+      return "token";
+    }
+    if (error.status === 401) {
+      return "login_required";
+    }
+    if (error.status === 0) {
+      return "offline";
+    }
+  }
+  return "generic";
 }

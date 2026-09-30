@@ -225,5 +225,147 @@ export const quizPlay = {
     submitted: "Resposta enviada.",
     paused: "O apresentador pausou a pergunta.",
     resumed: "Pergunta retomada. Respostas abertas."
+  },
+  menu: {
+    label: "Mais opções",
+    report: "Denunciar",
+    myData: "Meus dados",
+    reportQuestion: "Denunciar esta pergunta"
+  },
+  report: {
+    title: "Denunciar",
+    subtitle: "A equipe de moderação analisa cada denúncia. Quem apresenta não vê quem denunciou.",
+    targetLabel: "O que você quer denunciar?",
+    targetItem: "Esta pergunta (item {position})",
+    targetSession: "A sessão toda",
+    reasonLabel: "Motivo",
+    reasons: {
+      offensive: "Conteúdo ofensivo",
+      spam: "Spam ou propaganda",
+      cheating: "Trapaça ou fraude",
+      copyright: "Direitos autorais",
+      privacy: "Exposição de dados pessoais",
+      other: "Outro motivo"
+    },
+    noteLabel: "Detalhes (opcional)",
+    noteHint: "Até 500 caracteres. Não escreva dados pessoais.",
+    noteCount: "{count}/{max}",
+    reasonRequired: "Escolha um motivo.",
+    submit: "Enviar denúncia",
+    submitting: "Enviando…",
+    cancel: "Cancelar",
+    success: "Denúncia enviada. Obrigado por ajudar a manter a sala segura.",
+    errors: {
+      too_many_reports: "Você já enviou várias denúncias; a equipe está analisando. Tente mais tarde.",
+      token: "Sua participação expirou. Entre de novo para denunciar.",
+      invalid_item: "Este item não existe mais. Denuncie a sessão.",
+      offline: "Sem conexão. Verifique a internet e tente de novo.",
+      generic: "Não foi possível enviar a denúncia. Tente de novo."
+    }
+  },
+  myData: {
+    title: "Meus dados",
+    subtitle: "O que esta sala guarda sobre você (LGPD, art. 18).",
+    link: "Meus dados e privacidade",
+    loading: "Carregando seus dados…",
+    error: "Não foi possível carregar seus dados.",
+    retry: "Tentar de novo",
+    close: "Fechar",
+    profile: "Participação",
+    name: "Nome",
+    joined: "Entrou em",
+    lastSeen: "Visto por último",
+    consent: "Termo aceito",
+    account: "Conta vinculada",
+    accountYes: "Sim",
+    accountNo: "Não (convidado)",
+    score: "Pontuação final",
+    rank: "Posição final",
+    session: "Sessão",
+    sessionStatus: {
+      lobby: "Aguardando início",
+      live: "Em andamento",
+      finished: "Encerrada"
+    },
+    none: "—",
+    answersTitle: "Suas respostas ({count})",
+    noAnswers: "Nenhuma resposta registrada.",
+    answerItem: "Item {position}",
+    answerCorrect: "Correta",
+    answerIncorrect: "Incorreta",
+    answerNotScored: "Sem pontuação",
+    answerPoints: "{points} pts",
+    retention: "As respostas ficam como estatística anônima da sessão; os nomes são anonimizados pela política de retenção.",
+    eraseTitle: "Excluir meus dados",
+    eraseText: "Seu nome é substituído por “Participante removido”, você sai do placar e dos relatórios nominais, e esta participação não poderá mais ser vinculada a uma conta. As respostas continuam só como estatística anônima. Não dá para desfazer.",
+    eraseAction: "Excluir meus dados",
+    eraseConfirm: "Excluir definitivamente",
+    eraseCancel: "Manter meus dados",
+    erasing: "Excluindo…",
+    eraseError: "Não foi possível excluir seus dados. Tente de novo.",
+    noParticipation: "Você ainda não entrou nesta sala. Depois de entrar, abra “Meus dados” no menu da tela para ver ou excluir o que guardamos.",
+    rightsText: "Guardamos seu apelido, suas respostas e horários só para esta sessão. Você pode ver e excluir esses dados a qualquer momento."
+  },
+  access: {
+    title: "Confirme que é você",
+    subtitle: "Sua sessão expirou neste aparelho. Use o nome e o código de retorno que apareceram quando você entrou.",
+    nameLabel: "Seu nome na sala",
+    codeLabel: "Código de retorno",
+    codePlaceholder: "Ex.: K7Q2MX",
+    submit: "Acessar",
+    submitting: "Verificando…",
+    required: "Preencha o nome e o código de retorno.",
+    noSession: "Não encontramos a sessão neste aparelho. Abra o link da sala para acessar seus dados.",
+    errors: {
+      invalid_return_code: "Nome ou código de retorno não conferem.",
+      too_many_attempts: "Muitas tentativas. Aguarde 15 minutos e tente de novo.",
+      banned: "Você foi removido desta sala.",
+      offline: "Sem conexão. Verifique a internet e tente de novo.",
+      generic: "Não foi possível acessar agora. Tente de novo."
+    }
+  },
+  claim: {
+    title: "Salvar meu resultado na minha conta",
+    text: "Vincule esta participação à sua conta até {date}. Respostas de perguntas do Banco entram no seu progresso de estudo.",
+    textNoDate: "Vincule esta participação à sua conta. Respostas de perguntas do Banco entram no seu progresso de estudo.",
+    cta: "Salvar meu resultado na minha conta",
+    signedInAs: "Conectado como {email}",
+    login: "Entrar para salvar",
+    register: "Criar conta",
+    busy: "Salvando…",
+    successTitle: "Resultado salvo na sua conta",
+    successBank: "{count} respostas do Banco entraram no seu progresso.",
+    successNoBank: "Nenhuma pergunta desta sessão veio do Banco, então o progresso de estudo não mudou.",
+    errors: {
+      claim_session_active: "A sessão ainda está em andamento. Salve quando ela terminar.",
+      claim_already_linked: "Esta participação já está vinculada a uma conta.",
+      claim_expired: "O prazo para salvar terminou (7 dias após o fim da sessão).",
+      claim_not_available: "Esta sessão não permite salvar resultados em contas.",
+      claim_already_in_session: "Sua conta já tem uma participação nesta sessão.",
+      login_required: "Entre na sua conta para salvar o resultado.",
+      token: "Sua participação expirou neste aparelho. Confirme com o código de retorno.",
+      offline: "Sem conexão. Verifique a internet e tente de novo.",
+      generic: "Não foi possível salvar agora. Tente de novo."
+    }
+  },
+  removed: {
+    title: "Conteúdo removido pela moderação",
+    text: "Este item foi retirado e não vale pontos. Aguarde o próximo."
+  },
+  afterSession: {
+    title: "Já participou desta sessão?",
+    text: "Veja seus resultados, seus dados ou salve o resultado na sua conta com o nome e o código de retorno.",
+    cta: "Ver meus resultados e dados",
+    back: "Voltar",
+    resultsTab: "Resultados",
+    dataTab: "Meus dados"
+  },
+  erased: {
+    title: "Seus dados foram excluídos",
+    text: "Você saiu do placar e dos relatórios. As credenciais deste aparelho foram apagadas.",
+    back: "Entrar em outra sala"
+  },
+  toast: {
+    dismiss: "Fechar aviso"
   }
 } as const;

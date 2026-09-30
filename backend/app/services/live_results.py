@@ -47,6 +47,7 @@ class _Data:
                     LiveParticipant.session_id == session.id,
                     LiveParticipant.kicked_at.is_(None),
                     LiveParticipant.is_bot.is_(False),  # rehearsal bots never reach reports (RF-513)
+                    LiveParticipant.is_preview.is_(False),  # nor the host's phone preview (RF-514)
                 )
                 .order_by(LiveParticipant.joined_at)
             ).scalars()
@@ -209,6 +210,17 @@ def _item_report(data: _Data, position: int, upper: set[str], lower: set[str]) -
             shown.setdefault(norm, answer.response.get("text") or norm)
             accepted[norm] = accepted.get(norm, False) or bool(answer.fraction and answer.fraction >= 1)
         report["top_answers"] = [{"text": shown[k], "n": n, "accepted": accepted[k]} for k, n in typed.most_common(20)]
+    return report
+
+
+def session_report(db: Session, session: LiveSession) -> dict[str, Any]:
+    """The report; after the retention purge (RF-1109) it is the snapshot taken before it."""
+    if session.events_purged_at is not None and session.report_snapshot_json:
+        snapshot = dict(session.report_snapshot_json)
+        snapshot["retention"] = {"events_purged_at": session.events_purged_at.isoformat(), "snapshot": True}
+        return snapshot
+    report = build_report(db, session)
+    report["retention"] = {"events_purged_at": None, "snapshot": False}
     return report
 
 

@@ -123,6 +123,9 @@ class RoomChannel:
         if control == "presence":
             self.presence_dirty = True
             return
+        if control == "resnapshot":
+            await self.resnapshot_all()
+            return
         if control == "kick":
             pid = message.get("participant_id")
             banned = bool(message.get("banned"))
@@ -211,6 +214,23 @@ class RoomChannel:
             text = protocol.dumps(frame)
             for conn in hosts:
                 conn.send(text)
+
+    async def resnapshot_all(self) -> None:
+        """Moderation removed content: every local connection gets a fresh snapshot."""
+        targets = [c for c in list(self.connections) if not c.closed]
+        if not targets:
+            return
+        identities = {(c.role, c.participant_id) for c in targets}
+
+        def _build() -> dict[tuple[str, str | None], str]:
+            return {
+                key: protocol.dumps(_snapshot(Identity(role=key[0], session_id=self.session_id, participant_id=key[1])))
+                for key in identities
+            }
+
+        frames = await run_in_threadpool(_build)
+        for conn in targets:
+            conn.send(frames[(conn.role, conn.participant_id)])
 
     async def refresh_hosts(self) -> None:
         hosts = [c for c in self.connections if c.role == "host"]
@@ -352,6 +372,7 @@ class LiveHub:
         self._background: set[asyncio.Task] = set()
         # One group-commit writer per event loop (tests run one loop per client).
         self._batchers: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, AnswerBatcher]" = weakref.WeakKeyDictionary()
+        bus.on_recovered(self._after_bus_recovery)
         metrics.gauge("live_connections", self._connections_by_role)
         metrics.gauge("live_rooms_active", lambda: {(): float(len(self.rooms))})
 
@@ -368,6 +389,17 @@ class LiveHub:
         self._lag_task = self._presence_task = None
         await self.flush_presence()
         await self.bus.close()
+
+    async def _after_bus_recovery(self) -> None:
+        """Events may have been lost while Redis was away: every local socket gets the
+        authoritative snapshot again and each room re-reads its auto-lock deadline."""
+        metrics.inc("live_bus_recoveries_total")
+        for channel in list(self.rooms.values()):
+            try:
+                channel.lock_at_ms = await run_in_threadpool(_with_db, runtime.pending_lock_at_ms, channel.session_id)
+                await channel.resnapshot_all()
+            except Exception:
+                logger.exception("live room resync failed", extra={"event": "live_room_resync_error", "session_id": channel.session_id})
 
     def mark_seen(self, participant_id: str) -> None:
         self._seen.add(participant_id)
@@ -442,6 +474,8 @@ class LiveHub:
         if outcome.kicked_participant:
             pid, banned = outcome.kicked_participant
             await self.bus.publish(session_id, {"control": "kick", "participant_id": pid, "banned": banned})
+        if outcome.resnapshot:
+            await self.bus.publish(session_id, {"control": "resnapshot"})
 
     async def submit_answer(self, answer: runtime.AnswerIn) -> runtime.AnswerResult:
         loop = asyncio.get_running_loop()
@@ -462,7 +496,13 @@ class LiveHub:
         self._dirty_pending.discard(session_id)
         task = asyncio.create_task(self.bus.publish(session_id, {"control": "dirty"}))
         self._background.add(task)
-        task.add_done_callback(self._background.discard)
+        task.add_done_callback(self._background_done)
+
+    def _background_done(self, task: asyncio.Task) -> None:
+        self._background.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            # A lost "dirty" mark only delays the counters until the next answer.
+            logger.warning("live background publish failed", extra={"event": "live_background_publish_error"})
 
     async def mark_lobby_dirty(self, session_id: str) -> None:
         await self.bus.publish(session_id, {"control": "lobby"})

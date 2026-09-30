@@ -41,7 +41,7 @@ INVALID_CODES_MESSAGE = "Too many invalid room codes. Check the code and retry l
 # the room code and ``/me/*`` by the participant token: never by IP, because a whole
 # auditorium can sit behind one NAT address (RNF-205).
 _LIVE_ROOM_PATH = re.compile(r"^/api/live/rooms/(?P<code>[^/]{1,32})(?:/(?:join|rejoin))?$")
-_LIVE_TOKEN_PATH = re.compile(r"^/api/live/me/")
+_LIVE_TOKEN_PATH = re.compile(r"^/api/live/me(?:/|$)")
 _LIVE_PUBLIC_PATHS = frozenset({"/api/live/names/suggest", "/api/live/capabilities", "/api/live/healthz"})
 # SSE fallback (RNF-309): the stream (token in the query string) and its commands
 # (token as Bearer) are limited per participant token; the host (cookie) per IP.
@@ -609,6 +609,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def _track_room_code(self, identity: str, room_key: str, status_code: int) -> None:
         if status_code == 404:
+            # A room this address already reached is not a guess: a whole class reloading
+            # after the session ended must not lock the NAT out of the next room.
+            known = await self._store.peek_counter(key=f"live-known-code:{identity}:{room_key}")
+            if known:
+                return
             await self._store.increment_counter(key=f"live-invalid-code:{identity}", ttl_seconds=self._invalid_code_window_seconds)
         elif 200 <= status_code < 300:
             await self._store.increment_counter(key=f"live-known-code:{identity}:{room_key}", ttl_seconds=6 * 3600)

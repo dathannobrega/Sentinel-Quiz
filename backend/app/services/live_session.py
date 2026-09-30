@@ -23,7 +23,7 @@ from app.core.config import settings
 from app.core.errors import api_error
 from app.models import LIVE_ACTIVE_SESSION_STATUSES, LiveParticipant, LiveQuiz, LiveQuizVersion, LiveSession, User
 from app.services import licensing
-from app.services import live_names
+from app.services import live_moderation, live_names
 from app.services.live_quiz import get_owned_quiz, latest_version
 from app.services.live_tokens import issue_token, jti_hash
 
@@ -117,6 +117,9 @@ def create_session(
     version = latest_version(db, quiz.id)
     if version is None:
         raise api_error(409, "quiz_not_published", "Publish the quiz before presenting it.")
+    from app.services import live_admin  # local: live_admin imports the runtime
+
+    live_admin.session_gate(quiz, version, allow_guests=allow_guests)
     blockers = license_blockers(list(version.items_snapshot_json or []), allow_guests=allow_guests)
     if blockers:
         exc = api_error(
@@ -156,6 +159,7 @@ def create_session(
             audience=audience,
             theme_key=version.theme_key,
             settings_json=session_settings,
+            hidden_positions=live_admin.version_hidden_positions(version) or None,
             consent_version=settings.live_consent_version,
             created_at=now,
             updated_at=now,
@@ -195,6 +199,37 @@ def _add_bots(db: Session, session: LiveSession, count: int) -> None:
             )
         )
     db.commit()
+
+
+def preview_participant(db: Session, session: LiveSession) -> dict[str, Any]:
+    """RF-514: the host's own phone preview in a rehearsal. One per session, reused; never in
+    reports; a real participant client, so it shows exactly what the audience sees."""
+    if session.mode != "rehearsal":
+        raise api_error(409, "preview_requires_rehearsal", "The phone preview is available in rehearsals.")
+    if session.status == "finished":
+        raise api_error(409, "session_finished", "The session has ended.")
+    participant = db.execute(
+        select(LiveParticipant).where(LiveParticipant.session_id == session.id, LiveParticipant.is_preview.is_(True))
+    ).scalar_one_or_none()
+    if participant is None:
+        participant = LiveParticipant(
+            id=str(uuid.uuid4()), session_id=session.id, display_name="Prévia", nickname_norm="previa",
+            avatar_seed=live_names.avatar_seed(), consent_version=session.consent_version, joined_at=utcnow(),
+            banned=False, is_preview=True,
+        )
+        db.add(participant)
+        try:
+            db.flush()
+        except IntegrityError:  # someone already uses the name "Prévia": keep the preview distinct
+            db.rollback()
+            participant.nickname_norm = f"previa{participant.id[:6]}"
+            db.add(participant)
+            db.flush()
+    participant.kicked_at = None
+    token, expires_at = _issue_participant_token(participant)
+    result = _join_result(participant, token, expires_at, None)
+    db.commit()
+    return result
 
 
 def get_owned_session(db: Session, user: User, session_id: str) -> LiveSession:
@@ -321,7 +356,10 @@ def join(
                 break
     else:
         try:
-            name, key = live_names.validate_display_name(display_name or (user.display_name if user else ""))
+            name, key = live_names.validate_display_name(
+                display_name or (user.display_name if user else ""),
+                offensive=lambda value: live_moderation.name_is_offensive(db, value),
+            )
         except live_names.NameRejected as exc:
             raise _name_error(exc.code) from None
         if _nickname_taken(db, session.id, key):

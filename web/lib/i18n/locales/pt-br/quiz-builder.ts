@@ -430,5 +430,26 @@ export const quizBuilder = {
     loginOnly: "Somente logados",
     rehearsal: "Ensaio",
     rehearsalHint: "Sessão de ensaio: bots não entram no relatório."
+  },
+  moderation: {
+    flaggedTitle: "Conteúdo em revisão de moderação",
+    flaggedText: "O filtro encontrou termos sensíveis. A versão foi publicada, mas sessões com convidados só abrem depois da revisão da equipe. Sessões “Somente logados” continuam liberadas.",
+    findingItem: "Item {position}",
+    findingQuiz: "Quiz",
+    findingTerm: "termo “{term}”",
+    more: "+ {count} ocorrências",
+    fields: {
+      prompt: "enunciado",
+      explanation: "explicação",
+      body: "texto do slide",
+      option: "alternativa {n}",
+      accepted: "resposta aceita {n}",
+      other: "conteúdo"
+    },
+    pendingTitle: "Conteúdo aguardando moderação",
+    pendingText: "Esta versão tem termos em revisão e ainda não pode ser mostrada a convidados. Abra a sala só para usuários logados ou aguarde a revisão.",
+    pendingLoginOnly: "Abrir somente para logados",
+    blockedTitle: "Quiz bloqueado pela moderação",
+    blockedText: "Nenhuma sessão pode ser aberta com este quiz. Fale com a equipe da plataforma se achar que foi um engano."
   }
 } as const;

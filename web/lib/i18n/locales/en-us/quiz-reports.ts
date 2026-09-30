@@ -138,5 +138,10 @@ export const quizReports = {
   errors: {
     load: "Could not load the report.",
     notFound: "Session not found or has no report."
+  },
+  retention: {
+    title: "Aggregate snapshot",
+    text: "Raw data purged by the retention policy; this is the aggregate snapshot.",
+    purgedAt: "Purged on {date}."
   }
 } as const;

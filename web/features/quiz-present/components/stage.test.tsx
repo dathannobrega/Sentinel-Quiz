@@ -56,6 +56,23 @@ const reveal: Reveal = {
   my: { answered: true, correct: false, fraction: 0, points: 0, total_score: 900, rank: 4, rank_delta: -1, streak: 0 }
 };
 
+function baseSnapshot(): Snapshot {
+  return {
+    session_id: "s1",
+    title: "Network basics",
+    theme_key: "neon_soc",
+    join_code: "482913",
+    join_url: "https://quiz.example.com/j/482913",
+    status: "live",
+    phase: "lobby",
+    qi: null,
+    total: 5,
+    settings: { scoring: "speed", show_live_distribution: false, show_correct_on_device: true, show_explanation: true, music: false, reading_phase_s: 0 },
+    room_locked: false,
+    participant_count: 2
+  };
+}
+
 function stageView(overrides: Partial<Snapshot>): StageView {
   const snapshot: Snapshot = {
     session_id: "s1",
@@ -144,6 +161,45 @@ describe("Stage", () => {
     unmount();
     render(wrap(<Stage clock={clock} reportHref="/quizzes/q1/results/s1" view={stageView({ phase: "finished", status: "finished" })} />));
     expect(screen.getByRole("link", { name: "Open report" }).getAttribute("href")).toBe("/quizzes/q1/results/s1");
+  });
+});
+
+describe("Stage: moderation (Incremento 4)", () => {
+  it("a removed item is a neutral slide: no prompt, no options", () => {
+    const removed: PublicQuestion = { ...question, item_type: "content", prompt: "", options: [], scored: false, points_multiplier: 0, removed: true };
+    render(wrap(<Stage clock={clock} view={stageView({ phase: "content", qi: 0, question: removed })} />));
+    expect(screen.getByRole("heading", { name: "Content removed by moderation" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("443");
+  });
+
+  it("item.removed on the open question swaps the stage to the neutral slide", () => {
+    let state = liveReducer(createInitialLiveState("host"), {
+      type: "server",
+      message: { v: 1, type: "room.snapshot", sts: 0, seq: 3, data: { ...baseSnapshot(), phase: "question", qi: 0, question, timer: { answers_open_at_ms: 0, deadline_ms: 60_000 } } }
+    });
+    state = liveReducer(state, { type: "server", message: { v: 1, type: "item.removed", sts: 10, seq: 4, data: { qi: 0, current: true } } });
+    render(wrap(<Stage clock={clock} view={selectStageView(state)} />));
+    expect(screen.getByRole("heading", { name: "Content removed by moderation" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain(question.prompt);
+  });
+
+  it("masked typed answers render as a muted pill with an accessible label", async () => {
+    const typed: PublicQuestion = { ...question, item_type: "type_answer", options: [] };
+    const typedReveal: Reveal = {
+      ...reveal,
+      item_type: "type_answer",
+      correct_option_ids: [],
+      counts: {},
+      accepted_answers: ["443"],
+      top_answers: [
+        { text: "443", n: 5, accepted: true },
+        { text: "•••", n: 2, accepted: false, masked: true },
+        { text: "•••", n: 1, accepted: false, masked: true }
+      ]
+    };
+    render(wrap(<Stage clock={clock} view={stageView({ phase: "reveal", qi: 0, question: typed, reveal: typedReveal })} />));
+    const masked = await screen.findAllByRole("img", { name: "Answer hidden by moderation" }, { timeout: 2000 });
+    expect(masked).toHaveLength(2);
   });
 });
 

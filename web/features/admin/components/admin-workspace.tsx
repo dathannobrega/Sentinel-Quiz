@@ -18,6 +18,7 @@ import {
 } from "@/lib/query/admin-hooks";
 import { useExamsQuery } from "@/lib/query/hooks";
 
+import { AdminArenaPanel } from "@/features/admin/components/arena/admin-arena-panel";
 import { AdminDomainCatalogPanel } from "@/features/admin/components/admin-domain-catalog-panel";
 import { AdminExamManager } from "@/features/admin/components/admin-exam-manager";
 import { AdminInsightsCard } from "@/features/admin/components/admin-insights-card";
@@ -221,7 +222,17 @@ export function AdminWorkspace({ editorOnly, initialQuestionId, role, permission
                   <AdminDomainCatalogPanel enabled={permissions.canEdit} />
                 </div>
               )
-            }
+            },
+            // Sentinel Arena moderation (reviewer/admin): hidden for editors.
+            ...(permissions.canReview
+              ? [
+                  {
+                    id: "arena",
+                    label: t("admin.tabs.arena"),
+                    content: <AdminArenaPanel canReview={permissions.canReview} canAdmin={permissions.canAdmin} />
+                  }
+                ]
+              : [])
           ]}
         />
       )}

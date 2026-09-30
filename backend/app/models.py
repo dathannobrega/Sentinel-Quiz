@@ -31,6 +31,10 @@ LIVE_SESSION_STATUSES = ("lobby", "live", "finished")
 LIVE_SESSION_PHASES = ("lobby", "question", "locked", "reveal", "leaderboard", "content", "podium", "finished")
 LIVE_ANSWER_EVENT_TYPES = ("submitted", "host_accepted")
 LIVE_ACTIVE_SESSION_STATUSES = ("lobby", "live")
+LIVE_MODERATION_STATES = ("clear", "flagged", "approved", "blocked")
+LIVE_CASE_SOURCES = ("participant", "filter", "admin")
+LIVE_CASE_STATUSES = ("open", "dismissed", "actioned")
+LIVE_CASE_REASONS = ("offensive", "spam", "cheating", "copyright", "privacy", "other", "filter_match")
 # AI authoring (0020).
 AI_JOB_KINDS = ("generate", "from_source", "improve")
 AI_JOB_STATUSES = ("queued", "running", "succeeded", "failed", "degraded")
@@ -1083,6 +1087,8 @@ class LiveQuiz(Base):
         String(36), ForeignKey("live_quiz.id", ondelete="SET NULL"), nullable=True
     )
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # Blocked by moderation (RF-1114): cannot be presented until an admin unblocks it.
+    blocked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
@@ -1163,8 +1169,15 @@ class LiveQuizVersion(Base):
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     published_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    # Content moderation at publish (RF-1112): "flagged" versions do not reach guests until
+    # an admin approves them; positions removed by moderation are hidden in every session.
+    moderation_state: Mapped[str] = mapped_column(String(16), nullable=False, default="clear", server_default="clear")
+    moderation_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    __table_args__ = (UniqueConstraint("quiz_id", "version_no", name="uq_live_quiz_version_no"),)
+    __table_args__ = (
+        UniqueConstraint("quiz_id", "version_no", name="uq_live_quiz_version_no"),
+        CheckConstraint(_sql_in("moderation_state", LIVE_MODERATION_STATES), name="ck_live_quiz_version_moderation_state"),
+    )
 
 
 class LiveSession(Base):
@@ -1188,6 +1201,13 @@ class LiveSession(Base):
     deadline_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # Host pause: the timer is frozen from here; resume shifts answers_open_at/deadline_at.
     paused_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # Positions removed by moderation while the room is open (RF-1114).
+    hidden_positions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Retention (RF-1109): names anonymized / raw events purged; the report survives as
+    # an aggregated snapshot taken before the purge.
+    names_anonymized_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    events_purged_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    report_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     join_code: Mapped[str] = mapped_column(String(8), nullable=False)
     allow_guests: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     room_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -1258,6 +1278,11 @@ class LiveParticipant(Base):
     time_multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     # Rehearsal bot (RF-513): excluded from reports and exports.
     is_bot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # Host's own phone preview in a rehearsal (RF-514): a real client, never in reports.
+    is_preview: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # LGPD (RF-650): erased = anonymized on request; claimed = linked to an account (RF-633).
+    erased_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     final_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     final_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -1372,3 +1397,83 @@ class AiUsageLedger(Base):
     at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
     __table_args__ = (Index("ix_ai_usage_ledger_owner_at", "owner_user_id", "at"),)
+
+
+class LiveModerationTerm(Base):
+    """Admin-managed filter terms (RF-1107): block or allow, for names, content or both."""
+
+    __tablename__ = "live_moderation_term"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    term: Mapped[str] = mapped_column(String(64), nullable=False)
+    match: Mapped[str] = mapped_column(String(16), nullable=False, default="token")
+    kind: Mapped[str] = mapped_column(String(8), nullable=False, default="block")
+    scope: Mapped[str] = mapped_column(String(8), nullable=False, default="all")
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("term", "kind", "scope", name="uq_live_moderation_term"),
+        CheckConstraint("match IN ('substring', 'token')", name="ck_live_moderation_term_match"),
+        CheckConstraint("kind IN ('block', 'allow')", name="ck_live_moderation_term_kind"),
+        CheckConstraint("scope IN ('names', 'content', 'all')", name="ck_live_moderation_term_scope"),
+    )
+
+
+class LiveModerationCase(Base):
+    """Moderation queue (RF-1104/1112/1114): participant reports and filter flags."""
+
+    __tablename__ = "live_moderation_case"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    reason: Mapped[str] = mapped_column(String(16), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    excerpt: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    details_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    quiz_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("live_quiz.id", ondelete="CASCADE"), nullable=True)
+    quiz_version_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("live_quiz_version.id", ondelete="CASCADE"), nullable=True
+    )
+    session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("live_session.id", ondelete="SET NULL"), nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reporter_participant_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("live_participant.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    resolved_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    resolution: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(_sql_in("source", LIVE_CASE_SOURCES), name="ck_live_moderation_case_source"),
+        CheckConstraint(_sql_in("status", LIVE_CASE_STATUSES), name="ck_live_moderation_case_status"),
+        CheckConstraint(_sql_in("reason", LIVE_CASE_REASONS), name="ck_live_moderation_case_reason"),
+        Index("ix_live_moderation_case_status_created", "status", "created_at"),
+        Index("ix_live_moderation_case_session", "session_id"),
+    )
+
+
+class LiveAuditEvent(Base):
+    """Arena audit trail (RF-1103/1110/1114, LGPD): who did what, on which session, and why."""
+
+    __tablename__ = "live_audit_event"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    quiz_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    target: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_live_audit_event_session", "session_id", "created_at"),
+        Index("ix_live_audit_event_created", "created_at"),
+    )

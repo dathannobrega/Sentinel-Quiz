@@ -93,7 +93,7 @@ class NameRejected(ValueError):
         self.code = code  # "too_short" | "too_long" | "offensive" | "invalid"
 
 
-def validate_display_name(raw: str | None) -> tuple[str, str]:
+def validate_display_name(raw: str | None, *, offensive=None) -> tuple[str, str]:
     """Return ``(display_name, nickname_key)`` or raise :class:`NameRejected`."""
     name = clean_display_name(raw)
     if len(name) > MAX_LEN:
@@ -102,7 +102,8 @@ def validate_display_name(raw: str | None) -> tuple[str, str]:
     letters = sum(1 for ch in name if ch.isalnum())
     if len(name) < MIN_LEN or len(key) < MIN_LEN or letters < MIN_LEN:
         raise NameRejected("too_short" if len(name) < MIN_LEN else "invalid")
-    if is_offensive(name):
+    # ``offensive`` lets the caller add the admin-managed terms (live_moderation, RF-1107).
+    if (offensive or is_offensive)(name):
         raise NameRejected("offensive")
     return name, key
 

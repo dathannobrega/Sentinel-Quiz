@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 
 import { LqButton, LqError, lqCardClass } from "@/features/quiz-live/components/lq-ui";
-import { getMyResults } from "@/features/quiz-live/lib/live-fetch";
+import { getMyResults, isTokenRejected } from "@/features/quiz-live/lib/live-fetch";
+import { AccessForm } from "@/features/quiz-play/components/access-form";
 import { useI18n } from "@/lib/i18n";
-import type { LiveMyResults } from "@/types/api/live";
+import type { LiveJoinResult, LiveMyResults } from "@/types/api/live";
 import { cn } from "@/lib/utils/cn";
 
 function formatAnswer(value: string[] | string | null): string | null {
@@ -15,24 +16,56 @@ function formatAnswer(value: string[] | string | null): string | null {
   return Array.isArray(value) ? value.join(", ") : value;
 }
 
-/** Personal results (GET /me/results with the participant Bearer token). */
-export function MyResultsPanel({ token }: { token: string }) {
+/**
+ * Personal results (GET /me/results with the participant Bearer token). A rejected token (expired
+ * or replaced) asks for the name + return code when `access` is given (Incremento 4).
+ */
+export function MyResultsPanel({
+  token,
+  access
+}: {
+  token: string;
+  access?: { sessionId: string | null; defaultName?: string; onTokenRefreshed?: (result: LiveJoinResult) => void };
+}) {
   const { t, locale } = useI18n();
+  const [activeToken, setActiveToken] = useState(token);
   const [data, setData] = useState<LiveMyResults | null>(null);
   const [error, setError] = useState(false);
+  const [needsAccess, setNeedsAccess] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
-    getMyResults(token, controller.signal)
+    getMyResults(activeToken, controller.signal)
       .then(setData)
-      .catch(() => {
+      .catch((caught) => {
         if (!controller.signal.aborted) {
-          setError(true);
+          if (isTokenRejected(caught) && access?.sessionId) {
+            setNeedsAccess(true);
+          } else {
+            setError(true);
+          }
         }
       });
     return () => controller.abort();
-  }, [token, attempt]);
+    // `access` is read at failure time only; re-running on its identity would refetch needlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeToken, attempt]);
+
+  if (needsAccess && access?.sessionId) {
+    return (
+      <AccessForm
+        variant="live"
+        sessionId={access.sessionId}
+        defaultName={access.defaultName}
+        onAccess={(result) => {
+          access.onTokenRefreshed?.(result);
+          setNeedsAccess(false);
+          setActiveToken(result.token);
+        }}
+      />
+    );
+  }
 
   if (error) {
     return (

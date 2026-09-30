@@ -14,9 +14,11 @@ import { PauseGlyph, vibrate } from "@/features/quiz-live/components/live-chrome
 import { LqButton, lqCardClass } from "@/features/quiz-live/components/lq-ui";
 import type { LiveLeaderboard, LiveSubmission } from "@/features/quiz-live/lib/live-store";
 import { OPTION_SHAPE_GLYPHS, optionLetter, type MyReveal, type PublicQuestion, type Reveal } from "@/features/quiz-live/lib/protocol";
+import { ClaimCard } from "@/features/quiz-play/components/claim-card";
 import { MyResultsPanel } from "@/features/quiz-play/components/my-results";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
+import type { LiveJoinResult } from "@/types/api/live";
 
 function ordinal(locale: string, rank: number): string {
   return locale === "pt-BR" ? `${rank}º` : `#${rank}`;
@@ -526,18 +528,31 @@ export function StandingView({ leaderboard, meId }: { leaderboard: LiveLeaderboa
 
 // ----------------------------------------------------------------------------- final
 
+/** What the final screen needs for the claim (RF-633) and "Meus dados" (RF-650). */
+export interface FinalRights {
+  code: string;
+  sessionId: string | null;
+  displayName: string;
+  /** The session ended (claims are only offered after the end). */
+  finished: boolean;
+  onOpenMyData?: () => void;
+  onTokenRefreshed?: (result: LiveJoinResult) => void;
+}
+
 export function FinalView({
   rank,
   total,
   score,
   podiumPhase,
-  token
+  token,
+  rights
 }: {
   rank: number | null;
   total: number;
   score: number;
   podiumPhase: boolean;
   token: string | null;
+  rights?: FinalRights;
 }) {
   const { t, locale } = useI18n();
   const reduced = useLqReducedMotion();
@@ -563,9 +578,51 @@ export function FinalView({
           <LqButton variant="secondary" size="lg" aria-expanded={showResults} onClick={() => setShowResults((value) => !value)}>
             {showResults ? t("quizPlay.final.hideResults") : t("quizPlay.final.viewResults")}
           </LqButton>
-          {showResults ? <MyResultsPanel token={token} /> : null}
+          {showResults ? (
+            <MyResultsPanel
+              token={token}
+              access={rights ? { sessionId: rights.sessionId, defaultName: rights.displayName, onTokenRefreshed: rights.onTokenRefreshed } : undefined}
+            />
+          ) : null}
         </>
       ) : null}
+      {rights?.finished ? (
+        <ClaimCard
+          code={rights.code}
+          token={token}
+          sessionId={rights.sessionId}
+          defaultName={rights.displayName}
+          onTokenRefreshed={rights.onTokenRefreshed}
+        />
+      ) : null}
+      {rights?.onOpenMyData ? (
+        <button
+          type="button"
+          onClick={rights.onOpenMyData}
+          className="focus-ring min-h-11 self-center rounded-md px-2 text-sm font-semibold text-lq-fg-muted underline-offset-4 hover:text-lq-fg hover:underline"
+        >
+          {t("quizPlay.myData.link")}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------- removed by moderation
+
+/** Neutral slide for an item removed by moderation (RF-1114): no prompt, no options, no score. */
+export function RemovedView() {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+      <span aria-hidden="true" className="grid size-20 place-items-center rounded-full border-2 border-dashed border-lq-line text-lq-fg-muted">
+        <svg viewBox="0 0 24 24" className="size-9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3l7.5 3v5.5c0 4.4-3.1 8.2-7.5 9.5-4.4-1.3-7.5-5.1-7.5-9.5V6L12 3Z" />
+          <path d="M9 12h6" />
+        </svg>
+      </span>
+      <PhaseHeading className="text-2xl">{t("quizPlay.removed.title")}</PhaseHeading>
+      <p className="max-w-sm text-lq-fg-muted">{t("quizPlay.removed.text")}</p>
     </div>
   );
 }
@@ -574,6 +631,9 @@ export function FinalView({
 
 export function ContentView({ question }: { question: PublicQuestion | null }) {
   const { t } = useI18n();
+  if (question?.removed) {
+    return <RemovedView />;
+  }
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
       <PhaseHeading className="text-sm tracking-[0.14em] text-lq-fg-muted uppercase">{t("quizPlay.content.title")}</PhaseHeading>

@@ -225,5 +225,147 @@ export const quizPlay = {
     submitted: "Answer sent.",
     paused: "The host paused the question.",
     resumed: "Question resumed. Answers are open."
+  },
+  menu: {
+    label: "More options",
+    report: "Report",
+    myData: "My data",
+    reportQuestion: "Report this question"
+  },
+  report: {
+    title: "Report",
+    subtitle: "The moderation team reviews every report. The presenter does not see who reported.",
+    targetLabel: "What do you want to report?",
+    targetItem: "This question (item {position})",
+    targetSession: "The whole session",
+    reasonLabel: "Reason",
+    reasons: {
+      offensive: "Offensive content",
+      spam: "Spam or advertising",
+      cheating: "Cheating or fraud",
+      copyright: "Copyright",
+      privacy: "Personal data exposed",
+      other: "Something else"
+    },
+    noteLabel: "Details (optional)",
+    noteHint: "Up to 500 characters. Do not include personal data.",
+    noteCount: "{count}/{max}",
+    reasonRequired: "Choose a reason.",
+    submit: "Send report",
+    submitting: "Sending…",
+    cancel: "Cancel",
+    success: "Report sent. Thanks for helping keep the room safe.",
+    errors: {
+      too_many_reports: "You already sent several reports; the team is reviewing them. Try again later.",
+      token: "Your participation expired. Join again to report.",
+      invalid_item: "This item no longer exists. Report the session instead.",
+      offline: "You are offline. Check your connection and try again.",
+      generic: "Could not send the report. Try again."
+    }
+  },
+  myData: {
+    title: "My data",
+    subtitle: "What this room keeps about you (LGPD, art. 18).",
+    link: "My data and privacy",
+    loading: "Loading your data…",
+    error: "Could not load your data.",
+    retry: "Try again",
+    close: "Close",
+    profile: "Participation",
+    name: "Name",
+    joined: "Joined at",
+    lastSeen: "Last seen",
+    consent: "Accepted terms",
+    account: "Linked account",
+    accountYes: "Yes",
+    accountNo: "No (guest)",
+    score: "Final score",
+    rank: "Final place",
+    session: "Session",
+    sessionStatus: {
+      lobby: "Waiting to start",
+      live: "In progress",
+      finished: "Ended"
+    },
+    none: "—",
+    answersTitle: "Your answers ({count})",
+    noAnswers: "No answers recorded.",
+    answerItem: "Item {position}",
+    answerCorrect: "Correct",
+    answerIncorrect: "Incorrect",
+    answerNotScored: "Not scored",
+    answerPoints: "{points} pts",
+    retention: "Answers stay only as anonymous session statistics; names are anonymized by the retention policy.",
+    eraseTitle: "Delete my data",
+    eraseText: "Your name is replaced by “Removed participant”, you leave the leaderboard and the named reports, and this participation can no longer be linked to an account. Answers remain only as anonymous statistics. This cannot be undone.",
+    eraseAction: "Delete my data",
+    eraseConfirm: "Delete permanently",
+    eraseCancel: "Keep my data",
+    erasing: "Deleting…",
+    eraseError: "Could not delete your data. Try again.",
+    noParticipation: "You have not joined this room yet. After joining, open “My data” from the screen menu to see or delete what we keep.",
+    rightsText: "We keep your nickname, your answers and their times for this session only. You can see and delete this data at any time."
+  },
+  access: {
+    title: "Confirm it is you",
+    subtitle: "Your session expired on this device. Use the name and the return code shown when you joined.",
+    nameLabel: "Your name in the room",
+    codeLabel: "Return code",
+    codePlaceholder: "E.g. K7Q2MX",
+    submit: "Continue",
+    submitting: "Checking…",
+    required: "Fill in the name and the return code.",
+    noSession: "We could not find the session on this device. Open the room link to access your data.",
+    errors: {
+      invalid_return_code: "Name or return code does not match.",
+      too_many_attempts: "Too many attempts. Wait 15 minutes and try again.",
+      banned: "You were removed from this room.",
+      offline: "You are offline. Check your connection and try again.",
+      generic: "Could not continue right now. Try again."
+    }
+  },
+  claim: {
+    title: "Save my result to my account",
+    text: "Link this participation to your account until {date}. Answers to Question Bank items join your study progress.",
+    textNoDate: "Link this participation to your account. Answers to Question Bank items join your study progress.",
+    cta: "Save my result to my account",
+    signedInAs: "Signed in as {email}",
+    login: "Sign in to save",
+    register: "Create an account",
+    busy: "Saving…",
+    successTitle: "Result saved to your account",
+    successBank: "{count} Question Bank answers joined your progress.",
+    successNoBank: "No question in this session came from the Question Bank, so your study progress did not change.",
+    errors: {
+      claim_session_active: "The session is still running. Save it once it ends.",
+      claim_already_linked: "This participation is already linked to an account.",
+      claim_expired: "The time to save has passed (7 days after the session ended).",
+      claim_not_available: "This session does not allow saving results to accounts.",
+      claim_already_in_session: "Your account already has a participation in this session.",
+      login_required: "Sign in to save your result.",
+      token: "Your participation expired on this device. Confirm with your return code.",
+      offline: "You are offline. Check your connection and try again.",
+      generic: "Could not save right now. Try again."
+    }
+  },
+  removed: {
+    title: "Content removed by moderation",
+    text: "This item was taken down and is not scored. Wait for the next one."
+  },
+  afterSession: {
+    title: "Already took part in this session?",
+    text: "See your results and your data, or save the result to your account, with your name and return code.",
+    cta: "See my results and data",
+    back: "Back",
+    resultsTab: "Results",
+    dataTab: "My data"
+  },
+  erased: {
+    title: "Your data was deleted",
+    text: "You left the leaderboard and the reports. This device's credentials were cleared.",
+    back: "Join another room"
+  },
+  toast: {
+    dismiss: "Dismiss notice"
   }
 } as const;

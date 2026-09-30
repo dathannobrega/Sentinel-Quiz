@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, normalizeErrorResponse } from "@/lib/api/errors";
 import {
   LiveLicenseRequiresLoginError,
+  LiveModerationPendingError,
+  claimLiveParticipation,
+  isModerationPending,
+  isQuizBlocked,
+  toClaimErrorCode,
   LiveQuizInvalidError,
   LiveVersionConflictError,
   buildBankSearchQuery,
@@ -141,5 +146,51 @@ describe("buildBankSearchQuery", () => {
     expect(
       buildBankSearchQuery({ q: "tls", certification: "secplus", domain: "3.0", difficulty: "hard", onlyGuestEligible: true, limit: 10, offset: 20 })
     ).toBe("q=tls&certification=secplus&domain=3.0&difficulty=hard&only_guest_eligible=true&limit=10&offset=20");
+  });
+});
+
+describe("Incremento 4: moderation and claim", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("maps 422 moderation_pending with details.findings", () => {
+    const mapped = toLiveError(
+      errorFrom(422, {
+        detail: "pending",
+        code: "moderation_pending",
+        details: { findings: [{ position: 1, field: "option_0", term: "xyz", excerpt: "… xyz …" }, "garbage"] }
+      })
+    );
+    expect(isModerationPending(mapped)).toBe(true);
+    expect(mapped).toBeInstanceOf(LiveModerationPendingError);
+    expect((mapped as LiveModerationPendingError).findings).toEqual([{ position: 1, field: "option_0", term: "xyz", excerpt: "… xyz …" }]);
+  });
+
+  it("recognizes 403 quiz_blocked", () => {
+    const mapped = toLiveError(errorFrom(403, { detail: "blocked", code: "quiz_blocked" }));
+    expect(isQuizBlocked(mapped)).toBe(true);
+    expect(isModerationPending(mapped)).toBe(false);
+  });
+
+  it("maps every claim error code", () => {
+    for (const code of ["claim_session_active", "claim_already_linked", "claim_expired", "claim_not_available", "claim_already_in_session"]) {
+      expect(toClaimErrorCode(errorFrom(409, { detail: "x", code }))).toBe(code);
+    }
+    expect(toClaimErrorCode(errorFrom(401, { detail: "x", code: "token_expired" }))).toBe("token");
+    expect(toClaimErrorCode(errorFrom(401, { detail: "Not authenticated" }))).toBe("login_required");
+    expect(toClaimErrorCode(new Error("x"))).toBe("generic");
+  });
+
+  it("claims with the participant token in the body", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ claimed: true, bank_answers_recorded: 3 }), { status: 200, headers: { "content-type": "application/json" } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(claimLiveParticipation("participant-token")).resolves.toEqual({ claimed: true, bank_answers_recorded: 3 });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/api/live/me/claim");
+    expect(JSON.parse(String(init.body))).toEqual({ token: "participant-token" });
+    expect(init.credentials).toBe("include");
   });
 });

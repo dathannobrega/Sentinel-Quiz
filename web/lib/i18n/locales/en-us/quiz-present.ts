@@ -229,5 +229,83 @@ export const quizPresent = {
     content: "Slide.",
     paused: "Question paused.",
     resumed: "Question resumed."
+  },
+  capacity: {
+    near: "Room at {percent}% capacity ({count}/{max})",
+    full: "Room full ({count}/{max})",
+    hint: "New joins are refused at the limit. Raise the limit in a new session if you need more room."
+  },
+  preflight: {
+    button: "Pre-event check",
+    title: "Pre-event check",
+    description: "Checks the database, realtime, capacity, content and limits before the audience joins.",
+    run: "Check again",
+    running: "Checking…",
+    ready: "Ready",
+    attention: "Attention",
+    readyText: "All set to start.",
+    attentionText: "Some items need attention. See the flagged checks below.",
+    largeRoom: "Large room (300+ seats): the check runs on its own when the room opens.",
+    error: "Could not run the check.",
+    autoAttention: "Pre-event check: some items need attention.",
+    checkedAt: "Checked at {time}",
+    statuses: {
+      ok: "OK",
+      warn: "Attention",
+      fail: "Failed"
+    },
+    keys: {
+      database: "Database",
+      capacity: "Room capacity",
+      content: "Content and moderation",
+      realtime_bus: "Realtime",
+      rate_limit: "Rate limiting",
+      token_keys: "Token keys",
+      event_loop: "Server responsiveness",
+      other: "Other check"
+    },
+    details: {
+      ok: "No problems.",
+      slow: "Responding slowly.",
+      unreachable: "Down or unreachable.",
+      near_limit: "Close to the participant limit (80% or more).",
+      above_platform_limit: "The room limit is above the platform limit.",
+      moderation_pending: "Some content awaits moderation: guests cannot join until it is reviewed.",
+      quiz_blocked: "The quiz was blocked by moderation.",
+      memory_bus_with_workers: "In-memory bus with several processes: realtime will not reach everyone.",
+      memory_backend: "In-memory rate limiting (use Redis in production).",
+      dev_key: "Tokens signed with the development key.",
+      lagging: "The server is slow to respond.",
+      other: "Check this item."
+    },
+    values: {
+      latency: "{ms} ms",
+      capacity: "{participants} of {max} seats · platform limit {platform}",
+      p95: "p95 {ms} ms",
+      backend: "backend: {backend}"
+    }
+  },
+  preview: {
+    toggle: "Phone preview",
+    hide: "Close preview",
+    title: "Phone preview",
+    hint: "This is the real participant client. The preview stays out of the reports.",
+    frameLabel: "Participant phone preview",
+    opening: "Opening preview…",
+    errors: {
+      preview_requires_rehearsal: "The phone preview is only available in rehearsal sessions.",
+      session_finished: "The session has ended.",
+      generic: "Could not open the preview."
+    }
+  },
+  moderation: {
+    toast: "Item removed by moderation",
+    toastCurrent: "Item {position} removed by moderation: the screen now shows a neutral slide.",
+    title: "Content removed by moderation",
+    text: "This item was taken down by the moderation team.",
+    presenter: "Item removed by moderation: no answer key or notes. Move on to the next one.",
+    masked: "Answer hidden by moderation",
+    previewBadge: "Preview",
+    previewLabel: "Presenter's phone preview (not in reports)"
   }
 } as const;

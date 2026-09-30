@@ -8,7 +8,8 @@ export const admin = {
     questions: "Questões",
     operations: "Operação",
     issues: "Reportes",
-    people: "Usuários e catálogo"
+    people: "Usuários e catálogo",
+    arena: "Arena"
   },
   guard: {
     checking: "Verificando sua sessão...",
@@ -457,5 +458,230 @@ export const admin = {
     editorRequiredAction: "Esta ação exige papel editor, reviewer ou admin.",
     adminRequiredAction: "Esta ação exige papel admin.",
     reviewerRequiredAction: "Esta ação exige papel reviewer ou admin."
+  },
+  arena: {
+    title: "Sentinel Arena",
+    subtitle: "Salas ao vivo, fila de moderação, termos do filtro e auditoria.",
+    reviewerNote: "Você modera a fila. Encerrar sessões, bloquear quizzes, alterar termos e ver a auditoria exigem papel admin.",
+    forbidden: "Esta área exige papel reviewer ou admin.",
+    tabs: {
+      label: "Áreas da Arena",
+      overview: "Visão geral",
+      queue: "Moderação",
+      terms: "Termos do filtro",
+      audit: "Auditoria"
+    },
+    common: {
+      refresh: "Atualizar",
+      cancel: "Cancelar",
+      loading: "Carregando…",
+      none: "—",
+      reasonLabel: "Motivo",
+      reasonHint: "Pelo menos 5 caracteres. Fica registrado na auditoria.",
+      reasonRequired: "Explique o motivo (pelo menos 5 caracteres).",
+      adminOnly: "Somente admin"
+    },
+    overview: {
+      title: "Salas ativas",
+      subtitle: "Atualiza a cada 30 segundos. Bots e prévias do apresentador não entram na contagem.",
+      totals: {
+        active_sessions: "Sessões ativas",
+        participants: "Participantes",
+        online: "Online agora",
+        open_cases: "Casos abertos"
+      },
+      caption: "Sessões ativas na plataforma",
+      columns: {
+        code: "PIN",
+        quiz: "Quiz",
+        owner: "Responsável",
+        phase: "Fase",
+        people: "Pessoas",
+        created: "Criada",
+        actions: "Ações"
+      },
+      people: "{participants} · {online} online",
+      limit: "limite {max}",
+      rehearsal: "Ensaio",
+      guests: "Convidados",
+      loginOnly: "Logados",
+      empty: "Nenhuma sala ativa agora.",
+      loadError: "Não foi possível carregar as salas ativas.",
+      end: "Encerrar",
+      endTitle: "Encerrar a sessão {code}?",
+      endText: "Todos os participantes são desconectados e a sessão termina agora. A ação fica registrada com o motivo.",
+      confirmEnd: "Encerrar sessão",
+      ended: "Sessão {code} encerrada.",
+      phases: {
+        lobby: "Sala de espera",
+        question: "Pergunta",
+        locked: "Travada",
+        reveal: "Resposta",
+        leaderboard: "Placar",
+        content: "Slide",
+        podium: "Pódio",
+        finished: "Encerrada"
+      }
+    },
+    queue: {
+      title: "Fila de moderação",
+      subtitle: "Denúncias de participantes e ocorrências do filtro na publicação.",
+      statusFilter: "Situação",
+      statuses: {
+        open: "Abertos",
+        dismissed: "Descartados",
+        actioned: "Com ação",
+        all: "Todos"
+      },
+      total: "{count} casos",
+      empty: "Nenhum caso nesta situação.",
+      loadError: "Não foi possível carregar a fila.",
+      sources: {
+        participant: "Denúncia",
+        filter: "Filtro",
+        admin: "Admin"
+      },
+      reasons: {
+        offensive: "Conteúdo ofensivo",
+        spam: "Spam",
+        cheating: "Trapaça",
+        copyright: "Direitos autorais",
+        privacy: "Dados pessoais",
+        other: "Outro",
+        filter_match: "Termo do filtro"
+      },
+      quiz: "Quiz: {title}",
+      owner: "Responsável: {email}",
+      session: "Sessão {code}",
+      position: "Item {position}",
+      note: "Nota do participante",
+      excerpt: "Trecho",
+      findings: "{count} ocorrências do filtro",
+      finding: "Item {position} · {field} · “{term}”",
+      resolved: "Resolvido: {action}",
+      resolvedAt: "em {date}",
+      resolutionNote: "Nota: {note}",
+      actions: {
+        dismiss: "Descartar",
+        approve: "Aprovar conteúdo",
+        remove_item: "Remover item",
+        end_session: "Encerrar sessão",
+        block_quiz: "Bloquear quiz"
+      },
+      actionText: {
+        dismiss: "O caso é fechado sem mudanças no conteúdo.",
+        approve: "A versão é aprovada e volta a poder ser usada com convidados.",
+        remove_item: "O item vira um slide neutro em todas as salas abertas desta versão e nas próximas.",
+        end_session: "A sessão denunciada termina agora para todos.",
+        block_quiz: "O quiz é bloqueado: salas abertas terminam e nenhuma sessão nova pode ser criada."
+      },
+      noteLabel: "Nota da moderação",
+      noteOptional: "Opcional. Fica registrada na auditoria.",
+      confirm: "Confirmar",
+      done: "Caso resolvido.",
+      doneSessions: "Caso resolvido. Sessões afetadas: {count}.",
+      previous: "Anteriores",
+      next: "Próximos",
+      page: "{from}–{to} de {total}"
+    },
+    terms: {
+      title: "Termos do filtro",
+      subtitle: "Valem para nomes e conteúdo em até 30 segundos em todos os servidores.",
+      addTitle: "Adicionar termo",
+      termLabel: "Termo",
+      termHint: "De 2 a 64 caracteres. Acentos e maiúsculas são ignorados.",
+      termInvalid: "Use de 2 a 64 caracteres.",
+      matchLabel: "Comparação",
+      match: {
+        token: "Palavra inteira",
+        substring: "Trecho dentro da palavra"
+      },
+      kindLabel: "Tipo",
+      kind: {
+        block: "Bloquear",
+        allow: "Permitir (exceção)"
+      },
+      scopeLabel: "Onde vale",
+      scope: {
+        names: "Nomes",
+        content: "Conteúdo",
+        all: "Nomes e conteúdo"
+      },
+      noteLabel: "Observação (opcional)",
+      submit: "Adicionar termo",
+      adding: "Adicionando…",
+      added: "Termo “{term}” adicionado.",
+      caption: "Termos cadastrados",
+      columns: {
+        term: "Termo",
+        match: "Comparação",
+        kind: "Tipo",
+        scope: "Onde vale",
+        note: "Observação",
+        created: "Criado",
+        actions: "Ações"
+      },
+      delete: "Excluir",
+      deleteLabel: "Excluir o termo {term}",
+      deleteTitle: "Excluir o termo “{term}”?",
+      deleteText: "O filtro deixa de usar este termo em até 30 segundos. A exclusão fica na auditoria.",
+      deleted: "Termo excluído.",
+      empty: "Nenhum termo cadastrado além da lista padrão.",
+      loadError: "Não foi possível carregar os termos.",
+      adminOnly: "Somente admins adicionam ou excluem termos."
+    },
+    audit: {
+      title: "Auditoria",
+      subtitle: "Ações administrativas, acessos a relatórios nominais e pedidos LGPD.",
+      sessionFilter: "ID da sessão",
+      sessionFilterHint: "Deixe em branco para ver as ações mais recentes.",
+      apply: "Filtrar",
+      clear: "Limpar",
+      caption: "Eventos de auditoria",
+      columns: {
+        when: "Quando",
+        action: "Ação",
+        actor: "Quem",
+        session: "Sessão",
+        target: "Alvo",
+        reason: "Motivo"
+      },
+      actorParticipant: "Participante",
+      actorSystem: "Sistema",
+      empty: "Nenhum evento encontrado.",
+      loadError: "Não foi possível carregar a auditoria.",
+      adminOnly: "A auditoria é visível só para admins.",
+      actions: {
+        force_end: "Encerramento forçado",
+        case_dismiss: "Caso descartado",
+        case_approve: "Conteúdo aprovado",
+        case_remove_item: "Item removido",
+        case_end_session: "Sessão encerrada (caso)",
+        case_block_quiz: "Quiz bloqueado",
+        term_added: "Termo adicionado",
+        term_removed: "Termo excluído",
+        quiz_unblocked: "Quiz desbloqueado",
+        report_view: "Relatório aberto",
+        export_csv: "CSV exportado",
+        admin_report_view: "Relatório aberto por admin",
+        participant_erased: "Dados excluídos (LGPD)",
+        participant_claimed: "Participação vinculada",
+        retention_anonymize: "Nomes anonimizados",
+        retention_purge: "Eventos expurgados",
+        retention_manual_run: "Retenção executada"
+      }
+    },
+    errors: {
+      forbidden: "Seu papel não permite esta ação.",
+      unauthorized: "Sua sessão expirou. Entre de novo.",
+      reason_required: "Explique o motivo (pelo menos 5 caracteres).",
+      case_closed: "Este caso já foi resolvido por outra pessoa.",
+      session_not_active: "A sessão não está mais ativa.",
+      term_exists: "Este termo já está na lista.",
+      invalid_term: "Termo inválido: use de 2 a 64 caracteres.",
+      not_found: "Registro não encontrado.",
+      offline: "Sem conexão. Tente de novo.",
+      generic: "Não foi possível concluir a ação."
+    }
   }
 } as const;

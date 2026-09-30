@@ -8,6 +8,7 @@
 #   migrate    only run `alembic upgrade head` and exit (one-shot job).
 #   ingest     only run the question ingestion once and exit.
 #   ai-worker  Sentinel Arena AI job worker (AI_JOB_RUNNER=worker).
+#   live-cleanup  Sentinel Arena retention job (run daily, e.g. from cron or a scheduler).
 #   uvicorn …  legacy form: migrations (if enabled) then exec the given command.
 #   anything else is exec'd as-is (e.g. `sh`, `alembic current`).
 #
@@ -192,6 +193,10 @@ case "${command}" in
     ;;
   ingest)
     run_ingest
+    ;;
+  live-cleanup)
+    # Sentinel Arena retention (RF-1109): anonymize names, then purge old answer logs.
+    exec python -m app.services.live_retention
     ;;
   ai-worker)
     # Sentinel Arena AI jobs (AI_JOB_RUNNER=worker): claims queued jobs with SKIP LOCKED.

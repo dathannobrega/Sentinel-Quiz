@@ -18,6 +18,7 @@ import {
   type HostAction,
   type HostContext
 } from "@/features/quiz-present/lib/host-actions";
+import { CapacityWarning, PreflightChip } from "@/features/quiz-present/components/room-ops";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 
@@ -96,6 +97,12 @@ export interface HostControlBarProps {
   onOpenParticipants: () => void;
   onOpenHelp: () => void;
   onHide?: () => void;
+  /** Room limit from the snapshot: warning pill at 80% (RF-1205). */
+  maxParticipants?: number | null;
+  /** Pre-event check (RF-1115): offered in the lobby. */
+  preflight?: { overall: "ready" | "attention" | null; running: boolean; onOpen: () => void };
+  /** Phone preview (RF-514): rehearsal sessions only. */
+  preview?: { active: boolean; busy: boolean; onToggle: () => void };
 }
 
 /**
@@ -130,6 +137,7 @@ export function HostControlBar(props: HostControlBarProps) {
           hint={t("quizPresent.controls.transportSseHint")}
         />
         {props.rehearsal ? <RehearsalBadge /> : null}
+        <CapacityWarning count={props.participantCount} max={props.maxParticipants ?? null} />
         {context.qi !== null && context.total ? (
           <span className="hidden font-lq-mono text-xs text-lq-fg-muted sm:inline">{t("quizPresent.controls.progress", { current: context.qi + 1, total: context.total })}</span>
         ) : null}
@@ -203,6 +211,27 @@ export function HostControlBar(props: HostControlBarProps) {
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {props.preflight && context.phase === "lobby" ? (
+          <button type="button" onClick={props.preflight.onOpen} className={barSecondary} aria-busy={props.preflight.running || undefined}>
+            {props.preflight.running ? t("quizPresent.preflight.running") : t("quizPresent.preflight.button")}
+            <PreflightChip overall={props.preflight.running ? null : props.preflight.overall} />
+          </button>
+        ) : null}
+        {props.preview ? (
+          <button
+            type="button"
+            onClick={props.preview.onToggle}
+            aria-pressed={props.preview.active}
+            aria-busy={props.preview.busy || undefined}
+            className={cn(barSecondary, props.preview.active && "border-lq-accent")}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="4.5" y="1.5" width="7" height="13" rx="1.6" />
+              <path d="M7 12.2h2" strokeLinecap="round" />
+            </svg>
+            {props.preview.active ? t("quizPresent.preview.hide") : t("quizPresent.preview.toggle")}
+          </button>
+        ) : null}
         <button type="button" onClick={props.onOpenParticipants} className={barSecondary}>
           {t("quizPresent.controls.participants", { count: props.participantCount })}
         </button>
@@ -303,6 +332,20 @@ function TimeSelect({ person, disabled, onChange }: { person: HostParticipant; d
   );
 }
 
+/** The host's own phone preview in the list (RF-514): it never enters reports. */
+function PreviewBadge() {
+  const { t } = useI18n();
+  return (
+    <span title={t("quizPresent.moderation.previewLabel")} className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-sm bg-primary-soft px-1.5 text-[0.6875rem] font-semibold text-primary">
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3 fill-none stroke-current" strokeWidth="1.5">
+        <rect x="4.5" y="1.5" width="7" height="13" rx="1.6" />
+      </svg>
+      {t("quizPresent.moderation.previewBadge")}
+      <span className="sr-only">: {t("quizPresent.moderation.previewLabel")}</span>
+    </span>
+  );
+}
+
 function BotBadge() {
   const { t } = useI18n();
   return (
@@ -352,6 +395,7 @@ export function ParticipantsPanel({
                     <p className="flex min-w-0 items-center gap-1.5">
                       <span className="truncate text-sm font-semibold text-fg">{person.display_name}</span>
                       {person.is_bot ? <BotBadge /> : null}
+                      {person.is_preview ? <PreviewBadge /> : null}
                       <TimeBadge multiplier={normalizeTimeMultiplier(person.time_multiplier)} />
                     </p>
                     <p className="flex items-center gap-1.5 text-xs text-fg-muted">
