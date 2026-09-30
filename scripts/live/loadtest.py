@@ -64,6 +64,33 @@ def summary(values: list[float]) -> dict:
     return {"n": len(values), "p50": pct(values, 50), "p95": pct(values, 95), "p99": pct(values, 99), "max": pct(values, 100)}
 
 
+ITEM_FIELDS: dict[str, dict] = {
+    "single_choice": {"item_type": "single_choice", "options": [
+        {"text": "Certa", "correct": True}, {"text": "Errada 1"}, {"text": "Errada 2"}, {"text": "Errada 3"}]},
+    "ordering": {"item_type": "ordering", "options": [{"text": t} for t in ("Um", "Dois", "Três", "Quatro", "Cinco", "Seis")]},
+    "numeric": {"item_type": "numeric", "min": 0, "max": 1000, "step": 1, "value": 500, "tolerance": 25},
+    "word_cloud": {"item_type": "word_cloud", "max_words": 3},
+}
+# ~400 distinct words with a long tail, like a real audience.
+LOAD_WORDS = [f"palavra{n}" for n in range(400)]
+
+
+def answer_data(item_type: str, question: dict, index: int) -> dict:
+    """Answer of participant ``index`` for the load question (deterministic spread)."""
+    rng = random.Random(index)
+    if item_type == "ordering":
+        by_text = {o["text"]: o["id"] for o in question["options"]}
+        order = [by_text[t] for t in ("Um", "Dois", "Três", "Quatro", "Cinco", "Seis")]
+        if index % 3:
+            rng.shuffle(order)
+        return {"choice": order}
+    if item_type == "numeric":
+        return {"number": round(rng.gauss(500, 120) % 1000, 1)}
+    if item_type == "word_cloud":
+        return {"words": list(dict.fromkeys(LOAD_WORDS[int(rng.paretovariate(1.2)) % len(LOAD_WORDS)] for _ in range(3)))}
+    return {"choice": [next(o["id"] for o in question["options"] if o["text"] == "Certa")]}
+
+
 def frame(type_: str, data: dict | None = None) -> str:
     return json.dumps({"v": 1, "type": type_, "data": data or {}})
 
@@ -187,6 +214,8 @@ async def main() -> int:
     ap.add_argument("--origin", default="http://localhost:3000")
     ap.add_argument("--metrics-base", default="", help="API origin for /api/live/metrics when --base is a proxy")
     ap.add_argument("--insecure", action="store_true", help="accept a self-signed TLS certificate (local nginx)")
+    ap.add_argument("--item-type", choices=["single_choice", "ordering", "numeric", "word_cloud"], default="single_choice",
+                    help="question type of the run (GA types: live aggregates on every tick)")
     args = ap.parse_args()
     if args.insecure:
         os.environ["LOADTEST_INSECURE"] = "1"
@@ -204,9 +233,8 @@ async def main() -> int:
         quiz = (await http.post("/api/live/quizzes", json={"title": "Load test", "settings": {"reading_phase_s": 0, "leaderboard_every": 0}})).json()
         for i in range(args.questions):
             quiz = (await http.post(f"/api/live/quizzes/{quiz['id']}/items", json={
-                "expected_version": quiz["version"], "item_type": "single_choice", "prompt": f"Pergunta de carga {i + 1}?",
-                "options": [{"text": "Certa", "correct": True}, {"text": "Errada 1"}, {"text": "Errada 2"}, {"text": "Errada 3"}],
-                "time_limit_s": 30})).json()
+                "expected_version": quiz["version"], "prompt": f"Pergunta de carga {i + 1}?", "time_limit_s": 30,
+                **ITEM_FIELDS[args.item_type]})).json()
         published = await http.post(f"/api/live/quizzes/{quiz['id']}/publish", json={"expected_version": quiz["version"]})
         published.raise_for_status()
         session = (await http.post("/api/live/sessions", json={"quiz_id": quiz["id"], "max_participants": args.participants})).json()
@@ -269,14 +297,15 @@ async def main() -> int:
             await host.ws.send(frame("host.next" if qi else "host.start", {"expected_qi": qi - 1} if qi else {}))
             intros = await asyncio.gather(*(wait_for(p, "question.intro", qi=qi) for p in joined))
             intro_fanout = (max(at for at, _ in intros) - sent) * 1000
-            option_ids = {p.index: next(o["id"] for o in msg["data"]["question"]["options"] if o["text"] == "Certa") for p, (_, msg) in zip(joined, intros)}
+            questions = {p.index: msg["data"]["question"] for p, (_, msg) in zip(joined, intros)}
             acks: list[float] = []
             ack_status: dict[str, int] = {}
 
             async def answer(p: Participant) -> None:
                 await asyncio.sleep(random.uniform(0, args.answer_window))
                 t0 = time.perf_counter()
-                await p.ws.send(frame("answer.submit", {"answer_id": str(uuid.uuid4()), "qi": qi, "choice": [option_ids[p.index]]}))
+                data = answer_data(args.item_type, questions[p.index], p.index)
+                await p.ws.send(frame("answer.submit", {"answer_id": str(uuid.uuid4()), "qi": qi, **data}))
                 _, ack = await wait_for(p, "answer.ack", qi=qi)
                 acks.append((time.perf_counter() - t0) * 1000)
                 status = ack["data"]["status"]
