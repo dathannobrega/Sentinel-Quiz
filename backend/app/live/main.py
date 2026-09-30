@@ -1,0 +1,49 @@
+"""ASGI app of the dedicated ``live`` service (PLANO §10.1, DC-02).
+
+Same image and code as the API; serves only the realtime surface (WebSocket, room
+lookup/join, health) so long-lived connections are isolated from the REST API
+(bulkhead). Requires LIVE_BUS_BACKEND=redis when it runs next to the ``api`` service
+or with more than one replica, so every process sees every room event.
+
+    uvicorn app.live.main:app --workers 1 --ws websockets --ws-max-size 16384
+"""
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from app.api.live import router as live_rest_router
+from app.core.config import Settings, settings
+from app.core.errors import register_exception_handlers
+from app.core.logging import configure_logging
+from app.live.bus import build_live_bus
+from app.live.gateway import LiveHub, router as live_ws_router
+from app.middleware.observability import ObservabilityMiddleware
+
+
+def create_live_app(app_settings: Settings | None = None) -> FastAPI:
+    app_settings = app_settings or settings
+    configure_logging(app_settings)
+    app_settings.validate_runtime()
+    hub = LiveHub(build_live_bus(app_settings))
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            yield
+        finally:
+            await hub.bus.close()
+
+    app = FastAPI(title="Sentinel Arena Live", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.state.settings = app_settings
+    app.state.live_hub = hub
+    register_exception_handlers(app)
+    app.add_middleware(ObservabilityMiddleware, settings=app_settings)
+    app.include_router(live_ws_router)
+    # Room lookup/join are the hot path when a QR code is shown to a big audience.
+    app.include_router(live_rest_router)
+    return app
+
+
+app = create_live_app()

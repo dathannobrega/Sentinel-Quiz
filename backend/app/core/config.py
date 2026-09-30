@@ -124,6 +124,32 @@ class Settings(BaseSettings):
     # buckets (timestamps themselves are always stored/served in UTC).
     study_day_timezone: str = Field(default="America/Sao_Paulo", alias="STUDY_DAY_TIMEZONE")
 
+    # Sentinel Arena: live interactive quizzes (docs/live-quiz/CONTRATO-INCREMENTO-1.md §8).
+    live_enabled: bool = Field(default=False, alias="LIVE_ENABLED")
+    # allowlist | verified_users | all (platform admins can always host).
+    live_host_policy: str = Field(default="allowlist", alias="LIVE_HOST_POLICY")
+    live_host_allowlist: str = Field(default="", alias="LIVE_HOST_ALLOWLIST")
+    live_max_participants: int = Field(default=1000, alias="LIVE_MAX_PARTICIPANTS")
+    live_max_items: int = Field(default=100, alias="LIVE_MAX_ITEMS")
+    live_join_code_length: int = Field(default=6, alias="LIVE_JOIN_CODE_LENGTH")
+    # "kid:secret[,kid:secret]" — the first key signs, all keys verify (rotation).
+    live_token_keys: str = Field(default="", alias="LIVE_TOKEN_KEYS")
+    live_participant_token_ttl_hours: int = Field(default=12, alias="LIVE_PARTICIPANT_TOKEN_TTL_HOURS")
+    live_display_token_ttl_hours: int = Field(default=12, alias="LIVE_DISPLAY_TOKEN_TTL_HOURS")
+    # memory (single process) | redis (required with more than one worker/replica).
+    live_bus_backend: str = Field(default="memory", alias="LIVE_BUS_BACKEND")
+    live_redis_url: str = Field(default="", alias="LIVE_REDIS_URL")
+    # Items licensed as "platform" may be shown to guests only after legal decision Q-19.
+    live_platform_guest_ok: bool = Field(default=False, alias="LIVE_PLATFORM_GUEST_OK")
+    live_grace_ms_default: int = Field(default=750, alias="LIVE_GRACE_MS_DEFAULT")
+    live_ws_max_message_bytes: int = Field(default=16384, alias="LIVE_WS_MAX_MESSAGE_BYTES")
+    live_ws_heartbeat_ms: int = Field(default=15000, alias="LIVE_WS_HEARTBEAT_MS")
+    live_ws_rate_per_second: float = Field(default=20.0, alias="LIVE_WS_RATE_PER_SECOND")
+    live_ws_rate_burst: int = Field(default=40, alias="LIVE_WS_RATE_BURST")
+    # Extra WebSocket origins; CORS_ORIGINS and PUBLIC_WEB_ORIGIN are always allowed.
+    live_allowed_origins: str = Field(default="", alias="LIVE_ALLOWED_ORIGINS")
+    live_consent_version: str = Field(default="2026-10", alias="LIVE_CONSENT_VERSION")
+
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
@@ -161,6 +187,7 @@ class Settings(BaseSettings):
             problems.append("RATE_LIMIT_BACKEND must be one of: memory, redis.")
         if backend == "redis" and not str(self.redis_url or "").strip():
             problems.append("RATE_LIMIT_BACKEND=redis requires REDIS_URL.")
+        problems.extend(self._live_problems())
 
         if not self.is_production():
             return problems
@@ -182,6 +209,41 @@ class Settings(BaseSettings):
                 "RATE_LIMIT_BACKEND=redis is required in production "
                 "(set RATE_LIMIT_ALLOW_MEMORY_IN_PRODUCTION=true to override)."
             )
+        return problems
+
+    def normalized_live_bus_backend(self) -> str:
+        return str(self.live_bus_backend or "memory").strip().lower()
+
+    def effective_live_redis_url(self) -> str:
+        return str(self.live_redis_url or self.redis_url or "").strip()
+
+    def live_allowed_origin_list(self) -> List[str]:
+        origins = [*self.cors_origin_list(), str(self.public_web_origin or "").strip()]
+        origins.extend(o.strip() for o in self.live_allowed_origins.split(",") if o.strip())
+        return [o.rstrip("/") for o in origins if o]
+
+    def _live_problems(self) -> list[str]:
+        problems: list[str] = []
+        policy = str(self.live_host_policy or "").strip().lower()
+        if policy not in {"allowlist", "verified_users", "all"}:
+            problems.append("LIVE_HOST_POLICY must be one of: allowlist, verified_users, all.")
+        bus = self.normalized_live_bus_backend()
+        if bus not in {"memory", "redis"}:
+            problems.append("LIVE_BUS_BACKEND must be one of: memory, redis.")
+        if bus == "redis" and not self.effective_live_redis_url():
+            problems.append("LIVE_BUS_BACKEND=redis requires LIVE_REDIS_URL (or REDIS_URL).")
+        if not 6 <= int(self.live_join_code_length or 0) <= 8:
+            problems.append("LIVE_JOIN_CODE_LENGTH must be between 6 and 8.")
+        if self.live_enabled and self.is_production():
+            from app.services.live_tokens import parse_token_keys  # local: avoids an import cycle
+
+            try:
+                keys = parse_token_keys(self.live_token_keys)
+            except ValueError as exc:
+                problems.append(f"LIVE_TOKEN_KEYS: {exc}")
+            else:
+                if not keys:
+                    problems.append("LIVE_TOKEN_KEYS is required in production when LIVE_ENABLED=true.")
         return problems
 
     def validate_runtime(self) -> None:

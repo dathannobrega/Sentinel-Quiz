@@ -156,6 +156,61 @@ class _MigrationMixin:
         command.upgrade(self.cfg, "head")
         self.assert_models_match()
 
+    def test_0019_live_constraints(self) -> None:
+        """Active-only PIN uniqueness, cascades, and (PostgreSQL) the append-only answer log."""
+        from sqlalchemy.exc import DBAPIError
+
+        command.upgrade(self.cfg, "head")
+        now = "CURRENT_TIMESTAMP"
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO users (id, email, password_hash, role, is_active, email_verified, created_at, updated_at) "
+                f"VALUES ('u1', 'u1@example.com', 'x', 'student', true, false, {now}, {now})"
+            ))
+            conn.execute(text(
+                "INSERT INTO live_quiz (id, owner_user_id, title, language, theme_key, settings_json, version, "
+                f"created_at, updated_at) VALUES ('lq1', 'u1', 'Quiz', 'pt-BR', 'sentinel', '{{}}', 1, {now}, {now})"
+            ))
+            conn.execute(text(
+                "INSERT INTO live_quiz_version (id, quiz_id, version_no, title, theme_key, settings_json, "
+                f"items_snapshot_json, snapshot_hash, published_at) VALUES ('v1', 'lq1', 1, 'Quiz', 'sentinel', "
+                f"'{{}}', '[]', 'h', {now})"
+            ))
+
+        def session(conn, sid: str, status: str) -> None:
+            conn.execute(text(
+                "INSERT INTO live_session (id, quiz_id, quiz_version_id, owner_user_id, mode, status, phase, state_seq, "
+                "join_code, allow_guests, room_locked, max_participants, preset, audience, theme_key, settings_json, "
+                f"consent_version, created_at, updated_at) VALUES ('{sid}', 'lq1', 'v1', 'u1', 'live', '{status}', "
+                f"'lobby', 1, '482913', true, false, 10, 'turma', 'adulto', 'sentinel', '{{}}', 'c1', {now}, {now})"
+            ))
+
+        with self.engine.begin() as conn:
+            session(conn, "s1", "lobby")
+        with self.assertRaises(IntegrityError):
+            with self.engine.begin() as conn:
+                session(conn, "s2", "live")
+        with self.engine.begin() as conn:
+            conn.execute(text("UPDATE live_session SET status = 'finished', phase = 'finished' WHERE id = 's1'"))
+            session(conn, "s2", "lobby")  # a finished session releases its PIN
+            conn.execute(text(
+                "INSERT INTO live_participant (id, session_id, display_name, nickname_norm, avatar_seed, banned, "
+                f"joined_at) VALUES ('p1', 's2', 'Ana', 'ana', 'abc', false, {now})"
+            ))
+            conn.execute(text(
+                "INSERT INTO live_answer_event (session_id, position, participant_id, event_type, response_json, "
+                "points, suspicious, idempotency_key, received_at) VALUES ('s2', 0, 'p1', 'submitted', '{}', 900, "
+                f"false, 'k1', {now})"
+            ))
+        if self.engine.dialect.name == "postgresql":
+            with self.assertRaises(DBAPIError):
+                with self.engine.begin() as conn:
+                    conn.execute(text("UPDATE live_answer_event SET points = 1000"))
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM live_quiz WHERE id = 'lq1'"))
+            self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM live_answer_event")).scalar(), 0)
+            self.assertEqual(conn.execute(text("SELECT COUNT(*) FROM live_session")).scalar(), 0)
+
     def test_0014_data_migration_on_populated_database(self) -> None:
         command.upgrade(self.cfg, "head")
         command.downgrade(self.cfg, REV_0013)

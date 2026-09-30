@@ -23,6 +23,7 @@ from app.models import (
     StudySession,
 )
 from app.services.editorial import LEGACY_IMPORT_MARKERS, sync_imported_question_publication
+from app.services.licensing import classify_license_scope
 from app.services.pbq_grading import split_authoring_item, validate_authoring_item
 from app.services.question_quality import build_fallback_rationale
 
@@ -382,6 +383,14 @@ def _resolve_rationale(
     return build_fallback_rationale(options, correct_options, language), True
 
 
+_PROVENANCE_KEYS = ("license_scope", "usage_restriction", "source_repo", "source_license")
+
+
+def _provenance(raw: dict) -> dict:
+    """Licence/provenance fields used by services.licensing.classify_license_scope."""
+    return {key: raw.get(key) for key in _PROVENANCE_KEYS if raw.get(key)}
+
+
 def _normalize_pbq_question(raw: dict, *, certification, domain, language) -> dict | None:
     """Authoring PBQ item -> normalized question (public payload / private answer split).
 
@@ -429,6 +438,7 @@ def _normalize_pbq_question(raw: dict, *, certification, domain, language) -> di
         "citations": _normalize_citations(raw.get("citations") or raw.get("references")),
         "pbq_payload": public,
         "pbq_answer": answer,
+        "provenance": _provenance(raw),
     }
 
 
@@ -476,6 +486,7 @@ def _normalize_question(raw: dict, *, certification, domain, language) -> dict |
         "global_accuracy_percent": raw.get("global_accuracy_percent"),
         "tags": _merge_tags(raw.get("tags"), raw.get("cross_domain_tags")),
         "citations": _normalize_citations(raw.get("citations")),
+        "provenance": _provenance(raw),
     }
 
 
@@ -511,6 +522,7 @@ def _normalize_wrapped_payload(file_name: str, payload: dict) -> list[dict]:
             "source": source,
             # Computed, never trusted from the file (the declared count drifted: 995 vs 1260).
             "question_count": len(normalized_questions),
+            "provenance": _provenance(exam),
         },
         "questions": normalized_questions,
     }]
@@ -621,6 +633,7 @@ def _refresh_lookup_rows(db: Session, question_ids: list[str]) -> tuple[dict, di
                 Question.tags_json,
                 Question.citations_json,
                 Question.question_format,
+                Question.license_scope,
             ).where(Question.id.in_(chunk))
         ).all():
             questions[row.id] = row
@@ -647,7 +660,7 @@ def _refresh_lookup_rows(db: Session, question_ids: list[str]) -> tuple[dict, di
     return questions, banks, versions
 
 
-def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
+def _needs_metadata_refresh(db: Session, bundles: list[dict], source_path: str | None = None) -> bool:
     """Whether an already-imported file (same hash) still needs a metadata backfill.
 
     Loads everything it compares in bulk (a handful of queries per file instead of
@@ -710,6 +723,11 @@ def _needs_metadata_refresh(db: Session, bundles: list[dict]) -> bool:
             if q.get("citations") and not existing.citations_json:
                 return True
             if (q.get("question_format") == "pbq") != (existing.question_format == "pbq"):
+                return True
+            scope, _license = classify_license_scope(
+                q.get("provenance") or {}, exam=exam.get("provenance"), source_path=source_path
+            )
+            if existing.license_scope != scope:
                 return True
     return False
 
@@ -1207,7 +1225,7 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
             # skip if exact file hash already imported and no metadata backfill is needed
             exists_stmt = select(ImportState).where(ImportState.file_name == name, ImportState.file_sha256 == digest)
             existing_import = db.execute(exists_stmt).scalar_one_or_none()
-            if existing_import and not _needs_metadata_refresh(db, bundles):
+            if existing_import and not _needs_metadata_refresh(db, bundles, name):
                 skipped += 1
                 continue
 
@@ -1259,6 +1277,9 @@ def ingest_questions_from_dir(db: Session, dir_path: str, *, material_dir: str |
                                 raise ValueError("Question projection was not created.")
                             db_q.language = q.get("language")
                             db_q.needs_review = bool(q.get("needs_review")) or bool(db_q.explanation_missing)
+                            db_q.license_scope, db_q.source_license = classify_license_scope(
+                                q.get("provenance") or {}, exam=exam.get("provenance"), source_path=name
+                            )
                             if not db_q.is_active:
                                 db_q.is_active = True
                                 db_q.deactivated_reason = None
