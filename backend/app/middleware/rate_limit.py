@@ -609,6 +609,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def _track_room_code(self, identity: str, room_key: str, status_code: int) -> None:
         if status_code == 404:
+            # A room this address already reached is not a guess: a whole class reloading
+            # after the session ended must not lock the NAT out of the next room.
+            known = await self._store.peek_counter(key=f"live-known-code:{identity}:{room_key}")
+            if known:
+                return
             await self._store.increment_counter(key=f"live-invalid-code:{identity}", ttl_seconds=self._invalid_code_window_seconds)
         elif 200 <= status_code < 300:
             await self._store.increment_counter(key=f"live-known-code:{identity}:{room_key}", ttl_seconds=6 * 3600)

@@ -252,6 +252,24 @@ def test_live_rate_limits_are_per_room_and_token_not_per_ip(live_on, login_clien
         assert guests.post(f"/api/live/rooms/{code}/join", json={"display_name": "Atrasado", "consent": True}).status_code == 201
 
 
+def test_finished_known_room_is_not_a_guess(live_on, login_client):
+    """After a session ends, everyone reloading its code gets 404 - that is not code guessing."""
+    from fastapi.testclient import TestClient
+
+    from app.core.config import Settings
+    from app.main import create_app
+
+    host, _ = login_client()
+    session = host.post("/api/live/sessions", json={"quiz_id": published_quiz(host)["id"]}).json()
+    limited = create_app(Settings(_env_file=None, ABUSE_SIGNAL_ENABLED=False, LIVE_INVALID_CODE_LIMIT=3))
+    with TestClient(limited) as guests:
+        assert guests.get(f"/api/live/rooms/{session['join_code']}").status_code == 200
+        host.post(f"/api/live/sessions/{session['id']}/end")
+        assert [guests.get(f"/api/live/rooms/{session['join_code']}").status_code for _ in range(5)] == [404] * 5
+        fresh = host.post("/api/live/sessions", json={"quiz_id": published_quiz(host)["id"]}).json()
+        assert guests.get(f"/api/live/rooms/{fresh['join_code']}").status_code == 200  # the NAT is not locked out
+
+
 def test_live_rate_limit_buckets():
     from app.core.config import Settings
     from app.middleware.rate_limit import RateLimitMiddleware
