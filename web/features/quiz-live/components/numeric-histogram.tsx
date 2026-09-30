@@ -1,6 +1,6 @@
 "use client";
 
-import { formatWithUnit, histogramBins, rangeFraction } from "@/features/quiz-live/lib/numeric";
+import { formatWithUnit, statDecimals, histogramBins, rangeFraction } from "@/features/quiz-live/lib/numeric";
 import type { NumericResults } from "@/features/quiz-live/lib/protocol";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
@@ -98,7 +98,7 @@ export function NumericHistogram({
       </div>
       <figcaption className={cn("flex flex-wrap gap-x-4 gap-y-1 font-semibold text-lq-fg", styles.stats)}>
         <span>{t("quizPresent.numeric.count", { count: new Intl.NumberFormat(locale).format(result.n) })}</span>
-        {result.mean !== null ? <span>{t("quizPresent.numeric.mean", { value: fmt(result.mean) })}</span> : null}
+        {result.mean !== null ? <span>{t("quizPresent.numeric.mean", { value: formatWithUnit(result.mean, unit, locale, statDecimals(result.min, result.max)) })}</span> : null}
         {result.median !== null ? <span>{t("quizPresent.numeric.median", { value: fmt(result.median) })}</span> : null}
         {known ? (
           <span className="text-lq-success">

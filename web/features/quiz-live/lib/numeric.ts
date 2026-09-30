@@ -90,6 +90,15 @@ export function stepDecimals(step: number | null | undefined): number {
   return decimalsIn(step);
 }
 
+/** Decimals for the mean on a projector: enough for the range, never "508,6667". */
+export function statDecimals(min: number | null | undefined, max: number | null | undefined): number {
+  const span = Math.abs((max ?? 0) - (min ?? 0));
+  if (span >= 100) {
+    return 1;
+  }
+  return span >= 1 ? 2 : 4;
+}
+
 /** Display with grouping: 1234.5 → "1.234,5" (pt-BR). */
 export function formatNumber(value: number | null | undefined, locale: string, maximumFractionDigits = 6): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {

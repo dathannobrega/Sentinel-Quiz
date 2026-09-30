@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon } from "@/components/ui/icons";
-import { formatWithUnit, histogramBins, rangeFraction } from "@/features/quiz-live/lib/numeric";
+import { formatWithUnit, statDecimals, histogramBins, rangeFraction } from "@/features/quiz-live/lib/numeric";
 import { barWidth, formatPercent, pctValue, rateToPercent } from "@/features/quiz-reports/lib/report-format";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
@@ -119,7 +119,7 @@ export function NumericReport({ numeric }: { numeric: LiveReportNumeric }) {
       <p className="text-xs text-fg-muted">
         {t("quizReports.ga.numericStats", {
           n: numeric.n,
-          mean: numeric.mean === null ? "–" : fmt(numeric.mean),
+          mean: numeric.mean === null ? "–" : formatWithUnit(numeric.mean, numeric.unit, locale, statDecimals(numeric.min, numeric.max)),
           median: numeric.median === null ? "–" : fmt(numeric.median)
         })}
       </p>

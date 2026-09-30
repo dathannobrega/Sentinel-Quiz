@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  statDecimals,
   binIndexFor,
   formatNumber,
   formatNumberInput,
@@ -106,5 +107,13 @@ describe("histogram", () => {
     expect(rangeFraction(256, 0, 1000)).toBeCloseTo(0.256);
     expect(rangeFraction(-10, 0, 10)).toBe(0);
     expect(rangeFraction(3, 3, 3)).toBe(0.5);
+  });
+});
+
+describe("statDecimals", () => {
+  it("keeps the projector mean short for the range", () => {
+    expect(statDecimals(0, 1000)).toBe(1);
+    expect(statDecimals(0, 10)).toBe(2);
+    expect(statDecimals(0, 0.5)).toBe(4);
   });
 });
