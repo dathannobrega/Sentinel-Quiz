@@ -695,6 +695,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         if item is not None:
             data["presenter"] = {
                 "item": _presenter_item(item),
+                "hidden_words": sorted(hidden_words(session, position)) if item["item_type"] == "word_cloud" else [],
                 "next_prompt": (room.item(position + 1) or {}).get("prompt") if position is not None else None,
             }
         board = {s.participant_id: s.score for s in standings(db, room, up_to=position)}
@@ -1107,7 +1108,13 @@ def hide_word(db: Session, session_id: str, *, qi: int, word: str, hidden: bool 
     answers = scoring.effective_answers(_events(db, session_id, qi))
     responses = [a.response for (_p, pid), a in answers.items() if pid in active]
     cloud = word_cloud(db, room, qi, responses)
-    return Outcome(broadcasts=[Broadcast("word_cloud.update", {"qi": qi, "word_cloud": cloud}, audience=ALL)])
+    data = {"qi": qi, "word_cloud": cloud}
+    return Outcome(broadcasts=[
+        # Only the host gets the hidden list (to show a word again from any device).
+        Broadcast("word_cloud.update", {**data, "hidden_words": sorted(current)}, audience=HOST),
+        Broadcast("word_cloud.update", data, audience=DISPLAY),
+        Broadcast("word_cloud.update", data, audience=PARTICIPANTS),
+    ])
 
 
 def accept_typed_answer(db: Session, session_id: str, *, qi: int, text: str, now: datetime | None = None) -> Outcome:

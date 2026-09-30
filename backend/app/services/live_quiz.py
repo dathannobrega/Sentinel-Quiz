@@ -743,7 +743,10 @@ def bank_search(
         result.append(
             {
                 "question_id": question.id,
-                "prompt": question.prompt,
+                # PBQs show the prompt the imported ordering item will have.
+                "prompt": (
+                    _bank_item_values(row, "ordering")["prompt"] if row["ordering"] else question.prompt
+                ),
                 "options": (
                     [{"key": key, "text": text} for key, text in zip(items_registry.OPTION_KEYS, row["ordering"]["items"])]
                     if row["ordering"]

@@ -104,7 +104,7 @@ Comando `host.hide_word {qi, word, hidden?: true}`. `word` é a `key` ou o texto
 de nuvem, nas fases `question`, `locked` e `reveal`; fora disso volta o erro `stale`. `hidden: false` mostra a
 palavra de novo.
 
-Todos os sockets recebem `word_cloud.update {qi, word_cloud}`, e o cliente troca o bloco `word_cloud` da pergunta
+Todos os sockets recebem `word_cloud.update {qi, word_cloud}`. Só o host recebe também `hidden_words: [key…]`, que também vem em `room.snapshot.presenter.hidden_words`. Assim, a lista "Mostrar" funciona de qualquer aparelho, e o cliente troca o bloco `word_cloud` da pergunta
 atual (ao vivo ou revelada). A ocultação fica gravada (`live_session.hidden_words`) e vale para reconexões. No
 relatório a palavra aparece com `hidden: true`.
 
@@ -131,7 +131,7 @@ CSV: `ordering` e `numeric` saem com a fração; `word_cloud` com as palavras.
 
 `GET /api/live/bank/search` passa a listar PBQs (`question_format: "pbq"`). A PBQ vira `ordering` quando tem uma
 tarefa de ordenação de 3 a 6 itens, cada um com até 120 caracteres; senão volta `reject_reason: unsupported_format`.
-Nesse caso, `options` traz os itens **na ordem correta**, porque o autor precisa conferir.
+Nesse caso, `options` traz os itens **na ordem correta**, porque o autor precisa conferir. `prompt` já vem como o item importado vai ficar.
 
 A importação cria o item assim:
 - enunciado: `"<título>: <tarefa>"`;

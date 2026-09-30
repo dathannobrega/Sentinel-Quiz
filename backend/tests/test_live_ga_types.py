@@ -266,8 +266,12 @@ def test_word_cloud_live_results_moderation_and_host_hide(live_on, login_client,
     assert [w["key"] for w in snap["word_cloud"]["words"]] == ["senha", "mfa"]
 
     hide = runtime.hide_word(db, sid, qi=0, word="MFA")
-    assert hide.error is None and hide.broadcasts[0].type == "word_cloud.update"
-    assert [w["key"] for w in hide.broadcasts[0].data["word_cloud"]["words"]] == ["senha"]
+    by_audience = {b.audience: b.data for b in hide.broadcasts}
+    assert {b.type for b in hide.broadcasts} == {"word_cloud.update"} and set(by_audience) == {runtime.HOST, runtime.DISPLAY, runtime.PARTICIPANTS}
+    assert [w["key"] for w in by_audience[runtime.DISPLAY]["word_cloud"]["words"]] == ["senha"]
+    assert by_audience[runtime.HOST]["hidden_words"] == ["mfa"] and "hidden_words" not in by_audience[runtime.DISPLAY]
+    host_snap = runtime.snapshot(db, runtime.load_room(db, sid), role="host")
+    assert host_snap["presenter"]["hidden_words"] == ["mfa"]
     assert runtime.hide_word(db, sid, qi=1, word="MFA").error == "stale"
     assert runtime.hide_word(db, sid, qi=0, word="  ").error == "invalid"
 
@@ -401,6 +405,7 @@ def test_bank_imports_pbq_ordering_tasks(live_on, login_client, db):
     host, _ = login_client()
     found = {i["question_id"]: i for i in host.get("/api/live/bank/search").json()["items"]}
     assert found["pbq-order"]["convertible_to"] == "ordering" and found["pbq-order"]["question_format"] == "pbq"
+    assert found["pbq-order"]["prompt"] == "Resposta a incidentes: Ordene as etapas"
     assert [o["text"] for o in found["pbq-order"]["options"]] == ["Etapa 3", "Etapa 1", "Etapa 0", "Etapa 4", "Etapa 2"]
     assert found["pbq-seven"]["convertible_to"] is None and found["pbq-seven"]["reject_reason"] == "unsupported_format"
 
