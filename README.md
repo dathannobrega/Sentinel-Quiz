@@ -16,6 +16,7 @@ Aplicação full-stack para simulados de certificações de cibersegurança. O b
 * **Tutor IA (Gemini):** explica conceitos e dá pistas; exige login, tem cota diária e fica indisponível durante simulados em andamento.
 * **Sessões Isoladas:** histórico, analytics e revisão escopados por usuário autenticado ou por dispositivo (`X-Client-Key`).
 * **SRS Incremental:** a fila de revisão guarda repetições, lapsos, estabilidade e fator de facilidade.
+* **Sentinel Arena (quizzes ao vivo):** quizzes interativos no estilo Mentimeter/Kahoot — criação com questões próprias e/ou do Banco (respeitando a licença de cada questão), telão com QR code/PIN, entrada de convidados só com o nome, respostas em tempo real por WebSocket, placar, pódio e relatório com psicometria e CSV. Liga com `LIVE_ENABLED=true` (ligado no stack de dev). Veja [docs/live-quiz/INCREMENTO-1.md](docs/live-quiz/INCREMENTO-1.md) e o [plano completo](docs/live-quiz/PLANO.md).
 * **Snapshots Editoriais Históricos:** snapshots por `question_version` para acompanhar dificuldade, erro e pressão de revisão ao longo do tempo.
 
 ## 🚀 Tecnologias

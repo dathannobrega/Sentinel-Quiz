@@ -25,6 +25,9 @@ services:
       APP_POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:-sentinel} # DEV ONLY default
       APP_NGINX_HOST: ${APP_NGINX_HOST:-localhost}
       APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-https://${APP_NGINX_HOST:-localhost}}
+      # Sentinel Arena on for every signed-in user in development.
+      APP_LIVE_ENABLED: ${APP_LIVE_ENABLED:-true}
+      APP_LIVE_HOST_POLICY: ${APP_LIVE_HOST_POLICY:-all}
     volumes:
       # Live-edit the question bank without rebuilding.
       - ./questions:/questions:ro
