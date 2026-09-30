@@ -295,7 +295,8 @@ def hidden_words(session: LiveSession, position: int) -> set[str]:
 
 def word_cloud(db: Session, room: Room, position: int, responses: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """Top words of a word cloud (RF-316): one count per participant and word, offensive
-    words (filter terms) and words the host hid never reach the projector."""
+    words (filter terms) and words the host hid never reach the projector. ``filtered``
+    counts the words removed while filling the top list."""
     from app.services import live_moderation
 
     counts: Counter[str] = Counter()
@@ -310,12 +311,13 @@ def word_cloud(db: Session, room: Room, position: int, responses: Iterable[dict[
     words: list[dict[str, Any]] = []
     filtered = 0
     for norm, n in counts.most_common():
+        if len(words) >= registry.WORD_CLOUD_TOP:
+            break  # the filter only runs on what could be shown (800 distinct words: ~35 ms)
         text = display[norm].most_common(1)[0][0]
         if norm in hidden or live_moderation.text_is_offensive(db, text):
             filtered += 1
             continue
-        if len(words) < registry.WORD_CLOUD_TOP:
-            words.append({"text": text, "key": norm, "n": n})
+        words.append({"text": text, "key": norm, "n": n})
     return {"words": words, "distinct": len(counts), "filtered": filtered}
 
 
