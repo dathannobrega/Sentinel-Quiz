@@ -42,10 +42,16 @@ def my_data(db: Session, participant: LiveParticipant) -> dict[str, Any]:
     answers = []
     for event in events:
         item = room.item(event.position) or {}
+        # Never grade the question that is still open (same rule as "my results").
+        open_now = (
+            session is not None and session.status != "finished" and session.current_position == event.position
+            and session.phase in {"question", "locked"}
+        )
         answers.append(
             {
                 "position": event.position, "prompt": item.get("prompt") or "", "event_type": event.event_type,
-                "response": event.response_json or {}, "correct": event.is_correct, "points": event.points,
+                "response": event.response_json or {}, "correct": None if open_now else event.is_correct,
+                "points": None if open_now else event.points,
                 "server_ms": event.server_ms, "received_at": _iso(event.received_at),
             }
         )

@@ -194,7 +194,12 @@ def test_my_data_erase_and_return_code_access(live_on, login_client, make_client
     assert _answer(db, sid, ana["participant_id"], 0, "Treinamento").status == "accepted"
 
     mine = guest.get("/api/live/me", headers=_auth(ana["token"])).json()
-    assert mine["participant"]["display_name"] == "Ana" and mine["answers"][0]["correct"] is True
+    # The open question is not graded before the reveal.
+    assert mine["participant"]["display_name"] == "Ana" and mine["answers"][0]["correct"] is None
+    runtime.lock(db, sid, expected_qi=0, reason="host")
+    runtime.reveal(db, sid, expected_qi=0)
+    mine = guest.get("/api/live/me", headers=_auth(ana["token"])).json()
+    assert mine["answers"][0]["correct"] is True
     assert mine["claim"] == {"available": False, "reason": "session_active"}
     assert guest.get("/api/live/me").status_code == 401
 
