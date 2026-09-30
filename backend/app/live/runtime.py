@@ -1390,22 +1390,27 @@ def touch_participant(db: Session, participant_id: str, *, now: datetime | None 
     touch_participants(db, [participant_id], now=now)
 
 
-def touch_participants(db: Session, participant_ids: list[str], *, now: datetime | None = None) -> int:
-    """Presence for the host list: one UPDATE for everyone seen since the last flush."""
+def touch_participants(db: Session, participant_ids: list[str], *, now: datetime | None = None) -> set[str]:
+    """Presence for the host list: one UPDATE for everyone seen since the last flush.
+    Returns the sessions where someone became "seen" again (their hosts need a refresh)."""
     if not participant_ids:
-        return 0
+        return set()
     now = now or utcnow()
-    result = db.execute(
-        update(LiveParticipant)
-        .where(
-            LiveParticipant.id.in_(participant_ids),
-            (LiveParticipant.last_seen_at.is_(None)) | (LiveParticipant.last_seen_at < now - timedelta(seconds=20)),
+    stale = (LiveParticipant.last_seen_at.is_(None)) | (LiveParticipant.last_seen_at < now - timedelta(seconds=20))
+    sessions = {
+        sid for (sid,) in db.execute(
+            select(LiveParticipant.session_id).where(LiveParticipant.id.in_(participant_ids), stale).distinct()
         )
-        .values(last_seen_at=now)
-        .execution_options(synchronize_session=False)
-    )
+    }
+    if sessions:
+        db.execute(
+            update(LiveParticipant)
+            .where(LiveParticipant.id.in_(participant_ids), stale)
+            .values(last_seen_at=now)
+            .execution_options(synchronize_session=False)
+        )
     db.commit()
-    return int(result.rowcount or 0)
+    return sessions
 
 
 def pending_lock_at_ms(db: Session, session_id: str) -> int | None:

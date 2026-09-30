@@ -5,7 +5,17 @@ uma sala de 1.000 pessoas atrás do mesmo NAT, continua funcionando quando a red
 apresentador o controle do tempo: pausar, retomar, estender e dar tempo extra a quem precisa. Também dá
 para ensaiar com bots antes do evento.
 
-<!-- SCREENSHOTS -->
+## Telas
+
+| | |
+|---|---|
+| ![Apresentar como ensaio, com bots](./screenshots/31-ensaio-dialogo.webp) | ![Lobby do ensaio com bots](./screenshots/32-ensaio-lobby-bots.webp) |
+| ![Tempo estendido por participante (host)](./screenshots/33-tempo-estendido-host.webp) | ![Pergunta pausada no telão](./screenshots/35-pausa-telao.webp) |
+| ![Revelação no ensaio](./screenshots/38-ensaio-reveal.webp) | ![Relatório do ensaio, sem bots](./screenshots/39-ensaio-relatorio.webp) |
+
+| | | |
+|---|---|---|
+| ![Selo de tempo estendido no celular](./screenshots/34-tempo-estendido-celular.webp) | ![Pausa no celular, com o prazo próprio de 2×](./screenshots/36-pausa-celular.webp) | ![Resposta pela conexão alternativa (WebSocket bloqueado)](./screenshots/37-conexao-alternativa.webp) |
 
 ## Teste de carga
 
@@ -62,7 +72,11 @@ de **4 vCPU dividida com o próprio gerador de carga** (o plano pede geradores f
 | Operação | `docker/entrypoint.sh`, compose, `.env*` | WebSocket sem deflate; novas variáveis documentadas |
 
 ### Frontend (`web/`)
-<!-- FRONTEND -->
+- **Fallback de transporte** (`features/quiz-live/lib/live-fallback.ts`, `live-socket.ts`): se o socket não abre, ou cai duas vezes antes do `welcome`, o cliente passa para `EventSource` + `POST /cmd` com o mesmo tratador de frames. Aparece a pílula "Conexão alternativa". A API pública do socket não mudou.
+- **Host:** Pausar/Retomar (tecla P), +15 s/+30 s (tecla +), estado "Pausado" no telão e na visão do apresentador; menu de tempo por participante (1×, 1,5×, 2×, sem limite) na gaveta de participantes, com selos de tempo e de bot; selo "Ensaio".
+- **Participante:** tela de pausa com o tempo que sobra no prazo próprio, selo "Tempo estendido", contagem pelo prazo pessoal e resposta rejeitada durante a pausa com mensagem clara.
+- **Apresentar:** opção "Ensaio" com número de bots (0 a 200); selo "Ensaio" na lista de sessões e no relatório.
+- Strings em pt-BR e en-US; 36 testes unitários novos (fallback com `EventSource`/`fetch` simulados, cronômetro pausado e pessoal, reducer).
 
 ## Como verificar
 
@@ -73,7 +87,20 @@ cd web && npm run typecheck && npm run lint && npm test && npm run build
 python scripts/live/loadtest.py --participants 1000   # API com LIVE_ENABLED=true e LIVE_HOST_POLICY=all
 ```
 
-<!-- EVIDENCE -->
+Evidências (30/09/2026):
+- **Backend:** suíte completa verde (444 testes). Migração 0021 validada em SQLite e PostgreSQL 16.
+- **Frontend:** typecheck, lint sem erros, 356 testes, build.
+- **Navegador real** (`web/scripts/live-smoke-ops.mjs`, 11 verificações, sem erro de página, console ou HTTP), com 2 workers + Redis + PostgreSQL. O roteiro:
+  - ensaio aberto pelo diálogo com 8 bots;
+  - um celular com o WebSocket bloqueado (`routeWebSocket`) cai no SSE, vê a pausa e responde;
+  - tempo 2× para uma participante;
+  - pausa, retomada e +15 s;
+  - relatório com 2 humanos e sem os bots.
+- **Regressão:** a partida completa do Incremento 1 (`web/scripts/live-smoke.mjs`) passou sem erros.
+
+Ajustes feitos durante a validação:
+- Quem entrava por último aparecia "offline" para o host até a próxima mudança de estado. Agora a presença gravada atualiza o snapshot do host.
+- A linha da gaveta de participantes espremia o nome ("A…"). Os controles foram para uma segunda linha.
 
 ## Desvios do plano
 

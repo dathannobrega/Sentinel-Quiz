@@ -267,7 +267,7 @@ function TimeBadge({ multiplier }: { multiplier: TimeMultiplier }) {
     return null;
   }
   return (
-    <span className="inline-flex h-5 items-center rounded-sm bg-primary-soft px-1.5 text-[0.6875rem] font-semibold text-primary">
+    <span className="inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-sm bg-primary-soft px-1.5 text-[0.6875rem] font-semibold text-primary">
       {multiplier === 0
         ? t("quizPresent.participants.timeUntimedBadge")
         : t("quizPresent.participants.timeBadge", { multiplier: new Intl.NumberFormat(locale).format(multiplier) })}
@@ -306,7 +306,7 @@ function TimeSelect({ person, disabled, onChange }: { person: HostParticipant; d
 function BotBadge() {
   const { t } = useI18n();
   return (
-    <span title={t("quizPresent.participants.botLabel")} className="inline-flex h-5 items-center gap-1 rounded-sm bg-surface-muted px-1.5 text-[0.6875rem] font-semibold text-fg-muted">
+    <span title={t("quizPresent.participants.botLabel")} className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-sm bg-surface-muted px-1.5 text-[0.6875rem] font-semibold text-fg-muted">
       <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3 fill-none stroke-current" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="5" width="10" height="8" rx="2" />
         <path d="M8 5V2.5M6 9h.01M10 9h.01" />
@@ -345,27 +345,32 @@ export function ParticipantsPanel({
         ) : (
           <ul className="flex flex-col divide-y divide-line">
             {sorted.map((person) => (
-              <li key={person.participant_id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
-                <Avatar seed={person.avatar_seed} size={32} />
-                <div className="min-w-0 flex-1">
-                  <p className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold text-fg">{person.display_name}</span>
-                    {person.is_bot ? <BotBadge /> : null}
-                    <TimeBadge multiplier={normalizeTimeMultiplier(person.time_multiplier)} />
-                  </p>
-                  <p className="flex items-center gap-1.5 text-xs text-fg-muted">
-                    <span aria-hidden="true" className={cn("size-2 rounded-full", person.connected ? "bg-success" : "bg-fg-subtle")} />
-                    {person.connected ? t("quizPresent.participants.online") : t("quizPresent.participants.offline")} ·{" "}
-                    {t("quizPresent.participants.score", { score: new Intl.NumberFormat(locale).format(person.score) })}
-                  </p>
+              <li key={person.participant_id} className="flex flex-col gap-2 py-2.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar seed={person.avatar_seed} size={32} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold text-fg">{person.display_name}</span>
+                      {person.is_bot ? <BotBadge /> : null}
+                      <TimeBadge multiplier={normalizeTimeMultiplier(person.time_multiplier)} />
+                    </p>
+                    <p className="flex items-center gap-1.5 text-xs text-fg-muted">
+                      <span aria-hidden="true" className={cn("size-2 rounded-full", person.connected ? "bg-success" : "bg-fg-subtle")} />
+                      {person.connected ? t("quizPresent.participants.online") : t("quizPresent.participants.offline")} ·{" "}
+                      {t("quizPresent.participants.score", { score: new Intl.NumberFormat(locale).format(person.score) })}
+                    </p>
+                  </div>
                 </div>
-                <TimeSelect person={person} disabled={!canSetTime} onChange={(multiplier) => onSetTime(person.participant_id, multiplier)} />
-                <Button size="sm" variant="ghost" onClick={() => setPending({ person, ban: false })}>
-                  {t("quizPresent.participants.kick")}
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => setPending({ person, ban: true })}>
-                  {t("quizPresent.participants.ban")}
-                </Button>
+                {/* Actions on their own line: the name never gets squeezed by the controls. */}
+                <div className="flex flex-wrap items-center gap-2 pl-11">
+                  <TimeSelect person={person} disabled={!canSetTime} onChange={(multiplier) => onSetTime(person.participant_id, multiplier)} />
+                  <Button size="sm" variant="ghost" onClick={() => setPending({ person, ban: false })}>
+                    {t("quizPresent.participants.kick")}
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => setPending({ person, ban: true })}>
+                    {t("quizPresent.participants.ban")}
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

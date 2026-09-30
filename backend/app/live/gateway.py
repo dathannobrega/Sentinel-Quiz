@@ -108,6 +108,7 @@ class RoomChannel:
         self.lobby_dirty = False
         self.lobby_sent_at = 0.0
         self.bots_task: asyncio.Task | None = None
+        self.presence_dirty = False
         self.lock_at_ms: int | None = None
         self.task: asyncio.Task | None = None
 
@@ -118,6 +119,9 @@ class RoomChannel:
             return
         if control == "lobby":
             self.lobby_dirty = True
+            return
+        if control == "presence":
+            self.presence_dirty = True
             return
         if control == "kick":
             pid = message.get("participant_id")
@@ -208,6 +212,14 @@ class RoomChannel:
             for conn in hosts:
                 conn.send(text)
 
+    async def refresh_hosts(self) -> None:
+        hosts = [c for c in self.connections if c.role == "host"]
+        if not hosts:
+            return
+        text = protocol.dumps(await run_in_threadpool(_snapshot, Identity(role="host", session_id=self.session_id)))
+        for conn in hosts:
+            conn.send(text)
+
     async def run(self) -> None:
         try:
             while self.connections:
@@ -221,6 +233,9 @@ class RoomChannel:
                     ticks = await run_in_threadpool(_with_db, runtime.results_tick, self.session_id)
                     for tick in ticks:
                         await self.deliver(tick)
+                if self.presence_dirty:
+                    self.presence_dirty = False
+                    await self.refresh_hosts()
                 if self.lobby_dirty and time.monotonic() - self.lobby_sent_at >= LOBBY_INTERVAL_S:
                     # Joins are coalesced: one lobby.update (and one host snapshot) per
                     # interval, not one per join (a 1,000-person join storm is O(N) frames).
@@ -362,9 +377,12 @@ class LiveHub:
             return
         seen, self._seen = list(self._seen), set()
         try:
-            await run_in_threadpool(_with_db, runtime.touch_participants, seen)
+            sessions = await run_in_threadpool(_with_db, runtime.touch_participants, seen)
         except Exception:
             logger.exception("live presence flush failed", extra={"event": "live_presence_error", "size": len(seen)})
+            return
+        for session_id in sessions:  # hosts see "online" without waiting for the next state change
+            await self.bus.publish(session_id, {"control": "presence"})
 
     async def _presence_loop(self) -> None:
         # One UPDATE every few seconds instead of a commit per heartbeat/connect.
