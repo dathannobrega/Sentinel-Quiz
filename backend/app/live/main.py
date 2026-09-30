@@ -20,6 +20,7 @@ from app.core.logging import configure_logging
 from app.live.bus import build_live_bus
 from app.live.gateway import LiveHub, router as live_ws_router
 from app.middleware.observability import ObservabilityMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware, build_rate_limit_store
 
 
 def create_live_app(app_settings: Settings | None = None) -> FastAPI:
@@ -27,6 +28,7 @@ def create_live_app(app_settings: Settings | None = None) -> FastAPI:
     configure_logging(app_settings)
     app_settings.validate_runtime()
     hub = LiveHub(build_live_bus(app_settings))
+    rate_limit_store = build_rate_limit_store(app_settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -34,12 +36,16 @@ def create_live_app(app_settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await rate_limit_store.close()
             await hub.close()
 
     app = FastAPI(title="Sentinel Arena Live", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.settings = app_settings
     app.state.live_hub = hub
+    app.state.rate_limit_store = rate_limit_store
     register_exception_handlers(app)
+    # Same buckets as the API (per room code / participant token, DC-22).
+    app.add_middleware(RateLimitMiddleware, settings=app_settings, store=rate_limit_store)
     app.add_middleware(ObservabilityMiddleware, settings=app_settings)
     app.include_router(live_ws_router)
     # Room lookup/join are the hot path when a QR code is shown to a big audience.

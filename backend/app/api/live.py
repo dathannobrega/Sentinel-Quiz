@@ -348,12 +348,13 @@ async def my_results(authorization: Optional[str] = Header(default=None)) -> dic
 @router.get("/metrics", include_in_schema=False)
 def live_metrics(request: Request, format: str = Query(default="prometheus", pattern="^(prometheus|json)$"),
                  authorization: Optional[str] = Header(default=None)) -> Any:
-    """RNF-1001. Bearer LIVE_METRICS_TOKEN, or loopback only when no token is configured."""
+    """RNF-1001. Bearer LIVE_METRICS_TOKEN. Without a token: loopback only, and never in
+    production (behind proxy headers the client address is only as good as the proxy)."""
     expected = str(settings.live_metrics_token or "")
     if expected:
         allowed = secrets.compare_digest(parse_bearer_token(authorization) or "", expected)
     else:
-        allowed = (request.client.host if request.client else "") in {"127.0.0.1", "::1"}
+        allowed = not settings.is_production() and (request.client.host if request.client else "") in {"127.0.0.1", "::1"}
     if not allowed:
         raise api_error(404, "not_found", "Not found.")
     if format == "json":

@@ -146,3 +146,67 @@ def test_participant_snapshot_hides_answer_key(live_on, login_client, make_clien
     revealed = runtime.snapshot(db, room, role="participant", participant_id=ana["participant_id"])
     assert revealed["reveal"]["correct_option_ids"] == []  # show_correct_on_device = false
     assert runtime.snapshot(db, room, role="host")["reveal"]["correct_option_ids"]
+
+
+def test_answer_batch_group_commit(live_on, login_client, make_client, db):
+    """One batch: duplicates, a second answer from the same person, a kicked participant,
+    ordering of results, and the all-answered lock attached to the last accepted answer."""
+    host, _ = login_client()
+    guest = make_client()
+    session = _session(host, settings_patch={"reading_phase_s": 0}, items=[SINGLE, SINGLE])
+    sid = session["id"]
+    ana = _join(guest, session["join_code"], "Ana")
+    bia = _join(guest, session["join_code"], "Bia")
+    caio = _join(guest, session["join_code"], "Caio")
+    runtime.kick(db, sid, participant_id=caio["participant_id"], ban=False)
+    t0 = utcnow()
+    runtime.start(db, sid, now=t0)
+    choice = _choice(db, sid, 0, "a")
+    same_id = str(uuid.uuid4())
+
+    def answer_in(who, answer_id=None, qi=0):
+        return runtime.AnswerIn(sid, who["participant_id"], answer_id or str(uuid.uuid4()), qi, choice=choice)
+
+    results = runtime.submit_answers(
+        db,
+        [
+            answer_in(ana, same_id),
+            answer_in(ana, same_id),  # retry of the same frame
+            answer_in(ana),  # a second answer from Ana
+            answer_in(caio),  # kicked
+            answer_in(bia, qi=1),  # not the open question
+            answer_in(bia),
+        ],
+        now=t0 + timedelta(seconds=1),
+    )
+    assert [r.status for r in results] == ["accepted", "duplicate", "already_answered", "closed", "closed", "accepted"]
+    # Everyone active answered: the lock rides on the last accepted answer only.
+    assert [b.type for b in results[5].outcome.broadcasts] == ["question.locked"]
+    assert all(not r.outcome.broadcasts for r in results[:5])
+    # A retry in a later batch is still a duplicate (idempotency across batches).
+    again = runtime.submit_answers(db, [answer_in(ana, same_id)], now=t0 + timedelta(seconds=2))
+    assert again[0].status == "duplicate"
+
+
+def test_standings_cache_tracks_answers_and_roster(live_on, login_client, make_client, db):
+    host, _ = login_client()
+    guest = make_client()
+    session = _session(host, settings_patch={"reading_phase_s": 0}, items=[SINGLE, SINGLE])
+    sid = session["id"]
+    ana = _join(guest, session["join_code"], "Ana")
+    bia = _join(guest, session["join_code"], "Bia")
+    runtime.start(db, sid)
+    runtime.submit_answer(
+        db, sid, participant_id=ana["participant_id"], answer_id=str(uuid.uuid4()), qi=0,
+        choice=_choice(db, sid, 0, "a"), text=None, client_elapsed_ms=None, rtt_min_ms=None,
+    )
+    runtime.lock(db, sid, expected_qi=0, reason="host")
+    room = runtime.load_room(db, sid)
+    first = runtime.standings(db, room, up_to=0)
+    assert runtime.standings(db, room, up_to=0) is first  # cached
+    assert [s.display_name for s in first] == ["Ana", "Bia"]
+    runtime.kick(db, sid, participant_id=bia["participant_id"], ban=False)
+    after_kick = runtime.standings(db, runtime.load_room(db, sid), up_to=0)
+    assert after_kick is not first and [s.display_name for s in after_kick] == ["Ana"]
+    _join(guest, session["join_code"], "Caio")
+    assert [s.display_name for s in runtime.standings(db, runtime.load_room(db, sid), up_to=0)] == ["Ana", "Caio"]

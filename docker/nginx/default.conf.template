@@ -105,6 +105,21 @@ server {
     proxy_send_timeout 75s;
   }
 
+  # Server-Sent Events fallback (RNF-309): same as the socket, never buffered.
+  location = /api/live/sse {
+    include /etc/nginx/snippets/api-security-headers.conf;
+    proxy_pass http://${NGINX_API_HOST}:${NGINX_API_PORT};
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 75s;
+    proxy_send_timeout 75s;
+  }
+
+  # Prometheus metrics are scraped inside the Docker network, never through nginx.
+  location = /api/live/metrics {
+    return 404;
+  }
+
   location /api/ {
     include /etc/nginx/snippets/api-security-headers.conf;
     proxy_pass http://${NGINX_API_HOST}:${NGINX_API_PORT};
