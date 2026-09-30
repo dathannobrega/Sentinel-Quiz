@@ -81,6 +81,20 @@ PT_EN_GLOSSARY: dict[str, str] = {
     "aceitar": "accept acceptance", "evitar": "avoid avoidance", "mitigar": "mitigate mitigation", "seguro": "insurance",
     "governanca": "governance", "diretor": "executive", "executivo": "executive", "funcionario": "employee",
     "usuario": "user", "usuarios": "users", "conta": "account", "contas": "accounts", "zero": "zero", "confianca": "trust",
+    "captura": "capture", "capturar": "capture", "completa": "full complete", "completo": "full complete",
+    "monitorar": "monitor monitoring", "investigacao": "investigation", "investigacoes": "investigations",
+    "descriptografia": "decryption", "descriptografar": "decrypt decryption", "sensor": "sensor", "sensores": "sensors",
+    "sub-rede": "subnet", "subrede": "subnet", "segmento": "segment", "isolamento": "isolation", "isolar": "isolate",
+    "varrer": "scan", "escaneamento": "scanning", "coleta": "collection", "coletar": "collect", "armazenamento": "storage",
+    "criptografado": "encrypted", "criptografada": "encrypted", "assinada": "signed", "assinado": "signed",
+    "senha-unica": "one-time password", "unica": "single one-time", "descoberta": "discovery", "inventario": "inventory",
+    "ativo": "asset", "ativos": "assets", "credencial": "credential", "credenciais": "credentials", "phishing": "phishing",
+    "falsificacao": "spoofing forgery", "envenenamento": "poisoning", "repeticao": "replay", "escalonamento": "escalation",
+    "elevacao": "escalation elevation", "persistencia": "persistence", "exfiltracao": "exfiltration", "vazamento": "leak leakage",
+    "perda": "loss", "redundancia": "redundancy", "balanceamento": "balancing", "carga": "load", "alta": "high",
+    "disponivel": "available", "replicacao": "replication", "local": "site", "sitio": "site", "quente": "hot", "frio": "cold",
+    "morno": "warm", "nivel": "level", "servidor": "server", "servidores": "servers", "cliente": "client", "navegador": "browser",
+    "pagina": "page", "entrada": "input", "validacao": "validation", "saida": "output", "codificacao": "encoding",
 }
 
 # Security+ and CISSP domain names as used in the question banks → domain number.
@@ -119,15 +133,24 @@ def fold(text: str) -> str:
     return "".join(char for char in normalized if not unicodedata.combining(char))
 
 
+def singular(token: str) -> str:
+    """Light plural folding so "packets"/"captures" match "packet"/"capture" (index and queries)."""
+    if len(token) > 4 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
+
+
 def tokenize(text: str) -> list[str]:
     tokens: list[str] = []
     for token in _TOKEN.findall(fold(text)):
         if token in STOPWORDS or len(token) < 2:
             continue
-        tokens.append(token)
         translated = PT_EN_GLOSSARY.get(token)
+        tokens.append(singular(token))
         if translated:
-            tokens.extend(translated.split())
+            tokens.extend(singular(word) for word in translated.split())
     return tokens
 
 
@@ -300,12 +323,28 @@ class QuestionLinker:
         justification = " ".join(str(question.justification or "").split()[:120])
         query = _query(
             (question.prompt, 1.0),
-            (correct_text, 2.0),
+            (correct_text, 3.0),
             (_english_hints(question.prompt + " " + correct_text), 2.0),
             (justification, 1.0),
             (match_terms, 0.5),
         )
         ranked = self._rank(index, query, priors)
+        # The section a student needs explains the *correct answer's* concept: among the top
+        # candidates, favour headings that name it (strong) or text that covers it (mild).
+        # Only words the books actually use: Portuguese-only words can never match English text.
+        answer_concept = {token for token in _concept_tokens(correct_text + " " + _english_hints(correct_text)) if token in index.idf}
+        if answer_concept:
+            def answer_bonus(section: CorpusSection) -> float:
+                heading = set(tokenize(section.title))
+                named = len(answer_concept & heading)
+                # A heading naming two of the answer's words (or half of them) is strong evidence.
+                if named >= min(2, len(answer_concept)) or named / len(answer_concept) >= OPTION_TITLE_OVERLAP:
+                    return 1.8
+                text = set(tokenize(section.text))
+                return 1.15 if len(answer_concept & text) / len(answer_concept) >= OPTION_TITLE_OVERLAP else 1.0
+
+            head = [(section, score * answer_bonus(section)) for section, score in ranked[:30]]
+            ranked = sorted(head, key=lambda item: item[1], reverse=True) + ranked[30:]
 
         chosen: list[tuple[str, float]] = []
         per_book: Counter[str] = Counter()
