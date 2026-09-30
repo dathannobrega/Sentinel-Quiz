@@ -32,8 +32,10 @@ from app.schemas_live import (
     QuizUpdateIn,
     RejoinIn,
     ReorderIn,
+    ReviewIn,
     SessionCreateIn,
 )
+from app.schemas_ai import BankSampleIn
 from app.services import live_names, live_quiz, live_results, live_session
 from app.services.auth import parse_bearer_token
 
@@ -149,8 +151,10 @@ def delete_item(
 
 
 @router.post("/quizzes/{quiz_id}/items/{item_id}/review")
-def review_item(quiz_id: str, item_id: str, body: ExpectedVersionIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
-    quiz = live_quiz.mark_item_reviewed(db, user, quiz_id, item_id, expected_version=body.expected_version)
+def review_item(quiz_id: str, item_id: str, body: ReviewIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    quiz = live_quiz.mark_item_reviewed(
+        db, user, quiz_id, item_id, expected_version=body.expected_version, confirm_key=body.confirm_key
+    )
     return live_quiz.serialize_detail(db, quiz)
 
 
@@ -181,6 +185,16 @@ def bank_search(
     return live_quiz.bank_search(
         db, q=q, certification=certification, domain=domain, difficulty=difficulty,
         only_guest_eligible=only_guest_eligible, limit=limit, offset=offset,
+    )
+
+
+@router.post("/bank/sample")
+def bank_sample(body: BankSampleIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    if body.exclude_quiz_id:
+        live_quiz.get_owned_quiz(db, user, body.exclude_quiz_id)
+    return live_quiz.bank_sample(
+        db, certification=body.certification, domains=body.domains, difficulty=body.difficulty, n=body.n,
+        strategy=body.strategy, only_guest_eligible=body.only_guest_eligible, exclude_quiz_id=body.exclude_quiz_id,
     )
 
 

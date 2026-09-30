@@ -28,6 +28,9 @@ services:
       # Sentinel Arena on for every signed-in user in development.
       APP_LIVE_ENABLED: ${APP_LIVE_ENABLED:-true}
       APP_LIVE_HOST_POLICY: ${APP_LIVE_HOST_POLICY:-all}
+      # AI authoring on in development; set APP_GEMINI_API_KEY for real generation or
+      # APP_AI_PROVIDER=fake for the deterministic offline provider.
+      APP_AI_AUTHORING_ENABLED: ${APP_AI_AUTHORING_ENABLED:-true}
     volumes:
       # Live-edit the question bank without rebuilding.
       - ./questions:/questions:ro

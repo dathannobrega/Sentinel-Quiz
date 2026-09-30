@@ -150,6 +150,29 @@ class Settings(BaseSettings):
     live_allowed_origins: str = Field(default="", alias="LIVE_ALLOWED_ORIGINS")
     live_consent_version: str = Field(default="2026-10", alias="LIVE_CONSENT_VERSION")
 
+    # Sentinel Arena AI authoring (docs/live-quiz/CONTRATO-INCREMENTO-2.md §5).
+    ai_authoring_enabled: bool = Field(default=False, alias="AI_AUTHORING_ENABLED")
+    # gemini | fake (deterministic, development/tests only).
+    ai_provider: str = Field(default="gemini", alias="AI_PROVIDER")
+    ai_authoring_model: str = Field(default="", alias="AI_AUTHORING_MODEL")  # empty => GEMINI_MODEL
+    ai_critic_model: str = Field(default="", alias="AI_CRITIC_MODEL")  # empty => authoring model
+    ai_critic_enabled: bool = Field(default=True, alias="AI_CRITIC_ENABLED")
+    ai_authoring_max_output_tokens: int = Field(default=8192, alias="AI_AUTHORING_MAX_OUTPUT_TOKENS")
+    ai_authoring_timeout_seconds: float = Field(default=90.0, alias="AI_AUTHORING_TIMEOUT_SECONDS")
+    ai_daily_quota_credits: float = Field(default=300.0, alias="AI_DAILY_QUOTA_CREDITS")
+    ai_max_concurrent_jobs: int = Field(default=2, alias="AI_MAX_CONCURRENT_JOBS")
+    # thread (in the API process) | worker (separate `ai-worker` process, SKIP LOCKED queue).
+    ai_job_runner: str = Field(default="thread", alias="AI_JOB_RUNNER")
+    ai_job_stale_minutes: int = Field(default=10, alias="AI_JOB_STALE_MINUTES")
+    rate_limit_ai_requests: int = Field(default=6, alias="RATE_LIMIT_AI_REQUESTS")
+    rate_limit_ai_window_seconds: int = Field(default=60, alias="RATE_LIMIT_AI_WINDOW_SECONDS")
+
+    def effective_ai_model(self) -> str:
+        return str(self.ai_authoring_model or self.gemini_model or "").strip()
+
+    def effective_ai_critic_model(self) -> str:
+        return str(self.ai_critic_model or self.effective_ai_model()).strip()
+
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
@@ -234,6 +257,13 @@ class Settings(BaseSettings):
             problems.append("LIVE_BUS_BACKEND=redis requires LIVE_REDIS_URL (or REDIS_URL).")
         if not 6 <= int(self.live_join_code_length or 0) <= 8:
             problems.append("LIVE_JOIN_CODE_LENGTH must be between 6 and 8.")
+        provider = str(self.ai_provider or "").strip().lower()
+        if provider not in {"gemini", "fake"}:
+            problems.append("AI_PROVIDER must be one of: gemini, fake.")
+        if str(self.ai_job_runner or "").strip().lower() not in {"thread", "worker"}:
+            problems.append("AI_JOB_RUNNER must be one of: thread, worker.")
+        if self.ai_authoring_enabled and self.is_production() and provider == "fake":
+            problems.append("AI_PROVIDER=fake is for development/tests only.")
         if self.live_enabled and self.is_production():
             from app.services.live_tokens import parse_token_keys  # local: avoids an import cycle
 

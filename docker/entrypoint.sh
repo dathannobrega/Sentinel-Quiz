@@ -7,6 +7,7 @@
 #              -> uvicorn with proxy headers and UVICORN_WORKERS workers.
 #   migrate    only run `alembic upgrade head` and exit (one-shot job).
 #   ingest     only run the question ingestion once and exit.
+#   ai-worker  Sentinel Arena AI job worker (AI_JOB_RUNNER=worker).
 #   uvicorn …  legacy form: migrations (if enabled) then exec the given command.
 #   anything else is exec'd as-is (e.g. `sh`, `alembic current`).
 #
@@ -188,6 +189,10 @@ case "${command}" in
     ;;
   ingest)
     run_ingest
+    ;;
+  ai-worker)
+    # Sentinel Arena AI jobs (AI_JOB_RUNNER=worker): claims queued jobs with SKIP LOCKED.
+    exec python -m app.services.ai_authoring.worker
     ;;
   uvicorn)
     if is_true "${RUN_DB_MIGRATIONS}"; then
