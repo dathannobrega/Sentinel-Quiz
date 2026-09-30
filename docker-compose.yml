@@ -1,12 +1,16 @@
-# Sentinel Quiz — LOCAL / DEVELOPMENT stack (builds images from source).
-# For Portainer / production use docker-compose.portainer.yml.
+# Sentinel Quiz — BASE stack: everything shared by development and production.
+# Not runnable on its own (the app services have no image here): combine it with
+# one environment file. COMPOSE_FILE in .env picks it, so plain `docker compose`
+# commands work:
 #
-#   cp .env.docker.example .env   # optional; every value below has a default
-#   docker compose up --build -d
-#   open https://localhost
+#   development  COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+#                docker compose up --build -d          (builds :local from source)
+#   production   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#                docker compose pull && docker compose up -d   (GHCR images)
 #
-# Defaults marked "DEV ONLY" (e.g. the postgres password) are convenient for a
-# laptop and are rejected by the API when APP_ENV=production.
+# or pass the files explicitly: docker compose -f docker-compose.yml -f docker-compose.prod.yml ...
+# Portainer (single-file web editor): docker-compose.portainer.yml, kept equivalent
+# to base + prod by scripts/check_compose.sh (CI).
 
 x-logging: &default-logging
   driver: json-file
@@ -21,7 +25,6 @@ services:
     environment:
       POSTGRES_DB: ${APP_POSTGRES_DB:-sentinel_quiz}
       POSTGRES_USER: ${APP_POSTGRES_USER:-sentinel}
-      POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:-sentinel} # DEV ONLY default
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -62,10 +65,6 @@ services:
 
   api:
     container_name: ${APP_CONTAINER_NAME:-sentinel-quiz}
-    image: sentinel-quiz:local
-    build:
-      context: .
-      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -79,11 +78,9 @@ services:
       # Every APP_<NAME> is exported as <NAME> by docker/entrypoint.sh.
       # Empty value = backend default. See README "Variáveis de ambiente".
       # --- runtime / schema ---
-      APP_ENV: ${APP_ENV:-development}
       APP_ENFORCE_PRODUCTION_SAFETY: ${APP_ENFORCE_PRODUCTION_SAFETY:-true}
       APP_RUN_DB_MIGRATIONS: ${APP_RUN_DB_MIGRATIONS:-true}
       APP_BOOTSTRAP_SCHEMA: ${APP_BOOTSTRAP_SCHEMA:-false}
-      APP_INGEST_ON_STARTUP: ${APP_INGEST_ON_STARTUP:-true}
       APP_STUDY_TRACK_DIR: ${APP_STUDY_TRACK_DIR:-}
       APP_EXPOSE_API_DOCS: ${APP_EXPOSE_API_DOCS:-}
       APP_UVICORN_WORKERS: ${APP_UVICORN_WORKERS:-2}
@@ -102,15 +99,12 @@ services:
       APP_POSTGRES_PORT: "5432"
       APP_POSTGRES_DB: ${APP_POSTGRES_DB:-sentinel_quiz}
       APP_POSTGRES_USER: ${APP_POSTGRES_USER:-sentinel}
-      APP_POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:-sentinel} # DEV ONLY default
       APP_DB_POOL_SIZE: ${APP_DB_POOL_SIZE:-}
       APP_DB_MAX_OVERFLOW: ${APP_DB_MAX_OVERFLOW:-}
       APP_DB_POOL_TIMEOUT: ${APP_DB_POOL_TIMEOUT:-}
       APP_DB_POOL_PRE_PING: ${APP_DB_POOL_PRE_PING:-}
       # --- web origin / CORS / cookies ---
-      APP_NGINX_HOST: ${APP_NGINX_HOST:-localhost}
       APP_PUBLIC_WEB_ORIGIN: ${APP_PUBLIC_WEB_ORIGIN:-}
-      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-https://${APP_NGINX_HOST:-localhost}}
       APP_AUTH_TOKEN_TTL_HOURS: ${APP_AUTH_TOKEN_TTL_HOURS:-}
       APP_AUTH_TOKEN_BYTES: ${APP_AUTH_TOKEN_BYTES:-}
       APP_AUTH_COOKIE_NAME: ${APP_AUTH_COOKIE_NAME:-}
@@ -168,11 +162,6 @@ services:
       APP_GEMINI_RETRY_ON_SHORT: ${APP_GEMINI_RETRY_ON_SHORT:-}
       APP_GEMINI_CANDIDATE_COUNT: ${APP_GEMINI_CANDIDATE_COUNT:-}
       APP_TUTOR_DAILY_QUOTA: ${APP_TUTOR_DAILY_QUOTA:-}
-    volumes:
-      # Live-edit the question bank without rebuilding.
-      - ./questions:/questions:ro
-      # Licensed EPUBs stay on the host (git-ignored, not in the image).
-      - ./material:/app/material:ro
     networks:
       - edge
       - data
@@ -185,10 +174,6 @@ services:
 
   web:
     container_name: ${APP_WEB_CONTAINER_NAME:-sentinel-quiz-web}
-    image: sentinel-quiz-web:local
-    build:
-      context: ./web
-      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       api:
@@ -218,10 +203,6 @@ services:
 
   proxy:
     container_name: ${APP_NGINX_CONTAINER_NAME:-sentinel-quiz-proxy}
-    image: sentinel-quiz-proxy:local
-    build:
-      context: ./docker/nginx
-      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       api:
@@ -232,7 +213,6 @@ services:
       - "${APP_HTTP_PORT:-80}:80"
       - "${APP_HTTPS_PORT:-443}:443"
     environment:
-      NGINX_SERVER_NAME: ${APP_NGINX_HOST:-localhost}
       NGINX_SERVER_ALT_NAMES: ${APP_NGINX_ALT_NAMES:-}
       NGINX_TLS_MODE: ${APP_TLS_MODE:-self-signed}
       NGINX_SSL_CERTIFICATE: ${APP_TLS_CERTIFICATE:-/etc/nginx/certs/server.crt}

@@ -1,0 +1,46 @@
+# Sentinel Quiz — DEVELOPMENT overrides (use with docker-compose.yml).
+# Builds the app images from source (:local tags) and bind-mounts the question
+# bank and the licensed material from this checkout.
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml   # in .env (the example's default)
+#   docker compose up --build -d
+#   open https://localhost
+#
+# Defaults marked "DEV ONLY" (e.g. the postgres password) are convenient for a
+# laptop and are rejected by the API when APP_ENV=production.
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:-sentinel} # DEV ONLY default
+
+  api:
+    image: sentinel-quiz:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_INGEST_ON_STARTUP: ${APP_INGEST_ON_STARTUP:-true}
+      APP_POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:-sentinel} # DEV ONLY default
+      APP_NGINX_HOST: ${APP_NGINX_HOST:-localhost}
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-https://${APP_NGINX_HOST:-localhost}}
+    volumes:
+      # Live-edit the question bank without rebuilding.
+      - ./questions:/questions:ro
+      # Licensed books stay on the host (git-ignored, not in the image).
+      - ./material:/app/material:ro
+
+  web:
+    image: sentinel-quiz-web:local
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+
+  proxy:
+    image: sentinel-quiz-proxy:local
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    environment:
+      NGINX_SERVER_NAME: ${APP_NGINX_HOST:-localhost}

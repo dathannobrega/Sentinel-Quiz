@@ -108,6 +108,9 @@ jobs:
       - name: Validate external sources registry
         run: python -m scripts.question_sources list
 
+      - name: Validate compose stacks (portainer == base + prod)
+        run: scripts/check_compose.sh
+
   web-checks:
     name: web-checks
     runs-on: ubuntu-latest
