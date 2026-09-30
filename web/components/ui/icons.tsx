@@ -52,6 +52,27 @@ export const ChevronDownIcon = (p: IconProps) => (
     <path d="M3.5 6l4.5 4.5L12.5 6" />
   </svg>
 );
+export const ChevronUpIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3.5 10L8 5.5l4.5 4.5" />
+  </svg>
+);
+export const ArrowRightIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3 8h10M9 4l4 4-4 4" />
+  </svg>
+);
+/** Drag handle: two columns of dots (filled, so it reads at small sizes). */
+export const GripIcon = (p: IconProps) => (
+  <svg {...base(p)} stroke="none" fill="currentColor">
+    <circle cx="6" cy="4" r="1.1" />
+    <circle cx="10" cy="4" r="1.1" />
+    <circle cx="6" cy="8" r="1.1" />
+    <circle cx="10" cy="8" r="1.1" />
+    <circle cx="6" cy="12" r="1.1" />
+    <circle cx="10" cy="12" r="1.1" />
+  </svg>
+);
 export const ArrowLeftIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M13 8H3M7 4L3 8l4 4" />

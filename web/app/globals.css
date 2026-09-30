@@ -101,3 +101,20 @@
     transform: translateX(-100%);
   }
 }
+
+/* Scale-only "landing" for counters and marks (transform only, same legibility rule as rise-in). */
+@keyframes pop-in {
+  from {
+    transform: scale(0.85);
+  }
+  60% {
+    transform: scale(1.06);
+  }
+}
+
+/* Progress fill grows from the left. */
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}

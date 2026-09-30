@@ -66,7 +66,7 @@ export function PbqSelectInExhibitTask({ task, value, onChange, disabled, soluti
             }
           }
           return (
-            <li key={line.id} className={cn(pbq.line, checked && pbq.lineSelected)}>
+            <li key={line.id} className={cn(pbq.line, pbq.lineTone[checked ? "selected" : "idle"])}>
               <input
                 id={inputId}
                 type={single ? "radio" : "checkbox"}

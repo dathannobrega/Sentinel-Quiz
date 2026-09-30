@@ -2,8 +2,15 @@
 
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 
-import { PbqItemExplanation, PbqMark, pbqStyles as pbq, type PbqTaskProps } from "@/features/session-runner/components/pbq/pbq-shared";
-import { buttonClassName } from "@/components/ui/button";
+import {
+  PbqItemExplanation,
+  PbqMark,
+  cardTone,
+  pbqStyles as pbq,
+  useFlip,
+  type PbqTaskProps
+} from "@/features/session-runner/components/pbq/pbq-shared";
+import { ChevronDownIcon, ChevronUpIcon, GripIcon } from "@/components/ui/icons";
 import { moveItem } from "@/features/session-runner/lib/pbq-utils";
 import { cn } from "@/lib/utils/cn";
 import type { PbqOrderingResponse, PbqOrderingTask } from "@/types/api";
@@ -33,6 +40,8 @@ export function PbqOrderingTask({
   const pendingFocus = useRef<{ id: string; direction: Direction } | null>(null);
   const dragId = useRef<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const flip = useFlip<HTMLLIElement>(order);
 
   // Keep focus on the moved item's button; fall back to the other one when it becomes disabled.
   useEffect(() => {
@@ -52,6 +61,7 @@ export function PbqOrderingTask({
     if (next.join("|") === order.join("|")) {
       return;
     }
+    flip.capture();
     onChange(
       next,
       t("pbq.ordering.moved", {
@@ -89,6 +99,11 @@ export function PbqOrderingTask({
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
     }
+    requestAnimationFrame(() => {
+      if (dragId.current === id) {
+        setDragging(id);
+      }
+    });
   }
 
   function handleDragOver(event: DragEvent<HTMLLIElement>, index: number) {
@@ -106,6 +121,7 @@ export function PbqOrderingTask({
     const id = dragId.current ?? event.dataTransfer?.getData("text/plain") ?? null;
     dragId.current = null;
     setDropIndex(null);
+    setDragging(null);
     if (id && !disabled) {
       commitMove(id, index);
     }
@@ -114,7 +130,10 @@ export function PbqOrderingTask({
   function handleDragEnd() {
     dragId.current = null;
     setDropIndex(null);
+    setDragging(null);
   }
+
+  const draggingIndex = dragging ? order.indexOf(dragging) : -1;
 
   return (
     <div className={pbq.taskBody}>
@@ -124,13 +143,20 @@ export function PbqOrderingTask({
           const text = textById.get(id) ?? id;
           const expectedPosition = expectedOrder ? expectedOrder.indexOf(id) + 1 : 0;
           const isRightPlace = expectedOrder ? expectedOrder[index] === id : false;
+          const isDropTarget = dropIndex === index && draggingIndex !== -1 && draggingIndex !== index;
           return (
             <li
               key={id}
+              ref={flip.register(id)}
               className={cn(
                 pbq.orderItem,
                 !disabled && pbq.draggable,
-                dropIndex === index && pbq.dropTarget
+                cardTone({
+                  disabled,
+                  verdict: expectedOrder ? isRightPlace : null,
+                  dragging: dragging === id,
+                  target: isDropTarget
+                })
               )}
               draggable={!disabled}
               onDragStart={(event) => handleDragStart(event, id)}
@@ -139,7 +165,14 @@ export function PbqOrderingTask({
               onDragEnd={handleDragEnd}
               data-testid={`pbq-order-item-${id}`}
             >
-              <span className={pbq.orderPosition} aria-hidden="true">
+              {!disabled ? <GripIcon className={pbq.grip} /> : null}
+              <span
+                className={cn(
+                  pbq.orderPosition,
+                  pbq.orderPositionTone[expectedOrder ? (isRightPlace ? "correct" : "wrong") : "pending"]
+                )}
+                aria-hidden="true"
+              >
                 {index + 1}
               </span>
               <div className={pbq.orderText}>
@@ -162,28 +195,28 @@ export function PbqOrderingTask({
                     ref={(node) => {
                       buttonRefs.current.set(`${id}:up`, node);
                     }}
-                    className={buttonClassName("secondary", "sm")}
+                    className={pbq.orderButton}
                     aria-label={t("pbq.ordering.moveUp", { item: text })}
+                    title={t("pbq.ordering.moveUpShort")}
                     disabled={index === 0}
                     onClick={() => move(id, "up")}
                     onKeyDown={(event) => handleKeyDown(event, id)}
                   >
-                    <span aria-hidden="true">↑ </span>
-                    {t("pbq.ordering.moveUpShort")}
+                    <ChevronUpIcon />
                   </button>
                   <button
                     type="button"
                     ref={(node) => {
                       buttonRefs.current.set(`${id}:down`, node);
                     }}
-                    className={buttonClassName("secondary", "sm")}
+                    className={pbq.orderButton}
                     aria-label={t("pbq.ordering.moveDown", { item: text })}
+                    title={t("pbq.ordering.moveDownShort")}
                     disabled={index === total - 1}
                     onClick={() => move(id, "down")}
                     onKeyDown={(event) => handleKeyDown(event, id)}
                   >
-                    <span aria-hidden="true">↓ </span>
-                    {t("pbq.ordering.moveDownShort")}
+                    <ChevronDownIcon />
                   </button>
                 </div>
               ) : null}

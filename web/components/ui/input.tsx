@@ -12,6 +12,9 @@ const control =
 export const inputClassName = cn(control, "h-10");
 export const textareaClassName = cn(control, "min-h-24 py-2 leading-relaxed");
 export const selectClassName = cn(control, "select-chevron h-10");
+/** Compact variants (dense grids such as PBQ tables and bucket cards). */
+export const inputSmClassName = cn(control, "h-9");
+export const selectSmClassName = cn(control, "select-chevron h-9");
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
   { className, ...props },
