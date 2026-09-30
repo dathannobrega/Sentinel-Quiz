@@ -12,6 +12,10 @@ import { ArrowLeftIcon, CircleCheckIcon, SettingsIcon } from "@/components/ui/ic
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CapabilityGate } from "@/features/quiz-builder/components/capability-gate";
+import { AiEmptyState } from "@/features/quiz-builder/components/ai/ai-empty-state";
+import { AiGenerateDialog, type AiDialogTab } from "@/features/quiz-builder/components/ai/ai-generate-dialog";
+import { ItemAiPanel } from "@/features/quiz-builder/components/ai/ai-item-panel";
+import { AiButton } from "@/features/quiz-builder/components/ai/ai-shared";
 import { BankPickerDialog } from "@/features/quiz-builder/components/editor/bank-picker-dialog";
 import { ItemProperties } from "@/features/quiz-builder/components/editor/item-properties";
 import { PublishDialog } from "@/features/quiz-builder/components/editor/publish-dialog";
@@ -20,7 +24,7 @@ import { SaveStatus } from "@/features/quiz-builder/components/editor/save-statu
 import { SettingsDrawer } from "@/features/quiz-builder/components/editor/settings-drawer";
 import { StagePreview } from "@/features/quiz-builder/components/editor/stage-preview";
 import { TypePickerDialog } from "@/features/quiz-builder/components/editor/type-picker-dialog";
-import { PresentIcon, UploadIcon } from "@/features/quiz-builder/components/icons";
+import { PresentIcon, SparklesIcon, UploadIcon } from "@/features/quiz-builder/components/icons";
 import { StartSessionDialog } from "@/features/quiz-builder/components/start-session-dialog";
 import { QUIZ_KEY, useEditorAutosave, type QuizPatch } from "@/features/quiz-builder/hooks/use-editor-autosave";
 import {
@@ -31,18 +35,21 @@ import {
   scoredItemCount,
   validateItem
 } from "@/features/quiz-builder/lib/items";
+import { AI_ITEM_TYPES, clampPct, isAiItemType, isJobActive, resolveAiUnavailable } from "@/features/quiz-builder/lib/ai";
 import { CHAR_LIMITS, charLength } from "@/features/quiz-builder/lib/limits";
 import { ApiError, readErrorMessage } from "@/lib/api/client";
 import {
   addLiveItemsFromBank,
   createLiveItem,
   deleteLiveItem,
+  isConfirmKeyRequired,
   isVersionConflict,
   publishLiveQuiz,
   reorderLiveItems,
   reviewLiveItem
 } from "@/lib/api/live-authoring";
 import { useI18n } from "@/lib/i18n";
+import { useAiCapabilities, useAiJob, useApplyAiJob } from "@/lib/query/ai-hooks";
 import { liveKeys, useLiveQuiz, useQuizMutator } from "@/lib/query/live-hooks";
 import { cn } from "@/lib/utils/cn";
 import type { LiveCapabilities, LiveItem, LiveItemType, LiveItemWrite, LiveQuizDetail } from "@/types/api";
@@ -55,7 +62,7 @@ export function QuizEditorShell({ quizId }: { quizId: string }) {
   );
 }
 
-type Dialogs = "type" | "bank" | "settings" | "publish" | "present" | null;
+type Dialogs = "type" | "bank" | "ai" | "settings" | "publish" | "present" | null;
 
 function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: LiveCapabilities }) {
   const { t } = useI18n();
@@ -68,8 +75,17 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
   const [deleteTarget, setDeleteTarget] = useState<LiveItem | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  // AI authoring (Incremento 2): the generation shown in the dialog and one improvement per item.
+  const [aiTab, setAiTab] = useState<AiDialogTab>("topic");
+  const [aiJobId, setAiJobId] = useState<string | null>(null);
+  const [improveJobs, setImproveJobs] = useState<Record<string, string>>({});
 
   const server = quizQuery.data;
+  const canEdit = Boolean(server?.can_edit);
+  const aiCapabilities = useAiCapabilities({ enabled: canEdit });
+  const aiUnavailable = resolveAiUnavailable(aiCapabilities.data, aiCapabilities.error);
+  const trackedJob = useAiJob(aiJobId).data;
+  const applyAi = useApplyAiJob(quizId, mutator, { beforeApply: () => autosave.saver.flush() });
 
   // What the editor renders: server state ⊕ in-flight ⊕ pending patches (typing never waits).
   const quiz: LiveQuizDetail | undefined = useMemo(() => {
@@ -108,6 +124,10 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
   const reportError = useCallback(
     (error: unknown) => {
       if (isVersionConflict(error)) return; // handled by the conflict banner
+      if (isConfirmKeyRequired(error)) {
+        setNotice(t("quizAi.keyConfirm.required"));
+        return;
+      }
       setNotice(t("quizBuilder.editor.mutationError", { message: readErrorMessage(error, t("quizBuilder.library.actionError")) }));
     },
     [t]
@@ -195,10 +215,11 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
     }
   }
 
-  async function reviewItem(item: LiveItem) {
+  async function reviewItem(item: LiveItem, confirmKey: boolean) {
     setReviewingId(item.id);
+    setNotice(null);
     try {
-      await flushThen(() => mutator.run((version) => reviewLiveItem(quizId, item.id, version)));
+      await flushThen(() => mutator.run((version) => reviewLiveItem(quizId, item.id, version, { confirmKey })));
     } catch (error) {
       reportError(error);
     } finally {
@@ -221,6 +242,39 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
     },
     [flushThen, mutator, queryClient, quizId]
   );
+
+  // ---- AI ----------------------------------------------------------------
+
+  const openAi = useCallback((tab: AiDialogTab = "topic") => {
+    setAiTab(tab);
+    setDialog("ai");
+  }, []);
+
+  /** Adds generated drafts through the serialized mutator; resolves with the created item ids. */
+  const applyDrafts = useCallback(
+    async (jobId: string, indexes: number[], force: boolean) => {
+      const before = new Set((queryClient.getQueryData<LiveQuizDetail>(liveKeys.quiz(quizId))?.items ?? []).map((item) => item.id));
+      const detail = await applyAi.mutateAsync({ jobId, indexes, force });
+      return detail.items.filter((item) => !before.has(item.id)).map((item) => item.id);
+    },
+    [applyAi, queryClient, quizId]
+  );
+
+  const applyImprovement = useCallback(
+    async (jobId: string) => {
+      await applyAi.mutateAsync({ jobId, indexes: [0] });
+    },
+    [applyAi]
+  );
+
+  const setImproveJob = useCallback((itemId: string, jobId: string | null) => {
+    setImproveJobs((current) => {
+      const next = { ...current };
+      if (jobId) next[itemId] = jobId;
+      else delete next[itemId];
+      return next;
+    });
+  }, []);
 
   const publish = useCallback(
     () =>
@@ -264,6 +318,9 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
   }
 
   const conflict = autosave.snapshot.status === "conflict" || mutator.conflict;
+  const aiItemTypes = AI_ITEM_TYPES.filter((type) => capabilities.item_types.includes(type));
+  const capacity = Math.max(0, capabilities.limits.max_items - items.length);
+  const aiRunning = trackedJob && isJobActive(trackedJob.status) ? trackedJob : null;
   const hasPendingEdits = Object.keys(autosave.snapshot.pending).length > 0;
   const titleTooLong = charLength(quiz.title) > CHAR_LIMITS.title.max;
 
@@ -301,6 +358,17 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {!readOnly ? (
+              <AiButton onClick={() => openAi(aiUnavailable ? "bank" : "topic")} aria-describedby={aiRunning ? "ai-header-progress" : undefined}>
+                <SparklesIcon className={aiRunning ? "motion-safe:animate-[pulse-soft_1.2s_ease-in-out_infinite]" : undefined} />
+                {aiRunning ? t("quizAi.entry.running") : t("quizAi.entry.generate")}
+                {aiRunning ? (
+                  <span id="ai-header-progress" className="nums rounded-sm bg-primary-soft px-1.5 font-mono text-xs">
+                    {clampPct(aiRunning.progress?.pct)}%
+                  </span>
+                ) : null}
+              </AiButton>
+            ) : null}
             <Button variant="ghost" onClick={() => setDialog("settings")}>
               <SettingsIcon />
               {t("quizBuilder.editor.settings")}
@@ -395,13 +463,23 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
             onMove={(from, to) => void flushThen(() => moveItem(from, to))}
             onAdd={() => setDialog("type")}
             onAddFromBank={() => setDialog("bank")}
+            onGenerateAi={readOnly ? undefined : () => openAi(aiUnavailable ? "bank" : "topic")}
             onDuplicate={(item) => void duplicateItem(item)}
             onDelete={setDeleteTarget}
           />
         </div>
 
         <section className="min-w-0 xl:sticky xl:top-4">
-          <StagePreview item={selected} themeKey={quiz.theme_key} position={selectedIndex + 1} total={items.length} />
+          {items.length === 0 && !readOnly ? (
+            <AiEmptyState
+              aiAvailable={!aiUnavailable}
+              onGenerate={() => openAi(aiUnavailable ? "bank" : "topic")}
+              onAdd={() => setDialog("type")}
+              onBank={() => setDialog("bank")}
+            />
+          ) : (
+            <StagePreview item={selected} themeKey={quiz.theme_key} position={selectedIndex + 1} total={items.length} />
+          )}
         </section>
 
         <aside
@@ -421,7 +499,23 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
               readOnly={readOnly}
               reviewing={reviewingId === selected.id}
               onPatch={(patch) => autosave.scheduleItem(selected.id, patch)}
-              onReview={() => void reviewItem(selected)}
+              onReview={(confirmKey) => void reviewItem(selected, confirmKey)}
+              // Deterministic and free: only needs /api/ai to be on (not credits).
+              suggestTime={!readOnly && aiCapabilities.data?.enabled === true}
+              aiPanel={
+                !readOnly && isAiItemType(selected.item_type) && selected.source_kind !== "bank" && aiCapabilities.isSuccess ? (
+                  <ItemAiPanel
+                    item={selected}
+                    quizId={quizId}
+                    capabilities={aiCapabilities.data}
+                    unavailable={aiUnavailable}
+                    jobId={improveJobs[selected.id] ?? null}
+                    onJobStarted={(jobId) => setImproveJob(selected.id, jobId)}
+                    onClear={() => setImproveJob(selected.id, null)}
+                    onApply={applyImprovement}
+                  />
+                ) : null
+              }
             />
           ) : (
             <p className="text-sm text-fg-muted">{t("quizBuilder.properties.empty")}</p>
@@ -437,6 +531,28 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
         remaining={Math.max(0, capabilities.limits.max_items - items.length)}
         onAdd={addFromBank}
       />
+
+      {!readOnly ? (
+        <AiGenerateDialog
+          open={dialog === "ai"}
+          onClose={() => setDialog(null)}
+          quizId={quizId}
+          quizLanguage={quiz.language}
+          capacity={capacity}
+          itemTypes={aiItemTypes}
+          capabilities={aiCapabilities.data}
+          unavailable={aiUnavailable}
+          initialTab={aiTab}
+          jobId={aiJobId}
+          onJobChange={setAiJobId}
+          applyDrafts={applyDrafts}
+          addFromBank={addFromBank}
+          onOpenItem={(itemId) => {
+            setSelectedId(itemId);
+            setDialog(null);
+          }}
+        />
+      ) : null}
 
       <SettingsDrawer
         open={dialog === "settings"}

@@ -245,9 +245,14 @@ class FakeProvider:
         for index, fact in enumerate(facts[:n]):
             wanted = types[index % len(types)]
             multi = len(fact.correct) > 1
-            item_type = "multi_choice" if multi and "multi_choice" in types else ("single_choice" if multi else wanted)
-            if multi and item_type != "multi_choice":
-                continue
+            if multi and "multi_choice" not in types:
+                continue  # a multiple-answer fact cannot become any other requested type
+            if multi:
+                item_type = "multi_choice"
+            elif wanted == "multi_choice":  # single-answer fact: fall back to another type
+                item_type = next((t for t in types if t != "multi_choice"), "single_choice")
+            else:
+                item_type = wanted
             prompt = fact.en if english else fact.pt
             if item_type == "true_false":
                 items.append({

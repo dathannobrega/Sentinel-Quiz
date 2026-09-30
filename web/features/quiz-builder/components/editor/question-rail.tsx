@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { AlertIcon, ChevronDownIcon, ChevronUpIcon, GripIcon } from "@/components/ui/icons";
-import { CopyIcon, DatabaseIcon, ItemTypeIcon, PlusIcon, TrashIcon } from "@/features/quiz-builder/components/icons";
+import { AiBadge, AiButton } from "@/features/quiz-builder/components/ai/ai-shared";
+import { CopyIcon, DatabaseIcon, ItemTypeIcon, PlusIcon, SparklesIcon, TrashIcon } from "@/features/quiz-builder/components/icons";
 import { isBankItem } from "@/features/quiz-builder/lib/items";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
@@ -21,6 +22,8 @@ interface QuestionRailProps {
   onMove: (from: number, to: number) => void;
   onAdd: () => void;
   onAddFromBank: () => void;
+  /** "Gerar com IA" (Incremento 2); hidden when undefined. */
+  onGenerateAi?: () => void;
   onDuplicate: (item: LiveItem) => void;
   onDelete: (item: LiveItem) => void;
 }
@@ -40,6 +43,7 @@ export function QuestionRail({
   onMove,
   onAdd,
   onAddFromBank,
+  onGenerateAi,
   onDuplicate,
   onDelete
 }: QuestionRailProps) {
@@ -170,8 +174,9 @@ export function QuestionRail({
                       <span className={cn("line-clamp-2 text-[0.8125rem] leading-snug", prompt ? "text-fg" : "text-fg-subtle italic")}>
                         {prompt || t("quizBuilder.rail.noPrompt")}
                       </span>
-                      {isBankItem(item) || item.review_state === "needs_review" || issues > 0 ? (
+                      {isBankItem(item) || item.source_kind === "ai" || item.review_state === "needs_review" || issues > 0 ? (
                         <span className="flex flex-wrap gap-1">
+                          {item.source_kind === "ai" ? <AiBadge compact /> : null}
                           {isBankItem(item) ? (
                             <span className="inline-flex items-center gap-1 rounded-sm bg-primary-soft px-1.5 text-[0.6875rem] font-medium text-primary">
                               <DatabaseIcon size={11} />
@@ -262,6 +267,12 @@ export function QuestionRail({
             <DatabaseIcon />
             {t("quizBuilder.rail.fromBank")}
           </Button>
+          {onGenerateAi ? (
+            <AiButton onClick={onGenerateAi} disabled={full}>
+              <SparklesIcon />
+              {t("quizAi.entry.generate")}
+            </AiButton>
+          ) : null}
           {full ? <p className="text-xs text-fg-muted">{t("quizBuilder.rail.limitReached", { max: maxItems })}</p> : null}
         </div>
       ) : null}

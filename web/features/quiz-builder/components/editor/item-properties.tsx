@@ -1,11 +1,12 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, textareaClassName } from "@/components/ui/input";
+import { AiProvenance, KeyConfirmation, SuggestTime } from "@/features/quiz-builder/components/ai/ai-item-panel";
 import { AcceptedAnswersEditor } from "@/features/quiz-builder/components/editor/accepted-answers-editor";
 import { CharCounter } from "@/features/quiz-builder/components/editor/char-counter";
 import { OptionEditor } from "@/features/quiz-builder/components/editor/option-editor";
@@ -25,12 +26,19 @@ interface ItemPropertiesProps {
   readOnly: boolean;
   reviewing: boolean;
   onPatch: (patch: LiveItemWrite) => void;
-  onReview: () => void;
+  /** `confirmKey` is true when the host ticked "Conferi o gabarito" (AI items flagged by the critic). */
+  onReview: (confirmKey: boolean) => void;
+  /** "Melhorar com IA" panel (Incremento 2), rendered by the editor when AI is available. */
+  aiPanel?: ReactNode;
+  /** Shows "Sugerir tempo" next to the time limit (needs /api/ai). */
+  suggestTime?: boolean;
 }
 
-export function ItemProperties({ item, issues, themeKey, limits, readOnly, reviewing, onPatch, onReview }: ItemPropertiesProps) {
+export function ItemProperties({ item, issues, themeKey, limits, readOnly, reviewing, onPatch, onReview, aiPanel, suggestTime }: ItemPropertiesProps) {
   const { t } = useI18n();
   const baseId = useId();
+  const [keyConfirmed, setKeyConfirmed] = useState(false);
+  const needsKeyConfirmation = Boolean(item.ai?.requires_key_confirmation);
   const fromBank = isBankItem(item);
   const contentLocked = readOnly || fromBank;
   const type = item.item_type;
@@ -47,7 +55,7 @@ export function ItemProperties({ item, issues, themeKey, limits, readOnly, revie
             <h2 className="text-[0.9375rem] font-semibold text-fg">{t(`quizBuilder.types.${type}.name`)}</h2>
           </div>
         </div>
-        {fromBank || item.review_state === "needs_review" || item.license_scope !== "own" ? (
+        {fromBank || item.license_scope !== "own" || item.domain ? (
           <div className="flex flex-wrap gap-1.5">
             {fromBank ? (
               <Badge tone="primary">
@@ -65,20 +73,43 @@ export function ItemProperties({ item, issues, themeKey, limits, readOnly, revie
         ) : null}
       </header>
 
+      {item.source_kind === "ai" ? <AiProvenance item={item} /> : null}
+
       {item.review_state === "needs_review" ? (
-        <Alert
-          tone="warning"
-          title={t("quizBuilder.properties.review.title")}
-          message={t("quizBuilder.properties.review.message")}
-          action={
-            !readOnly ? (
-              <Button size="sm" busy={reviewing} onClick={onReview}>
-                {t("quizBuilder.properties.review.action")}
-              </Button>
-            ) : null
-          }
-        />
+        <div className="flex flex-col gap-2">
+          <Alert
+            tone="warning"
+            title={item.source_kind === "ai" ? t("quizAi.review.itemTitle") : t("quizBuilder.properties.review.title")}
+            message={item.source_kind === "ai" ? t("quizAi.review.itemMessage") : t("quizBuilder.properties.review.message")}
+          />
+          {needsKeyConfirmation && !readOnly ? (
+            <>
+              <KeyConfirmation item={item} checked={keyConfirmed} onChange={setKeyConfirmed} disabled={reviewing} />
+              {!keyConfirmed ? (
+                <p id={`${baseId}-key-required`} className="sr-only">
+                  {t("quizAi.keyConfirm.required")}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+          {/* Below the notice (not inside it): the properties column is narrow, and the
+              order reads as the workflow — check the key, then approve. */}
+          {!readOnly ? (
+            <Button
+              size="sm"
+              className="self-start"
+              busy={reviewing}
+              disabled={needsKeyConfirmation && !keyConfirmed}
+              aria-describedby={needsKeyConfirmation && !keyConfirmed ? `${baseId}-key-required` : undefined}
+              onClick={() => onReview(needsKeyConfirmation && keyConfirmed)}
+            >
+              {t("quizBuilder.properties.review.action")}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
+
+      {aiPanel}
 
       {fromBank ? (
         <Alert tone="neutral" title={t("quizBuilder.properties.bankReadOnly.title")} message={t("quizBuilder.properties.bankReadOnly.message")} />
@@ -158,7 +189,7 @@ export function ItemProperties({ item, issues, themeKey, limits, readOnly, revie
       ) : null}
 
       {TIMED_TYPES.has(type) ? (
-        <TimingSection item={item} limits={limits} readOnly={readOnly} onPatch={onPatch} />
+        <TimingSection item={item} limits={limits} readOnly={readOnly} onPatch={onPatch} suggestTime={suggestTime} />
       ) : null}
 
       {type !== "leaderboard" ? (
@@ -254,12 +285,14 @@ function TimingSection({
   item,
   limits,
   readOnly,
-  onPatch
+  onPatch,
+  suggestTime
 }: {
   item: LiveItem;
   limits: LiveLimits;
   readOnly: boolean;
   onPatch: (patch: LiveItemWrite) => void;
+  suggestTime?: boolean;
 }) {
   const { t } = useI18n();
   const baseId = useId();
@@ -363,6 +396,17 @@ function TimingSection({
             <p id={`${baseId}-seconds-hint`} className={cn("text-xs", secondsError ? "font-medium text-danger" : "text-fg-muted")}>
               {t("quizBuilder.properties.secondsRange", { min, max })}
             </p>
+            {suggestTime && !readOnly ? (
+              <SuggestTime
+                item={item}
+                min={min}
+                max={max}
+                onApply={(seconds) => {
+                  setSecondsDraft(null);
+                  onPatch({ time_limit_s: seconds });
+                }}
+              />
+            ) : null}
           </div>
         ) : (
           <p className="text-xs leading-snug text-fg-muted">{t("quizBuilder.properties.noTimerHint")}</p>
