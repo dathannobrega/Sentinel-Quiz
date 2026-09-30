@@ -31,6 +31,9 @@ LIVE_SESSION_STATUSES = ("lobby", "live", "finished")
 LIVE_SESSION_PHASES = ("lobby", "question", "locked", "reveal", "leaderboard", "content", "podium", "finished")
 LIVE_ANSWER_EVENT_TYPES = ("submitted", "host_accepted")
 LIVE_ACTIVE_SESSION_STATUSES = ("lobby", "live")
+# AI authoring (0020).
+AI_JOB_KINDS = ("generate", "from_source", "improve")
+AI_JOB_STATUSES = ("queued", "running", "succeeded", "failed", "degraded")
 # Why a question projection was deactivated (soft delete).
 QUESTION_DEACTIVATED_DELETED = "deleted"
 QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE = "removed_from_source"
@@ -1121,6 +1124,12 @@ class LiveQuizItem(Base):
     certification: Mapped[str | None] = mapped_column(String(64), nullable=True)
     difficulty: Mapped[str | None] = mapped_column(String(64), nullable=True)
     objective_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # AI provenance (0020): {"job_id", "model", "issues", "critic", "requires_key_confirmation"}.
+    origin_meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
@@ -1296,3 +1305,63 @@ class LiveAnswerEvent(Base):
         Index("ix_live_answer_event_received", "received_at"),
         CheckConstraint(_sql_in("event_type", LIVE_ANSWER_EVENT_TYPES), name="ck_live_answer_event_type"),
     )
+
+
+class AiJob(Base):
+    """Asynchronous AI authoring job (PLANO §12.1). Consumed by the in-process runner or
+    by the ``ai-worker`` process (``SELECT ... FOR UPDATE SKIP LOCKED``)."""
+
+    __tablename__ = "ai_job"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    quiz_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("live_quiz.id", ondelete="CASCADE"), nullable=True)
+    item_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("live_quiz_item.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    stage: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    # Request (source text is purged after the job finishes: PLANO §11.2 retention).
+    input_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    output_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    applied_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    prompt_id: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    critic_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    credits: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    error_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    injection_suspected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_ai_job_status_created", "status", "created_at"),
+        Index("ix_ai_job_owner_created", "owner_user_id", "created_at"),
+        Index("ix_ai_job_quiz_created", "quiz_id", "created_at"),
+        CheckConstraint(_sql_in("kind", AI_JOB_KINDS), name="ck_ai_job_kind"),
+        CheckConstraint(_sql_in("status", AI_JOB_STATUSES), name="ck_ai_job_status"),
+    )
+
+
+class AiUsageLedger(Base):
+    """Credits reserved/refunded per job (quota source of truth, PLANO §12.7)."""
+
+    __tablename__ = "ai_usage_ledger"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    owner_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("ai_job.id", ondelete="SET NULL"), nullable=True)
+    feature: Mapped[str] = mapped_column(String(24), nullable=False)
+    # Positive = reserved/consumed, negative = refund.
+    credits: Mapped[float] = mapped_column(Float, nullable=False)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (Index("ix_ai_usage_ledger_owner_at", "owner_user_id", "at"),)

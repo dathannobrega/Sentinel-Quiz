@@ -85,6 +85,12 @@ class ExpectedVersionIn(_Strict):
     expected_version: int = Field(ge=1)
 
 
+class ReviewIn(_Strict):
+    expected_version: int = Field(ge=1)
+    # Required for AI items flagged by the blind critic (key_mismatch / ambiguous).
+    confirm_key: bool = False
+
+
 class ReorderIn(_Strict):
     expected_version: int = Field(ge=1)
     item_ids: List[Uuid] = Field(max_length=1000)

@@ -4,8 +4,8 @@
  *
  * Every call goes through apiClient (cookie credentials, X-Client-Key, timeouts, normalized
  * ApiError). Three contract errors are re-thrown as typed subclasses so screens can react to them
- * without parsing bodies: 409 version_conflict, 422 quiz_invalid (details.issues) and
- * 422 license_requires_login (details.items). 409 quiz_not_published is exposed via a guard.
+ * without parsing bodies: 409 version_conflict, 422 quiz_invalid (details.issues),
+ * 422 license_requires_login (details.items) and 422 confirm_key_required (Incremento 2). 409 quiz_not_published is exposed via a guard.
  */
 import { ApiError, apiClient, buildApiUrl, type DownloadedFile } from "@/lib/api/client";
 import type {
@@ -41,7 +41,8 @@ export interface LiveLicenseBlockedItem {
   reason: string | null;
 }
 
-function baseFrom(source: ApiError) {
+/** Copies an ApiError's payload so typed subclasses keep status, code, details and request id. */
+export function baseFrom(source: ApiError) {
   return {
     code: source.code,
     message: source.message,
@@ -82,6 +83,18 @@ export class LiveLicenseRequiresLoginError extends ApiError {
     this.name = "LiveLicenseRequiresLoginError";
     this.items = items;
   }
+}
+
+/** 422 confirm_key_required: the item's answer key must be explicitly confirmed (Incremento 2). */
+export class LiveConfirmKeyRequiredError extends ApiError {
+  constructor(source: ApiError) {
+    super(baseFrom(source));
+    this.name = "LiveConfirmKeyRequiredError";
+  }
+}
+
+export function isConfirmKeyRequired(error: unknown): error is LiveConfirmKeyRequiredError {
+  return error instanceof LiveConfirmKeyRequiredError;
 }
 
 export function isVersionConflict(error: unknown): error is LiveVersionConflictError {
@@ -173,8 +186,15 @@ export function toLiveError(error: unknown): unknown {
   if (!(error instanceof ApiError) || error instanceof LiveVersionConflictError) {
     return error;
   }
-  if (error instanceof LiveQuizInvalidError || error instanceof LiveLicenseRequiresLoginError) {
+  if (
+    error instanceof LiveQuizInvalidError ||
+    error instanceof LiveLicenseRequiresLoginError ||
+    error instanceof LiveConfirmKeyRequiredError
+  ) {
     return error;
+  }
+  if (error.status === 422 && error.code === "confirm_key_required") {
+    return new LiveConfirmKeyRequiredError(error);
   }
   if (error.status === 409 && error.code === "version_conflict") {
     return new LiveVersionConflictError(error);
@@ -289,10 +309,17 @@ export function addLiveItemsFromBank(quizId: string, expectedVersion: number, qu
   );
 }
 
-export function reviewLiveItem(quizId: string, itemId: string, expectedVersion: number) {
-  return mapErrors(
-    apiClient.post<LiveQuizDetail>(`${itemPath(quizId, itemId)}/review`, { expected_version: expectedVersion })
-  );
+/**
+ * Marks an item as reviewed. AI items flagged by the critic (`ai.requires_key_confirmation`) need
+ * `confirmKey: true` (the host ticked "I checked the answer key"); without it the backend answers
+ * 422 confirm_key_required (LiveConfirmKeyRequiredError).
+ */
+export function reviewLiveItem(quizId: string, itemId: string, expectedVersion: number, options: { confirmKey?: boolean } = {}) {
+  const body: Record<string, unknown> = { expected_version: expectedVersion };
+  if (options.confirmKey) {
+    body.confirm_key = true;
+  }
+  return mapErrors(apiClient.post<LiveQuizDetail>(`${itemPath(quizId, itemId)}/review`, body));
 }
 
 export function publishLiveQuiz(quizId: string, expectedVersion: number) {

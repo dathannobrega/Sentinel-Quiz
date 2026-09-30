@@ -174,6 +174,20 @@ def serialize_item(item: LiveQuizItem) -> dict[str, Any]:
         "certification": item.certification,
         "difficulty": item.difficulty,
         "updated_at": _iso(item.updated_at),
+        "ai": _ai_meta(item),
+    }
+
+
+def _ai_meta(item: LiveQuizItem) -> dict[str, Any] | None:
+    meta = item.origin_meta_json or None
+    if not meta or not meta.get("job_id"):
+        return None
+    return {
+        "job_id": meta["job_id"],
+        "model": meta.get("model"),
+        "issues": list(meta.get("issues") or []),
+        "critic": meta.get("critic"),
+        "requires_key_confirmation": bool(meta.get("requires_key_confirmation")) and item.review_state == "needs_review",
     }
 
 
@@ -321,6 +335,7 @@ def duplicate_quiz(db: Session, user: User, quiz_id: str) -> LiveQuiz:
                 certification=item.certification,
                 difficulty=item.difficulty,
                 objective_code=item.objective_code,
+                origin_meta_json=json.loads(json.dumps(item.origin_meta_json)) if item.origin_meta_json else None,
                 created_at=now,
                 updated_at=now,
             )
@@ -454,15 +469,38 @@ def reorder_items(db: Session, user: User, quiz_id: str, *, expected_version: in
     return get_owned_quiz(db, user, quiz_id)
 
 
-def mark_item_reviewed(db: Session, user: User, quiz_id: str, item_id: str, *, expected_version: int) -> LiveQuiz:
+def mark_item_reviewed(db: Session, user: User, quiz_id: str, item_id: str, *, expected_version: int, confirm_key: bool = False) -> LiveQuiz:
     quiz = get_owned_quiz(db, user, quiz_id, for_update=True)
     _check_version(quiz, expected_version)
     item = _find_item(quiz, item_id)
+    meta = dict(item.origin_meta_json or {})
+    if meta.get("requires_key_confirmation") and not confirm_key:
+        # The blind AI critic disagreed with the key or found the item ambiguous (PLANO §12.4).
+        raise api_error(422, "confirm_key_required", "Confirm the answer key of this AI item before approving it.")
+    now = utcnow()
+    if meta.get("requires_key_confirmation"):
+        meta["key_confirmed_at"] = now.isoformat()
+        item.origin_meta_json = meta
     item.review_state = "ok"
-    item.updated_at = utcnow()
+    item.reviewed_by_user_id = user.id
+    item.reviewed_at = now
+    item.updated_at = now
     _touch(quiz)
     db.commit()
     return get_owned_quiz(db, user, quiz_id)
+
+
+# Public names used by the AI authoring jobs (same semantics as the private helpers).
+def check_version(quiz: LiveQuiz, expected_version: int) -> None:
+    _check_version(quiz, expected_version)
+
+
+def ensure_capacity(quiz: LiveQuiz, adding: int = 1) -> None:
+    _ensure_capacity(quiz, adding)
+
+
+def touch(quiz: LiveQuiz) -> None:
+    _touch(quiz)
 
 
 # ----------------------------------------------------------------------------- bank
@@ -768,3 +806,99 @@ def latest_version(db: Session, quiz_id: str) -> LiveQuizVersion | None:
     return db.execute(
         select(LiveQuizVersion).where(LiveQuizVersion.quiz_id == quiz_id).order_by(LiveQuizVersion.version_no.desc()).limit(1)
     ).scalar_one_or_none()
+
+
+# ----------------------------------------------------------------------------- bank sample
+
+def bank_sample(
+    db: Session,
+    *,
+    certification: str | None,
+    domains: list[str],
+    difficulty: str | None,
+    n: int,
+    strategy: str,
+    only_guest_eligible: bool,
+    exclude_quiz_id: str | None,
+) -> dict[str, Any]:
+    """Deterministic bank selection (F-IA2, no AI). ``coverage`` spreads the picks over
+    the domains in proportion to the official blueprint weights (equal shares when the
+    certification has none); reviewed questions are preferred over unreviewed ones."""
+    import random
+    from collections import defaultdict
+
+    from app.models import DomainBlueprint
+
+    option_counts = (
+        select(Option.question_id, func.count().label("n_options")).group_by(Option.question_id).subquery()
+    )
+    stmt = (
+        select(Question.id, Question.domain, Question.needs_review, Question.multi_select, option_counts.c.n_options)
+        .join(option_counts, option_counts.c.question_id == Question.id)
+        .where(
+            Question.is_active.is_(True),
+            Question.question_format == "mcq",
+            Question.license_scope != licensing.PERSONAL_USE,
+            option_counts.c.n_options.between(items_registry.OPTIONS_MIN, items_registry.OPTIONS_MAX),
+        )
+    )
+    if certification:
+        stmt = stmt.where(Question.certification == certification)
+    if domains:
+        stmt = stmt.where(Question.domain.in_(domains))
+    if difficulty:
+        stmt = stmt.where(Question.difficulty == difficulty)
+    if only_guest_eligible:
+        scopes = licensing.allowed_scopes(allow_guests=True, platform_guest_ok=settings.live_platform_guest_ok)
+        stmt = stmt.where(Question.license_scope.in_(sorted(scopes)))
+    if exclude_quiz_id:
+        used = select(LiveQuizItem.source_question_id).where(
+            LiveQuizItem.quiz_id == exclude_quiz_id, LiveQuizItem.source_question_id.is_not(None)
+        )
+        stmt = stmt.where(Question.id.not_in(used))
+    rows = db.execute(stmt).all()
+    rng = random.SystemRandom()
+    by_domain: dict[str, list[tuple[str, bool]]] = defaultdict(list)
+    for qid, domain, needs_review, _multi, _count in rows:
+        by_domain[domain or "—"].append((qid, bool(needs_review)))
+    for pool in by_domain.values():
+        rng.shuffle(pool)
+        pool.sort(key=lambda entry: entry[1])  # reviewed first, random within each group
+    n = max(1, min(int(n), 50))
+    picked: list[str] = []
+    if strategy == "random":
+        everything = [entry for pool in by_domain.values() for entry in pool]
+        rng.shuffle(everything)
+        everything.sort(key=lambda entry: entry[1])
+        picked = [qid for qid, _ in everything[:n]]
+    else:
+        weights: dict[str, float] = {}
+        if certification:
+            for domain, weight in db.execute(
+                select(DomainBlueprint.domain, DomainBlueprint.weight).where(
+                    DomainBlueprint.certification == certification, DomainBlueprint.weight.is_not(None)
+                )
+            ).all():
+                if domain in by_domain:
+                    weights[domain] = float(weight or 0.0)
+        if not weights:
+            weights = {domain: 1.0 for domain in by_domain}
+        total = sum(weights.values()) or 1.0
+        quotas = {d: n * w / total for d, w in weights.items()}
+        alloc = {d: int(q) for d, q in quotas.items()}
+        for d in sorted(quotas, key=lambda d: quotas[d] - alloc[d], reverse=True)[: n - sum(alloc.values())]:
+            alloc[d] += 1
+        for domain, count in alloc.items():
+            picked.extend(qid for qid, _ in by_domain[domain][:count])
+        if len(picked) < n:  # a domain ran short: top up from the rest
+            rest = [qid for pool in by_domain.values() for qid, _ in pool if qid not in set(picked)]
+            picked.extend(rest[: n - len(picked)])
+    domain_of = {qid: domain or "—" for qid, domain, *_ in rows}
+    coverage: dict[str, int] = defaultdict(int)
+    for qid in picked:
+        coverage[domain_of[qid]] += 1
+    return {
+        "question_ids": picked,
+        "coverage": [{"domain": d, "count": c} for d, c in sorted(coverage.items(), key=lambda kv: -kv[1])],
+        "available": len(rows),
+    }

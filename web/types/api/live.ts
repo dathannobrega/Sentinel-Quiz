@@ -95,6 +95,8 @@ export interface LiveItem {
   certification: string | null;
   difficulty: string | null;
   updated_at: string;
+  /** Present on AI-generated or AI-improved items (Incremento 2). */
+  ai?: import("./ai").LiveItemAiMeta | null;
 }
 
 export interface LiveItemWrite {

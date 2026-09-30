@@ -100,6 +100,28 @@ export const DownloadIcon = (p: IconProps) => (
   </svg>
 );
 
+/** AI: one large four-point star and a small one (used for every "Gerado por IA" affordance). */
+export const SparklesIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M6.5 2.2l1.15 3.15L10.8 6.5 7.65 7.65 6.5 10.8 5.35 7.65 2.2 6.5l3.15-1.15z" />
+    <path d="M11.8 9.6l.55 1.45 1.45.55-1.45.55-.55 1.45-.55-1.45-1.45-.55 1.45-.55z" />
+  </svg>
+);
+/** Improve with AI (magic wand). */
+export const WandIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.5 13.5l7.3-7.3M8.6 5l2.4 2.4M11.5 1.8v2M10.5 2.8h2M13.8 5.2v1.6M13 6h1.6M5 2.2v1.6M4.2 3h1.6" />
+  </svg>
+);
+/** Before/after comparison. */
+export const DiffIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="1.8" y="2.5" width="5.2" height="11" rx="1" />
+    <rect x="9" y="2.5" width="5.2" height="11" rx="1" />
+    <path d="M3.4 6h2M10.6 6h2M11.6 5v2M3.4 9.5h2M10.6 9.5h2" />
+  </svg>
+);
+
 const typeGlyphs: Record<LiveItemType, (p: IconProps) => React.JSX.Element> = {
   single_choice: (p) => (
     <svg {...base(p)}>

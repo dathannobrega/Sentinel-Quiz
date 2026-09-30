@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin import router as admin_router
+from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.live import router as live_router
 from app.api.routes import router as api_router
@@ -141,6 +142,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     # dedicated `live` service (app.live.main) when it is deployed separately.
     app.include_router(live_router)
     app.include_router(live_ws_router)
+    app.include_router(ai_router)
     # NOTE: the original material files are intentionally NOT served (no StaticFiles
     # mount). Excerpts are only available through the authenticated
     # /api/materials/preview endpoint.

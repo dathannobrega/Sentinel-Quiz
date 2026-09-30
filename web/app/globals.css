@@ -119,3 +119,35 @@
     transform: scaleX(0);
   }
 }
+
+/* AI authoring (Incremento 2): a soft light sweep over draft skeletons (background only; the
+   reduced-motion rule above freezes it). */
+@keyframes ai-shimmer {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -60% 0;
+  }
+}
+
+@utility ai-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 25%,
+    color-mix(in oklab, var(--color-primary) 14%, transparent) 50%,
+    transparent 75%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: ai-shimmer 1.8s ease-in-out infinite;
+}
+
+/* AI accent: primary tinted gradient used on the "Gerar com IA" entry points and AI badges. */
+@utility ai-surface {
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-primary) 16%, var(--color-surface)) 0%,
+    var(--color-surface) 70%
+  );
+}

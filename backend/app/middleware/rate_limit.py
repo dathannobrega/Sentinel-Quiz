@@ -453,7 +453,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             limit=max(int(settings.rate_limit_admin_requests or 0), 1),
             window_seconds=max(int(settings.rate_limit_admin_window_seconds or 0), 1),
         )
+        # Job-creating AI calls (POST /api/ai/...): expensive upstream, tight budget.
+        self._ai_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_ai_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_ai_window_seconds or 0), 1),
+        )
         self._max_window_seconds = max(
+            self._ai_policy.window_seconds,
             self._public_policy.window_seconds,
             self._auth_policy.window_seconds,
             self._auth_sensitive_policy.window_seconds,
@@ -483,7 +489,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path in {"/api/health"}:
             return await call_next(request)
 
-        bucket_name, policy = self._resolve_policy(path)
+        bucket_name, policy = self._resolve_policy(path, request.method)
         identity = resolve_rate_limit_identity(request)
         request.state.rate_limit_bucket = bucket_name
         request.state.identity_hint = getattr(request.state, "identity_hint", None) or resolve_request_identity(request)
@@ -548,7 +554,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return await call_next(request)
 
-    def _resolve_policy(self, path: str) -> tuple[str, RateLimitPolicy]:
+    def _resolve_policy(self, path: str, method: str = "GET") -> tuple[str, RateLimitPolicy]:
+        if path.startswith("/api/ai/") and method == "POST" and not path.endswith(("/apply", "/suggest-format")):
+            return "ai", self._ai_policy
         if path.startswith("/api/admin"):
             return "admin", self._admin_policy
         if path in AUTH_SENSITIVE_PATHS:

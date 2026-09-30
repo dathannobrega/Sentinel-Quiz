@@ -23,7 +23,7 @@ function usedKeys(): string[] {
   for (const dir of DIRS) {
     for (const file of sourceFiles(join(ROOT, dir))) {
       const text = readFileSync(file, "utf8");
-      for (const match of text.matchAll(/\bt\(\s*["`]((?:quizBuilder|quizReports)\.[\w.-]+)["`]/g)) {
+      for (const match of text.matchAll(/\bt\(\s*["`]((?:quizBuilder|quizReports|quizAi)\.[\w.-]+)["`]/g)) {
         keys.add(match[1] as string);
       }
     }
