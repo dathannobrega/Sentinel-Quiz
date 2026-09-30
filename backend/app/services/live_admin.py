@@ -40,6 +40,7 @@ logger = logging.getLogger("app.live.admin")
 RESOLUTIONS = ("dismiss", "approve", "remove_item", "end_session", "block_quiz")
 REPORT_REASONS = ("offensive", "spam", "cheating", "copyright", "privacy", "other")
 MAX_OPEN_REPORTS_PER_PARTICIPANT = 5
+MAX_OPEN_REPORTS_PER_SESSION = 50
 
 
 def _iso(value: Any) -> str | None:
@@ -173,6 +174,15 @@ def report(
     ).scalar_one()
     if open_count >= MAX_OPEN_REPORTS_PER_PARTICIPANT:
         raise api_error(429, "too_many_reports", "You already sent several reports; the team is reviewing them.")
+    # A room flooded with fresh guests cannot bury the queue: one session, bounded cases.
+    session_open = db.execute(
+        select(func.count()).select_from(LiveModerationCase).where(
+            LiveModerationCase.session_id == participant.session_id, LiveModerationCase.status == "open",
+            LiveModerationCase.source == "participant",
+        )
+    ).scalar_one()
+    if session_open >= MAX_OPEN_REPORTS_PER_SESSION:
+        raise api_error(429, "too_many_reports", "This room was already reported; the team is reviewing it.")
     room = runtime.load_room(db, session.id)
     position = qi if target == "item" else None
     excerpt = None
