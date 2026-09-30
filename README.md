@@ -84,7 +84,7 @@ docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -
 ```bash
 docker run -d --rm --name sentinel-pg \
   -e POSTGRES_DB=sentinel_quiz -e POSTGRES_USER=sentinel -e POSTGRES_PASSWORD=sentinel \
-  -p 5432:5432 postgres:16-alpine
+  -p 5432:5432 postgres:18-alpine
 
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -312,7 +312,7 @@ Somente da stack (não viram configuração da API): `APP_IMAGE_TAG`, `APP_IMAGE
 
 | Job | O que faz |
 | --- | --- |
-| `backend-tests` | Python 3.12, `pip install -r backend/requirements.txt -r backend/requirements-dev.txt`, `pytest` em `backend/` com serviço `postgres:16` (`TEST_DATABASE_URL`), e `pip-audit -r backend/requirements.txt`. |
+| `backend-tests` | Python 3.12, `pip install -r backend/requirements.txt -r backend/requirements-dev.txt`, `pytest` em `backend/` com serviço `postgres:18` (`TEST_DATABASE_URL`), e `pip-audit -r backend/requirements.txt`. |
 | `content-validate` | `python scripts/validate_content.py` (validação do banco de questões). |
 | `web-checks` | Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build` em `web/`. |
 | `image-scan` | Build das 3 imagens (sem push) + Trivy; falha com vulnerabilidade **CRITICAL** corrigível. |
