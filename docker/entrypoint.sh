@@ -182,6 +182,9 @@ case "${command}" in
       --workers "${UVICORN_WORKERS}" \
       --no-server-header \
       --timeout-graceful-shutdown 20 \
+      --ws websockets \
+      --ws-per-message-deflate false \
+      --ws-max-size 65536 \
       "$@"
     ;;
   migrate)

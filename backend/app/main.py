@@ -99,11 +99,12 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         _run_startup(app_settings)
+        await live_hub.start()
         try:
             yield
         finally:
             await rate_limit_store.close()
-            await live_hub.bus.close()
+            await live_hub.close()
 
     docs_enabled = app_settings.api_docs_enabled()
     app = FastAPI(

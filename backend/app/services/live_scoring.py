@@ -90,8 +90,11 @@ class Standing:
         }
 
 
-def effective_answers(events: Iterable) -> dict[tuple[int, str], EffectiveAnswer]:
-    """Latest decision per (position, participant): host_accepted overrides submitted."""
+def effective_answers(events: Iterable, *, with_response: bool = True) -> dict[tuple[int, str], EffectiveAnswer]:
+    """Latest decision per (position, participant): host_accepted overrides submitted.
+
+    ``with_response=False`` accepts column-only rows without ``response_json`` (ranking).
+    """
     chosen: dict[tuple[int, str], EffectiveAnswer] = {}
     priority: dict[tuple[int, str], int] = {}
     for event in events:
@@ -107,7 +110,7 @@ def effective_answers(events: Iterable) -> dict[tuple[int, str], EffectiveAnswer
             fraction=event.score_fraction,
             is_correct=event.is_correct,
             server_ms=server_ms,
-            response=dict(event.response_json or {}),
+            response=dict(event.response_json or {}) if with_response else {},
         )
         priority[key] = rank
     return chosen

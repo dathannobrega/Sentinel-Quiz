@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -299,6 +300,7 @@ def join(
 
     return_code = None if user is not None else "".join(secrets.choice(RETURN_CODE_ALPHABET) for _ in range(RETURN_CODE_LENGTH))
     participant = LiveParticipant(
+        id=str(uuid.uuid4()),  # known before the INSERT: the token hash goes in the same statement
         session_id=session.id,
         user_id=user.id if user else None,
         display_name=name,
@@ -310,15 +312,15 @@ def join(
         joined_at=utcnow(),
         banned=False,
     )
+    token, expires_at = _issue_participant_token(participant)
+    result = _join_result(participant, token, expires_at, return_code)  # before commit: no reload
     db.add(participant)
     try:
-        db.flush()
+        db.commit()
     except IntegrityError:
         db.rollback()
         raise api_error(409, "name_taken", "This name is already in use in the room.") from None
-    token, expires_at = _issue_participant_token(participant)
-    db.commit()
-    return _join_result(participant, token, expires_at, return_code)
+    return result
 
 
 def _nickname_taken(db: Session, session_id: str, key: str) -> bool:

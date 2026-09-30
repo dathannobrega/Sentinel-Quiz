@@ -12,8 +12,10 @@
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
+import re
 import threading
 import time
 import uuid
@@ -33,6 +35,14 @@ from app.middleware.observability import resolve_rate_limit_identity, resolve_re
 logger = logging.getLogger("app.security.rate_limit")
 
 RATE_LIMIT_MESSAGE = "Too many requests. Please slow down and retry shortly."
+INVALID_CODES_MESSAGE = "Too many invalid room codes. Check the code and retry later."
+
+# Live participant endpoints (DC-22). ``/rooms/{code}`` (lookup, join, rejoin) is keyed by
+# the room code and ``/me/*`` by the participant token: never by IP, because a whole
+# auditorium can sit behind one NAT address (RNF-205).
+_LIVE_ROOM_PATH = re.compile(r"^/api/live/rooms/(?P<code>[^/]{1,32})(?:/(?:join|rejoin))?$")
+_LIVE_TOKEN_PATH = re.compile(r"^/api/live/me/")
+_LIVE_PUBLIC_PATHS = frozenset({"/api/live/names/suggest", "/api/live/capabilities", "/api/live/healthz"})
 
 AUTH_SENSITIVE_PATHS = frozenset(
     {
@@ -130,6 +140,10 @@ class RateLimitStore:
 
         Returns the new value, or ``None`` when the backend is unavailable (fail-open).
         """
+        raise NotImplementedError
+
+    async def peek_counter(self, *, key: str) -> int | None:
+        """Current value of a counter (0 when absent), ``None`` when unavailable."""
         raise NotImplementedError
 
     async def close(self) -> None:
@@ -235,6 +249,11 @@ class InMemoryRateLimitStore(RateLimitStore):
                 for stale_key in [k for k, (_, exp) in self._counters.items() if exp <= now]:
                     self._counters.pop(stale_key, None)
             return value
+
+    async def peek_counter(self, *, key: str) -> int | None:
+        with self._lock:
+            value, expires_at = self._counters.get(key, (0, 0.0))
+            return value if expires_at > time.time() else 0
 
     def _prune_hits_if_needed(self, *, now: float, max_keys: int, max_window_seconds: int) -> None:
         if len(self._hits) <= max_keys:
@@ -403,6 +422,14 @@ class RedisRateLimitStore(RateLimitStore):
             self._log_failure("increment_counter", exc)
             return None
 
+    async def peek_counter(self, *, key: str) -> int | None:
+        try:
+            value = await self._get_client().get(f"rate-limit:counter:{key}")
+            return int(value or 0)
+        except Exception as exc:  # fail-open
+            self._log_failure("peek_counter", exc)
+            return None
+
     async def close(self) -> None:
         client = self._client
         self._client = None
@@ -458,7 +485,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             limit=max(int(settings.rate_limit_ai_requests or 0), 1),
             window_seconds=max(int(settings.rate_limit_ai_window_seconds or 0), 1),
         )
+        self._live_room_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_live_room_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_live_room_window_seconds or 0), 1),
+        )
+        self._live_token_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_live_token_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_live_token_window_seconds or 0), 1),
+        )
+        self._live_ip_policy = RateLimitPolicy(
+            limit=max(int(settings.rate_limit_live_ip_requests or 0), 1),
+            window_seconds=max(int(settings.rate_limit_live_ip_window_seconds or 0), 1),
+        )
+        self._invalid_code_limit = max(int(settings.live_invalid_code_limit or 0), 1)
+        self._invalid_code_window_seconds = max(int(settings.live_invalid_code_window_seconds or 0), 1)
         self._max_window_seconds = max(
+            self._live_room_policy.window_seconds,
+            self._live_token_policy.window_seconds,
+            self._live_ip_policy.window_seconds,
             self._ai_policy.window_seconds,
             self._public_policy.window_seconds,
             self._auth_policy.window_seconds,
@@ -489,12 +533,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path in {"/api/health"}:
             return await call_next(request)
 
-        bucket_name, policy = self._resolve_policy(path, request.method)
+        bucket_name, policy, scope = self._resolve_policy(path, request.method, request.headers.get("authorization"))
         identity = resolve_rate_limit_identity(request)
         request.state.rate_limit_bucket = bucket_name
         request.state.identity_hint = getattr(request.state, "identity_hint", None) or resolve_request_identity(request)
-        key = f"{bucket_name}:{identity}"
+        key = f"{bucket_name}:{scope or identity}"
         now = time.time()
+
+        if bucket_name == "live_room" and await self._code_guessing_blocked(identity, scope or ""):
+            return self._too_many(
+                request, bucket_name, path, identity, self._invalid_code_window_seconds,
+                RateLimitPolicy(self._invalid_code_limit, self._invalid_code_window_seconds),
+                code="too_many_invalid_codes", message=INVALID_CODES_MESSAGE,
+            )
 
         retry_after = await self._store.register_hit(
             key=key,
@@ -503,7 +554,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             max_keys=self._max_keys,
             max_window_seconds=self._max_window_seconds,
         )
-        if self._abuse_enabled:
+        if self._abuse_enabled and bucket_name not in {"live_room", "live_token"}:
+            # Live buckets have their own guards (invalid codes per IP, per-token limit);
+            # a join storm would make the per-IP activity scan O(n) per request.
             abuse_signal = await self._store.register_activity(
                 identity=identity,
                 path=path,
@@ -522,45 +575,95 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 logger.warning("Suspicious request pattern detected", extra=abuse_signal)
 
         if retry_after is not None:
-            request_id = getattr(request.state, "request_id", None)
-            logger.warning(
-                "Rate limit exceeded",
-                extra={
-                    "event": "rate_limit_exceeded",
-                    "request_id": request_id,
+            return self._too_many(request, bucket_name, path, identity, retry_after, policy)
+
+        response = await call_next(request)
+        if bucket_name == "live_room":
+            await self._track_room_code(identity, scope or "", response.status_code)
+        return response
+
+    async def _code_guessing_blocked(self, identity: str, room_key: str) -> bool:
+        """True when this IP guessed too many invalid codes and does not already know this room.
+
+        An address that reached a room successfully keeps access to it, so a classroom
+        behind one NAT is not locked out by a few typos or by one bad actor on the network.
+        """
+        invalid = await self._store.peek_counter(key=f"live-invalid-code:{identity}")
+        if invalid is None or invalid < self._invalid_code_limit:
+            return False
+        known = await self._store.peek_counter(key=f"live-known-code:{identity}:{room_key}")
+        return not known
+
+    async def _track_room_code(self, identity: str, room_key: str, status_code: int) -> None:
+        if status_code == 404:
+            await self._store.increment_counter(key=f"live-invalid-code:{identity}", ttl_seconds=self._invalid_code_window_seconds)
+        elif 200 <= status_code < 300:
+            await self._store.increment_counter(key=f"live-known-code:{identity}:{room_key}", ttl_seconds=6 * 3600)
+
+    def _too_many(
+        self,
+        request: Request,
+        bucket_name: str,
+        path: str,
+        identity: str,
+        retry_after: int,
+        policy: RateLimitPolicy,
+        *,
+        code: str = "rate_limited",
+        message: str = RATE_LIMIT_MESSAGE,
+    ) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", None)
+        logger.warning(
+            "Rate limit exceeded",
+            extra={
+                "event": "rate_limit_exceeded",
+                "request_id": request_id,
+                "bucket": bucket_name,
+                "path": path,
+                "identity": identity,
+                "identity_hint": getattr(request.state, "identity_hint", None),
+                "retry_after_seconds": retry_after,
+                "reason": code,
+            },
+        )
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": message,
+                "message": message,
+                "code": code,
+                "details": {
                     "bucket": bucket_name,
-                    "path": path,
-                    "identity": identity,
-                    "identity_hint": getattr(request.state, "identity_hint", None),
                     "retry_after_seconds": retry_after,
+                    "limit": policy.limit,
+                    "window_seconds": policy.window_seconds,
                 },
-            )
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "detail": RATE_LIMIT_MESSAGE,
-                    "message": RATE_LIMIT_MESSAGE,
-                    "code": "rate_limited",
-                    "details": {
-                        "bucket": bucket_name,
-                        "retry_after_seconds": retry_after,
-                        "limit": policy.limit,
-                        "window_seconds": policy.window_seconds,
-                    },
-                    "request_id": request_id,
-                },
-                headers={"Retry-After": str(retry_after)},
-            )
+                "request_id": request_id,
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
 
-        return await call_next(request)
-
-    def _resolve_policy(self, path: str, method: str = "GET") -> tuple[str, RateLimitPolicy]:
+    def _resolve_policy(
+        self, path: str, method: str = "GET", authorization: str | None = None
+    ) -> tuple[str, RateLimitPolicy, str | None]:
+        """Bucket name, policy and key scope (``None`` = the client IP)."""
+        if path.startswith("/api/live/"):
+            room = _LIVE_ROOM_PATH.match(path)
+            if room:
+                return "live_room", self._live_room_policy, "".join(room.group("code").split()).upper()
+            if _LIVE_TOKEN_PATH.match(path):
+                token = str(authorization or "").removeprefix("Bearer ").strip()
+                if token:
+                    return "live_token", self._live_token_policy, hashlib.sha256(token.encode("utf-8")).hexdigest()[:32]
+                return "live_ip", self._live_ip_policy, None
+            if path in _LIVE_PUBLIC_PATHS:
+                return "live_ip", self._live_ip_policy, None
         if path.startswith("/api/ai/") and method == "POST" and not path.endswith(("/apply", "/suggest-format")):
-            return "ai", self._ai_policy
+            return "ai", self._ai_policy, None
         if path.startswith("/api/admin"):
-            return "admin", self._admin_policy
+            return "admin", self._admin_policy, None
         if path in AUTH_SENSITIVE_PATHS:
-            return "auth_sensitive", self._auth_sensitive_policy
+            return "auth_sensitive", self._auth_sensitive_policy, None
         if path.startswith("/api/auth"):
-            return "auth", self._auth_policy
-        return "public", self._public_policy
+            return "auth", self._auth_policy, None
+        return "public", self._public_policy, None

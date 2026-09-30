@@ -146,6 +146,9 @@ class Settings(BaseSettings):
     live_ws_heartbeat_ms: int = Field(default=15000, alias="LIVE_WS_HEARTBEAT_MS")
     live_ws_rate_per_second: float = Field(default=20.0, alias="LIVE_WS_RATE_PER_SECOND")
     live_ws_rate_burst: int = Field(default=40, alias="LIVE_WS_RATE_BURST")
+    # GET /api/live/metrics (RNF-1001). Empty: only loopback clients may scrape. nginx
+    # never exposes it.
+    live_metrics_token: str = Field(default="", alias="LIVE_METRICS_TOKEN")
     # Extra WebSocket origins; CORS_ORIGINS and PUBLIC_WEB_ORIGIN are always allowed.
     live_allowed_origins: str = Field(default="", alias="LIVE_ALLOWED_ORIGINS")
     live_consent_version: str = Field(default="2026-10", alias="LIVE_CONSENT_VERSION")
@@ -166,6 +169,17 @@ class Settings(BaseSettings):
     ai_job_stale_minutes: int = Field(default=10, alias="AI_JOB_STALE_MINUTES")
     rate_limit_ai_requests: int = Field(default=6, alias="RATE_LIMIT_AI_REQUESTS")
     rate_limit_ai_window_seconds: int = Field(default=60, alias="RATE_LIMIT_AI_WINDOW_SECONDS")
+    # Live participants (DC-22, RNF-205): a whole auditorium may share one NAT IP, so the
+    # public room endpoints are limited per room code and /api/live/me/* per participant
+    # token, never per IP. Code guessing is limited per IP by counting invalid codes.
+    rate_limit_live_room_requests: int = Field(default=6000, alias="RATE_LIMIT_LIVE_ROOM_REQUESTS")
+    rate_limit_live_room_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_ROOM_WINDOW_SECONDS")
+    rate_limit_live_token_requests: int = Field(default=30, alias="RATE_LIMIT_LIVE_TOKEN_REQUESTS")
+    rate_limit_live_token_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_TOKEN_WINDOW_SECONDS")
+    rate_limit_live_ip_requests: int = Field(default=3000, alias="RATE_LIMIT_LIVE_IP_REQUESTS")
+    rate_limit_live_ip_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_IP_WINDOW_SECONDS")
+    live_invalid_code_limit: int = Field(default=60, alias="LIVE_INVALID_CODE_LIMIT")
+    live_invalid_code_window_seconds: int = Field(default=600, alias="LIVE_INVALID_CODE_WINDOW_SECONDS")
 
     def effective_ai_model(self) -> str:
         return str(self.ai_authoring_model or self.gemini_model or "").strip()

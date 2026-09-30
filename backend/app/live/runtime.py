@@ -13,13 +13,14 @@ are protected by UNIQUE constraints (idempotency key and one answer per item).
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.clock import utcnow
@@ -106,6 +107,13 @@ class Room:
 
 
 _version_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+# (session, positions, streak, answers signature, roster signature) -> (monotonic, table).
+# Every kick/unkick changes the kicked count or max(kicked_at) and every join max(joined_at);
+# the TTL only bounds memory and pathological same-timestamp edits.
+STANDINGS_TTL_S = 60.0
+_standings_cache: dict[tuple[Any, ...], tuple[float, list[scoring.Standing]]] = {}
+_standings_lock = threading.Lock()
+_standings_inflight: dict[tuple[Any, ...], threading.Lock] = {}
 
 
 def load_room(db: Session, session_id: str) -> Room:
@@ -226,12 +234,92 @@ def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored
         positions = [p for p in positions if p != session.current_position]
     if exclude_last_scored and positions:
         positions = positions[:-1]
-    answers = scoring.effective_answers(_events(db, session.id))
+    streak_bonus = bool(room.settings.get("streak_bonus"))
+    # Standings are read by every snapshot (a reconnect storm is N reads) and by each
+    # reveal/leaderboard; they only change when an answer of a scored position or the
+    # roster changes. Two aggregate queries decide whether the cached table is current.
+    answers_sig = (
+        tuple(
+            db.execute(
+                select(func.count(), func.max(LiveAnswerEvent.id)).where(
+                    LiveAnswerEvent.session_id == session.id, LiveAnswerEvent.position.in_(positions)
+                )
+            ).one()
+        )
+        if positions
+        else (0, None)
+    )
+    roster_sig = tuple(
+        db.execute(
+            select(
+                func.count(),
+                func.count(LiveParticipant.kicked_at),
+                func.max(LiveParticipant.joined_at),
+                func.max(LiveParticipant.kicked_at),
+            ).where(LiveParticipant.session_id == session.id)
+        ).one()
+    )
+    key = (session.id, tuple(positions), streak_bonus, answers_sig, roster_sig)
+    hit = _cached_standings(key)
+    if hit is not None:
+        return hit
+    # Single flight: when 1,000 participants open their results at once, one thread
+    # computes the table and the others wait for it instead of all hitting the DB.
+    with _standings_lock:
+        key_lock = _standings_inflight.setdefault(key, threading.Lock())
+    with key_lock:
+        hit = _cached_standings(key)
+        if hit is not None:
+            return hit
+        table = _compute_standings(db, session.id, positions, streak_bonus)
+        with _standings_lock:
+            if len(_standings_cache) > 256:
+                _standings_cache.clear()
+            _standings_cache[key] = (time.monotonic(), table)
+            _standings_inflight.pop(key, None)
+        return table
+
+
+def _cached_standings(key: tuple[Any, ...]) -> list[scoring.Standing] | None:
+    with _standings_lock:
+        hit = _standings_cache.get(key)
+    if hit is not None and time.monotonic() - hit[0] < STANDINGS_TTL_S:
+        return hit[1]
+    return None
+
+
+def _compute_standings(db: Session, session_id: str, positions: list[int], streak_bonus: bool) -> list[scoring.Standing]:
+    # Column-only rows: ORM objects for 1,000 participants x N answers cost ~100 ms.
+    events = (
+        db.execute(
+            select(
+                LiveAnswerEvent.position,
+                LiveAnswerEvent.participant_id,
+                LiveAnswerEvent.event_type,
+                LiveAnswerEvent.points,
+                LiveAnswerEvent.score_fraction,
+                LiveAnswerEvent.is_correct,
+                LiveAnswerEvent.server_ms,
+            )
+            .where(LiveAnswerEvent.session_id == session_id, LiveAnswerEvent.position.in_(positions))
+            .order_by(LiveAnswerEvent.id)
+        ).all()
+        if positions
+        else []
+    )
+    roster = db.execute(
+        select(LiveParticipant.id, LiveParticipant.display_name, LiveParticipant.avatar_seed, LiveParticipant.joined_at)
+        .where(LiveParticipant.session_id == session_id, LiveParticipant.kicked_at.is_(None))
+        .order_by(LiveParticipant.joined_at)
+    ).all()
     return scoring.compute_standings(
-        _participant_rows(active_participants(db, session.id)),
-        answers,
+        [
+            scoring.ParticipantRow(participant_id=pid, display_name=name, avatar_seed=seed, joined_at=joined)
+            for pid, name, seed, joined in roster
+        ],
+        scoring.effective_answers(events, with_response=False),
         scored_positions=positions,
-        streak_bonus=bool(room.settings.get("streak_bonus")),
+        streak_bonus=streak_bonus,
     )
 
 
@@ -842,6 +930,18 @@ class AnswerResult:
     outcome: Outcome
 
 
+@dataclass
+class AnswerIn:
+    session_id: str
+    participant_id: str
+    answer_id: str
+    qi: int
+    choice: list[str] | None = None
+    text: str | None = None
+    client_elapsed_ms: int | None = None
+    rtt_min_ms: int | None = None
+
+
 def submit_answer(
     db: Session,
     session_id: str,
@@ -855,78 +955,156 @@ def submit_answer(
     rtt_min_ms: int | None,
     now: datetime | None = None,
 ) -> AnswerResult:
+    answer = AnswerIn(session_id, participant_id, answer_id, qi, choice, text, client_elapsed_ms, rtt_min_ms)
+    return submit_answers(db, [answer], now=now)[0]
+
+
+def submit_answers(db: Session, answers: list[AnswerIn], *, now: datetime | None = None) -> list[AnswerResult]:
+    """Validate, grade and persist a batch of answers with ONE commit (group commit).
+
+    The gateway acks each answer only after this returns, so an ack still means "stored"
+    (RPO 0) while a 1,000-answer burst costs a handful of statements instead of ~8 round
+    trips and a commit per answer (RNF-103/RNF-204). Results keep the input order.
+    """
     now = now or utcnow()
-    existing = db.execute(
-        select(LiveAnswerEvent.participant_id).where(LiveAnswerEvent.idempotency_key == answer_id)
-    ).scalar_one_or_none()
-    if existing is not None:
-        return AnswerResult("duplicate", Outcome())
+    results: list[AnswerResult | None] = [None] * len(answers)
+    by_session: dict[str, list[int]] = {}
+    for index, answer in enumerate(answers):
+        by_session.setdefault(answer.session_id, []).append(index)
+    for session_id, indexes in by_session.items():
+        try:
+            session_results = _submit_session_batch(db, session_id, [answers[i] for i in indexes], now)
+        except RoomNotFound:
+            session_results = [AnswerResult("closed", Outcome()) for _ in indexes]
+        for index, result in zip(indexes, session_results):
+            results[index] = result
+    return [r or AnswerResult("closed", Outcome()) for r in results]
+
+
+def _submit_session_batch(db: Session, session_id: str, answers: list[AnswerIn], now: datetime) -> list[AnswerResult]:
+    results: list[AnswerResult | None] = [None] * len(answers)
+    keys = list({a.answer_id for a in answers})
+    stored = set(
+        db.execute(select(LiveAnswerEvent.idempotency_key).where(LiveAnswerEvent.idempotency_key.in_(keys))).scalars()
+    )
     room = load_room(db, session_id)
     session = room.session
-    participant = db.get(LiveParticipant, participant_id)
-    if participant is None or participant.session_id != session_id or participant.kicked_at is not None:
-        return AnswerResult("closed", Outcome())
-    if session.current_position != qi:
-        return AnswerResult("closed", Outcome())
-    if session.phase in {"locked", "reveal", "leaderboard"}:
-        return AnswerResult("late", Outcome())
-    if session.phase != "question" or session.answers_open_at is None:
-        return AnswerResult("closed", Outcome())
-    item = room.item(qi)
-    if item is None or item["item_type"] not in registry.INTERACTIVE_TYPES:
-        return AnswerResult("invalid", Outcome())
-    if now < session.answers_open_at - timedelta(milliseconds=EARLY_TOLERANCE_MS):
-        return AnswerResult("closed", Outcome())
-    if session.deadline_at is not None and now > session.deadline_at + _grace(room):
-        return AnswerResult("late", auto_lock_if_due(db, session_id, now=now))
-    try:
-        graded = registry.grade(session_id, qi, item, choice=choice, text=text)
-    except registry.InvalidAnswer:
-        return AnswerResult("invalid", Outcome())
-    server_ms = max(0, int((now - session.answers_open_at).total_seconds() * 1000))
-    credited = scoring.credited_elapsed_ms(server_ms, rtt_min_ms)
-    suspicious = client_elapsed_ms is not None and abs(int(client_elapsed_ms) - credited) > 1500
-    points = scoring.points_for(
-        fraction=graded.fraction,
-        scoring=room.settings.get("scoring", "speed"),
-        multiplier=int(item.get("points_multiplier", 1)),
-        elapsed_ms=credited,
-        time_limit_s=item.get("time_limit_s"),
-    )
-    db.add(
-        LiveAnswerEvent(
-            session_id=session_id,
-            position=qi,
-            participant_id=participant_id,
-            event_type="submitted",
-            response_json=graded.response,
-            is_correct=graded.is_correct,
-            score_fraction=graded.fraction,
-            points=points,
-            server_ms=server_ms,
-            latency_ms=credited,
-            client_elapsed_ms=client_elapsed_ms,
-            suspicious=suspicious,
-            idempotency_key=answer_id,
-            received_at=now,
+    pids = list({a.participant_id for a in answers})
+    active = {
+        pid
+        for pid, sid, kicked in db.execute(
+            select(LiveParticipant.id, LiveParticipant.session_id, LiveParticipant.kicked_at).where(LiveParticipant.id.in_(pids))
+        ).all()
+        if sid == session_id and kicked is None
+    }
+    late_lock: Outcome | None = None
+    rows: list[dict[str, Any]] = []
+    row_index: list[int] = []
+    seen_keys: set[str] = set()
+    seen_pids: set[tuple[int, str]] = set()
+    for index, answer in enumerate(answers):
+        qi = answer.qi
+        if answer.answer_id in stored or answer.answer_id in seen_keys:
+            results[index] = AnswerResult("duplicate", Outcome())
+            continue
+        if answer.participant_id not in active or session.current_position != qi:
+            results[index] = AnswerResult("closed", Outcome())
+            continue
+        if session.phase in {"locked", "reveal", "leaderboard"}:
+            results[index] = AnswerResult("late", Outcome())
+            continue
+        if session.phase != "question" or session.answers_open_at is None:
+            results[index] = AnswerResult("closed", Outcome())
+            continue
+        item = room.item(qi)
+        if item is None or item["item_type"] not in registry.INTERACTIVE_TYPES:
+            results[index] = AnswerResult("invalid", Outcome())
+            continue
+        if now < session.answers_open_at - timedelta(milliseconds=EARLY_TOLERANCE_MS):
+            results[index] = AnswerResult("closed", Outcome())
+            continue
+        if session.deadline_at is not None and now > session.deadline_at + _grace(room):
+            if late_lock is None:
+                late_lock = auto_lock_if_due(db, session_id, now=now)
+                results[index] = AnswerResult("late", late_lock)
+            else:
+                results[index] = AnswerResult("late", Outcome())
+            continue
+        if (qi, answer.participant_id) in seen_pids:
+            results[index] = AnswerResult("already_answered", Outcome())
+            continue
+        try:
+            graded = registry.grade(session_id, qi, item, choice=answer.choice, text=answer.text)
+        except registry.InvalidAnswer:
+            results[index] = AnswerResult("invalid", Outcome())
+            continue
+        server_ms = max(0, int((now - session.answers_open_at).total_seconds() * 1000))
+        credited = scoring.credited_elapsed_ms(server_ms, answer.rtt_min_ms)
+        client_ms = answer.client_elapsed_ms
+        rows.append(
+            {
+                "session_id": session_id,
+                "position": qi,
+                "participant_id": answer.participant_id,
+                "event_type": "submitted",
+                "response_json": graded.response,
+                "is_correct": graded.is_correct,
+                "score_fraction": graded.fraction,
+                "points": scoring.points_for(
+                    fraction=graded.fraction,
+                    scoring=room.settings.get("scoring", "speed"),
+                    multiplier=int(item.get("points_multiplier", 1)),
+                    elapsed_ms=credited,
+                    time_limit_s=item.get("time_limit_s"),
+                ),
+                "server_ms": server_ms,
+                "latency_ms": credited,
+                "client_elapsed_ms": client_ms,
+                "suspicious": client_ms is not None and abs(int(client_ms) - credited) > 1500,
+                "idempotency_key": answer.answer_id,
+                "received_at": now,
+            }
         )
-    )
-    try:
+        row_index.append(index)
+        seen_keys.add(answer.answer_id)
+        seen_pids.add((qi, answer.participant_id))
+    if rows:
+        inserted = _insert_answers(db, rows)
         db.commit()
-    except IntegrityError:
-        db.rollback()
-        dup = db.execute(
-            select(LiveAnswerEvent.id).where(LiveAnswerEvent.idempotency_key == answer_id)
-        ).scalar_one_or_none()
-        return AnswerResult("duplicate" if dup is not None else "already_answered", Outcome())
-    answered = _answered_count(db, session_id, qi)
-    total = participant_count(db, session_id)
-    outcome = Outcome()
-    outcome.broadcasts.append(Broadcast("participant.progress", {"qi": qi, "answered": answered, "total": total}, audience=PARTICIPANTS))
-    if total and answered >= total:
-        locked = lock(db, session_id, expected_qi=qi, reason="all_answered", now=now)
-        outcome.broadcasts.extend(locked.broadcasts)
-    return AnswerResult("accepted", outcome)
+        lost = [i for i, row in zip(row_index, rows) if row["idempotency_key"] not in inserted]
+        if lost:  # another process stored them first (or a retry raced): tell which case
+            again = set(
+                db.execute(
+                    select(LiveAnswerEvent.idempotency_key).where(
+                        LiveAnswerEvent.idempotency_key.in_([answers[i].answer_id for i in lost])
+                    )
+                ).scalars()
+            )
+            for i in lost:
+                results[i] = AnswerResult("duplicate" if answers[i].answer_id in again else "already_answered", Outcome())
+        for i in row_index:
+            if results[i] is None:
+                results[i] = AnswerResult("accepted", Outcome())
+        # participant.progress is coalesced by results_tick (one frame per tick).
+        qi = session.current_position
+        if qi is not None and inserted:
+            total = participant_count(db, session_id)
+            if total and _answered_count(db, session_id, qi) >= total:
+                locked = lock(db, session_id, expected_qi=qi, reason="all_answered", now=now)
+                last_accepted = max(i for i in row_index if results[i] is not None and results[i].status == "accepted")
+                results[last_accepted] = AnswerResult("accepted", locked)
+    return [r or AnswerResult("closed", Outcome()) for r in results]
+
+
+def _insert_answers(db: Session, rows: list[dict[str, Any]]) -> set[str]:
+    """INSERT ... ON CONFLICT DO NOTHING RETURNING idempotency_key (PostgreSQL and SQLite)."""
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as dialect_insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+    stmt = dialect_insert(LiveAnswerEvent).on_conflict_do_nothing().returning(LiveAnswerEvent.idempotency_key)
+    return set(db.execute(stmt, rows).scalars())
 
 
 def results_tick(db: Session, session_id: str) -> list[Broadcast]:
@@ -946,19 +1124,32 @@ def results_tick(db: Session, session_id: str) -> list[Broadcast]:
     counts = option_counts(db, room, position)
     public = bool(room.settings.get("show_live_distribution")) or item["item_type"] == "poll"
     return [
+        Broadcast("participant.progress", base, audience=PARTICIPANTS),
         Broadcast("results.tick", {**base, "counts": counts}, audience=HOST),
         Broadcast("results.tick", {**base, **({"counts": counts} if public else {})}, audience=DISPLAY),
     ]
 
 
 def touch_participant(db: Session, participant_id: str, *, now: datetime | None = None) -> None:
+    touch_participants(db, [participant_id], now=now)
+
+
+def touch_participants(db: Session, participant_ids: list[str], *, now: datetime | None = None) -> int:
+    """Presence for the host list: one UPDATE for everyone seen since the last flush."""
+    if not participant_ids:
+        return 0
     now = now or utcnow()
-    participant = db.get(LiveParticipant, participant_id)
-    if participant is None:
-        return
-    if participant.last_seen_at is None or now - participant.last_seen_at > timedelta(seconds=20):
-        participant.last_seen_at = now
-        db.commit()
+    result = db.execute(
+        update(LiveParticipant)
+        .where(
+            LiveParticipant.id.in_(participant_ids),
+            (LiveParticipant.last_seen_at.is_(None)) | (LiveParticipant.last_seen_at < now - timedelta(seconds=20)),
+        )
+        .values(last_seen_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    return int(result.rowcount or 0)
 
 
 def pending_lock_at_ms(db: Session, session_id: str) -> int | None:

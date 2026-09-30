@@ -30,10 +30,11 @@ def create_live_app(app_settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        await hub.start()
         try:
             yield
         finally:
-            await hub.bus.close()
+            await hub.close()
 
     app = FastAPI(title="Sentinel Arena Live", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.settings = app_settings

@@ -54,6 +54,9 @@ class _Data:
         )
         active = {p.id for p in self.participants}
         self.answers = {k: v for k, v in scoring.effective_answers(events).items() if k[1] in active}
+        self._by_position: dict[int, dict[str, scoring.EffectiveAnswer]] = {}
+        for (position, pid), answer in self.answers.items():
+            self._by_position.setdefault(position, {})[pid] = answer
         self.scored = [
             p for p in self.reached
             if registry.is_scored(self.items[p]["item_type"], int(self.items[p].get("points_multiplier", 1)))
@@ -68,6 +71,12 @@ class _Data:
             scored_positions=self.scored,
             streak_bonus=bool((session.settings_json or {}).get("streak_bonus")),
         )
+
+    def answers_by_participant(self, position: int) -> dict[str, scoring.EffectiveAnswer]:
+        return self._by_position.get(position, {})
+
+    def answers_at(self, position: int) -> list[scoring.EffectiveAnswer]:
+        return list(self._by_position.get(position, {}).values())
 
     def fraction(self, position: int, pid: str) -> float:
         answer = self.answers.get((position, pid))
@@ -121,7 +130,7 @@ def _item_report(data: _Data, position: int, upper: set[str], lower: set[str]) -
     item = data.items[position]
     item_type = item["item_type"]
     scored = registry.is_scored(item_type, int(item.get("points_multiplier", 1)))
-    answers = {pid: a for (pos, pid), a in data.answers.items() if pos == position}
+    answers = data.answers_by_participant(position)
     answered = len(answers)
     n_correct = sum(1 for a in answers.values() if a.fraction is not None and a.fraction >= 1)
     times = sorted(a.server_ms for a in answers.values() if a.server_ms is not None)
@@ -199,26 +208,36 @@ def _item_report(data: _Data, position: int, upper: set[str], lower: set[str]) -
     return report
 
 
-def build_report(db: Session, session: LiveSession) -> dict[str, Any]:
-    data = _Data(db, session)
+def build_report(db: Session, session: LiveSession, *, data: _Data | None = None) -> dict[str, Any]:
+    data = data or _Data(db, session)
     upper, lower = _groups(data)
     participants = data.participants
     by_id = {p.id: p for p in participants}
     pcts = [data.score_pct(p.id) for p in participants]
     times = [a.server_ms for a in data.answers.values() if a.server_ms is not None]
     possible = len(participants) * len(data.interactive)
-    answered_total = sum(1 for (pos, _pid) in data.answers if pos in set(data.interactive))
+    interactive = set(data.interactive)
+    scored = set(data.scored)
+    # One pass over the answers (the report of 1,000 x 20 must stay O(answers), RNF-109).
+    answered_by: dict[str, int] = defaultdict(int)
+    scored_by: dict[str, int] = defaultdict(int)
+    times_by: dict[str, list[int]] = defaultdict(list)
+    for (pos, pid), answer in data.answers.items():
+        if pos in interactive:
+            answered_by[pid] += 1
+        if pos in scored:
+            scored_by[pid] += 1
+        if answer.server_ms is not None:
+            times_by[pid].append(answer.server_ms)
+    answered_total = sum(answered_by.values())
     completion = (
-        sum(
-            1 for p in participants
-            if data.scored and sum(1 for pos in data.scored if (pos, p.id) in data.answers) >= 0.8 * len(data.scored)
-        ) / len(participants)
+        sum(1 for p in participants if scored_by[p.id] >= 0.8 * len(data.scored)) / len(participants)
         if participants and data.scored else 0.0
     )
     participant_rows = []
     for standing in data.standings:
         part = by_id[standing.participant_id]
-        own_times = [a.server_ms for (pos, pid), a in data.answers.items() if pid == part.id and a.server_ms is not None]
+        own_times = times_by.get(part.id) or []
         participant_rows.append(
             {
                 "participant_id": part.id,
@@ -227,7 +246,7 @@ def build_report(db: Session, session: LiveSession) -> dict[str, Any]:
                 "rank": standing.rank,
                 "score": standing.score,
                 "correct": standing.correct,
-                "answered": sum(1 for (pos, pid) in data.answers if pid == part.id and pos in set(data.interactive)),
+                "answered": answered_by.get(part.id, 0),
                 "score_pct": round(data.score_pct(part.id), 1),
                 "avg_ms": int(sum(own_times) / len(own_times)) if own_times else None,
             }
@@ -239,10 +258,9 @@ def build_report(db: Session, session: LiveSession) -> dict[str, Any]:
             continue
         bucket = domain_acc[(item.get("certification"), item["domain"])]
         bucket["items"] += 1
-        for (pos, _pid), answer in data.answers.items():
-            if pos == position:
-                bucket["answers"] += 1
-                bucket["sum"] += float(answer.fraction or 0.0)
+        for answer in data.answers_at(position):
+            bucket["answers"] += 1
+            bucket["sum"] += float(answer.fraction or 0.0)
     domains = []
     for (cert, domain), bucket in sorted(domain_acc.items(), key=lambda kv: (kv[0][0] or "", kv[0][1])):
         pct = round(100.0 * bucket["sum"] / bucket["answers"], 1) if bucket["answers"] else None
@@ -287,7 +305,8 @@ def _cell(value: Any) -> Any:
 
 
 def iter_csv(db: Session, session: LiveSession) -> Iterator[str]:
-    report = build_report(db, session)
+    data = _Data(db, session)
+    report = build_report(db, session, data=data)
     items = report["items"]
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -295,7 +314,6 @@ def iter_csv(db: Session, session: LiveSession) -> Iterator[str]:
     header += [f"Q{item['position'] + 1}" for item in items]
     writer.writerow(header)
     yield "﻿" + buffer.getvalue()  # BOM: Excel opens UTF-8 correctly
-    data = _Data(db, session)
     for row in report["participants"]:
         buffer.seek(0)
         buffer.truncate()
@@ -327,20 +345,43 @@ def _answer_view(item: dict[str, Any], answer: scoring.EffectiveAnswer | None) -
 
 
 def my_results(db: Session, participant: LiveParticipant) -> dict[str, Any]:
-    session = db.get(LiveSession, participant.session_id)
-    data = _Data(db, session)
-    standing = next((s for s in data.standings if s.participant_id == participant.id), None)
+    """Personal results. Every participant asks at the end of the session at once, so this
+    reads the cached room standings and only this participant's answers (never the whole
+    session's answer log per request)."""
+    from app.live import runtime  # local: the runtime imports the services package
+
+    room = runtime.load_room(db, participant.session_id)
+    session = room.session
+    reached = sorted(
+        {
+            position
+            for (position,) in db.execute(select(LiveSessionItem.position).where(LiveSessionItem.session_id == session.id))
+            if 0 <= position < len(room.items)
+        }
+    )
+    board = runtime.standings(db, room, up_to=session.current_position)
+    standing = next((s for s in board if s.participant_id == participant.id), None)
+    events = db.execute(
+        select(LiveAnswerEvent)
+        .where(LiveAnswerEvent.session_id == session.id, LiveAnswerEvent.participant_id == participant.id)
+        .order_by(LiveAnswerEvent.id)
+    ).scalars()
+    answers = scoring.effective_answers(events)
+    items_snapshot = room.items
+    scored_positions = [
+        p for p in reached if registry.is_scored(items_snapshot[p]["item_type"], int(items_snapshot[p].get("points_multiplier", 1)))
+    ]
     finished = session.status == "finished"
     show_correct = bool((session.settings_json or {}).get("show_correct_on_device", True))
     show_explanation = bool((session.settings_json or {}).get("show_explanation", True))
     items = []
-    for position in data.reached:
-        item = data.items[position]
+    for position in reached:
+        item = items_snapshot[position]
         if item["item_type"] not in registry.INTERACTIVE_TYPES:
             continue
         # Never reveal the key of the item that is still open.
         closed = finished or session.current_position != position or session.phase not in {"question", "locked"}
-        answer = data.answers.get((position, participant.id))
+        answer = answers.get((position, participant.id))
         scored = registry.is_scored(item["item_type"], int(item.get("points_multiplier", 1)))
         texts = {o["key"]: o.get("text") or "" for o in (item.get("payload") or {}).get("options") or []}
         correct_answer = None
@@ -362,13 +403,13 @@ def my_results(db: Session, participant: LiveParticipant) -> dict[str, Any]:
         )
     return {
         "session_id": session.id,
-        "title": data.version.title if data.version else "",
+        "title": room.title,
         "display_name": participant.display_name,
         "rank": standing.rank if standing else None,
-        "participant_count": len(data.standings),
+        "participant_count": len(board),
         "score": standing.score if standing else 0,
         "correct": standing.correct if standing else 0,
-        "answered": sum(1 for (pos, pid) in data.answers if pid == participant.id),
-        "total_scored": len(data.scored),
+        "answered": len(answers),
+        "total_scored": len(scored_positions),
         "items": items,
     }
