@@ -11,7 +11,10 @@ export const quizBuilder = {
     type_answer: { name: "Resposta digitada", description: "Texto curto conferido com as respostas aceitas." },
     poll: { name: "Enquete", description: "Opinião da sala, sem certo ou errado e sem pontos." },
     content: { name: "Slide de conteúdo", description: "Texto de contexto ou instrução entre perguntas." },
-    leaderboard: { name: "Placar", description: "Mostra o ranking parcial nesse ponto do quiz." }
+    leaderboard: { name: "Placar", description: "Mostra o ranking parcial nesse ponto do quiz." },
+    ordering: { name: "Ordenar", description: "Coloque de 3 a 6 itens na ordem certa, com crédito parcial." },
+    numeric: { name: "Resposta numérica", description: "Um número numa faixa, com tolerância e unidade." },
+    word_cloud: { name: "Nuvem de palavras", description: "Até 3 palavras por pessoa formam uma nuvem ao vivo. Sem pontos." }
   },
   themes: {
     label: "Tema",
@@ -162,6 +165,47 @@ export const quizBuilder = {
     issues: "{count} pendências",
     limitReached: "Limite de {max} perguntas atingido."
   },
+  ordering: {
+    items: "Itens na ordem correta",
+    hint: "Escreva os itens na ordem certa, do primeiro ao último. Os participantes recebem os itens embaralhados.",
+    itemN: "item {n}",
+    itemLabel: "Texto do item {n}",
+    itemPlaceholder: "Item {n}",
+    moveUp: "Mover “{text}” para cima",
+    moveDown: "Mover “{text}” para baixo",
+    moved: "“{text}” agora está na posição {position} de {total}.",
+    remove: "Remover “{text}”",
+    add: "Adicionar item",
+    limit: "De {min} a {max} itens.",
+    method: "Pontuação",
+    methods: {
+      kendall: { name: "Parcial (Kendall)", description: "Quase certo ainda pontua: trocar dois itens vizinhos custa pouco." },
+      exact: { name: "Exata", description: "Só pontua quem acerta a ordem inteira." }
+    }
+  },
+  numeric: {
+    title: "Faixa e resposta",
+    hint: "Digite números como no dia a dia (ex.: {example}). O celular mostra a faixa e um controle deslizante.",
+    min: "Mínimo",
+    max: "Máximo",
+    step: "Passo",
+    stepHint: "Vazio = qualquer valor.",
+    unit: "Unidade",
+    unitPlaceholder: "Ex.: bits, %, ms",
+    unitHint: "Até {max} caracteres.",
+    value: "Valor correto",
+    tolerance: "Tolerância (±)",
+    toleranceHint: "0 = só o valor exato.",
+    partial: "Crédito parcial",
+    partialHint: "Fora da tolerância, a pontuação cai aos poucos até ± {band}.",
+    partialHintExact: "Com tolerância 0 só o valor exato pontua.",
+    invalid: "Número inválido.",
+    required: "Obrigatório."
+  },
+  wordCloud: {
+    maxWords: "Palavras por pessoa",
+    hint: "Palavras repetidas (sem diferenciar maiúsculas e acentos) somam na mesma. Termos do filtro não aparecem, e você pode ocultar palavras durante a sessão."
+  },
   typePicker: {
     title: "Adicionar pergunta",
     description: "Escolha o formato. Você pode ajustar tudo depois.",
@@ -183,7 +227,17 @@ export const quizBuilder = {
     leaderboardHint: "O ranking atual aparece aqui durante a sessão.",
     correct: "correta",
     empty: "Selecione ou adicione uma pergunta para ver a prévia.",
-    question: "Pergunta {position} de {total}"
+    question: "Pergunta {position} de {total}",
+    orderingPlaceholder: "Item {n}",
+    orderingHint: "Ordem correta. Os participantes recebem os itens embaralhados.",
+    numericAnswer: "Resposta: {value}{tolerance}",
+    numericNoValue: "Defina o valor correto",
+    cloudSample1: "segurança",
+    cloudSample2: "MFA",
+    cloudSample3: "backup",
+    cloudSample4: "senha",
+    cloudSample5: "firewall",
+    cloudHint: "Palavras por pessoa: {count}"
   },
   properties: {
     label: "Propriedades da pergunta",
@@ -262,7 +316,16 @@ export const quizBuilder = {
     accepted_required: "Adicione pelo menos uma resposta aceita.",
     accepted_too_long: "Uma resposta aceita passa de 60 caracteres.",
     accepted_too_many: "Use no máximo 10 respostas aceitas.",
-    body_too_long: "O texto do slide passa de 1000 caracteres."
+    body_too_long: "O texto do slide passa de 1000 caracteres.",
+    order_count: "Use de 3 a 6 itens.",
+    option_duplicate: "Dois itens têm o mesmo texto.",
+    numeric_range: "O mínimo precisa ser menor que o máximo.",
+    numeric_value_required: "Informe o valor correto.",
+    numeric_value_out_of_range: "O valor correto precisa estar dentro da faixa.",
+    numeric_step: "O passo precisa ser maior que zero.",
+    numeric_step_too_fine: "Passo pequeno demais para esta faixa (máximo de 100.000 passos).",
+    numeric_tolerance: "A tolerância não pode ser negativa.",
+    unit_too_long: "A unidade tem no máximo 12 caracteres."
   },
   settings: {
     title: "Configurações do quiz",
@@ -333,6 +396,8 @@ export const quizBuilder = {
     rejectedTitle: "{count} questões não foram adicionadas",
     added: "{count} questões adicionadas ao quiz.",
     close: "Fechar",
+    pbq: "PBQ",
+    pbqOrder: "Itens na ordem correta (confira):",
     reasons: {
       inactive: "questão desativada",
       unsupported_format: "formato não suportado ao vivo",

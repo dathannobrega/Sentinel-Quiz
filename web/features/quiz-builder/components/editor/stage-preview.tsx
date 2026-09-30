@@ -2,7 +2,8 @@
 
 import { CheckIcon, ClockIcon } from "@/components/ui/icons";
 import { ItemTypeIcon } from "@/features/quiz-builder/components/icons";
-import { OPTION_TYPES, SCORED_TYPES, TIMED_TYPES } from "@/features/quiz-builder/lib/items";
+import { DEFAULT_NUMERIC, OPTION_TYPES, SCORED_TYPES, TIMED_TYPES } from "@/features/quiz-builder/lib/items";
+import { formatWithUnit, rangeFraction } from "@/features/quiz-live/lib/numeric";
 import { ANSWER_LETTERS, ANSWER_SHAPES, themeStageStyle } from "@/features/quiz-builder/lib/themes";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
@@ -84,7 +85,7 @@ function ProjectorStage({ item, themeKey, position, total }: StagePreviewProps) 
 }
 
 function StageBody({ item }: { item: LiveItem }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const prompt = item.prompt.trim();
   const promptNode = (
     <p
@@ -140,6 +141,95 @@ function StageBody({ item }: { item: LiveItem }) {
     );
   }
 
+  if (item.item_type === "ordering") {
+    return (
+      <div className="flex flex-1 flex-col gap-[2.4cqw]">
+        <div className="flex flex-1 items-center justify-center">{promptNode}</div>
+        <ol className="mx-auto flex w-4/5 flex-col gap-[1cqw]">
+          {item.options.map((option, index) => (
+            <li
+              key={`${option.key}-${index}`}
+              className="flex items-center gap-[1.4cqw] rounded-[1cqw] px-[1.8cqw] py-[0.9cqw] motion-safe:animate-[rise-in_280ms_var(--ease-out)_both]"
+              style={{ background: `var(--qb-answer-${index + 1})`, color: `var(--qb-on-answer-${index + 1})`, animationDelay: `${index * 50}ms` }}
+            >
+              <span className="font-mono text-[clamp(0.6rem,1.6cqw,1rem)] font-bold">{index + 1}</span>
+              <span className={cn("min-w-0 flex-1 text-[clamp(0.65rem,1.8cqw,1.3rem)] leading-tight font-semibold break-words", !option.text.trim() && "italic opacity-70")}>
+                {option.text.trim() || t("quizBuilder.preview.orderingPlaceholder", { n: index + 1 })}
+              </span>
+            </li>
+          ))}
+        </ol>
+        <p className="text-center text-[clamp(0.55rem,1.4cqw,0.9rem)] text-[var(--qb-muted)]">{t("quizBuilder.preview.orderingHint")}</p>
+      </div>
+    );
+  }
+
+  if (item.item_type === "numeric") {
+    const numeric = { ...DEFAULT_NUMERIC, ...item.numeric };
+    const min = numeric.min ?? 0;
+    const max = numeric.max ?? 0;
+    const value = numeric.value;
+    const valid = min < max;
+    return (
+      <div className="flex flex-1 flex-col justify-center gap-[3cqw]">
+        {promptNode}
+        <div className="mx-auto flex w-4/5 flex-col gap-[1cqw]" aria-hidden="true">
+          <div className="relative h-[1.4cqw] rounded-full bg-[var(--qb-surface)]">
+            {valid && value !== null && numeric.tolerance > 0 ? (
+              <span
+                className="absolute inset-y-0 rounded-full bg-[var(--qb-accent)] opacity-40"
+                style={{
+                  left: `${rangeFraction(value - numeric.tolerance, min, max) * 100}%`,
+                  right: `${100 - rangeFraction(value + numeric.tolerance, min, max) * 100}%`
+                }}
+              />
+            ) : null}
+            {valid && value !== null ? (
+              <span className="absolute -top-[0.8cqw] -bottom-[0.8cqw] w-[0.5cqw] -translate-x-1/2 rounded-full bg-[var(--qb-accent)]" style={{ left: `${rangeFraction(value, min, max) * 100}%` }} />
+            ) : null}
+          </div>
+          <div className="flex justify-between font-mono text-[clamp(0.55rem,1.4cqw,0.95rem)] text-[var(--qb-muted)]">
+            <span>{formatWithUnit(min, numeric.unit, locale)}</span>
+            <span>{formatWithUnit(max, numeric.unit, locale)}</span>
+          </div>
+        </div>
+        <p className="text-center text-[clamp(0.6rem,1.6cqw,1.05rem)] text-[var(--qb-muted)]">
+          {value !== null
+            ? t("quizBuilder.preview.numericAnswer", {
+                value: formatWithUnit(value, numeric.unit, locale),
+                tolerance: numeric.tolerance ? ` ± ${formatWithUnit(numeric.tolerance, numeric.unit, locale)}` : ""
+              })
+            : t("quizBuilder.preview.numericNoValue")}
+        </p>
+      </div>
+    );
+  }
+
+  if (item.item_type === "word_cloud") {
+    const sample = [
+      { word: t("quizBuilder.preview.cloudSample1"), size: 4.2, tone: 1 },
+      { word: t("quizBuilder.preview.cloudSample2"), size: 3, tone: 2 },
+      { word: t("quizBuilder.preview.cloudSample3"), size: 2.4, tone: 3 },
+      { word: t("quizBuilder.preview.cloudSample4"), size: 2, tone: 4 },
+      { word: t("quizBuilder.preview.cloudSample5"), size: 1.6, tone: 5 }
+    ];
+    return (
+      <div className="flex flex-1 flex-col gap-[2cqw]">
+        {promptNode}
+        <div aria-hidden="true" className="flex flex-1 flex-wrap content-center items-center justify-center gap-x-[2.4cqw] gap-y-[0.6cqw] opacity-70">
+          {sample.map((entry) => (
+            <span key={entry.word} className="leading-none font-extrabold" style={{ fontSize: `${entry.size}cqw`, color: `var(--qb-answer-${entry.tone})` }}>
+              {entry.word}
+            </span>
+          ))}
+        </div>
+        <p className="text-center text-[clamp(0.55rem,1.4cqw,0.9rem)] text-[var(--qb-muted)]">
+          {t("quizBuilder.preview.cloudHint", { count: item.max_words ?? 1 })}
+        </p>
+      </div>
+    );
+  }
+
   const options = OPTION_TYPES.has(item.item_type) ? item.options : [];
   const showCorrect = item.item_type !== "poll";
   const columns = options.length <= 2 ? "grid-cols-2" : options.length <= 4 ? "grid-cols-2" : "grid-cols-3";
@@ -187,10 +277,30 @@ function PhoneStage({ item, themeKey }: { item: LiveItem; themeKey: LiveThemeKey
       className="mx-auto hidden aspect-[9/16] w-44 flex-col gap-2 overflow-hidden rounded-[1.4rem] border-4 border-fg/80 p-3 shadow-overlay [background:var(--qb-bg)] 2xl:flex"
     >
       <span className="mx-auto mb-1 h-1 w-10 rounded-full bg-[var(--qb-muted)] opacity-50" />
-      {item.item_type === "type_answer" ? (
+      {item.item_type === "type_answer" || item.item_type === "word_cloud" ? (
         <div className="mt-auto flex flex-col gap-2">
-          <span className="h-8 rounded-md border-2 border-[var(--qb-accent)] bg-[var(--qb-surface)]" />
+          {Array.from({ length: item.item_type === "word_cloud" ? (item.max_words ?? 1) : 1 }, (_, index) => (
+            <span key={index} className="h-8 rounded-md border-2 border-[var(--qb-accent)] bg-[var(--qb-surface)]" />
+          ))}
           <span className="h-8 rounded-md bg-[var(--qb-accent)]" />
+        </div>
+      ) : item.item_type === "numeric" ? (
+        <div className="mt-auto flex flex-col gap-3">
+          <span className="h-10 rounded-md border-2 border-[var(--qb-accent)] bg-[var(--qb-surface)]" />
+          <span className="relative h-1.5 rounded-full bg-[var(--qb-surface)]">
+            <span className="absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--qb-accent)]" />
+          </span>
+          <span className="h-8 rounded-md bg-[var(--qb-accent)]" />
+        </div>
+      ) : item.item_type === "ordering" ? (
+        <div className="mt-auto flex flex-col gap-1.5">
+          {item.options.map((option, index) => (
+            <span key={`${option.key}-${index}`} className="flex h-7 items-center gap-1 rounded-md bg-[var(--qb-surface)] px-1.5" style={{ borderLeft: `4px solid var(--qb-answer-${index + 1})` }}>
+              <span className="h-1.5 flex-1 rounded-full bg-[var(--qb-muted)] opacity-40" />
+              <span className="text-[0.55rem] text-[var(--qb-muted)]">▲▼</span>
+            </span>
+          ))}
+          <span className="mt-1 h-8 rounded-md bg-[var(--qb-accent)]" />
         </div>
       ) : options.length ? (
         <div className={cn("mt-auto grid flex-1 gap-1.5", options.length > 2 ? "grid-cols-2" : "grid-cols-1")}>

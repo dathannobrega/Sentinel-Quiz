@@ -28,7 +28,10 @@ export const quizPresent = {
       type_answer: "Resposta digitada",
       poll: "Enquete",
       content: "Slide",
-      leaderboard: "Placar"
+      leaderboard: "Placar",
+      ordering: "Ordenar",
+      numeric: "Resposta numérica",
+      word_cloud: "Nuvem de palavras"
     }
   },
   question: {
@@ -108,6 +111,7 @@ export const quizPresent = {
     lockRoom: "Trancar sala",
     unlockRoom: "Destrancar sala",
     participants: "Participantes ({count})",
+    words: "Palavras ({count})",
     fullscreen: "Tela cheia",
     exitFullscreen: "Sair da tela cheia",
     openDisplay: "Abrir telão",
@@ -176,6 +180,44 @@ export const quizPresent = {
       m0: "Sem limite de tempo"
     }
   },
+  cloud: {
+    empty: "As palavras aparecem aqui assim que chegarem.",
+    label: "Nuvem de palavras",
+    wordCount: "{word}: {count}",
+    hintOne: "Mande uma palavra pelo celular",
+    hintMany: "Mande até {count} palavras pelo celular",
+    filtered: "{count} fora da tela",
+    distinct: "{count} palavras diferentes"
+  },
+  numeric: {
+    hint: "Responda no celular: um número entre {min} e {max}",
+    you: "Você: {value}",
+    count: "{count} respostas",
+    mean: "Média: {value}",
+    median: "Mediana: {value}",
+    answer: "Resposta: {value}",
+    answerTolerance: "Resposta: {value} (± {tolerance})",
+    binSummary: "de {from} a {to}: {count}",
+    waiting: "O histograma aparece com as primeiras respostas."
+  },
+  ordering: {
+    hint: "Coloque na ordem certa pelo celular",
+    correctOrder: "Ordem correta",
+    slotPct: "{percent}% acertaram",
+    exact: "{count} na ordem exata"
+  },
+  words: {
+    title: "Palavras da nuvem",
+    description: "Oculte uma palavra para tirá-la do telão e dos celulares. Dá para mostrar de novo.",
+    summary: "{distinct} palavras diferentes · {filtered} fora da tela (filtro ou ocultadas)",
+    none: "Ainda sem palavras.",
+    visible: "Palavras na tela",
+    hide: "Ocultar",
+    hideLabel: "Ocultar “{word}” da nuvem",
+    show: "Mostrar",
+    showLabel: "Mostrar “{word}” de novo",
+    hiddenTitle: "Ocultadas por você"
+  },
   presenter: {
     title: "Visão do apresentador",
     privateWarning: "Não projete esta janela: ela mostra o gabarito e as notas.",
@@ -195,7 +237,14 @@ export const quizPresent = {
     acceptHint: "Depois de travar, aceite uma resposta digitada que também está certa.",
     acceptPlaceholder: "Texto a aceitar",
     accept: "Aceitar",
-    accepted_ok: "Resposta aceita: {text}"
+    accepted_ok: "Resposta aceita: {text}",
+    correctOrder: "Ordem correta",
+    orderMethod: {
+      kendall: "crédito parcial (Kendall)",
+      exact: "só a ordem exata pontua"
+    },
+    partialCredit: "Crédito parcial até ± {band}",
+    maxWords: "Palavras por pessoa: {count}"
   },
   errors: {
     auth: "Faça login como apresentador para controlar esta sessão.",

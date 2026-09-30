@@ -516,3 +516,131 @@ describe("liveReducer: moderation and room limits (Incremento 4)", () => {
     expect(state.participants?.[0]?.is_preview).toBe(false);
   });
 });
+
+describe("liveReducer: GA item types (Incremento 5)", () => {
+  const cloudQuestion: PublicQuestion = {
+    ...question,
+    item_type: "word_cloud",
+    options: [],
+    scored: false,
+    points_multiplier: 0,
+    numeric: null,
+    max_words: 2
+  };
+  const numericQuestion: PublicQuestion = {
+    ...question,
+    item_type: "numeric",
+    options: [],
+    numeric: { min: 0, max: 1000, step: 1, unit: "bits" },
+    max_words: null
+  };
+  const cloud = { words: [{ text: "Senha", key: "senha", n: 2 }, { text: "MFA", key: "mfa", n: 2 }], distinct: 3, filtered: 1 };
+  const histogram = { min: 0, max: 1000, bins: Array.from({ length: 20 }, (_, index) => (index === 5 ? 2 : 0)), n: 2, mean: 260, median: 260 };
+
+  function open(questionOnScreen: PublicQuestion, role: "host" | "display" | "participant" = "host", extra: Partial<Snapshot> = {}): LiveState {
+    return apply(
+      createInitialLiveState(role),
+      frame("room.snapshot", snapshot({ status: "live", phase: "question", qi: 0, question: questionOnScreen, timer: { answers_open_at_ms: 0, deadline_ms: 30_000 }, ...extra }), 10)
+    );
+  }
+
+  it("results.tick stores the live word cloud and histogram; participant.progress never clears them", () => {
+    let state = open(cloudQuestion);
+    state = apply(state, frame("results.tick", { qi: 0, answered: 2, total: 4, counts: {}, word_cloud: cloud }, 11));
+    expect(state.wordCloud).toEqual(cloud);
+    state = apply(state, frame("participant.progress", { qi: 0, answered: 3, total: 4 }, 12));
+    expect(state.wordCloud).toEqual(cloud);
+    expect(state.answered).toBe(3);
+    // Another question's tick is ignored.
+    state = apply(state, frame("results.tick", { qi: 1, answered: 9, total: 9, word_cloud: { words: [], distinct: 0, filtered: 0 } }, 13));
+    expect(state.wordCloud).toEqual(cloud);
+
+    let numeric = open(numericQuestion);
+    numeric = apply(numeric, frame("results.tick", { qi: 0, answered: 2, total: 4, counts: {}, numeric: histogram }, 11));
+    expect(numeric.numeric).toEqual(histogram);
+  });
+
+  it("the snapshot carries the live blocks while the question is open", () => {
+    const state = open(cloudQuestion, "display", { word_cloud: cloud, answered: 2 });
+    expect(state.wordCloud).toEqual(cloud);
+    const numeric = open(numericQuestion, "host", { numeric: histogram });
+    expect(numeric.numeric).toEqual(histogram);
+  });
+
+  it("question.intro clears the previous item's cloud and histogram", () => {
+    let state = open(cloudQuestion, "host", { word_cloud: cloud });
+    state = apply(state, frame("question.intro", { qi: 1, total: 5, question: { ...numericQuestion, qi: 1 }, answers_open_at_ms: 0, deadline_ms: null }, 11));
+    expect(state.wordCloud).toBeNull();
+    expect(state.numeric).toBeNull();
+  });
+
+  it("word_cloud.update replaces the cloud live and inside a reveal, only for the current item", () => {
+    const hidden = { words: [{ text: "Senha", key: "senha", n: 2 }], distinct: 3, filtered: 2 };
+    let state = open(cloudQuestion, "host", { word_cloud: cloud });
+    state = apply(state, frame("word_cloud.update", { qi: 0, word_cloud: hidden }, 11));
+    expect(state.wordCloud).toEqual(hidden);
+
+    const cloudReveal: Reveal = { ...reveal, item_type: "word_cloud", correct_option_ids: [], counts: {}, pct_correct: null, word_cloud: cloud, my: undefined };
+    state = apply(state, frame("question.reveal", cloudReveal, 12));
+    expect(state.phase).toBe("reveal");
+    expect(state.wordCloud).toEqual(cloud);
+    state = apply(state, frame("word_cloud.update", { qi: 0, word_cloud: hidden }, 13));
+    expect(state.reveal?.word_cloud).toEqual(hidden);
+    expect(state.wordCloud).toEqual(hidden);
+
+    const before = state;
+    expect(apply(state, frame("word_cloud.update", { qi: 3, word_cloud: cloud }, 14))).toBe(before);
+  });
+
+  it("keeps the host's hidden word list from the snapshot and the host word_cloud.update", () => {
+    const presenter = { item: presenterItem, next_prompt: null, hidden_words: ["backup"] };
+    let state = open(cloudQuestion, "host", { word_cloud: cloud, presenter });
+    expect(state.hiddenWords).toEqual(["backup"]);
+    state = apply(state, frame("word_cloud.update", { qi: 0, word_cloud: cloud, hidden_words: ["backup", "mfa"] }, 11));
+    expect(state.hiddenWords).toEqual(["backup", "mfa"]);
+    // Display/participant copies carry no list: the known one stays.
+    state = apply(state, frame("word_cloud.update", { qi: 0, word_cloud: cloud }, 12));
+    expect(state.hiddenWords).toEqual(["backup", "mfa"]);
+    // A new item starts empty; the stage view never exposes the list.
+    state = apply(state, frame("question.intro", { qi: 1, total: 5, question: { ...cloudQuestion, qi: 1 }, answers_open_at_ms: 0, deadline_ms: null }, 13));
+    expect(state.hiddenWords).toEqual([]);
+    expect(JSON.stringify(selectStageView(state))).not.toContain("hidden");
+  });
+
+  it("restores ordering, numeric and word answers from my.last_answer after a reconnect", () => {
+    const cases = [
+      { last_answer: { order: ["o_b", "o_a", "o_c"] }, expected: { choice: ["o_b", "o_a", "o_c"] } },
+      { last_answer: { number: 275 }, expected: { number: 275 } },
+      { last_answer: { words: ["Zero Trust", "MFA"] }, expected: { words: ["Zero Trust", "MFA"] } }
+    ];
+    for (const { last_answer, expected } of cases) {
+      const state = open(numericQuestion, "participant", { my: { ...mySnap, answered_current: true, last_answer } });
+      expect(state.submission?.status).toBe("accepted");
+      expect(state.submission?.answer).toEqual(expected);
+    }
+  });
+
+  it("the stage shows the cloud always and the histogram only with the live distribution on", () => {
+    const withCloud = selectStageView(open(cloudQuestion, "host", { word_cloud: cloud }));
+    expect(withCloud.wordCloud).toEqual(cloud);
+    const hiddenHistogram = selectStageView(open(numericQuestion, "host", { numeric: histogram }));
+    expect(hiddenHistogram.liveNumeric).toBeNull();
+    const liveSettings = { ...snapshot().settings, show_live_distribution: true };
+    const shown = selectStageView(open(numericQuestion, "host", { numeric: histogram, settings: liveSettings }));
+    expect(shown.liveNumeric).toEqual(histogram);
+  });
+
+  it("item.removed drops the live blocks with the item", () => {
+    let state = open(cloudQuestion, "host", { word_cloud: cloud });
+    state = apply(state, frame("item.removed", { qi: 0, current: true }, 11));
+    expect(state.wordCloud).toBeNull();
+    expect(state.question?.max_words).toBeNull();
+  });
+
+  it("parses the new server frame and keeps unknown ones out", async () => {
+    const { parseServerMessage } = await import("@/features/quiz-live/lib/protocol");
+    const parsed = parseServerMessage(JSON.stringify({ v: 1, type: "word_cloud.update", sts: 1, data: { qi: 0, word_cloud: cloud } }));
+    expect(parsed?.type).toBe("word_cloud.update");
+    expect(parseServerMessage(JSON.stringify({ v: 1, type: "word_cloud.nope", sts: 1, data: {} }))).toBeNull();
+  });
+});

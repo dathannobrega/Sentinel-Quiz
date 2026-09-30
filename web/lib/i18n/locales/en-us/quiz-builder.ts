@@ -11,7 +11,10 @@ export const quizBuilder = {
     type_answer: { name: "Type answer", description: "Short text checked against accepted answers." },
     poll: { name: "Poll", description: "The room's opinion: no right answer and no points." },
     content: { name: "Content slide", description: "Context or instructions between questions." },
-    leaderboard: { name: "Leaderboard", description: "Shows the current ranking at this point." }
+    leaderboard: { name: "Leaderboard", description: "Shows the current ranking at this point." },
+    ordering: { name: "Ordering", description: "Put 3 to 6 items in the right order, with partial credit." },
+    numeric: { name: "Numeric answer", description: "A number in a range, with tolerance and unit." },
+    word_cloud: { name: "Word cloud", description: "Up to 3 words per person build a live cloud. Not scored." }
   },
   themes: {
     label: "Theme",
@@ -162,6 +165,47 @@ export const quizBuilder = {
     issues: "{count} issues",
     limitReached: "Limit of {max} questions reached."
   },
+  ordering: {
+    items: "Items in the correct order",
+    hint: "Write the items in the right order, first to last. Participants get them shuffled.",
+    itemN: "item {n}",
+    itemLabel: "Text of item {n}",
+    itemPlaceholder: "Item {n}",
+    moveUp: "Move “{text}” up",
+    moveDown: "Move “{text}” down",
+    moved: "“{text}” is now in position {position} of {total}.",
+    remove: "Remove “{text}”",
+    add: "Add item",
+    limit: "From {min} to {max} items.",
+    method: "Scoring",
+    methods: {
+      kendall: { name: "Partial (Kendall)", description: "Almost right still scores: swapping two neighbours costs little." },
+      exact: { name: "Exact", description: "Only the whole order in the right sequence scores." }
+    }
+  },
+  numeric: {
+    title: "Range and answer",
+    hint: "Type numbers as you normally would (e.g. {example}). Phones show the range and a slider.",
+    min: "Minimum",
+    max: "Maximum",
+    step: "Step",
+    stepHint: "Empty = any value.",
+    unit: "Unit",
+    unitPlaceholder: "E.g. bits, %, ms",
+    unitHint: "Up to {max} characters.",
+    value: "Correct value",
+    tolerance: "Tolerance (±)",
+    toleranceHint: "0 = only the exact value.",
+    partial: "Partial credit",
+    partialHint: "Outside the tolerance, the score fades gradually up to ± {band}.",
+    partialHintExact: "With tolerance 0 only the exact value scores.",
+    invalid: "Invalid number.",
+    required: "Required."
+  },
+  wordCloud: {
+    maxWords: "Words per person",
+    hint: "Repeated words (ignoring case and accents) add up. Filter terms never show, and you can hide words during the session."
+  },
   typePicker: {
     title: "Add question",
     description: "Pick a format. You can adjust everything later.",
@@ -183,7 +227,17 @@ export const quizBuilder = {
     leaderboardHint: "The live ranking shows here during the session.",
     correct: "correct",
     empty: "Select or add a question to see the preview.",
-    question: "Question {position} of {total}"
+    question: "Question {position} of {total}",
+    orderingPlaceholder: "Item {n}",
+    orderingHint: "Correct order. Participants get the items shuffled.",
+    numericAnswer: "Answer: {value}{tolerance}",
+    numericNoValue: "Set the correct value",
+    cloudSample1: "security",
+    cloudSample2: "MFA",
+    cloudSample3: "backup",
+    cloudSample4: "password",
+    cloudSample5: "firewall",
+    cloudHint: "Words per person: {count}"
   },
   properties: {
     label: "Question properties",
@@ -262,7 +316,16 @@ export const quizBuilder = {
     accepted_required: "Add at least one accepted answer.",
     accepted_too_long: "An accepted answer is over 60 characters.",
     accepted_too_many: "Use at most 10 accepted answers.",
-    body_too_long: "The slide text is over 1000 characters."
+    body_too_long: "The slide text is over 1000 characters.",
+    order_count: "Use 3 to 6 items.",
+    option_duplicate: "Two items have the same text.",
+    numeric_range: "The minimum must be lower than the maximum.",
+    numeric_value_required: "Set the correct value.",
+    numeric_value_out_of_range: "The correct value must be inside the range.",
+    numeric_step: "The step must be greater than zero.",
+    numeric_step_too_fine: "The step is too small for this range (at most 100,000 steps).",
+    numeric_tolerance: "The tolerance cannot be negative.",
+    unit_too_long: "The unit has at most 12 characters."
   },
   settings: {
     title: "Quiz settings",
@@ -333,6 +396,8 @@ export const quizBuilder = {
     rejectedTitle: "{count} questions were not added",
     added: "{count} questions added to the quiz.",
     close: "Close",
+    pbq: "PBQ",
+    pbqOrder: "Items in the correct order (check them):",
     reasons: {
       inactive: "question deactivated",
       unsupported_format: "format not supported live",

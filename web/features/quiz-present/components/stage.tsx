@@ -15,9 +15,14 @@ import { springs, staggerDelay, staggers, useLqReducedMotion } from "@/component
 import { OptionBadge, OptionPattern } from "@/components/quiz-kit/option-shape";
 import { QrCode } from "@/components/quiz-kit/qr-code";
 import { LiveAnnouncer, LiveThemeRoot, PauseGlyph } from "@/features/quiz-live/components/live-chrome";
+import { NumericHistogram } from "@/features/quiz-live/components/numeric-histogram";
+import { WordCloud } from "@/features/quiz-live/components/word-cloud";
 import type { ClockSync } from "@/features/quiz-live/lib/clock-sync";
 import type { StageView } from "@/features/quiz-live/lib/live-store";
-import { formatJoinCode, isAnswerableType, isChoiceType, optionLetter, type PublicQuestion } from "@/features/quiz-live/lib/protocol";
+import { formatWithUnit } from "@/features/quiz-live/lib/numeric";
+import { optionsInOrder } from "@/features/quiz-live/lib/ordering";
+import { formatJoinCode, isAnswerableType, isChoiceType, isGaType, optionLetter, type PublicQuestion } from "@/features/quiz-live/lib/protocol";
+import { useFlip } from "@/features/quiz-live/lib/use-flip";
 import { useCountdown } from "@/features/quiz-live/lib/use-live-session";
 import { LockGlyph } from "@/features/quiz-play/components/participant-phases";
 import { useI18n } from "@/lib/i18n";
@@ -475,6 +480,8 @@ function QuestionScreen({ view, question, current, clock }: { view: StageView; q
           <p className="rounded-[var(--lq-radius)] border-2 border-dashed border-lq-line bg-lq-surface px-[3cqmin] py-[3cqh] text-center font-lq text-[max(1.1rem,3.4cqmin)] font-bold text-lq-fg">
             {t("quizPresent.question.typeHint")}
           </p>
+        ) : isGaType(question.item_type) ? (
+          <GaQuestionBody view={view} question={question} dimmed={locked || view.paused} />
         ) : !isAnswerableType(question.item_type) ? null : showLive && view.liveCounts ? (
           <BarChart
             className="h-full"
@@ -514,6 +521,7 @@ function RevealScreen({ view, current }: { view: StageView; current: number }) {
   }
   const options = [...(question?.options ?? [])].sort((a, b) => a.index - b.index);
   const isPoll = reveal.item_type === "poll";
+  const isGa = isGaType(reveal.item_type);
   const seconds = (ms: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(ms / 1000);
 
   return (
@@ -538,7 +546,9 @@ function RevealScreen({ view, current }: { view: StageView; current: number }) {
         ) : (
           <m.div key="result" className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-[3cqw]" initial={reduced ? false : { y: 12 }} animate={{ y: 0 }} transition={springs.gentle}>
             <div className="flex min-h-0 flex-col">
-              {reveal.item_type === "type_answer" ? (
+              {isGa ? (
+                <GaRevealBody reveal={reveal} question={question} />
+              ) : reveal.item_type === "type_answer" ? (
                 <TopAnswers reveal={reveal} />
               ) : (
                 <BarChart
@@ -561,7 +571,7 @@ function RevealScreen({ view, current }: { view: StageView; current: number }) {
               )}
             </div>
             <div className="flex min-h-0 flex-col gap-[1.6cqh] overflow-hidden">
-              {reveal.item_type !== "type_answer" ? (
+              {reveal.item_type !== "type_answer" && !isGa ? (
                 <ul className="flex flex-col gap-[1cqh]">
                   {options.map((option, position) => {
                     const correct = !isPoll && reveal.correct_option_ids.includes(option.id);
@@ -592,6 +602,12 @@ function RevealScreen({ view, current }: { view: StageView; current: number }) {
               ) : null}
               <div className="flex flex-wrap gap-[1cqmin]">
                 {reveal.answered === 0 ? <StatPill>{t("quizPresent.reveal.noAnswers")}</StatPill> : null}
+                {reveal.item_type === "ordering" && reveal.ordering && reveal.answered > 0 ? (
+                  <StatPill>{t("quizPresent.ordering.exact", { count: reveal.ordering.exact })}</StatPill>
+                ) : null}
+                {reveal.item_type === "word_cloud" && reveal.word_cloud ? (
+                  <StatPill>{t("quizPresent.cloud.distinct", { count: reveal.word_cloud.distinct })}</StatPill>
+                ) : null}
                 {reveal.pct_correct !== null && !isPoll ? <StatPill strong>{t("quizPresent.reveal.pctCorrect", { percent: Math.round(reveal.pct_correct) })}</StatPill> : null}
                 {reveal.fastest ? (
                   <StatPill>
@@ -618,6 +634,138 @@ function RevealScreen({ view, current }: { view: StageView; current: number }) {
       </AnimatePresence>
     </div>
   );
+}
+
+// ----------------------------------------------------------------------------- GA item types (Incremento 5)
+
+/** Open/locked question body of ordering, numeric and word cloud items. */
+function GaQuestionBody({ view, question, dimmed }: { view: StageView; question: PublicQuestion; dimmed: boolean }) {
+  const { t, locale } = useI18n();
+  if (question.item_type === "word_cloud") {
+    const count = question.max_words ?? 1;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-[1.2cqh]">
+        <WordCloud cloud={view.wordCloud} className="min-h-0 flex-1" />
+        <p className="text-center font-lq text-[max(0.9rem,2cqmin)] font-semibold text-lq-fg-muted">
+          {count === 1 ? t("quizPresent.cloud.hintOne") : t("quizPresent.cloud.hintMany", { count })}
+          {view.wordCloud?.filtered ? ` · ${t("quizPresent.cloud.filtered", { count: view.wordCloud.filtered })}` : ""}
+        </p>
+      </div>
+    );
+  }
+  if (question.item_type === "numeric") {
+    const spec = question.numeric;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col justify-end gap-[2cqh]">
+        {view.liveNumeric && view.liveNumeric.n > 0 ? <NumericHistogram result={view.liveNumeric} unit={spec?.unit ?? ""} className="min-h-0 flex-1 pt-[4cqh]" /> : null}
+        {spec ? (
+          <p className="rounded-[var(--lq-radius)] border-2 border-dashed border-lq-line bg-lq-surface px-[3cqmin] py-[2.4cqh] text-center font-lq text-[max(1.1rem,3.2cqmin)] font-bold text-lq-fg">
+            {t("quizPresent.numeric.hint", { min: formatWithUnit(spec.min, spec.unit, locale), max: formatWithUnit(spec.max, spec.unit, locale) })}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  // Ordering: the items as each phone received them (shuffled; never the correct order).
+  return (
+    <div className="flex min-h-0 flex-col gap-[1.4cqh]">
+      <OrderingTiles question={question} order={null} dimmed={dimmed} />
+      <p className="text-center font-lq text-[max(0.9rem,2cqmin)] font-semibold text-lq-fg-muted">{t("quizPresent.ordering.hint")}</p>
+    </div>
+  );
+}
+
+/**
+ * Ordering items as numbered tiles. With `order` (reveal) they glide from the shuffled order to
+ * the correct one (FLIP with CSS transforms; instant with reduced motion / calm mode) and each
+ * slot shows the share of the room that got it right.
+ */
+function OrderingTiles({
+  question,
+  order,
+  slotPct = [],
+  dimmed = false
+}: {
+  question: PublicQuestion;
+  order: string[] | null;
+  slotPct?: Array<number | null>;
+  dimmed?: boolean;
+}) {
+  const { t } = useI18n();
+  const reduced = useLqReducedMotion();
+  const [settled, setSettled] = useState(order === null);
+  // Start from the shuffled order, then move to the correct one on the next frame.
+  useEffect(() => {
+    if (order === null || settled) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setSettled(true), reduced ? 0 : 450);
+    return () => clearTimeout(timer);
+  }, [order, settled, reduced]);
+  const shown = settled && order ? optionsInOrder(question.options, order) : optionsInOrder(question.options, null);
+  const register = useFlip(
+    shown.map((option) => option.id),
+    { disabled: reduced, durationMs: 900 }
+  );
+  const revealed = settled && order !== null;
+  return (
+    <ol className="flex flex-col gap-[1cqh]">
+      {shown.map((option, position) => {
+        const pct = revealed ? slotPct[position] : null;
+        return (
+          <li
+            key={option.id}
+            ref={register(option.id)}
+            className={cn("lq-tile relative flex items-center gap-[1.6cqmin] overflow-hidden px-[2cqmin] py-[1cqmin]", `lq-slot-${option.index % 6}`)}
+            data-dim={dimmed || undefined}
+          >
+            {typeof pct === "number" ? (
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 w-full origin-left bg-[color-mix(in_srgb,var(--lq-on-tile)_16%,transparent)] transition-transform duration-700"
+                style={{ transform: `scaleX(${pct / 100})` }}
+              />
+            ) : null}
+            <span className="relative grid size-[max(1.8rem,5cqmin)] shrink-0 place-items-center rounded-full bg-[var(--lq-on-tile)] font-lq-mono text-[max(0.9rem,2.6cqmin)] font-bold text-[var(--lq-tile)]">
+              {revealed ? position + 1 : optionLetter(option.index)}
+            </span>
+            <span className="relative line-clamp-2 min-w-0 flex-1 font-lq text-[max(1rem,2.8cqmin)] leading-tight font-bold">{option.text}</span>
+            {typeof pct === "number" ? (
+              <span className="relative shrink-0 font-lq-mono text-[max(0.9rem,2.4cqmin)] font-bold">
+                {t("quizPresent.ordering.slotPct", { percent: Math.round(pct) })}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function GaRevealBody({ reveal, question }: { reveal: NonNullable<StageView["reveal"]>; question: PublicQuestion | null }) {
+  const { t, locale } = useI18n();
+  if (reveal.item_type === "word_cloud") {
+    return <WordCloud cloud={reveal.word_cloud ?? null} className="min-h-0 flex-1" />;
+  }
+  if (reveal.item_type === "numeric" && reveal.numeric) {
+    const numeric = reveal.numeric;
+    return reveal.answered > 0 ? (
+      <NumericHistogram result={numeric} unit={numeric.unit} value={numeric.value} tolerance={numeric.tolerance} className="min-h-0 flex-1 pt-[5cqh]" />
+    ) : (
+      <p className="font-lq text-[max(1.2rem,4cqmin)] font-extrabold text-lq-success">
+        {t("quizPresent.numeric.answer", { value: formatWithUnit(numeric.value, numeric.unit, locale) })}
+      </p>
+    );
+  }
+  if (reveal.item_type === "ordering" && question) {
+    return (
+      <div className="flex min-h-0 flex-col gap-[1.2cqh]">
+        <h2 className="font-lq text-[max(0.9rem,2cqmin)] font-extrabold tracking-[0.1em] text-lq-fg-muted uppercase">{t("quizPresent.ordering.correctOrder")}</h2>
+        <OrderingTiles question={question} order={reveal.ordering?.correct_order_ids ?? []} slotPct={reveal.ordering?.slot_pct_correct ?? []} />
+      </div>
+    );
+  }
+  return null;
 }
 
 function StatPill({ children, strong = false }: { children: ReactNode; strong?: boolean }) {

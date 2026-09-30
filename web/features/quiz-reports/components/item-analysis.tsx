@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertIcon, ChevronDownIcon } from "@/components/ui/icons";
 import { ItemTypeIcon } from "@/features/quiz-builder/components/icons";
 import { DistractorChart } from "@/features/quiz-reports/components/distractor-chart";
+import { GaReportDetail } from "@/features/quiz-reports/components/ga-report";
 import {
   difficultyBand,
   discriminationBand,
@@ -69,7 +70,7 @@ function ItemRow({ item, expanded, onToggle }: { item: LiveReportItem; expanded:
   const dBand = discriminationBand(item.discrimination);
   const flags = sortFlags(item.flags);
   const dominant = dominantDistractor(item);
-  const expandable = item.options.length > 0 || Boolean(item.top_answers?.length);
+  const expandable = item.options.length > 0 || Boolean(item.top_answers?.length) || Boolean(item.ordering || item.numeric || item.word_cloud);
 
   return (
     <Fragment>
@@ -143,6 +144,7 @@ function ItemRow({ item, expanded, onToggle }: { item: LiveReportItem; expanded:
               </ul>
             ) : null}
             {item.options.length ? <DistractorChart item={item} /> : null}
+            <GaReportDetail item={item} />
             {dominant ? (
               <p className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-[0.8125rem] text-fg">
                 <AlertIcon className="mt-0.5 shrink-0 text-warning" />

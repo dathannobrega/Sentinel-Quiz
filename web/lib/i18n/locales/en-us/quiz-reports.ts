@@ -115,6 +115,24 @@ export const quizReports = {
       }
     }
   },
+  ga: {
+    orderingTitle: "Accuracy by position",
+    methods: {
+      kendall: "Partial scoring (Kendall)",
+      exact: "Only the exact order scores"
+    },
+    slotSummary: "Position {position}, {text}: {percent} right",
+    orderingStats: "Exact order: {exact} · Average credit: {avg}",
+    numericTitle: "Answer distribution",
+    numericAnswer: "Answer: {value}",
+    numericAnswerTolerance: "Answer: {value} (± {tolerance})",
+    numericStats: "{n} answers · Mean: {mean} · Median: {median}",
+    binSummary: "from {from} to {to}: {count}",
+    wordsTitle: "Words sent",
+    wordsDistinct: "{count} different",
+    hidden: "hidden by the presenter",
+    noWords: "No words were sent."
+  },
   participants: {
     title: "Participants",
     description: "Final ranking. Select a column header to sort.",

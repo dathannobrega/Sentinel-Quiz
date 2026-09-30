@@ -537,6 +537,29 @@
   80% { transform: translateX(6px); }
 }
 
+/* ------------------------------------------------------------------ GA item types (Incremento 5) */
+/* Word cloud: words glide to their new place when counts change; a new word pops in. */
+.lq-cloud-word {
+  transition: transform var(--lq-dur-reveal) var(--lq-ease-emph);
+}
+
+.lq-cloud-word text {
+  transition: font-size var(--lq-dur-reveal) var(--lq-ease-emph);
+}
+
+.lq-cloud-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lq-qr-in var(--lq-dur-slow) var(--lq-ease-back) both;
+}
+
+/* Numeric histogram bars grow from the baseline. */
+.lq-hist-bar {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform var(--lq-dur-slow) var(--lq-ease-out);
+}
+
 /* ------------------------------------------------------------------ reduced motion / calm mode */
 @media (prefers-reduced-motion: reduce) {
   .lq-backdrop::before,
@@ -546,8 +569,15 @@
   .lq-qr-band,
   .lq-warn-pulse,
   .lq-paused-breathe,
-  .lq-shake {
+  .lq-shake,
+  .lq-cloud-pop {
     animation: none !important;
+  }
+
+  .lq-cloud-word,
+  .lq-cloud-word text,
+  .lq-hist-bar {
+    transition: none !important;
   }
 
   .lq-draw {
@@ -566,8 +596,15 @@
 [data-lq-calm="true"] .lq-qr-band,
 [data-lq-calm="true"] .lq-warn-pulse,
 [data-lq-calm="true"] .lq-paused-breathe,
-[data-lq-calm="true"] .lq-shake {
+[data-lq-calm="true"] .lq-shake,
+[data-lq-calm="true"] .lq-cloud-pop {
   animation: none !important;
+}
+
+[data-lq-calm="true"] .lq-cloud-word,
+[data-lq-calm="true"] .lq-cloud-word text,
+[data-lq-calm="true"] .lq-hist-bar {
+  transition: none !important;
 }
 
 [data-lq-calm="true"] .lq-draw {

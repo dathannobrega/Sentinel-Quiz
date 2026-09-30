@@ -12,7 +12,11 @@ import { OptionBadge } from "@/components/quiz-kit/option-shape";
 import { TrophyIcon } from "@/components/quiz-kit/podium";
 import { PauseGlyph, vibrate } from "@/features/quiz-live/components/live-chrome";
 import { LqButton, lqCardClass } from "@/features/quiz-live/components/lq-ui";
+import { NumericHistogram } from "@/features/quiz-live/components/numeric-histogram";
+import { WordCloud } from "@/features/quiz-live/components/word-cloud";
 import type { LiveLeaderboard, LiveSubmission } from "@/features/quiz-live/lib/live-store";
+import { formatWithUnit } from "@/features/quiz-live/lib/numeric";
+import { optionsInOrder, orderingSlots } from "@/features/quiz-live/lib/ordering";
 import { OPTION_SHAPE_GLYPHS, optionLetter, type MyReveal, type PublicQuestion, type Reveal } from "@/features/quiz-live/lib/protocol";
 import { ClaimCard } from "@/features/quiz-play/components/claim-card";
 import { MyResultsPanel } from "@/features/quiz-play/components/my-results";
@@ -184,11 +188,49 @@ export function ExtendedTimeBadge({ multiplier, className }: { multiplier: numbe
 // ----------------------------------------------------------------------------- submitted / locked
 
 function ChosenAnswer({ question, submission }: { question: PublicQuestion | null; submission: LiveSubmission | null }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   if (!submission) {
     return null;
   }
-  if (submission.answer.text) {
+  const answer = submission.answer;
+  if (question?.item_type === "ordering" && answer.choice?.length) {
+    const ordered = optionsInOrder(question.options, answer.choice).filter((option) => answer.choice?.includes(option.id));
+    return (
+      <div className="flex w-full flex-col items-center gap-2">
+        <span className="text-xs font-semibold tracking-[0.14em] text-lq-fg-muted uppercase">{t("quizPlay.submitted.yourOrder")}</span>
+        <ol className="flex w-full max-w-sm flex-col gap-1.5 text-left">
+          {ordered.map((option, position) => (
+            <li key={option.id} className={cn("flex items-center gap-2 rounded-[calc(var(--lq-radius)*0.5)] border-l-[5px] border-l-[var(--lq-tile)] bg-lq-surface-2 px-3 py-1.5", `lq-slot-${option.index % 6}`)}>
+              <span className="font-lq-mono text-sm font-bold text-lq-fg-muted tabular-nums">{position + 1}</span>
+              <span className="line-clamp-2 font-semibold text-lq-fg">{option.text}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+  if (typeof answer.number === "number") {
+    return (
+      <p className="rounded-[calc(var(--lq-radius)*0.6)] bg-lq-surface-2 px-4 py-3 font-lq-mono text-2xl font-bold break-words text-lq-fg tabular-nums">
+        {formatWithUnit(answer.number, question?.numeric?.unit, locale)}
+      </p>
+    );
+  }
+  if (answer.words?.length) {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-xs font-semibold tracking-[0.14em] text-lq-fg-muted uppercase">{t("quizPlay.submitted.yourWords")}</span>
+        <ul className="flex flex-wrap justify-center gap-2">
+          {answer.words.map((word) => (
+            <li key={word} className="rounded-full bg-lq-surface-2 px-4 py-1.5 font-lq text-lg font-bold break-words text-lq-fg">
+              {word}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  if (answer.text) {
     return <p className="rounded-[calc(var(--lq-radius)*0.6)] bg-lq-surface-2 px-4 py-3 font-lq text-xl font-bold break-words text-lq-fg">“{submission.answer.text}”</p>;
   }
   const chosen = (question?.options ?? []).filter((option) => submission.answer.choice?.includes(option.id));
@@ -339,12 +381,15 @@ export function RevealFeedback({
   question,
   reveal,
   showCorrect,
-  showExplanation
+  showExplanation,
+  submission = null
 }: {
   question: PublicQuestion | null;
   reveal: Reveal;
   showCorrect: boolean;
   showExplanation: boolean;
+  /** The person's own answer (GA types compare it with the correct order/value). */
+  submission?: LiveSubmission | null;
 }) {
   const { t, locale } = useI18n();
   const reduced = useLqReducedMotion();
@@ -445,6 +490,14 @@ export function RevealFeedback({
         </div>
       ) : null}
 
+      {question && reveal.item_type === "ordering" && reveal.ordering ? (
+        <OrderingReveal question={question} reveal={reveal.ordering} myOrder={submission?.answer.choice ?? null} showCorrect={showCorrect} />
+      ) : null}
+      {reveal.item_type === "numeric" && reveal.numeric ? (
+        <NumericReveal reveal={reveal.numeric} unit={question?.numeric?.unit ?? reveal.numeric.unit} mine={submission?.answer.number ?? null} showCorrect={showCorrect} />
+      ) : null}
+      {reveal.item_type === "word_cloud" && reveal.word_cloud ? <WordCloudReveal reveal={reveal} words={submission?.answer.words ?? null} /> : null}
+
       {showCorrect && verdict !== "correct" && verdict !== "poll" && correctOptions.length ? (
         <div className={cn(lqCardClass, "flex flex-col gap-2 p-4")}>
           <p className="text-sm font-semibold text-lq-fg-muted">{t("quizPlay.reveal.correctWas", { answer: correctOptions.map((option) => optionLabel(option.index)).join(", ") })}</p>
@@ -471,6 +524,104 @@ export function RevealFeedback({
           <p className="mt-2 font-serif leading-relaxed whitespace-pre-line text-lq-fg">{reveal.explanation}</p>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+/** Correct order slot by slot with ✓/✗ for the person's own placement (hidden order → their list only). */
+function OrderingReveal({
+  question,
+  reveal,
+  myOrder,
+  showCorrect
+}: {
+  question: PublicQuestion;
+  reveal: NonNullable<Reveal["ordering"]>;
+  myOrder: string[] | null;
+  showCorrect: boolean;
+}) {
+  const { t } = useI18n();
+  const slots = showCorrect ? orderingSlots(question.options, reveal.correct_order_ids, myOrder) : [];
+  if (!slots.length) {
+    if (!myOrder?.length) {
+      return null;
+    }
+    const mine = optionsInOrder(question.options, myOrder).filter((option) => myOrder.includes(option.id));
+    return (
+      <div className={cn(lqCardClass, "flex flex-col gap-2 p-4")}>
+        <p className="text-sm font-semibold text-lq-fg-muted">{t("quizPlay.submitted.yourOrder")}</p>
+        <ol className="flex flex-col gap-1.5">
+          {mine.map((option, position) => (
+            <li key={option.id} className="flex gap-2 text-lq-fg">
+              <span className="font-lq-mono text-sm text-lq-fg-muted tabular-nums">{position + 1}.</span>
+              <span className="font-semibold">{option.text}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+  return (
+    <div className={cn(lqCardClass, "flex flex-col gap-2 p-4")}>
+      <p className="text-sm font-semibold text-lq-fg-muted">{t("quizPlay.reveal.correctOrder")}</p>
+      <ol className="flex flex-col gap-2">
+        {slots.map((slot) => (
+          <li key={slot.slot} className="flex items-start gap-3 rounded-[calc(var(--lq-radius)*0.5)] bg-lq-surface-2 px-3 py-2">
+            <span className="mt-0.5 font-lq-mono text-sm font-bold text-lq-fg-muted tabular-nums">{slot.slot + 1}</span>
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="font-semibold text-lq-fg">{slot.correct?.text ?? "–"}</span>
+              {slot.hit === false && slot.mine ? <span className="text-sm text-lq-fg-muted">{t("quizPlay.reveal.youPlaced", { text: slot.mine.text })}</span> : null}
+            </span>
+            {slot.hit !== null ? (
+              <span
+                className={cn("grid size-7 shrink-0 place-items-center rounded-full text-sm font-black", slot.hit ? "bg-lq-success text-lq-on-success" : "bg-lq-danger text-lq-on-danger")}
+              >
+                <span aria-hidden="true">{slot.hit ? "✓" : "✕"}</span>
+                <span className="sr-only">{slot.hit ? t("quizPlay.reveal.slotRight") : t("quizPlay.reveal.slotWrong")}</span>
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/** Correct value ± tolerance (when shown), the person's number and the room's distribution. */
+function NumericReveal({ reveal, unit, mine, showCorrect }: { reveal: NonNullable<Reveal["numeric"]>; unit: string; mine: number | null; showCorrect: boolean }) {
+  const { t, locale } = useI18n();
+  const value = showCorrect ? reveal.value : null;
+  const tolerance = showCorrect ? reveal.tolerance : null;
+  return (
+    <div className={cn(lqCardClass, "flex flex-col gap-3 p-4")}>
+      <dl className="grid gap-1 text-lq-fg">
+        {typeof value === "number" ? (
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-lq-fg-muted">{t("quizPlay.reveal.numericAnswer")}</dt>
+            <dd className="font-lq-mono font-bold">
+              {formatWithUnit(value, unit, locale)}
+              {tolerance ? ` (± ${formatWithUnit(tolerance, unit, locale)})` : ""}
+            </dd>
+          </div>
+        ) : null}
+        {typeof mine === "number" ? (
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-lq-fg-muted">{t("quizPlay.reveal.numericYours")}</dt>
+            <dd className="font-lq-mono font-bold">{formatWithUnit(mine, unit, locale)}</dd>
+          </div>
+        ) : null}
+      </dl>
+      {reveal.n > 0 ? <NumericHistogram result={reveal} unit={unit} value={value} tolerance={tolerance} mine={mine} variant="compact" className="h-44 pt-6" /> : null}
+    </div>
+  );
+}
+
+function WordCloudReveal({ reveal, words }: { reveal: Reveal; words: string[] | null }) {
+  const { t } = useI18n();
+  return (
+    <div className={cn(lqCardClass, "flex flex-col gap-3 p-4")}>
+      {words?.length ? <p className="text-sm text-lq-fg">{t("quizPlay.reveal.yourWords", { words: words.join(" · ") })}</p> : null}
+      <WordCloud cloud={reveal.word_cloud ?? null} variant="compact" interactive className="aspect-[10/7] w-full" />
     </div>
   );
 }

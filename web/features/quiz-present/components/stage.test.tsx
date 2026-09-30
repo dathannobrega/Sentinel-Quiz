@@ -220,3 +220,53 @@ describe("RevealFeedback (phone)", () => {
     expect(screen.getByText("up 2")).toBeTruthy();
   });
 });
+
+describe("Stage: GA item types (Incremento 5)", () => {
+  const cloudQuestion: PublicQuestion = { ...question, item_type: "word_cloud", options: [], scored: false, points_multiplier: 0, max_words: 2 };
+  const cloud = { words: [{ text: "Senha", key: "senha", n: 5 }, { text: "MFA", key: "mfa", n: 2 }], distinct: 4, filtered: 1 };
+
+  it("word cloud: the live cloud with an accessible list and the off-screen count", () => {
+    render(wrap(<Stage clock={clock} view={stageView({ phase: "question", qi: 0, question: cloudQuestion, timer: { answers_open_at_ms: 0, deadline_ms: 60_000 }, word_cloud: cloud })} />));
+    expect(screen.getAllByText("Senha: 5").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Send up to 2 words from your phone · 1 kept off screen/)).toBeTruthy();
+  });
+
+  it("numeric: the histogram only with the live distribution on, never the answer", () => {
+    const numericQuestion: PublicQuestion = { ...question, item_type: "numeric", options: [], numeric: { min: 0, max: 1000, step: 1, unit: "bits" } };
+    const histogram = { min: 0, max: 1000, bins: Array.from({ length: 20 }, (_, index) => (index === 5 ? 3 : 0)), n: 3, mean: 260, median: 256 };
+    const open = { phase: "question" as const, qi: 0, question: numericQuestion, timer: { answers_open_at_ms: 0, deadline_ms: 60_000 }, numeric: histogram };
+    const { unmount } = render(wrap(<Stage clock={clock} view={stageView(open)} />));
+    expect(screen.getByText("Answer on your phone: a number between 0 bits and 1,000 bits")).toBeTruthy();
+    expect(screen.queryByText("Median: 256 bits")).toBeNull();
+    unmount();
+    const settings = { ...baseSnapshot().settings, show_live_distribution: true };
+    render(wrap(<Stage clock={clock} view={stageView({ ...open, settings })} />));
+    expect(screen.getByText("Median: 256 bits")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Answer: /);
+  });
+
+  it("ordering reveal: the correct order with each slot's accuracy", async () => {
+    const orderingQuestion: PublicQuestion = {
+      ...question,
+      item_type: "ordering",
+      options: [
+        { id: "o_c", text: "Containment", index: 0 },
+        { id: "o_p", text: "Preparation", index: 1 },
+        { id: "o_d", text: "Detection", index: 2 }
+      ]
+    };
+    const orderingReveal: Reveal = {
+      ...reveal,
+      item_type: "ordering",
+      correct_option_ids: [],
+      counts: {},
+      pct_correct: 40,
+      ordering: { correct_order_ids: ["o_p", "o_d", "o_c"], slot_pct_correct: [80, 50, 60], exact: 4 }
+    };
+    render(wrap(<Stage clock={clock} view={stageView({ phase: "reveal", qi: 0, question: orderingQuestion, reveal: orderingReveal })} />));
+    expect(await screen.findByText("80% right", undefined, { timeout: 3000 })).toBeTruthy();
+    const rows = screen.getAllByRole("listitem").filter((item) => /Containment|Preparation|Detection/.test(item.textContent ?? ""));
+    expect(rows.map((row) => row.textContent?.replace(/\d+% right/, ""))).toEqual(["1Preparation", "2Detection", "3Containment"]);
+    expect(screen.getByText("4 in the exact order")).toBeTruthy();
+  });
+});

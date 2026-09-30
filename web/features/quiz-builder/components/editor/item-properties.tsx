@@ -9,10 +9,21 @@ import { Checkbox, Input, textareaClassName } from "@/components/ui/input";
 import { AiProvenance, KeyConfirmation, SuggestTime } from "@/features/quiz-builder/components/ai/ai-item-panel";
 import { AcceptedAnswersEditor } from "@/features/quiz-builder/components/editor/accepted-answers-editor";
 import { CharCounter } from "@/features/quiz-builder/components/editor/char-counter";
+import { NumericEditor } from "@/features/quiz-builder/components/editor/numeric-editor";
 import { OptionEditor } from "@/features/quiz-builder/components/editor/option-editor";
+import { OrderingEditor } from "@/features/quiz-builder/components/editor/ordering-editor";
 import { DatabaseIcon, ItemTypeIcon } from "@/features/quiz-builder/components/icons";
 import { CHAR_LIMITS, TIME_LIMIT, charLimitState, clampTimeLimit, type CharLimit } from "@/features/quiz-builder/lib/limits";
-import { OPTION_TYPES, SCORED_TYPES, TIMED_TYPES, isBankItem, optionsToWrite, type LocalIssue } from "@/features/quiz-builder/lib/items";
+import {
+  MAX_WORDS_MAX,
+  MAX_WORDS_MIN,
+  OPTION_TYPES,
+  SCORED_TYPES,
+  TIMED_TYPES,
+  isBankItem,
+  optionsToWrite,
+  type LocalIssue
+} from "@/features/quiz-builder/lib/items";
 import { themeStageStyle } from "@/features/quiz-builder/lib/themes";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
@@ -142,6 +153,48 @@ export function ItemProperties({ item, issues, themeKey, limits, readOnly, revie
           max={limits.options_max}
           onChange={(options) => onPatch({ options: optionsToWrite(options) })}
         />
+      ) : null}
+
+      {type === "ordering" ? (
+        <OrderingEditor
+          options={item.options}
+          method={item.order_method ?? "kendall"}
+          readOnly={contentLocked}
+          methodReadOnly={readOnly}
+          issues={issues}
+          onChange={(options) => onPatch({ options: optionsToWrite(options) })}
+          onMethodChange={(method) => onPatch({ order_method: method })}
+        />
+      ) : null}
+
+      {type === "numeric" ? <NumericEditor numeric={item.numeric} readOnly={contentLocked} issues={issues} onPatch={onPatch} /> : null}
+
+      {type === "word_cloud" ? (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-[0.8125rem] font-medium text-fg">{t("quizBuilder.wordCloud.maxWords")}</legend>
+          <div className="inline-flex self-start rounded-md bg-surface-muted p-0.5">
+            {Array.from({ length: MAX_WORDS_MAX - MAX_WORDS_MIN + 1 }, (_, index) => index + MAX_WORDS_MIN).map((value) => (
+              <label
+                key={value}
+                className={cn(
+                  "cursor-pointer rounded-[5px] px-3 py-1.5 text-[0.8125rem] font-medium transition-colors has-focus-visible:outline-2 has-focus-visible:outline-focus",
+                  (item.max_words ?? 1) === value ? "bg-surface text-fg shadow-raised" : "text-fg-muted hover:text-fg"
+                )}
+              >
+                <input
+                  type="radio"
+                  className="sr-only"
+                  name={`${baseId}-max-words`}
+                  checked={(item.max_words ?? 1) === value}
+                  disabled={readOnly}
+                  onChange={() => onPatch({ max_words: value })}
+                />
+                {value}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs leading-snug text-fg-muted">{t("quizBuilder.wordCloud.hint")}</p>
+        </fieldset>
       ) : null}
 
       {type === "multi_choice" ? (

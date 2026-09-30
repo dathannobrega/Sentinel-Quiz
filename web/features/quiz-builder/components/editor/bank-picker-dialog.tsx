@@ -332,12 +332,26 @@ function BankResult({
         />
         <span className="flex min-w-0 flex-1 flex-col gap-2">
           <span className={cn("text-sm leading-snug", unavailable ? "text-fg-muted" : "text-fg")}>{item.prompt}</span>
-          {item.options.length ? (
+          {item.question_format === "pbq" && item.convertible_to === "ordering" && item.options.length ? (
+            // PBQ ordering task: the items come in the CORRECT order so the author can check them.
+            <span className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-fg-muted">{t("quizBuilder.bank.pbqOrder")}</span>
+              <ol className="flex flex-col gap-0.5 text-xs text-fg-subtle">
+                {item.options.map((option, index) => (
+                  <li key={option.key} className="flex gap-1.5">
+                    <span className="font-mono text-fg-muted">{index + 1}.</span>
+                    <span className="min-w-0">{option.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </span>
+          ) : item.options.length ? (
             <span className="line-clamp-1 text-xs text-fg-subtle">
               {item.options.map((option) => `${option.key}) ${option.text}`).join("  ·  ")}
             </span>
           ) : null}
           <span id={`${id}-meta`} className="flex flex-wrap items-center gap-1.5">
+            {item.question_format === "pbq" ? <Badge tone="primary">{t("quizBuilder.bank.pbq")}</Badge> : null}
             <Badge tone={licenseTone}>{t(`quizBuilder.license.${item.license_scope}`)}</Badge>
             {item.guest_eligible ? (
               <Badge tone="success">

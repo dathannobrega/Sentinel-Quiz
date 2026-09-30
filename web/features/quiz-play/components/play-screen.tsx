@@ -232,6 +232,7 @@ function PlayInner({ code, credentials, onTokenLost, onLeave, onErased, embedded
             reveal={view.reveal}
             showCorrect={view.settings?.show_correct_on_device ?? true}
             showExplanation={view.settings?.show_explanation ?? true}
+            submission={view.submission}
           />
         ) : (
           <LockedView question={view.question} submission={view.submission} />
