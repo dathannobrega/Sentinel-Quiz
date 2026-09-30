@@ -158,7 +158,7 @@ Os dois caminhos usam as imagens publicadas no GHCR (sem `build`) e **falham no 
 
 ```bash
 cp .env.docker.example .env
-# no .env: COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml, APP_IMAGE_TAG,
+# no .env: COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml,
 #          APP_POSTGRES_PASSWORD, APP_NGINX_HOST e APP_MATERIAL_HOST_DIR=./material
 docker login ghcr.io                       # pacotes privados: token com read:packages
 docker compose pull && docker compose up -d
@@ -168,16 +168,18 @@ docker compose pull && docker compose up -d
 
 | Variável | Obrigatória | Descrição |
 | --- | --- | --- |
-| `APP_IMAGE_TAG` | sim | Tag imutável publicada pelo CI: `sha-<7 chars>` (commits na `main`) ou `1.2.3` (release `v1.2.3`). Tags diferenciam maiúsculas; `latest` só existe para releases `v*`. |
+| `APP_IMAGE_TAG` | não | Default `latest` (último build da `main`; atualize com `docker compose pull`). Para deploy reproduzível e rollback fixe `sha-<7 chars>` ou `1.2.3` (release `v1.2.3`). Tags diferenciam maiúsculas. |
 | `APP_POSTGRES_PASSWORD` | sim | Senha do Postgres; a API monta a `DATABASE_URL` com ela (não há como dessincronizar). Gere com `openssl rand -base64 32`. |
 | `APP_NGINX_HOST` | sim | Domínio público sem protocolo (`quiz.seudominio.com`). Define `server_name`, CN/SAN do certificado, `PUBLIC_WEB_ORIGIN` e CORS. |
 | `APP_IMAGE_REPOSITORY` | não | Default `ghcr.io/dathannobrega/sentinel-quiz` (web/proxy usam os sufixos `-web`/`-proxy`). |
 | `APP_MATERIAL_HOST_DIR` | não | Pasta no host com os livros (`json/` e EPUBs), montada read-only. No Portainer use caminho **absoluto**; no docker CLI `./material` funciona. Vazio = volume nomeado `material_data`. |
 | `APP_TLS_*` | não | Certificado próprio (ver [TLS](#-tls--certificados)). |
 
-Demais variáveis: veja `.env.docker.example` e a [tabela abaixo](#️-variáveis-de-ambiente). Defaults do stack: `APP_ENV=production`, migrations no start, `APP_INGEST_ON_STARTUP=false`, rate limit em Redis, `pull_policy: missing` (tags são imutáveis).
+Demais variáveis: veja `.env.docker.example` e a [tabela abaixo](#️-variáveis-de-ambiente). Defaults do stack: `APP_ENV=production`, migrations no start, `APP_INGEST_ON_STARTUP=false`, rate limit em Redis, `pull_policy: missing` (o `up` não baixa de novo uma tag que já existe no host: use `docker compose pull`).
 
-Fluxo de atualização: aguarde o CI verde → copie a tag `sha-xxxxxxx` (ou a versão) do pacote no GHCR → altere `APP_IMAGE_TAG` no `.env` (`docker compose pull && docker compose up -d`) ou no stack do Portainer (*Update the stack*). Rollback = voltar a tag anterior (migrations destrutivas exigem restore de backup).
+Fluxo de atualização: com `latest`, aguarde o CI verde da `main` e rode `docker compose pull && docker compose up -d` (no Portainer, *Update the stack* com *Re-pull image*). Com tag fixa: aguarde o CI verde → copie a tag `sha-xxxxxxx` (ou a versão) do pacote no GHCR → altere `APP_IMAGE_TAG` no `.env` (`docker compose pull && docker compose up -d`) ou no stack do Portainer (*Update the stack*). Rollback = voltar a tag anterior (migrations destrutivas exigem restore de backup).
+
+`password authentication failed for user "sentinel"` na API: o Postgres só aplica `APP_POSTGRES_PASSWORD` na **primeira** inicialização do volume `postgres18_data`. Se a senha do `.env` mudou depois (ou a imagem da API é anterior a 28/09/2026, que ignorava essa variável), a API e o banco divergem. Sem dados a preservar: `docker compose down -v && docker compose up -d`. Com dados: `docker compose exec postgres psql -U sentinel -d sentinel_quiz -c "ALTER USER sentinel PASSWORD '<senha do .env>'"`.
 
 Primeiro deploy: suba o stack, depois importe as questões com `APP_INGEST_ON_STARTUP=true` em um redeploy (e volte para `false`) ou chame `POST /api/admin/ingest` com um admin. Se os pacotes do GHCR forem privados, cadastre o registry `ghcr.io` no Portainer com um token `read:packages`.
 
@@ -340,7 +342,7 @@ Somente da stack (não viram configuração da API): `APP_IMAGE_TAG`, `APP_IMAGE
 | `image-scan` | Build das 3 imagens (sem push) + Trivy; falha com vulnerabilidade **CRITICAL** corrigível. |
 | `publish` | Só em push para `main`, tags `v*` ou dispatch manual, e só se todos os jobs acima passarem (`needs`). Publica `ghcr.io/<owner>/<repo>`, `-web` e `-proxy`. |
 
-Tags publicadas: `sha-<7 chars>` sempre; `X.Y.Z` e `X.Y` em tags `vX.Y.Z`; `latest` **somente** em tags de release. Build apenas `linux/amd64` (sem QEMU). Todas as actions estão fixadas por SHA de commit (comentário com a versão) e o `.github/dependabot.yml` atualiza pip, npm, imagens Docker (Dockerfiles e composes) e actions.
+Tags publicadas: `sha-<7 chars>` sempre (imutáveis); `latest` e `main` acompanham o último build da `main`; `X.Y.Z` e `X.Y` em tags `vX.Y.Z`. Build apenas `linux/amd64` (sem QEMU). Todas as actions estão fixadas por SHA de commit (comentário com a versão) e o `.github/dependabot.yml` atualiza pip, npm, imagens Docker (Dockerfiles e composes) e actions.
 
 ---
 

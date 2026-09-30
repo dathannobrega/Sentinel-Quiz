@@ -2,11 +2,11 @@
 # For local development use docker-compose.yml (builds from source).
 #
 # Required stack variables (deploy fails fast if missing):
-#   APP_IMAGE_TAG          immutable image tag published by CI (sha-<short sha> or a
-#                          release version such as 1.2.3). No :latest.
 #   APP_POSTGRES_PASSWORD  database password (shared by postgres and the API).
 #   APP_NGINX_HOST         public host name, without scheme (quiz.example.com).
-# Optional: APP_MATERIAL_HOST_DIR (host folder with the licensed EPUBs, mounted
+# Optional: APP_IMAGE_TAG (default "latest", the newest main build; pin
+# sha-<short sha> or a release such as 1.2.3 for rollback; enable "Re-pull image"
+# when updating the stack), APP_MATERIAL_HOST_DIR (host folder with the licensed EPUBs, mounted
 # read-only; defaults to the named volume "material_data"), APP_TLS_* for your
 # own certificate, and any APP_* listed in .env.docker.example.
 
@@ -64,7 +64,7 @@ services:
 
   api:
     container_name: ${APP_CONTAINER_NAME:-sentinel-quiz}
-    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}:${APP_IMAGE_TAG:?set APP_IMAGE_TAG to an immutable tag such as sha-abc1234 or 1.2.3}
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}:${APP_IMAGE_TAG:-latest}
     pull_policy: missing
     restart: unless-stopped
     depends_on:
@@ -188,7 +188,7 @@ services:
 
   web:
     container_name: ${APP_WEB_CONTAINER_NAME:-sentinel-quiz-web}
-    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-web:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-web:${APP_IMAGE_TAG:-latest}
     pull_policy: missing
     restart: unless-stopped
     depends_on:
@@ -219,7 +219,7 @@ services:
 
   proxy:
     container_name: ${APP_NGINX_CONTAINER_NAME:-sentinel-quiz-proxy}
-    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-proxy:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-proxy:${APP_IMAGE_TAG:-latest}
     pull_policy: missing
     restart: unless-stopped
     depends_on:
