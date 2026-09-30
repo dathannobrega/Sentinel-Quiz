@@ -6,9 +6,10 @@
 #   docker login ghcr.io          # private packages: token with read:packages
 #   docker compose pull && docker compose up -d
 #
-# Required: APP_IMAGE_TAG (sha-<short sha> from main, or a release such as 1.2.3;
-# case-sensitive, "latest" only exists for v* releases), APP_POSTGRES_PASSWORD,
-# APP_NGINX_HOST (host name without scheme).
+# Required: APP_POSTGRES_PASSWORD, APP_NGINX_HOST (host name without scheme).
+# APP_IMAGE_TAG defaults to "latest" (newest main build; refresh it with
+# `docker compose pull`). Pin sha-<short sha> (or a release such as 1.2.3) for
+# reproducible deploys and rollback. Tags are case-sensitive.
 # Optional: APP_MATERIAL_HOST_DIR (host folder with the licensed books, mounted
 # read-only; defaults to the named volume "material_data"),
 # APP_LOCAL_QUESTIONS_HOST_DIR, APP_TLS_* for your own certificate, and any APP_*
@@ -21,7 +22,7 @@ services:
       POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:?set APP_POSTGRES_PASSWORD}
 
   api:
-    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}:${APP_IMAGE_TAG:?set APP_IMAGE_TAG to an immutable tag such as sha-abc1234 or 1.2.3}
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}:${APP_IMAGE_TAG:-latest}
     pull_policy: missing
     environment:
       APP_ENV: ${APP_ENV:-production}
@@ -39,11 +40,11 @@ services:
       - ${APP_LOCAL_QUESTIONS_HOST_DIR:-local_questions}:/questions/local:ro
 
   web:
-    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-web:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-web:${APP_IMAGE_TAG:-latest}
     pull_policy: missing
 
   proxy:
-    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-proxy:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-proxy:${APP_IMAGE_TAG:-latest}
     pull_policy: missing
     environment:
       NGINX_SERVER_NAME: ${APP_NGINX_HOST:?set APP_NGINX_HOST}
