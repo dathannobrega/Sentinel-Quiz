@@ -1,0 +1,28 @@
+/*
+ * Print layout for the session report (scoped with :has so other pages are unaffected):
+ * drop the app chrome, use the full page width and keep blocks together.
+ */
+@media print {
+  body:has([data-report-print]) aside,
+  body:has([data-report-print]) header.sticky,
+  body:has([data-report-print]) a[href="#main-content"] {
+    display: none !important;
+  }
+
+  body:has([data-report-print]) :has(> #main-content) {
+    display: block !important;
+  }
+
+  [data-report-print] {
+    color: #000;
+  }
+
+  [data-report-print] tr,
+  [data-report-print] li {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+}

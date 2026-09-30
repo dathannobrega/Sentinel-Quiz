@@ -34,6 +34,10 @@ function resolveChrome(pathname: string): Chrome {
   if (/^\/(exam|study)\/[^/]+\/?$/.test(pathname)) {
     return "none";
   }
+  // Sentinel Arena: the projector stage and the participant phone screens own the whole viewport.
+  if (/^\/(present|j)(\/|$)/.test(pathname)) {
+    return "none";
+  }
   return PUBLIC_PATHS.has(pathname) ? "public" : "app";
 }
 
@@ -143,7 +147,8 @@ function useNavItems(): { study: NavItem[]; manage: NavItem[] } {
         { href: "/dashboard", label: t("common.labels.dashboard"), icon: HomeIcon },
         { href: "/start", label: t("common.actions.newSession"), icon: PlayCircleIcon },
         { href: "/review", label: t("common.labels.review"), icon: RepeatIcon },
-        { href: "/history", label: t("common.labels.history"), icon: ListIcon }
+        { href: "/history", label: t("common.labels.history"), icon: ListIcon },
+        { href: "/quizzes", label: t("quizBuilder.library.title"), icon: MonitorIcon }
       ],
       manage
     };
