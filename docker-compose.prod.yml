@@ -1,0 +1,53 @@
+# Sentinel Quiz — PRODUCTION overrides (use with docker-compose.yml).
+# Runs the images published by CI to GHCR (no build) and fails fast when a
+# required variable is missing.
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml   # in .env
+#   docker login ghcr.io          # private packages: token with read:packages
+#   docker compose pull && docker compose up -d
+#
+# Required: APP_IMAGE_TAG (sha-<short sha> from main, or a release such as 1.2.3;
+# case-sensitive, "latest" only exists for v* releases), APP_POSTGRES_PASSWORD,
+# APP_NGINX_HOST (host name without scheme).
+# Optional: APP_MATERIAL_HOST_DIR (host folder with the licensed books, mounted
+# read-only; defaults to the named volume "material_data"),
+# APP_LOCAL_QUESTIONS_HOST_DIR, APP_TLS_* for your own certificate, and any APP_*
+# listed in .env.docker.example.
+# Keep docker-compose.portainer.yml in sync (scripts/check_compose.sh).
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:?set APP_POSTGRES_PASSWORD}
+
+  api:
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}:${APP_IMAGE_TAG:?set APP_IMAGE_TAG to an immutable tag such as sha-abc1234 or 1.2.3}
+    pull_policy: missing
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_INGEST_ON_STARTUP: ${APP_INGEST_ON_STARTUP:-false}
+      APP_POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:?set APP_POSTGRES_PASSWORD}
+      APP_NGINX_HOST: ${APP_NGINX_HOST:?set APP_NGINX_HOST}
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-https://${APP_NGINX_HOST}}
+    volumes:
+      # The question bank is baked into the image (/questions).
+      # Licensed books are never in the image: point APP_MATERIAL_HOST_DIR to a
+      # host folder or fill the named volume "material_data".
+      - ${APP_MATERIAL_HOST_DIR:-material_data}:/app/material:ro
+      # Private-study question imports (questions/local, never baked into the image):
+      # point APP_LOCAL_QUESTIONS_HOST_DIR to a host folder or fill "local_questions".
+      - ${APP_LOCAL_QUESTIONS_HOST_DIR:-local_questions}:/questions/local:ro
+
+  web:
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-web:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    pull_policy: missing
+
+  proxy:
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-proxy:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    pull_policy: missing
+    environment:
+      NGINX_SERVER_NAME: ${APP_NGINX_HOST:?set APP_NGINX_HOST}
+
+volumes:
+  material_data:
+  local_questions:

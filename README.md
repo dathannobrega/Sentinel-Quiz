@@ -45,13 +45,24 @@ Somente o proxy publica portas no host. `web`, `api`, `postgres` e `redis` não 
 ## 🐳 Início rápido (Docker Compose local)
 
 ```bash
-cp .env.docker.example .env      # opcional: todos os valores têm default de desenvolvimento
+cp .env.docker.example .env      # já vem com COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
 docker compose up --build -d
 ```
 
+Os stacks são divididos em três arquivos; o `COMPOSE_FILE` do `.env` escolhe o ambiente, então os comandos `docker compose ...` são os mesmos nos dois:
+
+| Arquivo | Papel |
+| --- | --- |
+| `docker-compose.yml` | **Base**: tudo que dev e produção compartilham (serviços, redes, healthchecks, limites, variáveis). Não sobe sozinho. |
+| `docker-compose.dev.yml` | **Desenvolvimento**: build do código-fonte (tags `:local`), `./questions` e `./material` montados, defaults de dev. |
+| `docker-compose.prod.yml` | **Produção** via docker CLI: imagens do GHCR, variáveis obrigatórias (ver [Produção](#️-produção-docker-compose-ou-portainer)). |
+| `docker-compose.portainer.yml` | Base + prod num arquivo só, para o editor web do Portainer. O CI (`scripts/check_compose.sh`) garante que é equivalente a base + prod. |
+
+Sem `.env`, passe os arquivos explicitamente: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d`.
+
 Acesse **https://localhost** (o `http://localhost` redireciona). O certificado é autoassinado: aceite-o no navegador na primeira vez — ele é persistido no volume `proxy_certs` e **não** muda entre reinícios.
 
-O compose local (`docker-compose.yml`):
+O stack de desenvolvimento (base + `docker-compose.dev.yml`):
 
 - sobe `postgres`, `redis`, `api`, `web` e `proxy`; publica apenas as portas `APP_HTTP_PORT` (80) e `APP_HTTPS_PORT` (443);
 - roda `alembic upgrade head` antes de iniciar a API (`APP_RUN_DB_MIGRATIONS=true`) e importa `./questions` uma vez no start (`APP_INGEST_ON_STARTUP=true`);
@@ -139,22 +150,34 @@ O entrypoint exporta cada `APP_<NOME>` como `<NOME>` (valor vazio = default do b
 
 ---
 
-## ☁️ Deploy com Portainer (produção)
+## ☁️ Produção (docker compose ou Portainer)
 
-Use `docker-compose.portainer.yml` como stack. Ele usa as imagens publicadas no GHCR (sem `build`) e **falha no deploy** se faltarem variáveis obrigatórias:
+Os dois caminhos usam as imagens publicadas no GHCR (sem `build`) e **falham no deploy** se faltarem variáveis obrigatórias.
+
+**docker compose direto no servidor** (checkout do repositório ou só os arquivos `docker-compose.yml` + `docker-compose.prod.yml` + `.env`):
+
+```bash
+cp .env.docker.example .env
+# no .env: COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml, APP_IMAGE_TAG,
+#          APP_POSTGRES_PASSWORD, APP_NGINX_HOST e APP_MATERIAL_HOST_DIR=./material
+docker login ghcr.io                       # pacotes privados: token com read:packages
+docker compose pull && docker compose up -d
+```
+
+**Portainer**: use `docker-compose.portainer.yml` como stack e cole as variáveis em *Environment variables* (`COMPOSE_FILE` não se aplica).
 
 | Variável | Obrigatória | Descrição |
 | --- | --- | --- |
-| `APP_IMAGE_TAG` | sim | Tag imutável publicada pelo CI: `sha-<7 chars>` (commits na `main`) ou `1.2.3` (release `v1.2.3`). Não existe `:latest` no stack. |
+| `APP_IMAGE_TAG` | sim | Tag imutável publicada pelo CI: `sha-<7 chars>` (commits na `main`) ou `1.2.3` (release `v1.2.3`). Tags diferenciam maiúsculas; `latest` só existe para releases `v*`. |
 | `APP_POSTGRES_PASSWORD` | sim | Senha do Postgres; a API monta a `DATABASE_URL` com ela (não há como dessincronizar). Gere com `openssl rand -base64 32`. |
 | `APP_NGINX_HOST` | sim | Domínio público sem protocolo (`quiz.seudominio.com`). Define `server_name`, CN/SAN do certificado, `PUBLIC_WEB_ORIGIN` e CORS. |
 | `APP_IMAGE_REPOSITORY` | não | Default `ghcr.io/dathannobrega/sentinel-quiz` (web/proxy usam os sufixos `-web`/`-proxy`). |
-| `APP_MATERIAL_HOST_DIR` | não | Caminho **absoluto** no host com os EPUBs (montado read-only). Vazio = volume nomeado `material_data`. |
+| `APP_MATERIAL_HOST_DIR` | não | Pasta no host com os livros (`json/` e EPUBs), montada read-only. No Portainer use caminho **absoluto**; no docker CLI `./material` funciona. Vazio = volume nomeado `material_data`. |
 | `APP_TLS_*` | não | Certificado próprio (ver [TLS](#-tls--certificados)). |
 
 Demais variáveis: veja `.env.docker.example` e a [tabela abaixo](#️-variáveis-de-ambiente). Defaults do stack: `APP_ENV=production`, migrations no start, `APP_INGEST_ON_STARTUP=false`, rate limit em Redis, `pull_policy: missing` (tags são imutáveis).
 
-Fluxo de atualização: aguarde o CI verde → copie a tag `sha-xxxxxxx` (ou a versão) do pacote no GHCR → altere `APP_IMAGE_TAG` no stack → *Update the stack*. Rollback = voltar a tag anterior (migrations destrutivas exigem restore de backup).
+Fluxo de atualização: aguarde o CI verde → copie a tag `sha-xxxxxxx` (ou a versão) do pacote no GHCR → altere `APP_IMAGE_TAG` no `.env` (`docker compose pull && docker compose up -d`) ou no stack do Portainer (*Update the stack*). Rollback = voltar a tag anterior (migrations destrutivas exigem restore de backup).
 
 Primeiro deploy: suba o stack, depois importe as questões com `APP_INGEST_ON_STARTUP=true` em um redeploy (e volte para `false`) ou chame `POST /api/admin/ingest` com um admin. Se os pacotes do GHCR forem privados, cadastre o registry `ghcr.io` no Portainer com um token `read:packages`.
 
@@ -226,8 +249,7 @@ O preview de referências (`/api/materials/preview`) exige usuário autenticado 
 `scripts/create_logical_backup.sh` executa `pg_dump -Fc` **dentro do container do Postgres** (sem senha em argumentos, sem precisar de `pg_dump` no host), grava com `umask 077`, verifica o arquivo com `pg_restore --list`, gera `.sha256` e mantém os `BACKUP_RETENTION` (14) dumps mais recentes em `BACKUP_DIR` (`./backups`, ignorado pelo git).
 
 ```bash
-./scripts/create_logical_backup.sh                                   # compose local
-BACKUP_COMPOSE_ARGS="-f docker-compose.portainer.yml -p sentinel" ./scripts/create_logical_backup.sh
+./scripts/create_logical_backup.sh                                   # docker compose (dev ou prod, via COMPOSE_FILE do .env)
 BACKUP_MODE=container BACKUP_PG_CONTAINER=<stack>-postgres-1 ./scripts/create_logical_backup.sh   # Portainer
 BACKUP_MODE=url DATABASE_URL='postgresql://user:***@db:5432/sentinel_quiz' ./scripts/create_logical_backup.sh  # Postgres externo (senha vai para PGPASSFILE temporário)
 ```
