@@ -162,6 +162,16 @@ services:
       APP_GEMINI_RETRY_ON_SHORT: ${APP_GEMINI_RETRY_ON_SHORT:-}
       APP_GEMINI_CANDIDATE_COUNT: ${APP_GEMINI_CANDIDATE_COUNT:-}
       APP_TUTOR_DAILY_QUOTA: ${APP_TUTOR_DAILY_QUOTA:-}
+      # --- Sentinel Arena: live quizzes (docs/live-quiz/CONTRATO-INCREMENTO-1.md §8) ---
+      APP_LIVE_ENABLED: ${APP_LIVE_ENABLED:-false}
+      APP_LIVE_HOST_POLICY: ${APP_LIVE_HOST_POLICY:-allowlist}
+      APP_LIVE_HOST_ALLOWLIST: ${APP_LIVE_HOST_ALLOWLIST:-}
+      APP_LIVE_TOKEN_KEYS: ${APP_LIVE_TOKEN_KEYS:-}
+      # More than one uvicorn worker needs the Redis bus so every worker sees every room event.
+      APP_LIVE_BUS_BACKEND: ${APP_LIVE_BUS_BACKEND:-redis}
+      APP_LIVE_REDIS_URL: ${APP_LIVE_REDIS_URL:-}
+      APP_LIVE_MAX_PARTICIPANTS: ${APP_LIVE_MAX_PARTICIPANTS:-}
+      APP_LIVE_PLATFORM_GUEST_OK: ${APP_LIVE_PLATFORM_GUEST_OK:-false}
     networks:
       - edge
       - data

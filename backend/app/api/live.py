@@ -1,0 +1,327 @@
+"""Sentinel Arena REST API (``/api/live/*``, contract §4–§5 and §7).
+
+Authoring and session management are for hosts (see live_quiz.host_capability);
+``/rooms/*``, ``/names/suggest`` and ``/me/results`` are public (participant token).
+Endpoints that change what a connected room sees (join, rejoin, end) publish the
+resulting events on the live bus.
+"""
+from __future__ import annotations
+
+import io
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+
+from app.api.deps import get_current_user_optional, get_current_user_required
+from app.core.config import settings
+from app.core.errors import api_error
+from app.db.session import get_db
+from app.live.db import live_db
+from app.live import runtime
+from app.live.gateway import get_hub
+from app.models import User
+from app.schemas_live import (
+    ExpectedVersionIn,
+    FromBankIn,
+    ItemWriteIn,
+    JoinIn,
+    QuizCreateIn,
+    QuizUpdateIn,
+    RejoinIn,
+    ReorderIn,
+    SessionCreateIn,
+)
+from app.services import live_names, live_quiz, live_results, live_session
+from app.services.auth import parse_bearer_token
+
+router = APIRouter(prefix="/api/live", tags=["live"])
+
+
+def _enabled() -> None:
+    if not settings.live_enabled:
+        raise api_error(404, "live_disabled", "Live quizzes are not enabled.")
+
+
+def host_user(current_user: User = Depends(get_current_user_required)) -> User:
+    return live_quiz.require_host(current_user)
+
+
+# ----------------------------------------------------------------------------- capabilities
+
+@router.get("/capabilities")
+def get_capabilities(current_user: User | None = Depends(get_current_user_optional)) -> dict[str, Any]:
+    return live_quiz.capabilities(current_user)
+
+
+# ----------------------------------------------------------------------------- quizzes
+
+@router.get("/quizzes")
+def list_quizzes(db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    return {"items": live_quiz.list_quizzes(db, user)}
+
+
+@router.post("/quizzes", status_code=201)
+def create_quiz(body: QuizCreateIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    quiz = live_quiz.create_quiz(
+        db,
+        user,
+        title=body.title,
+        description=body.description,
+        language=body.language,
+        theme_key=body.theme_key,
+        settings_patch=body.settings.model_dump(exclude_none=True) if body.settings else None,
+    )
+    return live_quiz.serialize_detail(db, live_quiz.get_owned_quiz(db, user, quiz.id))
+
+
+@router.get("/quizzes/{quiz_id}")
+def get_quiz(quiz_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    return live_quiz.serialize_detail(db, live_quiz.get_owned_quiz(db, user, quiz_id))
+
+
+@router.patch("/quizzes/{quiz_id}")
+def update_quiz(quiz_id: str, body: QuizUpdateIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    fields = body.model_dump(exclude_unset=True, exclude={"expected_version", "settings"})
+    if body.settings is not None:
+        fields["settings"] = body.settings.model_dump(exclude_none=True)
+    quiz = live_quiz.update_quiz(db, user, quiz_id, expected_version=body.expected_version, fields=fields)
+    return live_quiz.serialize_detail(db, quiz)
+
+
+@router.delete("/quizzes/{quiz_id}", status_code=204)
+def archive_quiz(quiz_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> Response:
+    live_quiz.archive_quiz(db, user, quiz_id)
+    return Response(status_code=204)
+
+
+@router.post("/quizzes/{quiz_id}/duplicate", status_code=201)
+def duplicate_quiz(quiz_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    return live_quiz.serialize_detail(db, live_quiz.duplicate_quiz(db, user, quiz_id))
+
+
+@router.post("/quizzes/{quiz_id}/items", status_code=201)
+def add_item(quiz_id: str, body: ItemWriteIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    if body.item_type is None:
+        raise api_error(422, "item_invalid", "item_type is required.")
+    quiz = live_quiz.add_item(
+        db, user, quiz_id,
+        expected_version=body.expected_version, item_type=body.item_type, position=body.position, fields=body.write_fields(),
+    )
+    return live_quiz.serialize_detail(db, quiz)
+
+
+@router.post("/quizzes/{quiz_id}/items/reorder")
+def reorder_items(quiz_id: str, body: ReorderIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    quiz = live_quiz.reorder_items(db, user, quiz_id, expected_version=body.expected_version, item_ids=body.item_ids)
+    return live_quiz.serialize_detail(db, quiz)
+
+
+@router.post("/quizzes/{quiz_id}/items/from-bank")
+def add_from_bank(quiz_id: str, body: FromBankIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    quiz, rejected = live_quiz.add_items_from_bank(
+        db, user, quiz_id, expected_version=body.expected_version, question_ids=body.question_ids
+    )
+    return {"quiz": live_quiz.serialize_detail(db, quiz), "rejected": rejected}
+
+
+@router.patch("/quizzes/{quiz_id}/items/{item_id}")
+def update_item(quiz_id: str, item_id: str, body: ItemWriteIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    quiz = live_quiz.update_item(
+        db, user, quiz_id, item_id,
+        expected_version=body.expected_version, item_type=body.item_type, fields=body.write_fields(),
+    )
+    return live_quiz.serialize_detail(db, quiz)
+
+
+@router.delete("/quizzes/{quiz_id}/items/{item_id}")
+def delete_item(
+    quiz_id: str,
+    item_id: str,
+    expected_version: int = Query(ge=1),
+    db: Session = Depends(get_db),
+    user: User = Depends(host_user),
+) -> dict[str, Any]:
+    quiz = live_quiz.delete_item(db, user, quiz_id, item_id, expected_version=expected_version)
+    return live_quiz.serialize_detail(db, quiz)
+
+
+@router.post("/quizzes/{quiz_id}/items/{item_id}/review")
+def review_item(quiz_id: str, item_id: str, body: ExpectedVersionIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    quiz = live_quiz.mark_item_reviewed(db, user, quiz_id, item_id, expected_version=body.expected_version)
+    return live_quiz.serialize_detail(db, quiz)
+
+
+@router.post("/quizzes/{quiz_id}/publish")
+def publish_quiz(quiz_id: str, body: ExpectedVersionIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    return live_quiz.publish_quiz(db, user, quiz_id, expected_version=body.expected_version)
+
+
+# ----------------------------------------------------------------------------- bank
+
+@router.get("/bank/facets")
+def bank_facets(db: Session = Depends(get_db), _user: User = Depends(host_user)) -> dict[str, Any]:
+    return live_quiz.bank_facets(db)
+
+
+@router.get("/bank/search")
+def bank_search(
+    q: Optional[str] = Query(default=None, max_length=100),
+    certification: Optional[str] = Query(default=None, max_length=64),
+    domain: Optional[str] = Query(default=None, max_length=255),
+    difficulty: Optional[str] = Query(default=None, max_length=16),
+    only_guest_eligible: bool = False,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=100000),
+    db: Session = Depends(get_db),
+    _user: User = Depends(host_user),
+) -> dict[str, Any]:
+    return live_quiz.bank_search(
+        db, q=q, certification=certification, domain=domain, difficulty=difficulty,
+        only_guest_eligible=only_guest_eligible, limit=limit, offset=offset,
+    )
+
+
+# ----------------------------------------------------------------------------- sessions (host)
+
+@router.post("/sessions", status_code=201)
+def create_session(body: SessionCreateIn, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    session = live_session.create_session(
+        db, user,
+        quiz_id=body.quiz_id, allow_guests=body.allow_guests, max_participants=body.max_participants,
+        preset=body.preset, audience=body.audience,
+    )
+    return live_session.serialize_session(db, session)
+
+
+@router.get("/sessions")
+def list_sessions(
+    quiz_id: Optional[str] = Query(default=None, max_length=36),
+    db: Session = Depends(get_db),
+    user: User = Depends(host_user),
+) -> dict[str, Any]:
+    return {"items": live_session.list_sessions(db, user, quiz_id=quiz_id)}
+
+
+@router.get("/sessions/{session_id}")
+def get_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    return live_session.serialize_session(db, live_session.get_owned_session(db, user, session_id))
+
+
+@router.post("/sessions/{session_id}/display-token")
+def display_token(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    return live_session.display_token(live_session.get_owned_session(db, user, session_id))
+
+
+@router.post("/sessions/{session_id}/end")
+async def end_session(request: Request, session_id: str, user: User = Depends(host_user)) -> dict[str, Any]:
+    def _end() -> tuple[runtime.Outcome, dict[str, Any]]:
+        with live_db() as db:
+            live_session.get_owned_session(db, user, session_id)
+            outcome = runtime.end_session(db, session_id)
+            return outcome, live_session.serialize_session(db, live_session.get_owned_session(db, user, session_id))
+
+    outcome, data = await run_in_threadpool(_end)
+    if not outcome.error:
+        await get_hub(request.app).publish_outcome(session_id, outcome)
+    return data
+
+
+@router.get("/sessions/{session_id}/qr.svg")
+def session_qr(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> Response:
+    import segno
+
+    session = live_session.get_owned_session(db, user, session_id)
+    qr = segno.make(live_session.join_url(session.join_code), error="m", micro=False)
+    buffer = io.BytesIO()
+    qr.save(buffer, kind="svg", scale=10, border=4, dark="#0b1220", light="#ffffff", xmldecl=False)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="image/svg+xml",
+        headers={"Content-Disposition": f'inline; filename="sala-{session.join_code}.svg"', "Cache-Control": "private, max-age=300"},
+    )
+
+
+@router.get("/sessions/{session_id}/report")
+def session_report(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
+    return live_results.build_report(db, live_session.get_owned_session(db, user, session_id))
+
+
+@router.get("/sessions/{session_id}/export.csv")
+def session_export(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> StreamingResponse:
+    session = live_session.get_owned_session(db, user, session_id)
+    rows = list(live_results.iter_csv(db, session))  # built before the DB session closes
+    return StreamingResponse(
+        iter(rows),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="sentinel-arena-{session.join_code}-{session.id[:8]}.csv"'},
+    )
+
+
+# ----------------------------------------------------------------------------- participants (public)
+
+@router.get("/rooms/{code}", dependencies=[Depends(_enabled)])
+def get_room(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return live_session.room_info(db, code)
+
+
+async def _publish_lobby(request: Request, session_id: str) -> None:
+    def _lobby() -> dict[str, Any]:
+        with live_db() as db:
+            return runtime.lobby_state(db, session_id)
+
+    await get_hub(request.app).publish_outcome(
+        session_id, runtime.Outcome(broadcasts=[runtime.Broadcast("lobby.update", await run_in_threadpool(_lobby))])
+    )
+
+
+@router.post("/rooms/{code}/join", status_code=201, dependencies=[Depends(_enabled)])
+async def join_room(
+    request: Request,
+    code: str,
+    body: JoinIn,
+    current_user: User | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
+    def _join() -> dict[str, Any]:
+        with live_db() as db:
+            return live_session.join(
+                db, code, user=current_user, display_name=body.display_name, consent=body.consent,
+                avatar_seed=body.avatar_seed, dev_h=body.dev_h,
+            )
+
+    result = await run_in_threadpool(_join)
+    await _publish_lobby(request, result["session_id"])
+    return result
+
+
+@router.post("/rooms/{code}/rejoin", dependencies=[Depends(_enabled)])
+async def rejoin_room(request: Request, code: str, body: RejoinIn) -> dict[str, Any]:
+    def _rejoin() -> dict[str, Any]:
+        with live_db() as db:
+            return live_session.rejoin(db, code, display_name=body.display_name, return_code=body.return_code)
+
+    result = await run_in_threadpool(_rejoin)
+    await _publish_lobby(request, result["session_id"])
+    return result
+
+
+@router.get("/names/suggest", dependencies=[Depends(_enabled)])
+def suggest_name(lang: Optional[str] = Query(default="pt-BR", max_length=8)) -> dict[str, str]:
+    return {"name": live_names.suggest_name(lang)}
+
+
+@router.get("/me/results", dependencies=[Depends(_enabled)])
+def my_results(authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)) -> dict[str, Any]:
+    token = parse_bearer_token(authorization)
+    if not token:
+        raise api_error(401, "token_invalid", "Participant token required.")
+    participant = live_session.participant_from_token(db, token)
+    return live_results.my_results(db, participant)
+
+
+@router.get("/healthz")
+async def live_health(request: Request) -> dict[str, Any]:
+    hub = get_hub(request.app)
+    return {"enabled": bool(settings.live_enabled), "bus": await hub.bus.ping(), "connections": hub.connection_count()}

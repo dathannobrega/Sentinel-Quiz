@@ -1,0 +1,427 @@
+export const quizBuilder = {
+  metadata: {
+    library: "Live quizzes",
+    editor: "Quiz editor",
+    sessions: "Quiz sessions"
+  },
+  types: {
+    single_choice: { name: "Single choice", description: "One answer per person; scores when a correct one is picked." },
+    multi_choice: { name: "Multiple answers", description: "Several correct options, partial credit or all-or-nothing." },
+    true_false: { name: "True or false", description: "Two fixed options, quick to answer." },
+    type_answer: { name: "Type answer", description: "Short text checked against accepted answers." },
+    poll: { name: "Poll", description: "The room's opinion: no right answer and no points." },
+    content: { name: "Content slide", description: "Context or instructions between questions." },
+    leaderboard: { name: "Leaderboard", description: "Shows the current ranking at this point." }
+  },
+  themes: {
+    label: "Theme",
+    sentinel: { name: "Sentinel", description: "Dark and sober, with a dot grid." },
+    terminal: { name: "Terminal", description: "Monospace with console scanlines." },
+    neon_soc: { name: "Neon SOC", description: "SOC dashboard with a cyan glow." },
+    aurora: { name: "Aurora", description: "Soft violet and blue gradients." },
+    high_contrast: { name: "High contrast", description: "Maximum legibility (≥ 7:1), no animated background." }
+  },
+  license: {
+    own: "Own",
+    platform: "Platform",
+    pending_audit: "License under audit",
+    personal_use: "Personal use"
+  },
+  sessionStatus: {
+    lobby: "In lobby",
+    live: "Live",
+    finished: "Finished"
+  },
+  capabilities: {
+    loading: "Checking whether you can host live quizzes…",
+    live_disabled: {
+      title: "Live quizzes are turned off",
+      message: "The feature is not enabled in this environment yet. Ask an administrator to set LIVE_ENABLED."
+    },
+    not_allowlisted: {
+      title: "Hosting is in closed beta",
+      message: "Your account is not on the host list yet. Ask the platform administrator for access."
+    },
+    email_not_verified: {
+      title: "Verify your email to host",
+      message: "For safety, only accounts with a verified email can open live rooms.",
+      action: "Go to settings"
+    },
+    auth_required: {
+      title: "Sign in to create live quizzes",
+      message: "Quizzes belong to your account so you can edit, present and see results later.",
+      action: "Sign in"
+    }
+  },
+  library: {
+    context: "Sentinel Arena",
+    title: "Live quizzes",
+    description: "Build quizzes for classes, trainings and events. The room joins by QR code, no sign-up needed.",
+    newQuiz: "New quiz",
+    loadError: "Could not load your quizzes.",
+    count: "{count} quizzes",
+    empty: {
+      title: "Your first live quiz starts here",
+      message: "Write your own questions or bring them from the Question Bank, pick a theme for the big screen and present with a PIN and QR code.",
+      stepCreate: "Create the quiz and choose a theme",
+      stepBuild: "Add questions or import from the Bank",
+      stepPresent: "Publish and present: the room joins from their phones",
+      cta: "Create my first quiz"
+    },
+    card: {
+      items: "{count} questions",
+      itemsOne: "1 question",
+      itemsNone: "No questions",
+      published: "v{version}",
+      publishedLabel: "Published version {version}",
+      neverPublished: "Draft",
+      unpublished: "Unpublished changes",
+      lastSession: "Last session: {status}, {date}",
+      noSessions: "Never presented",
+      updated: "Edited {date}",
+      edit: "Edit",
+      present: "Present",
+      duplicate: "Duplicate",
+      sessions: "Sessions",
+      archive: "Archive",
+      moreActions: "More actions for {title}"
+    },
+    archiveConfirm: {
+      title: "Archive “{title}”?",
+      message: "The quiz leaves your library. Past sessions and reports stay available.",
+      confirm: "Archive"
+    },
+    duplicated: "Copy created: “{title}”.",
+    archived: "Quiz archived.",
+    actionError: "The action did not complete."
+  },
+  create: {
+    title: "New quiz",
+    description: "Name it and choose how it looks on the big screen. Everything can change later.",
+    titleLabel: "Title",
+    titlePlaceholder: "e.g. Security+ review – Domain 3",
+    titleRequired: "Enter a title.",
+    descriptionLabel: "Description (optional)",
+    submit: "Create and edit",
+    cancel: "Cancel"
+  },
+  editor: {
+    back: "Back to library",
+    titleLabel: "Quiz title",
+    loadError: "Could not open this quiz.",
+    notFound: "Quiz not found or archived.",
+    readOnly: "You can view this quiz but not edit it.",
+    settings: "Settings",
+    publish: "Publish",
+    present: "Present",
+    sessions: "Sessions",
+    versionBadge: "v{version} published",
+    neverPublished: "Never published",
+    unpublished: "Unpublished changes",
+    layoutLabel: "Quiz editor",
+    status: {
+      idle: "All saved",
+      pending: "Pending changes",
+      saving: "Saving…",
+      saved: "Saved",
+      blocked: "Not saved: fix the highlighted fields",
+      error: "Save failed",
+      conflict: "Version conflict",
+      retry: "Try again"
+    },
+    conflict: {
+      title: "The quiz was changed in another tab",
+      message: "We loaded the latest version. Your unsaved changes were kept: choose what to do with them.",
+      apply: "Apply my changes",
+      discard: "Discard mine",
+      dismiss: "Got it"
+    },
+    mutationError: "Could not complete: {message}"
+  },
+  rail: {
+    title: "Questions",
+    count: "{count} of {max}",
+    add: "Add question",
+    fromBank: "From Bank",
+    empty: "No questions yet. Add the first one or bring some from the Question Bank.",
+    listLabel: "Quiz questions. Use the move up and move down buttons or drag to reorder.",
+    itemLabel: "Question {position}: {type}",
+    moveUp: "Move question {position} up",
+    moveDown: "Move question {position} down",
+    moved: "Question moved to position {position} of {total}.",
+    delete: "Delete question {position}",
+    duplicate: "Duplicate question {position}",
+    deleteConfirm: {
+      title: "Delete question {position}?",
+      message: "The question leaves this draft. Published versions do not change.",
+      confirm: "Delete"
+    },
+    noPrompt: "No prompt",
+    bank: "Bank",
+    review: "Review",
+    issues: "{count} issues",
+    limitReached: "Limit of {max} questions reached."
+  },
+  typePicker: {
+    title: "Add question",
+    description: "Pick a format. You can adjust everything later.",
+    scored: "Scored",
+    notScored: "No points"
+  },
+  preview: {
+    label: "Big-screen preview",
+    hint: "How the room will see this question on the projector, in the chosen theme.",
+    promptPlaceholder: "The prompt appears here",
+    optionPlaceholder: "Option {letter}",
+    noTimer: "No timer",
+    seconds: "{count} s",
+    points: "{count}× points",
+    noPoints: "No points",
+    typeAnswer: "Participants type the answer on their phones",
+    content: "Content slide",
+    leaderboard: "Current leaderboard",
+    leaderboardHint: "The live ranking shows here during the session.",
+    correct: "correct",
+    empty: "Select or add a question to see the preview.",
+    question: "Question {position} of {total}"
+  },
+  properties: {
+    label: "Question properties",
+    type: "Format",
+    prompt: "Prompt",
+    promptHint: "Up to 120 characters reads well on the big screen; the maximum is 400.",
+    counter: "{count} of {max}",
+    counterWarn: "Long for the big screen: above {warn} characters it gets hard to read.",
+    counterBlock: "Over the {max}-character limit. Shorten it to save.",
+    options: "Options",
+    optionsHintSingle: "Participants pick one. Mark at least one correct; if you mark several, any of them counts.",
+    optionsHintMulti: "Participants tick every option they think is right. Mark at least one correct.",
+    optionsHintTrueFalse: "Both options are fixed. Mark which one is correct.",
+    optionsHintPoll: "Polls have no right answer; each option shows how many voted.",
+    optionLabel: "Text for option {letter}",
+    optionPlaceholder: "Option {letter}",
+    correct: "Correct",
+    trueLabel: "True",
+    falseLabel: "False",
+    markCorrect: "Option {letter} is correct",
+    removeOption: "Remove option {letter}",
+    addOption: "Add option",
+    optionsLimit: "From {min} to {max} options.",
+    allOrNothing: "All or nothing",
+    allOrNothingHint: "Only scores when exactly the correct options are ticked. Off means partial credit.",
+    allowMultiple: "Allow choosing several options",
+    accepted: "Accepted answers",
+    acceptedHint: "Case, accents, spaces and trailing punctuation are ignored. Up to 10 answers of 60 characters.",
+    acceptedPlaceholder: "Type and press Enter",
+    acceptedAdd: "Add",
+    acceptedRemove: "Remove the answer “{answer}”",
+    acceptedDuplicate: "That answer is already listed (ignoring case and accents).",
+    acceptedMax: "At most 10 accepted answers.",
+    acceptedTooLong: "Each accepted answer has at most 60 characters.",
+    body: "Slide text",
+    bodyHint: "Up to 1000 characters. Use it for context, instructions or a break.",
+    leaderboardInfo: "This item shows the current leaderboard. There is nothing to fill in.",
+    timing: "Time and points",
+    timeLimit: "Time to answer",
+    timer: "With timer",
+    noTimer: "No timer",
+    noTimerHint: "Without a timer scoring is fixed and the question closes when you say so.",
+    seconds: "Seconds",
+    secondsRange: "Between {min} and {max} seconds.",
+    points: "Points",
+    pointsOptions: {
+      "0": "No points",
+      "1": "Standard",
+      "2": "Double"
+    },
+    extra: "Explanation and notes",
+    explanation: "Explanation (“Why?”)",
+    explanationHint: "Shown at the reveal when enabled in the settings.",
+    notes: "Presenter notes",
+    notesHint: "Only you see them, on the presenter screen.",
+    bankReadOnly: {
+      title: "Question Bank item",
+      message: "The content comes from the Question Bank and cannot be edited here. Adjust time and points freely."
+    },
+    review: {
+      title: "This question needs review",
+      message: "Check the prompt and answer key. The quiz can only be published once every question is reviewed.",
+      action: "Mark as reviewed"
+    },
+    source: "{certification} · {domain}",
+    empty: "Select a question to edit."
+  },
+  issues: {
+    prompt_required: "Write the prompt.",
+    prompt_too_long: "The prompt is over 400 characters.",
+    option_text_required: "Fill in the option text.",
+    option_too_long: "The option is over 120 characters.",
+    options_count: "Use 2 to 6 options.",
+    no_correct: "Mark at least one correct option.",
+    true_false_exactly_one: "Mark exactly one correct option.",
+    accepted_required: "Add at least one accepted answer.",
+    accepted_too_long: "An accepted answer is over 60 characters.",
+    accepted_too_many: "Use at most 10 accepted answers.",
+    body_too_long: "The slide text is over 1000 characters."
+  },
+  settings: {
+    title: "Quiz settings",
+    description: "They apply to the next sessions after you publish.",
+    general: "General",
+    titleLabel: "Title",
+    descriptionLabel: "Description",
+    language: "Language",
+    languages: {
+      "pt-BR": "Portuguese (Brazil)",
+      en: "English"
+    },
+    scoring: "Scoring",
+    scoringOptions: {
+      speed: { name: "Speed", description: "Up to 1000 points; faster correct answers earn more." },
+      fixed: { name: "Fixed", description: "Every correct answer earns the same, no rush." },
+      none: { name: "No points", description: "No leaderboard: good for diagnostics and polls." }
+    },
+    gameplay: "Pace",
+    readingPhase: "Reading time (s)",
+    readingPhaseHint: "The prompt shows alone before answers open. From 0 to 10.",
+    grace: "Network grace (ms)",
+    graceHint: "Accepts answers that arrive just after the deadline. From 0 to 1500.",
+    leaderboardEvery: "Leaderboard every N questions",
+    leaderboardEveryHint: "0 shows the leaderboard only at the end. From 0 to 20.",
+    display: "On the big screen and phones",
+    streak: "Streak bonus",
+    streakHint: "+100 per consecutive correct answer, up to +500.",
+    liveDistribution: "Show live distribution on the big screen",
+    showCorrect: "Show on the phone whether the answer was right",
+    showExplanation: "Show the explanation at the reveal",
+    music: "Music and sound effects",
+    rangeError: "Use a value between {min} and {max}.",
+    done: "Done"
+  },
+  bank: {
+    title: "Add from the Question Bank",
+    description: "The answer key stays hidden here and shows in the editor once added.",
+    search: "Search",
+    searchPlaceholder: "Keyword, acronym, concept…",
+    certification: "Certification",
+    domain: "Domain",
+    difficulty: "Difficulty",
+    any: "All",
+    difficulties: {
+      Easy: "Easy",
+      Medium: "Medium",
+      Hard: "Hard"
+    },
+    onlyGuest: "Only guest-eligible",
+    onlyGuestHint: "Questions that can appear in rooms with participants who are not signed in.",
+    results: "{count} questions found",
+    selected: "{count} selected",
+    add: "Add {count}",
+    addNone: "Select questions",
+    guestEligible: "Guest-eligible",
+    loginOnly: "Signed-in participants only",
+    unavailable: "Unavailable: {reason}",
+    multiSelect: "Multiple answers",
+    convertsTo: "Becomes {type}",
+    notConvertible: "Format not supported live",
+    select: "Select question",
+    empty: "No questions match these filters.",
+    loadError: "Could not search the Bank.",
+    page: "Page {page} of {pages}",
+    previous: "Previous",
+    next: "Next",
+    rejectedTitle: "{count} questions were not added",
+    added: "{count} questions added to the quiz.",
+    close: "Close",
+    reasons: {
+      inactive: "question deactivated",
+      unsupported_format: "format not supported live",
+      unsupported: "format not supported live",
+      license_personal_use: "personal-use license",
+      too_few_options: "fewer than 2 options",
+      too_many_options: "more than 6 options",
+      not_found: "question not found",
+      already_in_quiz: "already in the quiz"
+    }
+  },
+  publish: {
+    title: "Publish version",
+    description: "A published version is a fixed snapshot: sessions use exactly what is in it.",
+    ready: "Ready to publish {count} questions.",
+    publishing: "Publishing…",
+    submit: "Publish now",
+    success: "Version {version} published",
+    successMessage: "Upcoming sessions use this version. Keep editing: nothing changes until the next publish.",
+    warningsTitle: "Warnings (they do not block publishing)",
+    issuesTitle: "Fix before publishing",
+    issuesMessage: "Select an item to jump to the question.",
+    goTo: "Question {position}",
+    quizLevel: "Quiz",
+    presentNow: "Present now",
+    close: "Close",
+    nothingScored: "No question awards points: the leaderboard will stay at zero."
+  },
+  present: {
+    title: "Present live",
+    description: "A new room opens with a 6-digit PIN and a QR code. The presenter screen opens next.",
+    mustPublish: {
+      title: "There are unpublished changes",
+      message: "Sessions use the last published version. Publish now to present what is in the editor.",
+      never: "This quiz has not been published yet. Publish it to present."
+    },
+    publishAndPresent: "Publish and present",
+    presentPublished: "Present v{version}",
+    submit: "Open room",
+    guests: "Allow guests without sign-in",
+    guestsHint: "Participants join with just a nickname. Questions with restricted licenses require sign-in.",
+    preset: "Format",
+    presets: {
+      turma: { name: "Class", description: "Lesson or training: guided pace, up to a few dozen people." },
+      evento: { name: "Event", description: "Talk or auditorium: big room, fast entry." }
+    },
+    audience: "Audience",
+    audiences: {
+      adulto: "Adults",
+      misto: "Mixed",
+      infantojuvenil: "Children and teens (nicknames generated automatically)"
+    },
+    maxParticipants: "Maximum participants",
+    maxParticipantsHint: "Up to {max}.",
+    licenseBlocked: {
+      title: "Some questions cannot be shown to guests",
+      message: "The license of these questions requires signed-in participants. You can require sign-in for this room.",
+      item: "Question {position}",
+      blockedMessage: "The license of these questions does not allow live sessions. Remove them from the quiz and publish again.",
+      requireLogin: "Require sign-in and open room"
+    },
+    notPublished: "Publish the quiz before presenting.",
+    error: "Could not open the room."
+  },
+  sessions: {
+    context: "Sessions",
+    title: "Sessions of “{title}”",
+    description: "Full history: no session ever disappears from this list.",
+    back: "Back to editor",
+    empty: "This quiz has not been presented yet.",
+    loadError: "Could not load the sessions.",
+    columns: {
+      date: "Date",
+      status: "Status",
+      version: "Version",
+      code: "PIN",
+      participants: "Participants",
+      actions: "Actions"
+    },
+    results: "Results",
+    resume: "Back to presenting",
+    end: "End",
+    qr: "QR code",
+    endConfirm: {
+      title: "End session {code}?",
+      message: "Nobody else can join or answer. The report is available right after.",
+      confirm: "End session"
+    },
+    guests: "Guests allowed",
+    loginOnly: "Signed-in only"
+  }
+} as const;

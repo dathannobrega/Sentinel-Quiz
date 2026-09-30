@@ -19,6 +19,10 @@ import { system } from "./system";
 import { theory } from "./theory";
 import { backend } from "./backend";
 import { pbq } from "./pbq";
+import { quizBuilder } from "./quiz-builder";
+import { quizReports } from "./quiz-reports";
+import { quizPlay } from "./quiz-play";
+import { quizPresent } from "./quiz-present";
 
 export const ptBRMessages = {
   metadata,
@@ -41,5 +45,9 @@ export const ptBRMessages = {
   system,
   theory,
   backend,
-  pbq
+  pbq,
+  quizBuilder,
+  quizReports,
+  quizPlay,
+  quizPresent
 } as const;

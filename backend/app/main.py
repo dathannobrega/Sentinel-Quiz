@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.live import router as live_router
 from app.api.routes import router as api_router
 from app.api.study import router as study_router
 from app.core.config import Settings, settings
@@ -15,6 +16,8 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
+from app.live.bus import build_live_bus
+from app.live.gateway import LiveHub, router as live_ws_router
 from app.middleware.observability import ObservabilityMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware, build_rate_limit_store
 from app.services.ingest import ingest_questions_from_dir
@@ -90,6 +93,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app_settings.validate_runtime()
 
     rate_limit_store = build_rate_limit_store(app_settings)
+    live_hub = LiveHub(build_live_bus(app_settings))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -98,6 +102,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             await rate_limit_store.close()
+            await live_hub.bus.close()
 
     docs_enabled = app_settings.api_docs_enabled()
     app = FastAPI(
@@ -110,6 +115,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = app_settings
     app.state.rate_limit_store = rate_limit_store
+    app.state.live_hub = live_hub
 
     register_exception_handlers(app)
 
@@ -131,6 +137,10 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(auth_router)
     app.include_router(study_router)
+    # Sentinel Arena (live quizzes): REST + WebSocket. The same routers are served by the
+    # dedicated `live` service (app.live.main) when it is deployed separately.
+    app.include_router(live_router)
+    app.include_router(live_ws_router)
     # NOTE: the original material files are intentionally NOT served (no StaticFiles
     # mount). Excerpts are only available through the authenticated
     # /api/materials/preview endpoint.

@@ -1,0 +1,201 @@
+export const quizPresent = {
+  meta: {
+    title: "Live presentation"
+  },
+  loading: "Connecting to the session...",
+  lobby: {
+    joinAt: "Join at",
+    pin: "PIN",
+    scanToJoin: "Point your camera at the QR code",
+    waitingFirst: "Waiting for the first participant...",
+    count: "{count} participants",
+    countOne: "1 participant",
+    more: "+{count}",
+    participantWord: "participant",
+    participantsWord: "participants",
+    qrLabel: "QR code to join at {url}",
+    locked: "Room locked: new entries blocked"
+  },
+  intro: {
+    counter: "Question {current} of {total}",
+    getReady: "Get ready!",
+    points: "{multiplier}x points",
+    noPoints: "No points",
+    types: {
+      single_choice: "Single choice",
+      multi_choice: "Multiple choice",
+      true_false: "True or false",
+      type_answer: "Type answer",
+      poll: "Poll",
+      content: "Slide",
+      leaderboard: "Leaderboard"
+    }
+  },
+  question: {
+    answered: "{answered}/{total} answered",
+    answeredSr: "{answered} of {total} answered",
+    timeLeft: "{seconds} seconds left",
+    readingLeft: "Answers open in {seconds} seconds",
+    untimed: "No timer",
+    selectN: "Select {count}",
+    typeHint: "Type your answer on your phone"
+  },
+  locked: {
+    title: "Answers locked",
+    reasons: {
+      timer: "Time's up",
+      all_answered: "Everyone answered!",
+      host: "Locked by the presenter"
+    }
+  },
+  reveal: {
+    correct: "Correct",
+    summary: "{letter}, {text}: {count} answers ({percent}%)",
+    summaryCorrect: "{letter}, {text}: {count} answers ({percent}%), correct",
+    pctCorrect: "{percent}% got it right",
+    fastest: "Fastest: {name}, {seconds} s",
+    avg: "Average time: {seconds} s",
+    why: "Why?",
+    accepted: "Accepted",
+    topAnswers: "Most sent answers",
+    noAnswers: "Nobody answered",
+    votes: "{count} votes",
+    acceptedMark: "accepted",
+    notAcceptedMark: "not accepted"
+  },
+  leaderboard: {
+    title: "Leaderboard",
+    points: "points",
+    up: "up {n} places",
+    down: "down {n} places",
+    same: "same place",
+    biggestClimb: "Biggest climb",
+    rank: "#{rank}",
+    empty: "The leaderboard shows up after the first scored question."
+  },
+  podium: {
+    title: "Podium",
+    drumroll: "And the podium is...",
+    skip: "Skip",
+    place: "#{rank}",
+    points: "pts",
+    winner: "Champion",
+    participants: "participants",
+    avgPct: "average score",
+    hardest: "hardest question",
+    hardestValue: "#{n}"
+  },
+  finished: {
+    title: "Thank you!",
+    subtitle: "Session ended. Every participant can review their own answers on their phone.",
+    report: "Open report",
+    library: "Back to quizzes"
+  },
+  controls: {
+    label: "Presentation controls",
+    show: "Show controls",
+    hide: "Hide controls",
+    start: "Start",
+    next: "Next",
+    lock: "Lock",
+    reveal: "Reveal",
+    leaderboard: "Leaderboard",
+    podium: "Go to podium",
+    end: "End",
+    lockRoom: "Lock room",
+    unlockRoom: "Unlock room",
+    participants: "Participants ({count})",
+    fullscreen: "Full screen",
+    exitFullscreen: "Exit full screen",
+    openDisplay: "Open display",
+    openingDisplay: "Opening...",
+    presenterView: "Presenter view",
+    stageView: "Stage with controls",
+    help: "Shortcuts",
+    calm: "Calm mode",
+    progress: "Question {current} of {total}",
+    confirmEndTitle: "End the session?",
+    confirmEndText: "Every participant will see the final screen. This cannot be undone.",
+    confirmEnd: "End now",
+    cancel: "Cancel",
+    status: {
+      open: "Connected",
+      connecting: "Connecting...",
+      reconnecting: "Reconnecting...",
+      closed: "Disconnected",
+      idle: "Disconnected"
+    }
+  },
+  hotkeys: {
+    title: "Keyboard shortcuts",
+    next: "Next action (contextual)",
+    lock: "Lock answers",
+    reveal: "Reveal results",
+    leaderboard: "Show leaderboard",
+    fullscreen: "Full screen",
+    calm: "Calm mode (no animations)",
+    help: "Show/hide shortcuts",
+    controls: "Show/hide controls",
+    close: "Close"
+  },
+  participants: {
+    title: "Participants",
+    empty: "Nobody has joined yet.",
+    online: "online",
+    offline: "offline",
+    kick: "Remove",
+    ban: "Remove and block",
+    kickConfirmTitle: "Remove {name}?",
+    kickConfirmText: "They leave the session now. If you block them, they cannot come back.",
+    score: "{score} pts",
+    close: "Close"
+  },
+  presenter: {
+    title: "Presenter view",
+    privateWarning: "Do not project this window: it shows the answer key and notes.",
+    current: "Now",
+    next: "Up next",
+    noNext: "This is the last question.",
+    lobby: "In the lobby. Start when everyone is in.",
+    answerKey: "Answer key",
+    answerKeyStale: "The answer key for this question shows up with the reveal.",
+    correctMark: "correct",
+    notes: "Notes",
+    noNotes: "No notes for this question.",
+    explanation: "Explanation",
+    accepted: "Accepted answers",
+    liveCounts: "Live answers",
+    acceptTitle: "Accept typed answers",
+    acceptHint: "After locking, accept a typed answer that is also right.",
+    acceptPlaceholder: "Text to accept",
+    accept: "Accept",
+    accepted_ok: "Answer accepted: {text}"
+  },
+  errors: {
+    auth: "Sign in as the presenter to control this session.",
+    forbidden: "You are not allowed to present this session.",
+    stale: "The session had already moved on. The state was refreshed.",
+    rate_limited: "Too many commands in a row. Wait a moment.",
+    too_early: "Not yet: wait for the reading time or the timer to end.",
+    invalid: "That command does not fit the current moment.",
+    not_found: "Session not found.",
+    generic: "Something went wrong. Try again.",
+    session_ended: "The session has ended.",
+    displayToken: "Could not open the display.",
+    displayExpired: "The display link expired or is invalid. Open a new one from the presenter screen.",
+    popupBlocked: "The browser blocked the new window. Allow pop-ups for this site.",
+    signIn: "Sign in",
+    retry: "Reconnect",
+    dismiss: "Dismiss"
+  },
+  announce: {
+    lobby: "Lobby.",
+    question: "Question {current} of {total}.",
+    locked: "Answers locked.",
+    reveal: "Results revealed.",
+    leaderboard: "Leaderboard.",
+    podium: "Podium.",
+    finished: "Session ended.",
+    content: "Slide."
+  }
+} as const;

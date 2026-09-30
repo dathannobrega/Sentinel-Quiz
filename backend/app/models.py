@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Integer, Boolean, ForeignKey, JSON, UniqueConstraint, Text, Float, CheckConstraint, Index,
+    BigInteger, String, Integer, Boolean, ForeignKey, JSON, UniqueConstraint, Text, Float, CheckConstraint, Index,
     text, true, false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -19,6 +19,18 @@ QUESTION_VERSION_STATUSES = ("draft", "in_review", "approved", "published", "arc
 QUESTION_ISSUE_STATUSES = ("open", "triaged", "fix_in_progress", "verified", "released", "dismissed")
 # Student-facing question formats (migration 0017): multiple choice or performance-based.
 QUESTION_FORMATS = ("mcq", "pbq")
+# Content licence of a question (0018): own = authored/audited by the platform,
+# platform = third-party source with reuse permission, pending_audit = provenance not
+# audited yet, personal_use = private study only (never shown in live quizzes).
+LICENSE_SCOPES = ("own", "platform", "pending_audit", "personal_use")
+# Sentinel Arena (0019).
+LIVE_ITEM_TYPES = ("single_choice", "multi_choice", "true_false", "type_answer", "poll", "content", "leaderboard")
+LIVE_SOURCE_KINDS = ("custom", "bank", "ai")
+LIVE_REVIEW_STATES = ("ok", "needs_review")
+LIVE_SESSION_STATUSES = ("lobby", "live", "finished")
+LIVE_SESSION_PHASES = ("lobby", "question", "locked", "reveal", "leaderboard", "content", "podium", "finished")
+LIVE_ANSWER_EVENT_TYPES = ("submitted", "host_accepted")
+LIVE_ACTIVE_SESSION_STATUSES = ("lobby", "live")
 # Why a question projection was deactivated (soft delete).
 QUESTION_DEACTIVATED_DELETED = "deleted"
 QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE = "removed_from_source"
@@ -497,6 +509,12 @@ class Question(Base):
     question_format: Mapped[str] = mapped_column(String(8), nullable=False, default="mcq", server_default=text("'mcq'"), index=True)
     pbq_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     pbq_answer_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Content licence (0018, PLANO §11.1/§15.4): who may see this question outside the
+    # study product. Classified by provenance at ingest; unknown => "pending_audit".
+    license_scope: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="pending_audit", server_default=text("'pending_audit'"), index=True
+    )
+    source_license: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     exam: Mapped["Exam"] = relationship(back_populates="questions")
     options: Mapped[list["Option"]] = relationship(back_populates="question", cascade="all, delete-orphan")
@@ -511,6 +529,7 @@ class Question(Base):
             name="ck_questions_difficulty",
         ),
         CheckConstraint(_sql_in("question_format", QUESTION_FORMATS), name="ck_questions_question_format"),
+        CheckConstraint(_sql_in("license_scope", LICENSE_SCOPES), name="ck_questions_license_scope"),
     )
 
 class Option(Base):
@@ -1034,4 +1053,246 @@ class StudyModule(Base):
     __table_args__ = (
         UniqueConstraint("certification", "code", name="uq_study_modules_certification_code"),
         Index("ix_study_modules_certification_position", "certification", "position"),
+    )
+
+
+# --------------------------------------------------------------------------- Sentinel Arena
+# Live interactive quizzes (migration 0019, docs/live-quiz/PLANO.md §11). Live answers are
+# never written to session_answers/study_attempts (DC-18); guests have neither user_id nor
+# client_key, so none of these tables reuse the owner XOR check.
+
+class LiveQuiz(Base):
+    __tablename__ = "live_quiz"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language: Mapped[str] = mapped_column(String(8), nullable=False, default="pt-BR")
+    theme_key: Mapped[str] = mapped_column(String(32), nullable=False, default="sentinel")
+    settings_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # Optimistic lock: every mutation must send the version it read (409 otherwise).
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    published_version_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Draft ``version`` captured at the last publish: differs => unpublished changes.
+    published_at_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    forked_from_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("live_quiz.id", ondelete="SET NULL"), nullable=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    items: Mapped[list["LiveQuizItem"]] = relationship(
+        back_populates="quiz", cascade="all, delete-orphan", passive_deletes=True, order_by="LiveQuizItem.position"
+    )
+
+    __table_args__ = (Index("ix_live_quiz_owner_updated", "owner_user_id", "updated_at"),)
+
+
+class LiveQuizItem(Base):
+    """Draft item of a quiz. Public payload and answer key are stored separately."""
+
+    __tablename__ = "live_quiz_item"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    quiz_id: Mapped[str] = mapped_column(String(36), ForeignKey("live_quiz.id", ondelete="CASCADE"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    item_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(8), nullable=False, default="custom")
+    source_question_id: Mapped[str | None] = mapped_column(
+        String(128), ForeignKey("questions.id", ondelete="SET NULL"), nullable=True
+    )
+    source_version_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("question_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Public payload: {"options": [{"key", "text"}], "allow_multiple", "all_or_nothing", "body"}.
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # Answer key: {"correct_keys": [...], "accepted_answers": [...]} (never sent to players early).
+    answer_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    presenter_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    time_limit_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    points_multiplier: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    license_scope: Mapped[str] = mapped_column(String(24), nullable=False, default="own")
+    review_state: Mapped[str] = mapped_column(String(16), nullable=False, default="ok")
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    certification: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    objective_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    quiz: Mapped["LiveQuiz"] = relationship(back_populates="items")
+
+    __table_args__ = (
+        UniqueConstraint("quiz_id", "position", name="uq_live_quiz_item_position"),
+        Index("ix_live_quiz_item_source_question", "source_question_id"),
+        CheckConstraint(_sql_in("item_type", LIVE_ITEM_TYPES), name="ck_live_quiz_item_type"),
+        CheckConstraint(_sql_in("source_kind", LIVE_SOURCE_KINDS), name="ck_live_quiz_item_source_kind"),
+        CheckConstraint(_sql_in("review_state", LIVE_REVIEW_STATES), name="ck_live_quiz_item_review_state"),
+        CheckConstraint(_sql_in("license_scope", LICENSE_SCOPES), name="ck_live_quiz_item_license_scope"),
+        CheckConstraint("points_multiplier IN (0, 1, 2)", name="ck_live_quiz_item_multiplier"),
+    )
+
+
+class LiveQuizVersion(Base):
+    """Immutable published snapshot (content + answer key) that sessions run from (DC-14)."""
+
+    __tablename__ = "live_quiz_version"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    quiz_id: Mapped[str] = mapped_column(String(36), ForeignKey("live_quiz.id", ondelete="CASCADE"), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    theme_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    settings_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    items_snapshot_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    published_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    published_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("quiz_id", "version_no", name="uq_live_quiz_version_no"),)
+
+
+class LiveSession(Base):
+    """One run of a published quiz version. Authoritative room state lives here."""
+
+    __tablename__ = "live_session"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    quiz_id: Mapped[str] = mapped_column(String(36), ForeignKey("live_quiz.id", ondelete="CASCADE"), nullable=False)
+    quiz_version_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("live_quiz_version.id", ondelete="RESTRICT"), nullable=False
+    )
+    owner_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="live")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="lobby")
+    phase: Mapped[str] = mapped_column(String(16), nullable=False, default="lobby")
+    # Monotonic room-state sequence (seq of the WebSocket envelopes).
+    state_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    answers_open_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    deadline_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    join_code: Mapped[str] = mapped_column(String(8), nullable=False)
+    allow_guests: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    room_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    max_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
+    preset: Mapped[str] = mapped_column(String(16), nullable=False, default="turma")
+    audience: Mapped[str] = mapped_column(String(16), nullable=False, default="adulto")
+    theme_key: Mapped[str] = mapped_column(String(32), nullable=False, default="sentinel")
+    settings_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    consent_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        # A PIN is unique among ACTIVE sessions only; finished sessions release it.
+        Index(
+            "uq_live_session_active_code",
+            "join_code",
+            unique=True,
+            postgresql_where=text("status IN ('lobby', 'live')"),
+            sqlite_where=text("status IN ('lobby', 'live')"),
+        ),
+        Index("ix_live_session_owner_created", "owner_user_id", "created_at"),
+        Index("ix_live_session_quiz_created", "quiz_id", "created_at"),
+        CheckConstraint(_sql_in("status", LIVE_SESSION_STATUSES), name="ck_live_session_status"),
+        CheckConstraint(_sql_in("phase", LIVE_SESSION_PHASES), name="ck_live_session_phase"),
+    )
+
+
+class LiveSessionItem(Base):
+    """Timeline of each item inside a session (reports and crash recovery)."""
+
+    __tablename__ = "live_session_item"
+
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("live_session.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    state: Mapped[str] = mapped_column(String(12), nullable=False, default="open")
+    opened_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    answers_open_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    deadline_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    lock_reason: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    revealed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class LiveParticipant(Base):
+    __tablename__ = "live_participant"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("live_session.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(24), nullable=False)
+    nickname_norm: Mapped[str] = mapped_column(String(48), nullable=False)
+    avatar_seed: Mapped[str] = mapped_column(String(16), nullable=False)
+    # sha256 of the current token jti (revocation) and of the one-time return code.
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    return_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    consent_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    joined_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    kicked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    final_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    final_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "nickname_norm", name="uq_live_participant_nickname"),
+        Index(
+            "uq_live_participant_session_user",
+            "session_id",
+            "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+            sqlite_where=text("user_id IS NOT NULL"),
+        ),
+        Index("ix_live_participant_user", "user_id"),
+    )
+
+
+class LiveAnswerEvent(Base):
+    """Append-only answer log (PostgreSQL: UPDATE blocked by trigger, migration 0019)."""
+
+    __tablename__ = "live_answer_event"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("live_session.id", ondelete="CASCADE"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    participant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("live_participant.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(16), nullable=False, default="submitted")
+    # Original option keys (never the per-session opaque ids) or {"text": ...}.
+    response_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    score_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Server-measured ms since answers opened (fastest/tie-break) and the latency-credited
+    # value used for scoring.
+    server_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    client_elapsed_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    suspicious: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    idempotency_key: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    received_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id", "position", "participant_id", "event_type", name="uq_live_answer_event_once"
+        ),
+        Index("ix_live_answer_event_session_position", "session_id", "position"),
+        Index("ix_live_answer_event_received", "received_at"),
+        CheckConstraint(_sql_in("event_type", LIVE_ANSWER_EVENT_TYPES), name="ck_live_answer_event_type"),
     )

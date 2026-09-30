@@ -1,0 +1,970 @@
+"""Room state machine of Sentinel Arena (PLANO §10.6, contract §6).
+
+Pure, synchronous domain logic over the database: every function receives a SQLAlchemy
+session, applies ONE transition and returns :class:`Outcome` (frames to broadcast plus
+an optional timer to schedule). The WebSocket gateway only transports; REST uses the
+same functions (``end_session``), so behaviour is identical on every path.
+
+Concurrency across processes/replicas: transitions are compare-and-set UPDATEs on
+``live_session`` (``WHERE phase = … AND current_position = …``) so a double click, two
+host tabs or two workers racing on the timer apply a transition exactly once. Answers
+are protected by UNIQUE constraints (idempotency key and one answer per item).
+"""
+from __future__ import annotations
+
+import logging
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.clock import utcnow
+from app.core.config import settings
+from app.models import (
+    LiveAnswerEvent,
+    LiveParticipant,
+    LiveQuizVersion,
+    LiveSession,
+    LiveSessionItem,
+)
+from app.services import live_items as registry
+from app.services import live_scoring as scoring
+
+logger = logging.getLogger("app.live.runtime")
+
+EARLY_TOLERANCE_MS = 300
+RECENT_LOBBY = 12
+PRESENCE_WINDOW = timedelta(seconds=60)
+
+# Audiences a broadcast can target.
+ALL = "all"
+HOST = "host"
+DISPLAY = "display"
+PARTICIPANTS = "participants"
+STAFF = "staff"  # host + display
+
+
+@dataclass
+class Broadcast:
+    type: str
+    data: dict[str, Any]
+    audience: str = ALL
+    seq: int | None = None
+    # When set, the gateway adds a per-participant ``my`` block ("reveal" | "leaderboard" | "podium").
+    personalize: str | None = None
+    # Target a single participant (e.g. participant.kicked).
+    participant_id: str | None = None
+
+
+@dataclass
+class Outcome:
+    broadcasts: list[Broadcast] = field(default_factory=list)
+    # (qi, when) — the gateway schedules auto_lock at ``when``.
+    lock_at: tuple[int, datetime] | None = None
+    error: str | None = None
+    ack: str | None = None
+    kicked_participant: tuple[str, bool] | None = None
+
+
+class RoomNotFound(LookupError):
+    pass
+
+
+# ----------------------------------------------------------------------------- loading
+
+@dataclass
+class Room:
+    session: LiveSession
+    items: list[dict[str, Any]]
+    title: str
+
+    @property
+    def settings(self) -> dict[str, Any]:
+        return self.session.settings_json or {}
+
+    @property
+    def total(self) -> int:
+        return len(self.items)
+
+    def item(self, position: int | None) -> dict[str, Any] | None:
+        if position is None or not 0 <= position < len(self.items):
+            return None
+        return self.items[position]
+
+    def scored_positions(self, *, up_to: int | None) -> list[int]:
+        if up_to is None:
+            return []
+        return [
+            index
+            for index, item in enumerate(self.items[: up_to + 1])
+            if registry.is_scored(item["item_type"], int(item.get("points_multiplier", 1)))
+        ]
+
+
+_version_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+
+
+def load_room(db: Session, session_id: str) -> Room:
+    session = db.get(LiveSession, session_id, populate_existing=True)
+    if session is None:
+        raise RoomNotFound(session_id)
+    cached = _version_cache.get(session.quiz_version_id)
+    if cached is None:
+        version = db.get(LiveQuizVersion, session.quiz_version_id)
+        if version is None:
+            raise RoomNotFound(session_id)
+        # Published versions are immutable: safe to cache per process.
+        cached = (list(version.items_snapshot_json or []), version.title)
+        if len(_version_cache) > 512:
+            _version_cache.clear()
+        _version_cache[session.quiz_version_id] = cached
+    return Room(session=session, items=cached[0], title=cached[1])
+
+
+def _ms(value: datetime | None) -> int | None:
+    return int(value.timestamp() * 1000) if value else None
+
+
+def _grace(room: Room) -> timedelta:
+    return timedelta(milliseconds=int(room.settings.get("grace_ms", settings.live_grace_ms_default)))
+
+
+# ----------------------------------------------------------------------------- queries
+
+def active_participants(db: Session, session_id: str) -> list[LiveParticipant]:
+    return list(
+        db.execute(
+            select(LiveParticipant)
+            .where(LiveParticipant.session_id == session_id, LiveParticipant.kicked_at.is_(None))
+            .order_by(LiveParticipant.joined_at)
+        ).scalars()
+    )
+
+
+def participant_count(db: Session, session_id: str) -> int:
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(LiveParticipant)
+            .where(LiveParticipant.session_id == session_id, LiveParticipant.kicked_at.is_(None))
+        ).scalar_one()
+    )
+
+
+def _events(db: Session, session_id: str, position: int | None = None) -> list[LiveAnswerEvent]:
+    stmt = select(LiveAnswerEvent).where(LiveAnswerEvent.session_id == session_id)
+    if position is not None:
+        stmt = stmt.where(LiveAnswerEvent.position == position)
+    return list(db.execute(stmt.order_by(LiveAnswerEvent.id)).scalars())
+
+
+def _answered_count(db: Session, session_id: str, position: int) -> int:
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(LiveAnswerEvent)
+            .where(
+                LiveAnswerEvent.session_id == session_id,
+                LiveAnswerEvent.position == position,
+                LiveAnswerEvent.event_type == "submitted",
+            )
+        ).scalar_one()
+    )
+
+
+def option_counts(db: Session, room: Room, position: int) -> dict[str, int]:
+    item = room.item(position)
+    if item is None or item["item_type"] not in registry.OPTION_TYPES:
+        return {}
+    key_to_id = {key: oid for oid, key in registry.option_id_map(room.session.id, position, item).items()}
+    counts = {oid: 0 for oid in key_to_id.values()}
+    rows = db.execute(
+        select(LiveAnswerEvent.response_json).where(
+            LiveAnswerEvent.session_id == room.session.id,
+            LiveAnswerEvent.position == position,
+            LiveAnswerEvent.event_type == "submitted",
+        )
+    ).scalars()
+    for response in rows:
+        for key in (response or {}).get("keys") or []:
+            if key in key_to_id:
+                counts[key_to_id[key]] += 1
+    return counts
+
+
+def lobby_state(db: Session, session_id: str) -> dict[str, Any]:
+    rows = db.execute(
+        select(LiveParticipant.id, LiveParticipant.display_name, LiveParticipant.avatar_seed)
+        .where(LiveParticipant.session_id == session_id, LiveParticipant.kicked_at.is_(None))
+        .order_by(LiveParticipant.joined_at.desc())
+        .limit(RECENT_LOBBY)
+    ).all()
+    return {
+        "count": participant_count(db, session_id),
+        "recent": [{"participant_id": pid, "display_name": name, "avatar_seed": seed} for pid, name, seed in rows],
+    }
+
+
+def _participant_rows(participants: list[LiveParticipant]) -> list[scoring.ParticipantRow]:
+    return [
+        scoring.ParticipantRow(
+            participant_id=p.id, display_name=p.display_name, avatar_seed=p.avatar_seed, joined_at=p.joined_at
+        )
+        for p in participants
+    ]
+
+
+def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored: bool = False) -> list[scoring.Standing]:
+    positions = room.scored_positions(up_to=up_to)
+    # Only items whose answers are closed count (the current one while open does not).
+    session = room.session
+    if session.phase == "question" and session.current_position in positions:
+        positions = [p for p in positions if p != session.current_position]
+    if exclude_last_scored and positions:
+        positions = positions[:-1]
+    answers = scoring.effective_answers(_events(db, session.id))
+    return scoring.compute_standings(
+        _participant_rows(active_participants(db, session.id)),
+        answers,
+        scored_positions=positions,
+        streak_bonus=bool(room.settings.get("streak_bonus")),
+    )
+
+
+def leaderboard_payload(db: Session, room: Room, *, limit: int = 10) -> tuple[dict[str, Any], list[scoring.Standing]]:
+    up_to = room.session.current_position
+    current = standings(db, room, up_to=up_to)
+    previous = standings(db, room, up_to=up_to, exclude_last_scored=True)
+    deltas = scoring.rank_deltas(current, previous)
+    return {
+        "top": [s.public(deltas.get(s.participant_id, 0)) for s in current[:limit]],
+        "total": len(current),
+    }, current
+
+
+def reveal_payload(db: Session, room: Room, position: int) -> dict[str, Any]:
+    item = room.item(position) or {}
+    session_id = room.session.id
+    events = _events(db, session_id, position)
+    answers = scoring.effective_answers(events)
+    total = participant_count(db, session_id)
+    item_type = item.get("item_type")
+    mapping = registry.option_id_map(session_id, position, item)
+    key_to_id = {key: oid for oid, key in mapping.items()}
+    correct_keys = set((item.get("answer") or {}).get("correct_keys") or [])
+    counts = {oid: 0 for oid in key_to_id.values()}
+    fractions: list[float] = []
+    times: list[int] = []
+    fastest: tuple[int, str] | None = None
+    typed: Counter[str] = Counter()
+    typed_display: dict[str, str] = {}
+    typed_accepted: dict[str, bool] = {}
+    names = {p.id: p.display_name for p in active_participants(db, session_id)}
+    for (_pos, pid), answer in answers.items():
+        if pid not in names:
+            continue
+        for key in answer.response.get("keys") or []:
+            if key in key_to_id:
+                counts[key_to_id[key]] += 1
+        if item_type == "type_answer":
+            norm = answer.response.get("normalized") or registry.normalize_text_answer(answer.response.get("text") or "")
+            typed[norm] += 1
+            typed_display.setdefault(norm, answer.response.get("text") or norm)
+            typed_accepted[norm] = typed_accepted.get(norm, False) or bool(answer.fraction and answer.fraction >= 1)
+        if answer.fraction is not None:
+            fractions.append(answer.fraction)
+        if answer.server_ms is not None:
+            times.append(answer.server_ms)
+            if answer.fraction is not None and answer.fraction >= 1 and (fastest is None or answer.server_ms < fastest[0]):
+                fastest = (answer.server_ms, names.get(pid, ""))
+    answered = sum(1 for (_p, pid) in answers if pid in names)
+    scored = registry.is_scored(item_type or "", int(item.get("points_multiplier", 1)))
+    payload: dict[str, Any] = {
+        "qi": position,
+        "item_type": item_type,
+        "correct_option_ids": [key_to_id[k] for k in sorted(correct_keys) if k in key_to_id] if item_type != "poll" else [],
+        "accepted_answers": list((item.get("answer") or {}).get("accepted_answers") or []),
+        "counts": counts,
+        "answered": answered,
+        "total": total,
+        "pct_correct": round(100.0 * sum(1 for f in fractions if f >= 1) / len(fractions), 1) if fractions and item_type != "poll" else None,
+        "avg_ms": int(sum(times) / len(times)) if times else None,
+        "fastest": {"display_name": fastest[1], "ms": fastest[0]} if fastest and scored else None,
+        "explanation": item.get("explanation") if room.settings.get("show_explanation", True) else None,
+    }
+    if not room.settings.get("show_correct_on_device", True):
+        payload["hide_correct_on_device"] = True
+    if item_type == "type_answer":
+        payload["top_answers"] = [
+            {"text": typed_display[norm], "n": n, "accepted": typed_accepted.get(norm, False)}
+            for norm, n in typed.most_common(12)
+        ]
+    return payload
+
+
+def personal_blocks(db: Session, room: Room, kind: str, participant_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """``my`` blocks for participants connected to THIS process (one standings pass)."""
+    if not participant_ids:
+        return {}
+    position = room.session.current_position
+    current = standings(db, room, up_to=position)
+    previous = standings(db, room, up_to=position, exclude_last_scored=True)
+    deltas = scoring.rank_deltas(current, previous)
+    by_id = {s.participant_id: s for s in current}
+    result: dict[str, dict[str, Any]] = {}
+    if kind == "reveal" and position is not None:
+        answers = scoring.effective_answers(_events(db, room.session.id, position))
+        for pid in participant_ids:
+            standing = by_id.get(pid)
+            answer = answers.get((position, pid))
+            result[pid] = {
+                "answered": answer is not None,
+                "correct": (answer.fraction >= 1) if answer and answer.fraction is not None else None,
+                "fraction": answer.fraction if answer else None,
+                "points": (standing.points_by_position.get(position, 0) if standing else 0),
+                "total_score": standing.score if standing else 0,
+                "rank": standing.rank if standing else None,
+                "rank_delta": deltas.get(pid, 0),
+                "streak": standing.streak if standing else 0,
+            }
+        return result
+    for pid in participant_ids:
+        standing = by_id.get(pid)
+        if kind == "leaderboard":
+            ahead = next((s for s in current if standing and s.rank == standing.rank - 1), None)
+            result[pid] = {
+                "rank": standing.rank if standing else None,
+                "score": standing.score if standing else 0,
+                "behind_by": (ahead.score - standing.score) if (ahead and standing) else None,
+            }
+        else:
+            result[pid] = {"rank": standing.rank if standing else None, "score": standing.score if standing else 0}
+    return result
+
+
+# ----------------------------------------------------------------------------- snapshots
+
+def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None = None) -> dict[str, Any]:
+    session = room.session
+    position = session.current_position
+    item = room.item(position)
+    count = participant_count(db, session.id)
+    show_distribution = bool(room.settings.get("show_live_distribution"))
+    data: dict[str, Any] = {
+        "session_id": session.id,
+        "title": room.title,
+        "theme_key": session.theme_key,
+        "join_code": session.join_code,
+        "join_url": f"{settings.public_web_origin.rstrip('/')}/j/{session.join_code}",
+        "status": session.status,
+        "phase": session.phase,
+        "qi": position,
+        "total": room.total,
+        "settings": {
+            "scoring": room.settings.get("scoring", "speed"),
+            "show_live_distribution": show_distribution,
+            "show_correct_on_device": bool(room.settings.get("show_correct_on_device", True)),
+            "show_explanation": bool(room.settings.get("show_explanation", True)),
+            "music": bool(room.settings.get("music", True)),
+            "reading_phase_s": int(room.settings.get("reading_phase_s", 3)),
+        },
+        "room_locked": bool(session.room_locked),
+        "participant_count": count,
+    }
+    if session.phase == "lobby":
+        data["lobby"] = lobby_state(db, session.id)
+    if item is not None and session.phase in {"question", "locked", "reveal", "content"}:
+        data["question"] = registry.public_question(session.id, position, item)
+        data["timer"] = {"answers_open_at_ms": _ms(session.answers_open_at), "deadline_ms": _ms(session.deadline_at)}
+        if role in {HOST, DISPLAY} and item["item_type"] in registry.INTERACTIVE_TYPES:
+            data["answered"] = _answered_count(db, session.id, position)
+            if role == HOST or show_distribution or item["item_type"] == "poll":
+                data["counts"] = option_counts(db, room, position)
+    if session.phase == "reveal" and position is not None:
+        reveal = reveal_payload(db, room, position)
+        hidden = bool(reveal.pop("hide_correct_on_device", False))
+        if participant_id:
+            reveal["my"] = personal_blocks(db, room, "reveal", [participant_id]).get(participant_id)
+            if hidden:
+                reveal["correct_option_ids"] = []
+                reveal["accepted_answers"] = []
+        data["reveal"] = reveal
+    if session.phase == "leaderboard":
+        data["leaderboard"], _ = leaderboard_payload(db, room)
+    if session.phase in {"podium", "finished"}:
+        data["podium"] = podium_payload(db, room)
+    if role == HOST:
+        if item is not None:
+            data["presenter"] = {
+                "item": _presenter_item(item),
+                "next_prompt": (room.item(position + 1) or {}).get("prompt") if position is not None else None,
+            }
+        board = {s.participant_id: s.score for s in standings(db, room, up_to=position)}
+        cutoff = utcnow() - PRESENCE_WINDOW
+        data["participants"] = [
+            {
+                "participant_id": p.id,
+                "display_name": p.display_name,
+                "avatar_seed": p.avatar_seed,
+                "score": board.get(p.id, 0),
+                "connected": bool(p.last_seen_at and p.last_seen_at >= cutoff),
+            }
+            for p in active_participants(db, session.id)
+        ]
+    if role == "participant" and participant_id:
+        participant = db.get(LiveParticipant, participant_id)
+        board = standings(db, room, up_to=position)
+        mine = next((s for s in board if s.participant_id == participant_id), None)
+        last_answer = None
+        if position is not None:
+            event = db.execute(
+                select(LiveAnswerEvent).where(
+                    LiveAnswerEvent.session_id == session.id,
+                    LiveAnswerEvent.position == position,
+                    LiveAnswerEvent.participant_id == participant_id,
+                    LiveAnswerEvent.event_type == "submitted",
+                )
+            ).scalar_one_or_none()
+            if event is not None and item is not None:
+                key_to_id = {key: oid for oid, key in registry.option_id_map(session.id, position, item).items()}
+                response = event.response_json or {}
+                last_answer = (
+                    {"text": response.get("text")}
+                    if "text" in response
+                    else {"choice": [key_to_id[k] for k in response.get("keys") or [] if k in key_to_id]}
+                )
+        data["my"] = {
+            "participant_id": participant_id,
+            "display_name": participant.display_name if participant else "",
+            "avatar_seed": participant.avatar_seed if participant else "",
+            "answered_current": last_answer is not None,
+            "last_answer": last_answer,
+            "score": mine.score if mine else 0,
+            "rank": mine.rank if mine else None,
+        }
+    return data
+
+
+def _presenter_item(item: dict[str, Any]) -> dict[str, Any]:
+    payload = item.get("payload") or {}
+    answer = item.get("answer") or {}
+    correct = set(answer.get("correct_keys") or [])
+    return {
+        "id": item.get("item_id"),
+        "position": item.get("position"),
+        "item_type": item.get("item_type"),
+        "prompt": item.get("prompt") or "",
+        "options": [{"key": o["key"], "text": o.get("text") or "", "correct": o["key"] in correct} for o in payload.get("options") or []],
+        "accepted_answers": list(answer.get("accepted_answers") or []),
+        "allow_multiple": bool(payload.get("allow_multiple")),
+        "all_or_nothing": bool(payload.get("all_or_nothing")),
+        "body": payload.get("body"),
+        "time_limit_s": item.get("time_limit_s"),
+        "points_multiplier": item.get("points_multiplier", 1),
+        "explanation": item.get("explanation"),
+        "presenter_notes": item.get("presenter_notes"),
+        "source_kind": item.get("source_kind", "custom"),
+        "source_question_id": item.get("source_question_id"),
+        "source_version_id": item.get("source_version_id"),
+        "license_scope": item.get("license_scope", "own"),
+        "review_state": "ok",
+        "domain": item.get("domain"),
+        "certification": item.get("certification"),
+        "difficulty": item.get("difficulty"),
+        "updated_at": None,
+    }
+
+
+def podium_payload(db: Session, room: Room) -> dict[str, Any]:
+    board = standings(db, room, up_to=room.total - 1)
+    scored = room.scored_positions(up_to=room.total - 1)
+    hardest: tuple[float, int] | None = None
+    answers = scoring.effective_answers(_events(db, room.session.id))
+    for position in scored:
+        fractions = [a.fraction for (p, _pid), a in answers.items() if p == position and a.fraction is not None]
+        if fractions:
+            pct = sum(1 for f in fractions if f >= 1) / len(fractions)
+            if hardest is None or pct < hardest[0]:
+                hardest = (pct, position)
+    avg_pct = (
+        round(100.0 * sum(s.correct for s in board) / (len(board) * len(scored)), 1) if board and scored else None
+    )
+    return {
+        "top": [s.public() for s in board[:3]],
+        "stats": {"participants": len(board), "avg_pct": avg_pct, "hardest_qi": hardest[1] if hardest else None},
+    }
+
+
+# ----------------------------------------------------------------------------- transitions
+
+def _cas(db: Session, room: Room, *, expect_phase: set[str], expect_position: int | None | str = "any", values: dict[str, Any]) -> int | None:
+    """Compare-and-set the session row. Returns the new seq, or None if the state moved."""
+    session = room.session
+    stmt = update(LiveSession).where(LiveSession.id == session.id, LiveSession.phase.in_(sorted(expect_phase)))
+    if expect_position != "any":
+        stmt = stmt.where(
+            LiveSession.current_position.is_(None) if expect_position is None else LiveSession.current_position == expect_position
+        )
+    new_seq = int(session.state_seq or 0) + 1
+    stmt = stmt.where(LiveSession.state_seq == session.state_seq).values(
+        state_seq=new_seq, updated_at=utcnow(), **values
+    )
+    result = db.execute(stmt.execution_options(synchronize_session=False))
+    if result.rowcount != 1:
+        db.rollback()
+        return None
+    return new_seq
+
+
+def _enter_item(db: Session, room: Room, position: int, now: datetime) -> Outcome:
+    item = room.item(position)
+    if item is None:
+        return _enter_podium(db, room, now)
+    item_type = item["item_type"]
+    outcome = Outcome()
+    if item_type == "leaderboard":
+        seq = _cas(db, room, expect_phase={room.session.phase}, values={
+            "phase": "leaderboard", "current_position": position, "answers_open_at": None, "deadline_at": None,
+            "status": "live", **({"started_at": now} if room.session.started_at is None else {}),
+        })
+        if seq is None:
+            return Outcome(error="stale")
+        db.commit()
+        room = load_room(db, room.session.id)
+        payload, _ = leaderboard_payload(db, room)
+        outcome.broadcasts.append(Broadcast("leaderboard.show", payload, seq=seq, personalize="leaderboard"))
+        return outcome
+    reading = int(room.settings.get("reading_phase_s", 3)) if item_type in registry.INTERACTIVE_TYPES else 0
+    answers_open_at = now + timedelta(seconds=reading)
+    time_limit = item.get("time_limit_s") if item_type in registry.INTERACTIVE_TYPES else None
+    deadline = answers_open_at + timedelta(seconds=int(time_limit)) if time_limit else None
+    phase = "question" if item_type in registry.INTERACTIVE_TYPES else "content"
+    seq = _cas(db, room, expect_phase={room.session.phase}, values={
+        "phase": phase,
+        "status": "live",
+        "current_position": position,
+        "answers_open_at": answers_open_at if phase == "question" else None,
+        "deadline_at": deadline,
+        **({"started_at": now} if room.session.started_at is None else {}),
+    })
+    if seq is None:
+        return Outcome(error="stale")
+    existing = db.get(LiveSessionItem, (room.session.id, position))
+    if existing is None:
+        db.add(LiveSessionItem(
+            session_id=room.session.id, position=position, state="open" if phase == "question" else "shown",
+            opened_at=now, answers_open_at=answers_open_at if phase == "question" else None, deadline_at=deadline,
+        ))
+    db.commit()
+    question = registry.public_question(room.session.id, position, item)
+    outcome.broadcasts.append(
+        Broadcast(
+            "question.intro",
+            {
+                "qi": position,
+                "total": room.total,
+                "question": question,
+                "answers_open_at_ms": _ms(answers_open_at) if phase == "question" else None,
+                "deadline_ms": _ms(deadline),
+            },
+            seq=seq,
+        )
+    )
+    if deadline is not None:
+        outcome.lock_at = (position, deadline + _grace(room))
+    return outcome
+
+
+def _enter_podium(db: Session, room: Room, now: datetime) -> Outcome:
+    seq = _cas(db, room, expect_phase={room.session.phase}, values={
+        "phase": "podium", "answers_open_at": None, "deadline_at": None,
+    })
+    if seq is None:
+        return Outcome(error="stale")
+    db.commit()
+    room = load_room(db, room.session.id)
+    payload = podium_payload(db, room)
+    return Outcome(broadcasts=[Broadcast("podium.show", payload, seq=seq, personalize="podium")])
+
+
+def start(db: Session, session_id: str, *, now: datetime | None = None) -> Outcome:
+    room = load_room(db, session_id)
+    if room.session.phase != "lobby":
+        return Outcome(error="stale")
+    return _enter_item(db, room, 0, now or utcnow())
+
+
+def lock(db: Session, session_id: str, *, expected_qi: int | None, reason: str, now: datetime | None = None) -> Outcome:
+    room = load_room(db, session_id)
+    session = room.session
+    now = now or utcnow()
+    if session.phase != "question" or (expected_qi is not None and expected_qi != session.current_position):
+        return Outcome(error="stale")
+    if reason == "timer" and session.deadline_at is not None and now < session.deadline_at + _grace(room):
+        return Outcome(error="too_early")
+    position = session.current_position
+    seq = _cas(db, room, expect_phase={"question"}, expect_position=position, values={"phase": "locked"})
+    if seq is None:
+        return Outcome(error="stale")
+    row = db.get(LiveSessionItem, (session.id, position))
+    if row is not None:
+        row.state = "locked"
+        row.locked_at = now
+        row.lock_reason = reason
+    db.commit()
+    return Outcome(broadcasts=[Broadcast("question.locked", {"qi": position, "reason": reason}, seq=seq)])
+
+
+def auto_lock_if_due(db: Session, session_id: str, *, now: datetime | None = None) -> Outcome:
+    """Timer path: idempotent, safe to call from every process."""
+    now = now or utcnow()
+    room = load_room(db, session_id)
+    session = room.session
+    if session.phase != "question" or session.deadline_at is None:
+        return Outcome()
+    if now < session.deadline_at + _grace(room):
+        return Outcome()
+    outcome = lock(db, session_id, expected_qi=session.current_position, reason="timer", now=now)
+    return outcome if outcome.error is None else Outcome()
+
+
+def reveal(db: Session, session_id: str, *, expected_qi: int | None, now: datetime | None = None) -> Outcome:
+    now = now or utcnow()
+    room = load_room(db, session_id)
+    session = room.session
+    if expected_qi is not None and expected_qi != session.current_position:
+        return Outcome(error="stale")
+    outcome = Outcome()
+    if session.phase == "question":
+        locked = lock(db, session_id, expected_qi=session.current_position, reason="host", now=now)
+        if locked.error:
+            return locked
+        outcome.broadcasts.extend(locked.broadcasts)
+        room = load_room(db, session_id)
+        session = room.session
+    if session.phase != "locked":
+        return Outcome(error="stale")
+    position = session.current_position
+    seq = _cas(db, room, expect_phase={"locked"}, expect_position=position, values={"phase": "reveal"})
+    if seq is None:
+        return Outcome(error="stale")
+    row = db.get(LiveSessionItem, (session.id, position))
+    if row is not None:
+        row.state = "revealed"
+        row.revealed_at = now
+    db.commit()
+    room = load_room(db, session_id)
+    outcome.broadcasts.append(Broadcast("question.reveal", reveal_payload(db, room, position), seq=seq, personalize="reveal"))
+    return outcome
+
+
+def _revealed_scored_since_board(room: Room, db: Session) -> int:
+    """Scored items revealed since the last leaderboard (drives leaderboard_every)."""
+    position = room.session.current_position or 0
+    count = 0
+    for index in range(position, -1, -1):
+        item = room.items[index]
+        if item["item_type"] == "leaderboard":
+            break
+        if registry.is_scored(item["item_type"], int(item.get("points_multiplier", 1))):
+            count += 1
+    return count
+
+
+def show_leaderboard(db: Session, session_id: str) -> Outcome:
+    room = load_room(db, session_id)
+    if room.session.phase not in {"reveal", "locked", "content"}:
+        return Outcome(error="stale")
+    seq = _cas(db, room, expect_phase={room.session.phase}, expect_position=room.session.current_position, values={"phase": "leaderboard"})
+    if seq is None:
+        return Outcome(error="stale")
+    db.commit()
+    room = load_room(db, session_id)
+    payload, _ = leaderboard_payload(db, room)
+    return Outcome(broadcasts=[Broadcast("leaderboard.show", payload, seq=seq, personalize="leaderboard")])
+
+
+def next_step(db: Session, session_id: str, *, expected_qi: int | None, now: datetime | None = None) -> Outcome:
+    now = now or utcnow()
+    room = load_room(db, session_id)
+    session = room.session
+    if session.phase == "lobby":
+        return start(db, session_id, now=now)
+    if expected_qi is not None and expected_qi != session.current_position:
+        return Outcome(error="stale")
+    if session.phase == "question":
+        return Outcome(error="too_early")
+    if session.phase == "locked":
+        return reveal(db, session_id, expected_qi=session.current_position, now=now)
+    if session.phase == "podium":
+        return end_session(db, session_id, now=now)
+    if session.phase == "finished":
+        return Outcome(error="stale")
+    position = session.current_position if session.current_position is not None else -1
+    has_next = position + 1 < room.total
+    every = int(room.settings.get("leaderboard_every", 3) or 0)
+    next_is_board = has_next and room.items[position + 1]["item_type"] == "leaderboard"
+    if (
+        session.phase == "reveal"
+        and has_next
+        and every > 0
+        and not next_is_board
+        and _revealed_scored_since_board(room, db) >= every
+        and _revealed_scored_since_board(room, db) % every == 0
+        and participant_count(db, session_id) > 0
+    ):
+        return show_leaderboard(db, session_id)
+    if session.phase == "reveal" and not has_next:
+        return _enter_podium(db, room, now)
+    if not has_next:
+        return _enter_podium(db, room, now)
+    return _enter_item(db, room, position + 1, now)
+
+
+def end_session(db: Session, session_id: str, *, now: datetime | None = None) -> Outcome:
+    now = now or utcnow()
+    room = load_room(db, session_id)
+    session = room.session
+    if session.status == "finished":
+        return Outcome(error="stale")
+    podium_already_shown = session.phase == "podium"
+    seq = _cas(db, room, expect_phase=set(("lobby", "question", "locked", "reveal", "leaderboard", "content", "podium")), values={
+        "phase": "finished", "status": "finished", "ended_at": now, "answers_open_at": None, "deadline_at": None,
+    })
+    if seq is None:
+        return Outcome(error="stale")
+    db.commit()
+    room = load_room(db, session_id)
+    board = standings(db, room, up_to=room.total - 1)
+    by_id = {s.participant_id: s for s in board}
+    for participant in active_participants(db, session_id):
+        standing = by_id.get(participant.id)
+        participant.final_score = standing.score if standing else 0
+        participant.final_rank = standing.rank if standing else None
+    db.commit()
+    logger.info("live session finished", extra={"event": "live_session_finished", "session_id": session_id, "participants": len(board)})
+    outcome = Outcome()
+    if not podium_already_shown and board:
+        outcome.broadcasts.append(Broadcast("podium.show", podium_payload(db, room), seq=seq, personalize="podium"))
+    outcome.broadcasts.append(Broadcast("session.ended", {"report_available": True}, seq=seq))
+    return outcome
+
+
+def set_room_lock(db: Session, session_id: str, *, locked: bool) -> Outcome:
+    room = load_room(db, session_id)
+    if room.session.status == "finished":
+        return Outcome(error="stale")
+    room.session.room_locked = bool(locked)
+    room.session.updated_at = utcnow()
+    db.commit()
+    return Outcome(broadcasts=[Broadcast("room.locked", {"locked": bool(locked)})])
+
+
+def kick(db: Session, session_id: str, *, participant_id: str, ban: bool) -> Outcome:
+    participant = db.get(LiveParticipant, participant_id)
+    if participant is None or participant.session_id != session_id:
+        return Outcome(error="not_found")
+    if participant.kicked_at is None:
+        participant.kicked_at = utcnow()
+    participant.banned = participant.banned or bool(ban)
+    participant.token_hash = None  # revokes the current token
+    db.commit()
+    outcome = Outcome(kicked_participant=(participant_id, participant.banned))
+    outcome.broadcasts.append(Broadcast("lobby.update", lobby_state(db, session_id)))
+    return outcome
+
+
+def accept_typed_answer(db: Session, session_id: str, *, qi: int, text: str, now: datetime | None = None) -> Outcome:
+    """Host accepts a typed answer after the lock: every matching answer becomes correct."""
+    room = load_room(db, session_id)
+    session = room.session
+    item = room.item(qi)
+    if item is None or item["item_type"] != "type_answer" or session.current_position != qi or session.phase not in {"locked", "reveal"}:
+        return Outcome(error="stale")
+    normalized = registry.normalize_text_answer(text)
+    if not normalized:
+        return Outcome(error="invalid")
+    events = [e for e in _events(db, session_id, qi)]
+    already = {e.participant_id for e in events if e.event_type == "host_accepted"}
+    multiplier = int(item.get("points_multiplier", 1))
+    scoring_mode = room.settings.get("scoring", "speed")
+    changed = 0
+    for event in events:
+        if event.event_type != "submitted" or event.participant_id in already or (event.score_fraction or 0) >= 1:
+            continue
+        if (event.response_json or {}).get("normalized") != normalized:
+            continue
+        db.add(
+            LiveAnswerEvent(
+                session_id=session_id,
+                position=qi,
+                participant_id=event.participant_id,
+                event_type="host_accepted",
+                response_json=dict(event.response_json or {}),
+                is_correct=True,
+                score_fraction=1.0,
+                points=scoring.points_for(
+                    fraction=1.0, scoring=scoring_mode, multiplier=multiplier,
+                    elapsed_ms=event.latency_ms, time_limit_s=item.get("time_limit_s"),
+                ),
+                server_ms=event.server_ms,
+                latency_ms=event.latency_ms,
+                client_elapsed_ms=event.client_elapsed_ms,
+                suspicious=event.suspicious,
+                idempotency_key=_uuid(),
+                received_at=now or utcnow(),
+            )
+        )
+        changed += 1
+    db.commit()
+    outcome = Outcome()
+    if changed and session.phase == "reveal":
+        room = load_room(db, session_id)
+        outcome.broadcasts.append(Broadcast("question.reveal", reveal_payload(db, room, qi), personalize="reveal"))
+    return outcome
+
+
+def _uuid() -> str:
+    import uuid
+
+    return str(uuid.uuid4())
+
+
+# ----------------------------------------------------------------------------- answers
+
+@dataclass
+class AnswerResult:
+    status: str
+    outcome: Outcome
+
+
+def submit_answer(
+    db: Session,
+    session_id: str,
+    *,
+    participant_id: str,
+    answer_id: str,
+    qi: int,
+    choice: list[str] | None,
+    text: str | None,
+    client_elapsed_ms: int | None,
+    rtt_min_ms: int | None,
+    now: datetime | None = None,
+) -> AnswerResult:
+    now = now or utcnow()
+    existing = db.execute(
+        select(LiveAnswerEvent.participant_id).where(LiveAnswerEvent.idempotency_key == answer_id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return AnswerResult("duplicate", Outcome())
+    room = load_room(db, session_id)
+    session = room.session
+    participant = db.get(LiveParticipant, participant_id)
+    if participant is None or participant.session_id != session_id or participant.kicked_at is not None:
+        return AnswerResult("closed", Outcome())
+    if session.current_position != qi:
+        return AnswerResult("closed", Outcome())
+    if session.phase in {"locked", "reveal", "leaderboard"}:
+        return AnswerResult("late", Outcome())
+    if session.phase != "question" or session.answers_open_at is None:
+        return AnswerResult("closed", Outcome())
+    item = room.item(qi)
+    if item is None or item["item_type"] not in registry.INTERACTIVE_TYPES:
+        return AnswerResult("invalid", Outcome())
+    if now < session.answers_open_at - timedelta(milliseconds=EARLY_TOLERANCE_MS):
+        return AnswerResult("closed", Outcome())
+    if session.deadline_at is not None and now > session.deadline_at + _grace(room):
+        return AnswerResult("late", auto_lock_if_due(db, session_id, now=now))
+    try:
+        graded = registry.grade(session_id, qi, item, choice=choice, text=text)
+    except registry.InvalidAnswer:
+        return AnswerResult("invalid", Outcome())
+    server_ms = max(0, int((now - session.answers_open_at).total_seconds() * 1000))
+    credited = scoring.credited_elapsed_ms(server_ms, rtt_min_ms)
+    suspicious = client_elapsed_ms is not None and abs(int(client_elapsed_ms) - credited) > 1500
+    points = scoring.points_for(
+        fraction=graded.fraction,
+        scoring=room.settings.get("scoring", "speed"),
+        multiplier=int(item.get("points_multiplier", 1)),
+        elapsed_ms=credited,
+        time_limit_s=item.get("time_limit_s"),
+    )
+    db.add(
+        LiveAnswerEvent(
+            session_id=session_id,
+            position=qi,
+            participant_id=participant_id,
+            event_type="submitted",
+            response_json=graded.response,
+            is_correct=graded.is_correct,
+            score_fraction=graded.fraction,
+            points=points,
+            server_ms=server_ms,
+            latency_ms=credited,
+            client_elapsed_ms=client_elapsed_ms,
+            suspicious=suspicious,
+            idempotency_key=answer_id,
+            received_at=now,
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        dup = db.execute(
+            select(LiveAnswerEvent.id).where(LiveAnswerEvent.idempotency_key == answer_id)
+        ).scalar_one_or_none()
+        return AnswerResult("duplicate" if dup is not None else "already_answered", Outcome())
+    answered = _answered_count(db, session_id, qi)
+    total = participant_count(db, session_id)
+    outcome = Outcome()
+    outcome.broadcasts.append(Broadcast("participant.progress", {"qi": qi, "answered": answered, "total": total}, audience=PARTICIPANTS))
+    if total and answered >= total:
+        locked = lock(db, session_id, expected_qi=qi, reason="all_answered", now=now)
+        outcome.broadcasts.extend(locked.broadcasts)
+    return AnswerResult("accepted", outcome)
+
+
+def results_tick(db: Session, session_id: str) -> list[Broadcast]:
+    """Live counters: the host always sees the distribution; the projector only when
+    ``show_live_distribution`` is on or for polls (no spoilers on the big screen)."""
+    room = load_room(db, session_id)
+    session = room.session
+    position = session.current_position
+    item = room.item(position)
+    if item is None or session.phase not in {"question", "locked"} or item["item_type"] not in registry.INTERACTIVE_TYPES:
+        return []
+    base = {
+        "qi": position,
+        "answered": _answered_count(db, session_id, position),
+        "total": participant_count(db, session_id),
+    }
+    counts = option_counts(db, room, position)
+    public = bool(room.settings.get("show_live_distribution")) or item["item_type"] == "poll"
+    return [
+        Broadcast("results.tick", {**base, "counts": counts}, audience=HOST),
+        Broadcast("results.tick", {**base, **({"counts": counts} if public else {})}, audience=DISPLAY),
+    ]
+
+
+def touch_participant(db: Session, participant_id: str, *, now: datetime | None = None) -> None:
+    now = now or utcnow()
+    participant = db.get(LiveParticipant, participant_id)
+    if participant is None:
+        return
+    if participant.last_seen_at is None or now - participant.last_seen_at > timedelta(seconds=20):
+        participant.last_seen_at = now
+        db.commit()
+
+
+def pending_lock_at_ms(db: Session, session_id: str) -> int | None:
+    """When the current question must auto-lock (deadline + grace), if one is open."""
+    room = load_room(db, session_id)
+    session = room.session
+    if session.phase != "question" or session.deadline_at is None:
+        return None
+    return _ms(session.deadline_at + _grace(room))

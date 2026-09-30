@@ -1,0 +1,581 @@
+/*
+ * Sentinel Arena (live quizzes) — motion tokens and stage themes (PLANO §9.2–9.3, §9.7).
+ *
+ * - Tokens live in the `--lq-*` namespace. `[data-lq-theme="<key>"]` goes on the live container
+ *   (stage or phone screen), independent of the app's light/dark `data-theme`.
+ * - Answer colours: 6 per theme, each paired with a shape (▲◆●■⬟✚) and a letter, with an explicit
+ *   on-colour. Red/green are never answer colours: they are reserved for correct/incorrect and always
+ *   come with an icon and a word.
+ * - Animated backgrounds use transform/opacity on pseudo-elements only, and are switched off under
+ *   prefers-reduced-motion or the room's calm mode (`data-lq-calm="true"`).
+ */
+
+:root {
+  --lq-dur-instant: 80ms;
+  --lq-dur-fast: 160ms;
+  --lq-dur-base: 240ms;
+  --lq-dur-slow: 420ms;
+  --lq-dur-reveal: 700ms;
+  --lq-dur-epic: 1200ms;
+  --lq-stagger-phone: 40ms;
+  --lq-stagger-stage: 60ms;
+
+  --lq-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --lq-ease-emph: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --lq-ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --lq-ease-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --lq-z-stage: 0;
+  --lq-z-overlay: 40;
+  --lq-z-toast: 60;
+
+  --lq-text-display-1: clamp(2rem, 1.2rem + 3.2vmin, 6rem);
+  --lq-text-display-2: clamp(1.625rem, 1rem + 2.4vmin, 4.5rem);
+  --lq-text-display-3: clamp(1.375rem, 0.9rem + 1.6vmin, 3rem);
+  --lq-text-display-4: clamp(1.125rem, 0.8rem + 1vmin, 2rem);
+}
+
+/* ------------------------------------------------------------------ Sentinel (default) */
+[data-lq-theme] {
+  --lq-bg: #0f1115;
+  --lq-bg-accent: #161b2e;
+  --lq-surface: #171a22;
+  --lq-surface-2: #1f2430;
+  --lq-line: #2e3442;
+  --lq-fg: #eef0f5;
+  --lq-fg-muted: #b4bac6;
+  --lq-accent: #8ea2ff;
+  --lq-on-accent: #0b0d12;
+  --lq-glow: rgb(142 162 255 / 0.32);
+  --lq-grid: rgb(142 162 255 / 0.16);
+
+  --lq-answer-1: #4f7cff;
+  --lq-answer-2: #f0b35a;
+  --lq-answer-3: #e879f9;
+  --lq-answer-4: #22d3ee;
+  --lq-answer-5: #a78bfa;
+  --lq-answer-6: #cbd5e1;
+  --lq-on-answer-1: #0b0d12;
+  --lq-on-answer-2: #0b0d12;
+  --lq-on-answer-3: #0b0d12;
+  --lq-on-answer-4: #0b0d12;
+  --lq-on-answer-5: #0b0d12;
+  --lq-on-answer-6: #0b0d12;
+
+  --lq-success: #5cc98c;
+  --lq-on-success: #07140c;
+  --lq-danger: #ff8a80;
+  --lq-on-danger: #1f0806;
+  --lq-warning: #f0b35a;
+  --lq-on-warning: #140c02;
+  --lq-chart-track: #252a36;
+
+  --lq-font-display: var(--font-ui), system-ui, sans-serif;
+  --lq-font-body: var(--font-ui), system-ui, sans-serif;
+  --lq-font-prompt: var(--font-ui), system-ui, sans-serif;
+  --lq-font-mono: var(--font-code), ui-monospace, monospace;
+  --lq-radius: 18px;
+  --lq-border-w: 0px;
+  --lq-motion-scale: 1;
+
+  color-scheme: dark;
+  background-color: var(--lq-bg);
+  color: var(--lq-fg);
+  font-family: var(--lq-font-body);
+}
+
+/* ------------------------------------------------------------------ Terminal */
+[data-lq-theme="terminal"] {
+  --lq-bg: #070b08;
+  --lq-bg-accent: #0b140e;
+  --lq-surface: #0d140f;
+  --lq-surface-2: #132017;
+  --lq-line: #1f3a28;
+  --lq-fg: #d6ffe0;
+  --lq-fg-muted: #9fd8ae;
+  --lq-accent: #39ff88;
+  --lq-on-accent: #031008;
+  --lq-glow: rgb(57 255 136 / 0.22);
+  --lq-grid: rgb(57 255 136 / 0.1);
+
+  --lq-answer-1: #ffb000;
+  --lq-answer-2: #22d3ee;
+  --lq-answer-3: #e5e7eb;
+  --lq-answer-4: #ff5fd2;
+  --lq-answer-5: #60a5fa;
+  --lq-answer-6: #b388ff;
+
+  --lq-success: #39ff88;
+  --lq-on-success: #031008;
+  --lq-danger: #ff7a70;
+  --lq-on-danger: #1a0504;
+  --lq-chart-track: #13241a;
+
+  --lq-font-display: var(--font-code), ui-monospace, monospace;
+  --lq-font-body: var(--font-code), ui-monospace, monospace;
+  --lq-font-prompt: var(--font-code), ui-monospace, monospace;
+  --lq-radius: 6px;
+}
+
+/* ------------------------------------------------------------------ Neon SOC */
+[data-lq-theme="neon_soc"] {
+  --lq-bg: #070a1a;
+  --lq-bg-accent: #0d1433;
+  --lq-surface: #0e1430;
+  --lq-surface-2: #151d42;
+  --lq-line: #26305e;
+  --lq-fg: #e6f1ff;
+  --lq-fg-muted: #a9bce0;
+  --lq-accent: #22d3ee;
+  --lq-on-accent: #031216;
+  --lq-glow: rgb(34 211 238 / 0.3);
+  --lq-grid: rgb(34 211 238 / 0.13);
+
+  --lq-answer-1: #22d3ee;
+  --lq-answer-2: #f472b6;
+  --lq-answer-3: #fbbf24;
+  --lq-answer-4: #818cf8;
+  --lq-answer-5: #c084fc;
+  --lq-answer-6: #e2e8f0;
+
+  --lq-chart-track: #1a2250;
+  --lq-radius: 14px;
+}
+
+/* ------------------------------------------------------------------ Aurora */
+[data-lq-theme="aurora"] {
+  --lq-bg: #0b1026;
+  --lq-bg-accent: #1a1446;
+  --lq-surface: #141a3a;
+  --lq-surface-2: #1c2350;
+  --lq-line: #2f3872;
+  --lq-fg: #f5f7ff;
+  --lq-fg-muted: #c3c9ea;
+  --lq-accent: #a78bfa;
+  --lq-on-accent: #0b0820;
+  --lq-glow: rgb(167 139 250 / 0.35);
+  --lq-grid: rgb(167 139 250 / 0.1);
+
+  --lq-answer-1: #38bdf8;
+  --lq-answer-2: #f472b6;
+  --lq-answer-3: #facc15;
+  --lq-answer-4: #a5b4fc;
+  --lq-answer-5: #fb923c;
+  --lq-answer-6: #e2e8f0;
+
+  --lq-chart-track: #232a5c;
+  --lq-radius: 22px;
+}
+
+/* ------------------------------------------------------------------ High contrast (≥ 7:1, 3 px borders, patterns) */
+[data-lq-theme="high_contrast"] {
+  --lq-bg: #000000;
+  --lq-bg-accent: #000000;
+  --lq-surface: #000000;
+  --lq-surface-2: #111111;
+  --lq-line: #ffffff;
+  --lq-fg: #ffffff;
+  --lq-fg-muted: #ffffff;
+  --lq-accent: #ffff00;
+  --lq-on-accent: #000000;
+  --lq-glow: transparent;
+  --lq-grid: transparent;
+
+  --lq-answer-1: #ffff00;
+  --lq-answer-2: #00ffff;
+  --lq-answer-3: #ff80ff;
+  --lq-answer-4: #ffffff;
+  --lq-answer-5: #ffb000;
+  --lq-answer-6: #9ecbff;
+  --lq-on-answer-1: #000000;
+  --lq-on-answer-2: #000000;
+  --lq-on-answer-3: #000000;
+  --lq-on-answer-4: #000000;
+  --lq-on-answer-5: #000000;
+  --lq-on-answer-6: #000000;
+
+  --lq-success: #7dffa8;
+  --lq-on-success: #000000;
+  --lq-danger: #ff9d9d;
+  --lq-on-danger: #000000;
+  --lq-warning: #ffff00;
+  --lq-on-warning: #000000;
+  --lq-chart-track: #333333;
+  --lq-radius: 10px;
+  --lq-border-w: 3px;
+  --lq-motion-scale: 0.6;
+}
+
+@theme inline {
+  --color-lq-bg: var(--lq-bg);
+  --color-lq-bg-accent: var(--lq-bg-accent);
+  --color-lq-surface: var(--lq-surface);
+  --color-lq-surface-2: var(--lq-surface-2);
+  --color-lq-line: var(--lq-line);
+  --color-lq-fg: var(--lq-fg);
+  --color-lq-fg-muted: var(--lq-fg-muted);
+  --color-lq-accent: var(--lq-accent);
+  --color-lq-on-accent: var(--lq-on-accent);
+  --color-lq-success: var(--lq-success);
+  --color-lq-on-success: var(--lq-on-success);
+  --color-lq-danger: var(--lq-danger);
+  --color-lq-on-danger: var(--lq-on-danger);
+  --color-lq-warning: var(--lq-warning);
+  --color-lq-on-warning: var(--lq-on-warning);
+  --color-lq-track: var(--lq-chart-track);
+  --font-lq: var(--lq-font-display);
+  --font-lq-prompt: var(--lq-font-prompt);
+  --font-lq-mono: var(--lq-font-mono);
+}
+
+/* ------------------------------------------------------------------ answer colour slots */
+.lq-slot-0 { --lq-tile: var(--lq-answer-1); --lq-on-tile: var(--lq-on-answer-1, #0b0d12); }
+.lq-slot-1 { --lq-tile: var(--lq-answer-2); --lq-on-tile: var(--lq-on-answer-2, #0b0d12); }
+.lq-slot-2 { --lq-tile: var(--lq-answer-3); --lq-on-tile: var(--lq-on-answer-3, #0b0d12); }
+.lq-slot-3 { --lq-tile: var(--lq-answer-4); --lq-on-tile: var(--lq-on-answer-4, #0b0d12); }
+.lq-slot-4 { --lq-tile: var(--lq-answer-5); --lq-on-tile: var(--lq-on-answer-5, #0b0d12); }
+.lq-slot-5 { --lq-tile: var(--lq-answer-6); --lq-on-tile: var(--lq-on-answer-6, #0b0d12); }
+
+.lq-tile {
+  position: relative;
+  background-color: var(--lq-tile);
+  color: var(--lq-on-tile);
+  border: var(--lq-border-w) solid var(--lq-on-tile);
+  border-radius: var(--lq-radius);
+  isolation: isolate;
+}
+
+/* Glow via pseudo-element opacity (text stays fully opaque). */
+.lq-tile::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: calc(var(--lq-radius) + 6px);
+  box-shadow: 0 0 0 3px var(--lq-success), 0 0 36px 6px color-mix(in srgb, var(--lq-success) 55%, transparent);
+  opacity: 0;
+  transition: opacity var(--lq-dur-reveal) var(--lq-ease-out);
+  pointer-events: none;
+}
+
+.lq-tile[data-glow="true"]::after {
+  opacity: 1;
+}
+
+/* Dimmed (incorrect after reveal / not chosen): colour recedes, text keeps AA contrast. */
+.lq-tile[data-dim="true"] {
+  background-color: color-mix(in srgb, var(--lq-tile) 34%, var(--lq-surface));
+  color: var(--lq-fg);
+  border-color: color-mix(in srgb, var(--lq-tile) 55%, transparent);
+}
+
+[data-lq-theme="high_contrast"] .lq-tile[data-dim="true"] {
+  background-color: #000;
+  color: #fff;
+  border-color: var(--lq-tile);
+}
+
+/* High contrast: a distinct pattern per option on the shape badge (never behind text). */
+[data-lq-theme="high_contrast"] .lq-slot-0 .lq-pattern { background-image: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 8px); }
+[data-lq-theme="high_contrast"] .lq-slot-1 .lq-pattern { background-image: radial-gradient(#000 2px, transparent 2.5px); background-size: 8px 8px; }
+[data-lq-theme="high_contrast"] .lq-slot-2 .lq-pattern { background-image: conic-gradient(#000 25%, transparent 0 50%, #000 0 75%, transparent 0); background-size: 10px 10px; }
+[data-lq-theme="high_contrast"] .lq-slot-3 .lq-pattern { background-image: repeating-linear-gradient(45deg, #000 0 3px, transparent 3px 9px); }
+[data-lq-theme="high_contrast"] .lq-slot-4 .lq-pattern { background-image: repeating-radial-gradient(circle at 0 0, #000 0 2px, transparent 2px 7px); }
+[data-lq-theme="high_contrast"] .lq-slot-5 .lq-pattern { background-image: none; }
+
+/* ------------------------------------------------------------------ animated backdrops */
+.lq-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, var(--lq-bg-accent), transparent 70%),
+    var(--lq-bg);
+}
+
+.lq-backdrop::before,
+.lq-backdrop::after,
+.lq-backdrop > span {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* Sentinel: dot grid + breathing radial glow (8 s). */
+.lq-backdrop::before {
+  inset: -2px;
+  background-image: radial-gradient(circle, var(--lq-grid) 1.2px, transparent 1.8px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, #000 30%, transparent 85%);
+}
+
+.lq-backdrop::after {
+  left: 50%;
+  top: 38%;
+  width: 110vmax;
+  height: 110vmax;
+  margin: -55vmax 0 0 -55vmax;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--lq-glow), transparent 55%);
+  animation: lq-breathe 8s var(--lq-ease-out) infinite alternate;
+}
+
+.lq-backdrop > span {
+  display: none;
+}
+
+/* Terminal: static scanlines + a slow phosphor sweep. */
+[data-lq-theme="terminal"] .lq-backdrop::before {
+  background-image:
+    repeating-linear-gradient(to bottom, transparent 0 2px, rgb(0 0 0 / 0.38) 2px 3px),
+    linear-gradient(var(--lq-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lq-grid) 1px, transparent 1px);
+  background-size: auto, 40px 40px, 40px 40px;
+  mask-image: none;
+}
+
+[data-lq-theme="terminal"] .lq-backdrop::after {
+  left: 0;
+  top: 0;
+  margin: 0;
+  width: 100%;
+  height: 22%;
+  border-radius: 0;
+  background: linear-gradient(to bottom, transparent, rgb(57 255 136 / 0.07), transparent);
+  animation: lq-sweep 7s linear infinite;
+}
+
+/* Neon SOC: angled grid + radar sweep. */
+[data-lq-theme="neon_soc"] .lq-backdrop::before {
+  background-image:
+    repeating-linear-gradient(60deg, var(--lq-grid) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(-60deg, var(--lq-grid) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(0deg, var(--lq-grid) 0 1px, transparent 1px 38px);
+  mask-image: radial-gradient(ellipse 85% 75% at 50% 50%, #000 25%, transparent 90%);
+}
+
+[data-lq-theme="neon_soc"] .lq-backdrop::after {
+  width: 140vmax;
+  height: 140vmax;
+  margin: -70vmax 0 0 -70vmax;
+  top: 50%;
+  background: conic-gradient(from 0deg, rgb(34 211 238 / 0.22), transparent 55deg, transparent 360deg);
+  mask-image: radial-gradient(circle, #000 20%, transparent 62%);
+  animation: lq-spin 9s linear infinite;
+}
+
+[data-lq-theme="neon_soc"] .lq-backdrop > span {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f472b6;
+  box-shadow: 0 0 0 6px rgb(244 114 182 / 0.18);
+  opacity: 0;
+  animation: lq-ping 4.5s var(--lq-ease-out) infinite;
+}
+
+[data-lq-theme="neon_soc"] .lq-backdrop > span:nth-child(1) { left: 22%; top: 30%; animation-delay: 0.6s; }
+[data-lq-theme="neon_soc"] .lq-backdrop > span:nth-child(2) { left: 72%; top: 24%; animation-delay: 2.1s; }
+[data-lq-theme="neon_soc"] .lq-backdrop > span:nth-child(3) { left: 64%; top: 74%; animation-delay: 3.4s; }
+
+/* Aurora: three pre-blurred blobs drifting. */
+[data-lq-theme="aurora"] .lq-backdrop::before {
+  inset: auto;
+  left: -20%;
+  top: -30%;
+  width: 90vmax;
+  height: 70vmax;
+  background: radial-gradient(closest-side, rgb(167 139 250 / 0.45), transparent);
+  mask-image: none;
+  animation: lq-drift-a 22s ease-in-out infinite alternate;
+}
+
+[data-lq-theme="aurora"] .lq-backdrop::after {
+  left: auto;
+  right: -25%;
+  top: 10%;
+  margin: 0;
+  width: 80vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(56 189 248 / 0.32), transparent);
+  animation: lq-drift-b 26s ease-in-out infinite alternate;
+}
+
+[data-lq-theme="aurora"] .lq-backdrop > span:nth-child(1) {
+  display: block;
+  left: 20%;
+  bottom: -40%;
+  width: 90vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(244 114 182 / 0.26), transparent);
+  animation: lq-drift-c 30s ease-in-out infinite alternate;
+}
+
+/* High contrast: no animated background at all. */
+[data-lq-theme="high_contrast"] .lq-backdrop,
+[data-lq-theme="high_contrast"] .lq-backdrop::before,
+[data-lq-theme="high_contrast"] .lq-backdrop::after {
+  background: #000;
+  animation: none;
+}
+
+/* Lobby particles (cheap: 12 absolutely positioned dots, transform-only). */
+.lq-particles > i {
+  position: absolute;
+  bottom: -12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--lq-accent);
+  opacity: 0.5;
+  animation: lq-float 14s linear infinite;
+}
+
+[data-lq-theme="high_contrast"] .lq-particles {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ QR materialize */
+.lq-qr-band {
+  transform-box: view-box;
+  transform-origin: center;
+  animation: lq-qr-in var(--lq-dur-slow) var(--lq-ease-back) both;
+}
+
+/* ------------------------------------------------------------------ misc motion helpers */
+.lq-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: lq-draw 400ms var(--lq-ease-out) forwards;
+}
+
+.lq-warn-pulse {
+  animation: lq-pulse 1s var(--lq-ease-out) infinite;
+}
+
+.lq-shake {
+  animation: lq-shake 400ms var(--lq-ease-out) 1;
+}
+
+.lq-stage-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lq-line) transparent;
+}
+
+@keyframes lq-breathe {
+  from { opacity: 0.55; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1.04); }
+}
+
+@keyframes lq-sweep {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(560%); }
+}
+
+@keyframes lq-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes lq-ping {
+  0% { opacity: 0; transform: scale(0.4); }
+  12% { opacity: 1; transform: scale(1); }
+  40% { opacity: 0; transform: scale(2.6); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+
+@keyframes lq-drift-a {
+  to { transform: translate3d(18vmax, 10vmax, 0) scale(1.1); }
+}
+
+@keyframes lq-drift-b {
+  to { transform: translate3d(-16vmax, 8vmax, 0) scale(0.92); }
+}
+
+@keyframes lq-drift-c {
+  to { transform: translate3d(12vmax, -12vmax, 0) scale(1.08); }
+}
+
+@keyframes lq-float {
+  from { transform: translate3d(0, 0, 0) rotate(0deg); }
+  to { transform: translate3d(3vw, -110vh, 0) rotate(240deg); }
+}
+
+@keyframes lq-qr-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes lq-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes lq-pulse {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(1.12); }
+}
+
+@keyframes lq-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
+/* ------------------------------------------------------------------ reduced motion / calm mode */
+@media (prefers-reduced-motion: reduce) {
+  .lq-backdrop::before,
+  .lq-backdrop::after,
+  .lq-backdrop > span,
+  .lq-particles > i,
+  .lq-qr-band,
+  .lq-warn-pulse,
+  .lq-shake {
+    animation: none !important;
+  }
+
+  .lq-draw {
+    stroke-dashoffset: 0;
+    animation: none !important;
+  }
+
+  .lq-particles {
+    display: none;
+  }
+}
+
+[data-lq-calm="true"] .lq-backdrop::before,
+[data-lq-calm="true"] .lq-backdrop::after,
+[data-lq-calm="true"] .lq-backdrop > span,
+[data-lq-calm="true"] .lq-qr-band,
+[data-lq-calm="true"] .lq-warn-pulse,
+[data-lq-calm="true"] .lq-shake {
+  animation: none !important;
+}
+
+[data-lq-calm="true"] .lq-draw {
+  stroke-dashoffset: 0;
+  animation: none !important;
+}
+
+[data-lq-calm="true"] .lq-particles {
+  display: none;
+}
+
+/* Pattern strips exist only in the high-contrast theme. */
+.lq-pattern {
+  display: none;
+}
+
+[data-lq-theme="high_contrast"] .lq-pattern {
+  display: block;
+}
+
+.lq-tile[data-dim="true"] {
+  --lq-badge-ink: var(--lq-surface);
+}

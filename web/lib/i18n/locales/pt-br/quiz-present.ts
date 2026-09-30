@@ -1,0 +1,201 @@
+export const quizPresent = {
+  meta: {
+    title: "Apresentação ao vivo"
+  },
+  loading: "Conectando à sessão...",
+  lobby: {
+    joinAt: "Entre em",
+    pin: "PIN",
+    scanToJoin: "Aponte a câmera para o QR",
+    waitingFirst: "Esperando o primeiro participante...",
+    count: "{count} participantes",
+    countOne: "1 participante",
+    more: "+{count}",
+    participantWord: "participante",
+    participantsWord: "participantes",
+    qrLabel: "QR code para entrar em {url}",
+    locked: "Sala trancada: novas entradas bloqueadas"
+  },
+  intro: {
+    counter: "Pergunta {current} de {total}",
+    getReady: "Prepare-se!",
+    points: "{multiplier}x pontos",
+    noPoints: "Sem pontos",
+    types: {
+      single_choice: "Escolha única",
+      multi_choice: "Múltipla escolha",
+      true_false: "Verdadeiro ou falso",
+      type_answer: "Resposta digitada",
+      poll: "Enquete",
+      content: "Slide",
+      leaderboard: "Placar"
+    }
+  },
+  question: {
+    answered: "{answered}/{total} responderam",
+    answeredSr: "{answered} de {total} responderam",
+    timeLeft: "{seconds} segundos restantes",
+    readingLeft: "Respostas abrem em {seconds} segundos",
+    untimed: "Sem cronômetro",
+    selectN: "Selecione {count}",
+    typeHint: "Digite sua resposta no celular"
+  },
+  locked: {
+    title: "Respostas travadas",
+    reasons: {
+      timer: "Tempo esgotado",
+      all_answered: "Todos responderam!",
+      host: "Travado pelo apresentador"
+    }
+  },
+  reveal: {
+    correct: "Correta",
+    summary: "{letter}, {text}: {count} respostas ({percent}%)",
+    summaryCorrect: "{letter}, {text}: {count} respostas ({percent}%), correta",
+    pctCorrect: "{percent}% acertaram",
+    fastest: "Mais rápido: {name}, {seconds} s",
+    avg: "Tempo médio: {seconds} s",
+    why: "Por quê?",
+    accepted: "Aceitas",
+    topAnswers: "Respostas mais enviadas",
+    noAnswers: "Ninguém respondeu",
+    votes: "{count} votos",
+    acceptedMark: "aceita",
+    notAcceptedMark: "não aceita"
+  },
+  leaderboard: {
+    title: "Placar",
+    points: "pontos",
+    up: "subiu {n} posições",
+    down: "caiu {n} posições",
+    same: "manteve a posição",
+    biggestClimb: "Maior subida",
+    rank: "{rank}º lugar",
+    empty: "O placar aparece depois da primeira pergunta pontuada."
+  },
+  podium: {
+    title: "Pódio",
+    drumroll: "E o pódio é...",
+    skip: "Pular",
+    place: "{rank}º lugar",
+    points: "pts",
+    winner: "Campeão",
+    participants: "participantes",
+    avgPct: "acerto médio",
+    hardest: "pergunta mais difícil",
+    hardestValue: "nº {n}"
+  },
+  finished: {
+    title: "Obrigado!",
+    subtitle: "Sessão encerrada. Cada participante pode ver as próprias respostas no celular.",
+    report: "Abrir relatório",
+    library: "Voltar aos quizzes"
+  },
+  controls: {
+    label: "Controles da apresentação",
+    show: "Mostrar controles",
+    hide: "Ocultar controles",
+    start: "Começar",
+    next: "Próxima",
+    lock: "Travar",
+    reveal: "Revelar",
+    leaderboard: "Placar",
+    podium: "Ir para o pódio",
+    end: "Encerrar",
+    lockRoom: "Trancar sala",
+    unlockRoom: "Destrancar sala",
+    participants: "Participantes ({count})",
+    fullscreen: "Tela cheia",
+    exitFullscreen: "Sair da tela cheia",
+    openDisplay: "Abrir telão",
+    openingDisplay: "Abrindo...",
+    presenterView: "Visão do apresentador",
+    stageView: "Palco com controles",
+    help: "Atalhos",
+    calm: "Modo calmo",
+    progress: "Pergunta {current} de {total}",
+    confirmEndTitle: "Encerrar a sessão?",
+    confirmEndText: "Todos os participantes verão a tela final. Não dá para desfazer.",
+    confirmEnd: "Encerrar agora",
+    cancel: "Cancelar",
+    status: {
+      open: "Conectado",
+      connecting: "Conectando...",
+      reconnecting: "Reconectando...",
+      closed: "Desconectado",
+      idle: "Desconectado"
+    }
+  },
+  hotkeys: {
+    title: "Atalhos de teclado",
+    next: "Próxima ação (contextual)",
+    lock: "Travar respostas",
+    reveal: "Revelar resultado",
+    leaderboard: "Mostrar placar",
+    fullscreen: "Tela cheia",
+    calm: "Modo calmo (sem animações)",
+    help: "Mostrar/ocultar atalhos",
+    controls: "Mostrar/ocultar controles",
+    close: "Fechar"
+  },
+  participants: {
+    title: "Participantes",
+    empty: "Ninguém entrou ainda.",
+    online: "online",
+    offline: "offline",
+    kick: "Remover",
+    ban: "Remover e bloquear",
+    kickConfirmTitle: "Remover {name}?",
+    kickConfirmText: "A pessoa sai da sessão agora. Se bloquear, ela não consegue voltar.",
+    score: "{score} pts",
+    close: "Fechar"
+  },
+  presenter: {
+    title: "Visão do apresentador",
+    privateWarning: "Não projete esta janela: ela mostra o gabarito e as notas.",
+    current: "Agora",
+    next: "A seguir",
+    noNext: "Esta é a última pergunta.",
+    lobby: "Na sala de espera. Comece quando todos entrarem.",
+    answerKey: "Gabarito",
+    answerKeyStale: "O gabarito desta pergunta aparece junto com o reveal.",
+    correctMark: "correta",
+    notes: "Notas",
+    noNotes: "Sem notas para esta pergunta.",
+    explanation: "Explicação",
+    accepted: "Respostas aceitas",
+    liveCounts: "Respostas ao vivo",
+    acceptTitle: "Aceitar respostas digitadas",
+    acceptHint: "Depois de travar, aceite uma resposta digitada que também está certa.",
+    acceptPlaceholder: "Texto a aceitar",
+    accept: "Aceitar",
+    accepted_ok: "Resposta aceita: {text}"
+  },
+  errors: {
+    auth: "Faça login como apresentador para controlar esta sessão.",
+    forbidden: "Você não tem permissão para apresentar esta sessão.",
+    stale: "A sessão já tinha avançado. O estado foi atualizado.",
+    rate_limited: "Muitos comandos seguidos. Aguarde um instante.",
+    too_early: "Ainda não dá para fazer isso: aguarde o fim da leitura ou do tempo.",
+    invalid: "Comando inválido para o momento atual.",
+    not_found: "Sessão não encontrada.",
+    generic: "Algo deu errado. Tente de novo.",
+    session_ended: "A sessão foi encerrada.",
+    displayToken: "Não foi possível abrir o telão.",
+    displayExpired: "O link do telão expirou ou é inválido. Abra um novo pela tela do apresentador.",
+    popupBlocked: "O navegador bloqueou a nova janela. Permita pop-ups para este site.",
+    signIn: "Entrar",
+    retry: "Reconectar",
+    dismiss: "Fechar aviso"
+  },
+  announce: {
+    lobby: "Sala de espera.",
+    question: "Pergunta {current} de {total}.",
+    locked: "Respostas travadas.",
+    reveal: "Resultado revelado.",
+    leaderboard: "Placar.",
+    podium: "Pódio.",
+    finished: "Sessão encerrada.",
+    content: "Slide."
+  }
+} as const;

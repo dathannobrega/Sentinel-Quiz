@@ -526,3 +526,39 @@ class UnchangedReingestTests(IngestTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LicenseScopeTests(IngestTestCase):
+    """0018: ingest classifies every question's licence by provenance (PLANO §11.1)."""
+
+    def test_scopes_by_provenance_and_reclassified_on_reimport(self) -> None:
+        own = _question("lic-own", "Own question?")
+        own["license_scope"] = "own"
+        platform = _question("lic-platform", "Imported question?")
+        platform.update({"source_repo": "https://github.com/example/repo", "source_license": "NOASSERTION"})
+        private = _question("lic-private", "Private question?")
+        private["usage_restriction"] = "personal_use"
+        unknown = _question("lic-unknown", "Unaudited question?")
+        self.write_bank(_bank([own, platform, private, unknown]))
+        self.ingest()
+        scopes = {q.id: (q.license_scope, q.source_license) for q in self.db.query(Question).all()}
+        self.assertEqual(scopes["lic-own"], ("own", None))
+        self.assertEqual(scopes["lic-platform"], ("platform", "NOASSERTION"))
+        self.assertEqual(scopes["lic-private"][0], "personal_use")
+        self.assertEqual(scopes["lic-unknown"][0], "pending_audit")
+
+        # A hash-identical file whose rows drifted (e.g. rows migrated before the
+        # classifier existed) is re-processed.
+        self.db.query(Question).update({Question.license_scope: "pending_audit"})
+        self.db.commit()
+        self.ingest()
+        self.assertEqual(self.db.get(Question, "lic-own").license_scope, "own")
+
+    def test_local_directory_is_always_personal_use(self) -> None:
+        local = self.qdir / "local"
+        local.mkdir()
+        question = _question("lic-local", "Local question?")
+        question["license_scope"] = "own"
+        (local / "bank.json").write_text(json.dumps(_bank([question])), encoding="utf-8")
+        self.ingest()
+        self.assertEqual(self.db.get(Question, "lic-local").license_scope, "personal_use")
