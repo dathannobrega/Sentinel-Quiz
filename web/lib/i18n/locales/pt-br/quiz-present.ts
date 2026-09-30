@@ -37,6 +37,9 @@ export const quizPresent = {
     timeLeft: "{seconds} segundos restantes",
     readingLeft: "Respostas abrem em {seconds} segundos",
     untimed: "Sem cronômetro",
+    paused: "Pausado",
+    pausedHint: "O apresentador pausou a pergunta. O tempo está congelado.",
+    pausedTime: "Pausado com {seconds} segundos restantes",
     selectN: "Selecione {count}",
     typeHint: "Digite sua resposta no celular"
   },
@@ -113,6 +116,14 @@ export const quizPresent = {
     stageView: "Palco com controles",
     help: "Atalhos",
     calm: "Modo calmo",
+    pause: "Pausar",
+    resume: "Retomar",
+    extend: "+{seconds} s",
+    extendLabel: "Adicionar {seconds} segundos",
+    rehearsal: "Ensaio",
+    rehearsalHint: "Sessão de ensaio: os bots respondem sozinhos e nada entra nos relatórios.",
+    transportSse: "Conexão alternativa",
+    transportSseHint: "A rede bloqueou o WebSocket. A sessão segue por uma conexão alternativa (SSE), um pouco mais lenta.",
     progress: "Pergunta {current} de {total}",
     confirmEndTitle: "Encerrar a sessão?",
     confirmEndText: "Todos os participantes verão a tela final. Não dá para desfazer.",
@@ -136,6 +147,8 @@ export const quizPresent = {
     calm: "Modo calmo (sem animações)",
     help: "Mostrar/ocultar atalhos",
     controls: "Mostrar/ocultar controles",
+    pause: "Pausar/retomar a pergunta",
+    extend: "Adicionar 15 segundos",
     close: "Fechar"
   },
   participants: {
@@ -148,7 +161,20 @@ export const quizPresent = {
     kickConfirmTitle: "Remover {name}?",
     kickConfirmText: "A pessoa sai da sessão agora. Se bloquear, ela não consegue voltar.",
     score: "{score} pts",
-    close: "Fechar"
+    close: "Fechar",
+    bot: "Bot",
+    botLabel: "Participante simulado (bot de ensaio)",
+    time: "Tempo",
+    timeLabel: "Tempo de resposta de {name}",
+    timeHint: "Tempo estendido vale a partir da pergunta aberta. Pontos de velocidade são ajustados.",
+    timeBadge: "{multiplier}× tempo",
+    timeUntimedBadge: "Sem limite",
+    times: {
+      m1: "Normal (1×)",
+      m15: "1,5× o tempo",
+      m2: "2× o tempo",
+      m0: "Sem limite de tempo"
+    }
   },
   presenter: {
     title: "Visão do apresentador",
@@ -179,6 +205,10 @@ export const quizPresent = {
     too_early: "Ainda não dá para fazer isso: aguarde o fim da leitura ou do tempo.",
     invalid: "Comando inválido para o momento atual.",
     not_found: "Sessão não encontrada.",
+    already_paused: "A pergunta já está pausada.",
+    not_paused: "A pergunta não está pausada.",
+    paused: "Retome a pergunta antes de estender o tempo.",
+    no_timer: "Esta pergunta não tem cronômetro.",
     generic: "Algo deu errado. Tente de novo.",
     session_ended: "A sessão foi encerrada.",
     displayToken: "Não foi possível abrir o telão.",
@@ -196,6 +226,8 @@ export const quizPresent = {
     leaderboard: "Placar.",
     podium: "Pódio.",
     finished: "Sessão encerrada.",
-    content: "Slide."
+    content: "Slide.",
+    paused: "Pergunta pausada.",
+    resumed: "Pergunta retomada."
   }
 } as const;

@@ -5,6 +5,7 @@ import {
   liveReducer,
   LiveStore,
   selectCanAnswer,
+  selectMyTimer,
   selectStageView,
   shallowEqual,
   type LiveState
@@ -368,5 +369,78 @@ describe("LiveStore", () => {
     expect(shallowEqual({ a: 1 }, { a: 2 })).toBe(false);
     expect(shallowEqual([1, 2], [1, 2])).toBe(true);
     expect(shallowEqual({ a: {} }, { a: {} })).toBe(false);
+  });
+});
+
+describe("liveReducer: time controls (Incremento 3)", () => {
+  const open = () =>
+    apply(
+      createInitialLiveState("participant"),
+      frame("room.snapshot", snapshot({ status: "live", phase: "question", qi: 0, question, timer: { answers_open_at_ms: 5000, deadline_ms: 25_000, paused: false }, my: mySnap }), 1)
+    );
+
+  it("question.paused freezes the timer and blocks answers; question.timer resumes it", () => {
+    let state = apply(open(), frame("question.paused", { qi: 0, answers_open_at_ms: 5000, deadline_ms: 25_000, paused: true, paused_at_ms: 12_000, remaining_ms: 13_000 }, 2));
+    expect(state.timer).toMatchObject({ paused: true, paused_at_ms: 12_000, remaining_ms: 13_000 });
+    expect(selectCanAnswer(state, 13_000)).toBe(false);
+    expect(selectStageView(state).paused).toBe(true);
+
+    state = apply(state, frame("question.timer", { qi: 0, reason: "resume", answers_open_at_ms: 9000, deadline_ms: 29_000, paused: false }, 3));
+    expect(state.timer).toEqual({ answers_open_at_ms: 9000, deadline_ms: 29_000, paused: false });
+    expect(selectCanAnswer(state, 16_000)).toBe(true);
+    expect(selectStageView(state).paused).toBe(false);
+  });
+
+  it("ignores timer frames for another question", () => {
+    const state = apply(open(), frame("question.timer", { qi: 3, reason: "extend", answers_open_at_ms: 1, deadline_ms: 2, paused: false }, 2));
+    expect(state.timer?.deadline_ms).toBe(25_000);
+  });
+
+  it("derives the personal deadline from the multiplier", () => {
+    let state = open();
+    expect(selectMyTimer(state)).toBe(state.timer);
+    state = apply(state, frame("participant.time", { time_multiplier: 2, qi: 0, deadline_ms: 45_000 }));
+    expect(state.myTimeMultiplier).toBe(2);
+    expect(selectMyTimer(state)?.deadline_ms).toBe(45_000);
+    expect(selectMyTimer(state)).toBe(selectMyTimer(state));
+    state = apply(state, frame("participant.time", { time_multiplier: 0 }));
+    expect(selectMyTimer(state)?.deadline_ms).toBeNull();
+  });
+
+  it("reads the multiplier from welcome and snapshots", () => {
+    let state = apply(
+      createInitialLiveState("participant"),
+      frame("welcome", { role: "participant", session_id: "s1", hb_ms: 5000, proto: 1, me: { participant_id: "p1", display_name: "Ana", avatar_seed: "a", time_multiplier: 1.5 } })
+    );
+    expect(state.myTimeMultiplier).toBe(1.5);
+    expect(state.me).toEqual({ participant_id: "p1", display_name: "Ana", avatar_seed: "a" });
+    state = apply(state, frame("room.snapshot", snapshot({ my: { ...mySnap, time_multiplier: 0 } }), 1));
+    expect(state.myTimeMultiplier).toBe(0);
+  });
+
+  it("answer.ack paused rejects the submission so the pad reopens", () => {
+    let state = apply(open(), frame("question.paused", { qi: 0, answers_open_at_ms: 5000, deadline_ms: 25_000, paused: true, paused_at_ms: 12_000, remaining_ms: 13_000 }, 2));
+    state = liveReducer(state, { type: "local.submit", qi: 0, answerId: "a1", answer: { choice: ["B"] } });
+    state = apply(state, frame("answer.ack", { answer_id: "a1", qi: 0, status: "paused" }));
+    expect(state.submission).toMatchObject({ status: "rejected", ack: "paused" });
+    expect(state.my?.answered_current).toBe(false);
+  });
+
+  it("participant.updated updates the host list", () => {
+    const people = [
+      { participant_id: "p1", display_name: "Ana", avatar_seed: "a", score: 0, connected: true, time_multiplier: 1, is_bot: false },
+      { participant_id: "b1", display_name: "Bot Lince", avatar_seed: "x", score: 0, connected: true, time_multiplier: 1, is_bot: true }
+    ];
+    let state = apply(createInitialLiveState("host"), frame("room.snapshot", snapshot({ participants: people }), 1));
+    state = apply(state, frame("participant.updated", { participant_id: "p1", time_multiplier: 1.5 }));
+    expect(state.participants?.[0].time_multiplier).toBe(1.5);
+    expect(state.participants?.[1].is_bot).toBe(true);
+    const same = apply(state, frame("participant.updated", { participant_id: "ghost", time_multiplier: 2 }));
+    expect(same).toBe(state);
+  });
+
+  it("stores the transport of the connection", () => {
+    const state = liveReducer(createInitialLiveState(), { type: "connection", status: "open", attempt: 0, transport: "sse" });
+    expect(state.connection.transport).toBe("sse");
   });
 });

@@ -22,7 +22,8 @@ function quantized(value: CountdownValue): number {
 /**
  * Countdown ring anchored on the server deadline. The arc is driven by rAF straight into the SVG
  * (no React render per frame); the number re-renders at most once per second. Reduced motion:
- * the arc moves in discrete one-second steps.
+ * the arc moves in discrete one-second steps. A paused timer (host pause) is frozen, drawn in the
+ * muted tone and "breathes" slowly (off under reduced motion / calm mode).
  */
 export function CountdownRing({
   timer,
@@ -68,6 +69,7 @@ export function CountdownRing({
       className={cn("relative grid shrink-0 place-items-center", className)}
       style={{ width: size, height: size }}
       data-warning={value.warning || undefined}
+      data-paused={value.paused || undefined}
     >
       <svg viewBox="0 0 100 100" className="absolute inset-0 size-full -rotate-90" aria-hidden="true">
         <circle cx="50" cy="50" r={RADIUS} fill="none" stroke="var(--lq-chart-track)" strokeWidth="8" />
@@ -77,7 +79,7 @@ export function CountdownRing({
           cy="50"
           r={RADIUS}
           fill="none"
-          stroke={value.warning ? "var(--lq-warning)" : "var(--lq-accent)"}
+          stroke={value.paused ? "var(--lq-fg-muted)" : value.warning ? "var(--lq-warning)" : "var(--lq-accent)"}
           strokeWidth="8"
           strokeLinecap="round"
           strokeDasharray={CIRCUMFERENCE}
@@ -88,7 +90,7 @@ export function CountdownRing({
         aria-hidden="true"
         className={cn(
           "relative font-lq-mono leading-none font-medium tabular-nums",
-          value.warning ? "lq-warn-pulse text-lq-warning" : "text-lq-fg"
+          value.paused ? "lq-paused-breathe text-lq-fg-muted" : value.warning ? "lq-warn-pulse text-lq-warning" : "text-lq-fg"
         )}
         style={{ fontSize: `calc(${typeof size === "number" ? `${size}px` : size} * 0.36)` }}
       >
@@ -118,7 +120,7 @@ export function CountdownBar({ timer, clock, className }: { timer: LiveTimer | n
     <div aria-hidden="true" className={cn("h-1.5 w-full overflow-hidden rounded-full bg-lq-track", className)}>
       <div
         ref={barRef}
-        className={cn("h-full origin-left rounded-full", value.warning ? "bg-lq-warning" : "bg-lq-accent")}
+        className={cn("h-full origin-left rounded-full", value.paused ? "lq-paused-breathe bg-lq-fg-muted" : value.warning ? "bg-lq-warning" : "bg-lq-accent")}
         style={{ transform: `scaleX(${value.fraction})` }}
       />
     </div>

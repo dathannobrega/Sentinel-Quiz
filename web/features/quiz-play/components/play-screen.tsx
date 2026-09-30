@@ -7,17 +7,19 @@ import { Avatar } from "@/components/quiz-kit/avatar";
 import { CountdownBar } from "@/components/quiz-kit/countdown-ring";
 import { LiveMotionProvider, useLqReducedMotion } from "@/components/quiz-kit/motion";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { ConnectionBanner, LiveAnnouncer, LiveThemeRoot } from "@/features/quiz-live/components/live-chrome";
+import { ConnectionBanner, LiveAnnouncer, LiveThemeRoot, TransportBadge } from "@/features/quiz-live/components/live-chrome";
 import { LqButton, LqError, lqCardClass } from "@/features/quiz-live/components/lq-ui";
 import { loadReturnCode, type ParticipantCredentials } from "@/features/quiz-live/lib/live-fetch";
-import { selectCanAnswer, type LiveState } from "@/features/quiz-live/lib/live-store";
+import { selectCanAnswer, selectMyTimer, type LiveState } from "@/features/quiz-live/lib/live-store";
 import { formatJoinCode, isAnswerableType } from "@/features/quiz-live/lib/protocol";
 import { LiveProvider, useCountdown, useLive, useLiveConnection, useLiveState } from "@/features/quiz-live/lib/use-live-session";
 import { AnswerPad } from "@/features/quiz-play/components/answer-pad";
 import {
   ContentView,
+  ExtendedTimeBadge,
   FinalView,
   LockedView,
+  PausedView,
   PhaseHeading,
   ReadingView,
   RevealFeedback,
@@ -37,7 +39,10 @@ const selectView = (state: LiveState) => ({
   qi: state.qi,
   total: state.total,
   question: state.question,
-  timer: state.timer,
+  /** The participant's OWN timer (extended time applied, RF-622); paused with the room. */
+  timer: selectMyTimer(state),
+  paused: state.phase === "question" && Boolean(state.timer?.paused),
+  timeMultiplier: state.myTimeMultiplier,
   submission: state.submission,
   reveal: state.reveal,
   leaderboard: state.leaderboard,
@@ -105,6 +110,9 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
       case "lobby":
         return t("quizPlay.announce.lobby");
       case "question":
+        if (view.paused) {
+          return t("quizPlay.announce.paused");
+        }
         return view.question ? t("quizPlay.announce.question", { current, total: view.total, prompt: view.question.prompt }) : "";
       case "locked":
         return t("quizPlay.announce.locked");
@@ -119,7 +127,7 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
       default:
         return "";
     }
-  }, [view.phase, view.question, view.total, current, t]);
+  }, [view.phase, view.paused, view.question, view.total, current, t]);
 
   let body: ReactNode;
   let key: string;
@@ -219,6 +227,7 @@ function PlayInner({ code, credentials, onTokenLost, onLeave }: { code: string; 
             {view.phase !== "lobby" && view.total ? ` · ${t("quizPlay.question.counter", { current, total: view.total })}` : ""}
           </p>
         </div>
+        <TransportBadge transport={view.connection.transport} label={t("quizPlay.connection.transportSse")} hint={t("quizPlay.connection.transportSseHint")} />
         {view.phase !== "lobby" ? (
           <span className="rounded-full bg-lq-surface-2 px-3 py-1.5 font-lq-mono text-sm font-medium text-lq-fg tabular-nums">{new Intl.NumberFormat().format(score)}</span>
         ) : null}
@@ -287,15 +296,20 @@ function QuestionPhase({ view }: { view: View }) {
   if (!question) {
     return null;
   }
-  if (countdown.stage === "reading") {
+  if (countdown.stage === "reading" && !countdown.paused) {
     return <ReadingView question={question} seconds={countdown.seconds} />;
   }
   if (!isAnswerableType(question.item_type)) {
     return <ContentView question={question} />;
   }
   const submission = view.submission;
-  if (submission && !(submission.status === "rejected" && submission.ack === "invalid")) {
+  // Rejections that leave the question answerable: a bad payload, or an answer sent while paused.
+  const retryable = submission?.status === "rejected" && (submission.ack === "invalid" || submission.ack === "paused");
+  if (submission && !retryable) {
     return <SubmittedView question={question} submission={submission} answered={view.answered} total={view.answerTotal} />;
+  }
+  if (countdown.paused) {
+    return <PausedView question={question} secondsLeft={countdown.stage === "open" ? countdown.seconds : null} />;
   }
   if (countdown.stage === "expired") {
     return <LockedView question={question} submission={null} />;
@@ -311,7 +325,8 @@ function QuestionPhase({ view }: { view: View }) {
           </span>
         ) : null}
       </div>
-      {submission?.status === "rejected" ? <LqError>{t("quizPlay.submitted.rejected.invalid")}</LqError> : null}
+      {view.timeMultiplier !== 1 ? <ExtendedTimeBadge multiplier={view.timeMultiplier} className="self-start" /> : null}
+      {retryable ? <LqError>{t(submission?.ack === "paused" ? "quizPlay.submitted.rejected.paused" : "quizPlay.submitted.rejected.invalid")}</LqError> : null}
       <AnswerPad key={`${question.qi}:${submission?.answerId ?? "fresh"}`} question={question} disabled={!canAnswer} onSubmit={(answer) => live.submitAnswer(question.qi, answer)} />
     </div>
   );

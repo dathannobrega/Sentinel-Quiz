@@ -84,6 +84,8 @@ export const quizPlay = {
     reconnecting: "Conexão instável. Reconectando...",
     offline: "Você está offline. Vamos reconectar assim que a rede voltar.",
     retry: "Reconectar",
+    transportSse: "Conexão alternativa",
+    transportSseHint: "Sua rede bloqueou a conexão em tempo real. Seguimos por uma conexão alternativa; tudo continua funcionando.",
     closed: {
       auth: "Sua entrada não é mais válida.",
       token_expired: "Sua entrada expirou.",
@@ -119,7 +121,15 @@ export const quizPlay = {
     typeLabel: "Sua resposta",
     typePlaceholder: "Digite sua resposta",
     choose: "Escolha uma alternativa",
-    option: "{letter}: {text}"
+    option: "{letter}: {text}",
+    extendedTime: "Tempo estendido: {multiplier}×",
+    untimed: "Sem limite de tempo",
+    untimedHint: "Você tem o tempo que precisar para esta pergunta."
+  },
+  paused: {
+    title: "O apresentador pausou",
+    subtitle: "O tempo está congelado. Você continua de onde parou quando a pergunta voltar.",
+    timeLeft: "{seconds} segundos restantes quando retomar"
   },
   submitted: {
     title: "Resposta enviada!",
@@ -130,7 +140,8 @@ export const quizPlay = {
     rejected: {
       late: "O tempo acabou antes da sua resposta chegar.",
       closed: "A pergunta já foi fechada.",
-      invalid: "Não conseguimos registrar essa resposta. Tente de novo."
+      invalid: "Não conseguimos registrar essa resposta. Tente de novo.",
+      paused: "A pergunta estava pausada e sua resposta não foi registrada. Responda de novo quando o apresentador retomar."
     }
   },
   locked: {
@@ -211,6 +222,8 @@ export const quizPlay = {
     leaderboard: "Placar.",
     podium: "Pódio final.",
     finished: "Sessão encerrada.",
-    submitted: "Resposta enviada."
+    submitted: "Resposta enviada.",
+    paused: "O apresentador pausou a pergunta.",
+    resumed: "Pergunta retomada. Respostas abertas."
   }
 } as const;

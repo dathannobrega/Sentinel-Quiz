@@ -35,6 +35,19 @@ interface StartSessionDialogProps {
 }
 
 const PRESETS: LivePreset[] = ["turma", "evento"];
+/** Rehearsal bots (RF-513): the server accepts 0..200. */
+const MAX_BOTS = 200;
+const DEFAULT_BOTS = 20;
+
+/** Parses the bots field: null when invalid (empty counts as 0). */
+export function parseBots(input: string): number | null {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return 0;
+  }
+  const value = Number(trimmed);
+  return Number.isInteger(value) && value >= 0 && value <= MAX_BOTS ? value : null;
+}
 const AUDIENCES: LiveAudience[] = ["adulto", "misto", "infantojuvenil"];
 
 export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publish, onSelectItem }: StartSessionDialogProps) {
@@ -46,6 +59,8 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
   const [preset, setPreset] = useState<LivePreset>("turma");
   const [audience, setAudience] = useState<LiveAudience>("adulto");
   const [maxInput, setMaxInput] = useState("");
+  const [rehearsal, setRehearsal] = useState(false);
+  const [botsInput, setBotsInput] = useState(String(DEFAULT_BOTS));
   const [publishing, setPublishing] = useState(false);
   const [issues, setIssues] = useState<LiveIssue[]>([]);
   const [blocked, setBlocked] = useState<LiveLicenseBlockedItem[]>([]);
@@ -61,6 +76,9 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
     parsedMax !== null && (!Number.isInteger(parsedMax) || parsedMax < 1 || parsedMax > maxParticipants)
       ? t("quizBuilder.present.maxParticipantsHint", { max: maxParticipants })
       : null;
+  const bots = rehearsal ? parseBots(botsInput) : 0;
+  const botsError = rehearsal && bots === null ? t("quizBuilder.present.botsError") : null;
+  const invalid = Boolean(maxError || botsError);
 
   function reset() {
     setIssues([]);
@@ -74,13 +92,15 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
       allow_guests: guests,
       preset,
       audience,
-      ...(parsedMax !== null ? { max_participants: parsedMax } : {})
+      ...(parsedMax !== null ? { max_participants: parsedMax } : {}),
+      // Bots only exist in rehearsals (422 bots_require_rehearsal otherwise).
+      ...(rehearsal ? { rehearsal: true, bots: bots ?? 0 } : {})
     });
     router.push(`/present/${encodeURIComponent(session.id)}`);
   }
 
   async function start(options: { publishFirst: boolean; guests: boolean }) {
-    if (maxError) {
+    if (invalid) {
       return;
     }
     reset();
@@ -128,13 +148,13 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
             {t("quizBuilder.create.cancel")}
           </Button>
           {needsPublish && !neverPublished && publishedVersion !== null ? (
-            <Button variant="secondary" disabled={busy || Boolean(maxError)} onClick={() => void start({ publishFirst: false, guests: allowGuests })}>
+            <Button variant="secondary" disabled={busy || invalid} onClick={() => void start({ publishFirst: false, guests: allowGuests })}>
               {t("quizBuilder.present.presentPublished", { version: publishedVersion })}
             </Button>
           ) : null}
           <Button
             busy={busy}
-            disabled={Boolean(maxError)}
+            disabled={invalid}
             onClick={() => void start({ publishFirst: needsPublish, guests: allowGuests })}
           >
             <PresentIcon />
@@ -224,6 +244,51 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
               onChange={(event) => setMaxInput(event.target.value)}
             />
           </Field>
+        </div>
+
+        <div
+          className={cn(
+            "flex flex-col gap-3 rounded-md border p-3 transition-colors",
+            rehearsal ? "border-warning/40 bg-warning-soft/40" : "border-line"
+          )}
+        >
+          <Checkbox
+            id={`${baseId}-rehearsal`}
+            checked={rehearsal}
+            onChange={(event) => {
+              setRehearsal(event.target.checked);
+              if (event.target.checked && !botsInput.trim()) {
+                setBotsInput(String(DEFAULT_BOTS));
+              }
+            }}
+            label={t("quizBuilder.present.rehearsal")}
+            description={t("quizBuilder.present.rehearsalHint")}
+            disabled={busy}
+          />
+          {rehearsal ? (
+            <div className="pl-7 motion-safe:animate-[rise-in_200ms_var(--ease-out)_both]">
+              <Field
+                label={t("quizBuilder.present.bots")}
+                htmlFor={`${baseId}-bots`}
+                hint={t("quizBuilder.present.botsHint")}
+                hintMode="inline"
+                error={botsError}
+              >
+                <Input
+                  id={`${baseId}-bots`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={MAX_BOTS}
+                  step={1}
+                  value={botsInput}
+                  disabled={busy}
+                  onChange={(event) => setBotsInput(event.target.value)}
+                  className="max-w-32"
+                />
+              </Field>
+            </div>
+          ) : null}
         </div>
 
         {blocked.length ? (

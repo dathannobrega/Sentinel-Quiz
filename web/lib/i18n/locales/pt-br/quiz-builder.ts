@@ -387,6 +387,11 @@ export const quizBuilder = {
     },
     maxParticipants: "Máximo de participantes",
     maxParticipantsHint: "Até {max}.",
+    rehearsal: "Ensaio",
+    rehearsalHint: "Sessão privada para testar o ritmo antes de apresentar de verdade.",
+    bots: "Bots",
+    botsHint: "De 0 a 200. Bots entram na sala e respondem sozinhos; nunca entram em relatórios nem no CSV.",
+    botsError: "Use um número inteiro de 0 a 200.",
     licenseBlocked: {
       title: "Algumas perguntas não podem ir para convidados",
       message: "A licença destas questões exige participantes logados. Você pode exigir login para esta sala.",
@@ -422,6 +427,8 @@ export const quizBuilder = {
       confirm: "Encerrar sessão"
     },
     guests: "Com convidados",
-    loginOnly: "Somente logados"
+    loginOnly: "Somente logados",
+    rehearsal: "Ensaio",
+    rehearsalHint: "Sessão de ensaio: bots não entram no relatório."
   }
 } as const;

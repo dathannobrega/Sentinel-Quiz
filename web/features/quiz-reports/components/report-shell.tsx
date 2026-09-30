@@ -11,7 +11,7 @@ import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Page } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DownloadIcon, PrinterIcon } from "@/features/quiz-builder/components/icons";
-import { SessionStatusBadge } from "@/features/quiz-builder/components/sessions/quiz-sessions-shell";
+import { RehearsalBadge, SessionStatusBadge } from "@/features/quiz-builder/components/sessions/quiz-sessions-shell";
 import { DomainBars } from "@/features/quiz-reports/components/domain-bars";
 import { InfoTip } from "@/features/quiz-reports/components/info-tip";
 import { ItemAnalysis } from "@/features/quiz-reports/components/item-analysis";
@@ -118,6 +118,7 @@ function ReportView({ report, refetch, refreshing }: { report: LiveReport; refet
           <p className="mb-1 flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium text-fg-muted">
             {t("quizReports.header.context", { code: session.join_code })}
             <SessionStatusBadge status={session.status} />
+            {session.rehearsal ? <RehearsalBadge hint={t("quizReports.header.rehearsalHint")} /> : null}
           </p>
           <h1 className="text-2xl font-semibold tracking-[-0.01em] text-fg sm:text-[1.75rem] sm:leading-tight">{session.quiz_title}</h1>
           <p className="mt-2 text-[0.9375rem] text-fg-muted">

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { availableActions, contextualAction, hostCommand, isLastItem } from "@/features/quiz-present/lib/host-actions";
+import {
+  availableActions,
+  contextualAction,
+  extendCommand,
+  hostCommand,
+  isLastItem,
+  pauseToggleCommand,
+  setTimeCommand,
+  timeControls
+} from "@/features/quiz-present/lib/host-actions";
 
 const base = { qi: 1, total: 5, answerable: true };
 
@@ -40,5 +49,22 @@ describe("hostCommand", () => {
     expect(hostCommand("podium", 4)).toEqual({ type: "host.next", data: { expected_qi: 4 } });
     expect(hostCommand("start", null)).toEqual({ type: "host.start", data: {} });
     expect(hostCommand("end", 1)).toEqual({ type: "host.end", data: {} });
+  });
+});
+
+describe("time controls", () => {
+  it("offers pause, resume and extend only where the server accepts them", () => {
+    expect(timeControls({ ...base, phase: "question", timed: true })).toEqual({ pause: true, resume: false, extend: true });
+    expect(timeControls({ ...base, phase: "question", timed: false })).toEqual({ pause: true, resume: false, extend: false });
+    expect(timeControls({ ...base, phase: "question", timed: true, paused: true })).toEqual({ pause: false, resume: true, extend: false });
+    expect(timeControls({ ...base, phase: "locked", timed: true })).toEqual({ pause: false, resume: false, extend: false });
+  });
+
+  it("builds the commands with expected_qi", () => {
+    expect(pauseToggleCommand({ qi: 2, paused: false })).toEqual({ type: "host.pause", data: { expected_qi: 2 } });
+    expect(pauseToggleCommand({ qi: 2, paused: true })).toEqual({ type: "host.resume", data: { expected_qi: 2 } });
+    expect(extendCommand(2, 15)).toEqual({ type: "host.extend", data: { expected_qi: 2, seconds: 15 } });
+    expect(extendCommand(2, 900)).toMatchObject({ data: { seconds: 300 } });
+    expect(setTimeCommand("p1", 1.5)).toEqual({ type: "host.set_time", data: { participant_id: "p1", multiplier: 1.5 } });
   });
 });

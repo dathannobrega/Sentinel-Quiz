@@ -82,6 +82,8 @@ describe("presenter hotkeys", () => {
     expect(hotkeyFor(key("b"))).toBe("leaderboard");
     expect(hotkeyFor(key("f"))).toBe("fullscreen");
     expect(hotkeyFor(key("?"))).toBe("help");
+    expect(hotkeyFor(key("p"))).toBe("pause");
+    expect(hotkeyFor(key("+"))).toBe("extend");
     expect(hotkeyFor(key("r", { ctrlKey: true }))).toBeNull();
   });
 });

@@ -41,6 +41,18 @@ export function SessionStatusBadge({ status }: { status: LiveSessionStatus }) {
   );
 }
 
+/** "Ensaio" badge for rehearsal sessions (RF-513); the hint says bots stay out of reports. */
+export function RehearsalBadge({ hint }: { hint?: string }) {
+  const { t } = useI18n();
+  const description = hint ?? t("quizBuilder.sessions.rehearsalHint");
+  return (
+    <Badge tone="warning" title={description} className="border border-dashed border-current/40">
+      {t("quizBuilder.sessions.rehearsal")}
+      <span className="sr-only">: {description}</span>
+    </Badge>
+  );
+}
+
 function SessionsContent({ quizId }: { quizId: string }) {
   const { t, locale } = useI18n();
   const quiz = useLiveQuiz(quizId);
@@ -125,6 +137,7 @@ function SessionsContent({ quizId }: { quizId: string }) {
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <SessionStatusBadge status={session.status} />
+                      {session.rehearsal ? <RehearsalBadge /> : null}
                       <span className="text-xs text-fg-muted">
                         {session.allow_guests ? t("quizBuilder.sessions.guests") : t("quizBuilder.sessions.loginOnly")}
                       </span>

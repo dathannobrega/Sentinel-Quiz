@@ -1,15 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { Avatar } from "@/components/quiz-kit/avatar";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
+import { PauseGlyph, TransportBadge } from "@/features/quiz-live/components/live-chrome";
 import type { LiveConnectionState } from "@/features/quiz-live/lib/live-store";
-import type { HostParticipant } from "@/features/quiz-live/lib/protocol";
-import { availableActions, contextualAction, type HostAction, type HostContext } from "@/features/quiz-present/lib/host-actions";
+import { normalizeTimeMultiplier, TIME_MULTIPLIERS, type HostParticipant, type TimeMultiplier } from "@/features/quiz-live/lib/protocol";
+import {
+  availableActions,
+  contextualAction,
+  EXTEND_STEPS_S,
+  timeControls,
+  type HostAction,
+  type HostContext
+} from "@/features/quiz-present/lib/host-actions";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 
@@ -38,8 +46,39 @@ function StatusDot({ connection }: { connection: LiveConnectionState }) {
   );
 }
 
+/** Play triangle for "Retomar". */
+function PlayGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      <path d="M7 4.8v14.4a1 1 0 0 0 1.52.85l11.3-7.2a1 1 0 0 0 0-1.7L8.52 3.95A1 1 0 0 0 7 4.8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** "Ensaio" pill (rehearsal sessions, RF-513). */
+export function RehearsalBadge({ className }: { className?: string }) {
+  const { t } = useI18n();
+  return (
+    <span
+      title={t("quizPresent.controls.rehearsalHint")}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border border-dashed border-lq-warning px-2.5 py-0.5 text-[0.7rem] font-bold tracking-wide text-lq-warning uppercase",
+        className
+      )}
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+      {t("quizPresent.controls.rehearsal")}
+      <span className="sr-only">: {t("quizPresent.controls.rehearsalHint")}</span>
+    </span>
+  );
+}
+
 export interface HostControlBarProps {
   context: HostContext;
+  /** Rehearsal session (RF-513): shows the "Ensaio" badge. */
+  rehearsal?: boolean;
+  onTogglePause: () => void;
+  onExtend: (seconds: number) => void;
   connection: LiveConnectionState;
   participantCount: number;
   roomLocked: boolean;
@@ -70,6 +109,8 @@ export function HostControlBar(props: HostControlBarProps) {
   const online = connection.status === "open";
   const primary = contextualAction(context);
   const available = availableActions(context);
+  const time = timeControls(context);
+  const showTime = time.pause || time.resume;
 
   const run = (action: HostAction) => {
     if (action === "end") {
@@ -83,6 +124,12 @@ export function HostControlBar(props: HostControlBarProps) {
     <nav aria-label={t("quizPresent.controls.label")} className="flex flex-wrap items-center gap-2 border-t border-lq-line bg-lq-bg/95 px-3 py-2 backdrop-blur-sm">
       <div className="flex min-w-0 items-center gap-3 pr-2">
         <StatusDot connection={connection} />
+        <TransportBadge
+          transport={connection.transport}
+          label={t("quizPresent.controls.transportSse")}
+          hint={t("quizPresent.controls.transportSseHint")}
+        />
+        {props.rehearsal ? <RehearsalBadge /> : null}
         {context.qi !== null && context.total ? (
           <span className="hidden font-lq-mono text-xs text-lq-fg-muted sm:inline">{t("quizPresent.controls.progress", { current: context.qi + 1, total: context.total })}</span>
         ) : null}
@@ -117,6 +164,37 @@ export function HostControlBar(props: HostControlBarProps) {
               {t(ACTION_LABEL[action])}
             </button>
           ))}
+        {showTime ? (
+          <div role="group" aria-label={t("quizPresent.hotkeys.pause")} className="flex items-center gap-1 rounded-[calc(var(--lq-radius)*0.6)] border border-lq-line bg-lq-surface p-0.5">
+            <button
+              type="button"
+              onClick={props.onTogglePause}
+              disabled={!online}
+              aria-keyshortcuts="P"
+              className={cn(
+                barButton,
+                "min-h-10 gap-1.5",
+                time.resume ? "bg-lq-warning text-lq-on-warning hover:brightness-110" : "text-lq-fg hover:bg-lq-surface-2"
+              )}
+            >
+              {time.resume ? <PlayGlyph className="size-4" /> : <PauseGlyph className="size-4" />}
+              {time.resume ? t("quizPresent.controls.resume") : t("quizPresent.controls.pause")}
+            </button>
+            {EXTEND_STEPS_S.map((seconds, index) => (
+              <button
+                key={seconds}
+                type="button"
+                onClick={() => props.onExtend(seconds)}
+                disabled={!online || !time.extend}
+                aria-label={t("quizPresent.controls.extendLabel", { seconds })}
+                aria-keyshortcuts={index === 0 ? "+" : undefined}
+                className={cn(barButton, "min-h-10 px-2.5 font-lq-mono text-lq-fg tabular-nums hover:bg-lq-surface-2")}
+              >
+                {t("quizPresent.controls.extend", { seconds })}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {primary !== "next" && available.next ? (
           <button type="button" onClick={() => run("next")} disabled={!online} className={barSecondary}>
             {t(ACTION_LABEL.next)}
@@ -180,17 +258,81 @@ export function HostControlBar(props: HostControlBarProps) {
   );
 }
 
-/** Participants drawer with kick / kick-and-ban (confirmed). */
+const TIME_KEY: Record<TimeMultiplier, string> = { 1: "m1", 1.5: "m15", 2: "m2", 0: "m0" };
+
+/** Small badge for a non-default extended time (hidden for 1×). */
+function TimeBadge({ multiplier }: { multiplier: TimeMultiplier }) {
+  const { t, locale } = useI18n();
+  if (multiplier === 1) {
+    return null;
+  }
+  return (
+    <span className="inline-flex h-5 items-center rounded-sm bg-primary-soft px-1.5 text-[0.6875rem] font-semibold text-primary">
+      {multiplier === 0
+        ? t("quizPresent.participants.timeUntimedBadge")
+        : t("quizPresent.participants.timeBadge", { multiplier: new Intl.NumberFormat(locale).format(multiplier) })}
+    </span>
+  );
+}
+
+/** Per-participant extended time (RF-622): 1×, 1.5×, 2× or no limit, sent as `host.set_time`. */
+function TimeSelect({ person, disabled, onChange }: { person: HostParticipant; disabled: boolean; onChange: (multiplier: TimeMultiplier) => void }) {
+  const { t } = useI18n();
+  const id = useId();
+  const value = normalizeTimeMultiplier(person.time_multiplier);
+  return (
+    <>
+      <label htmlFor={id} className="sr-only">
+        {t("quizPresent.participants.timeLabel", { name: person.display_name })}
+      </label>
+      <select
+        id={id}
+        value={String(value)}
+        disabled={disabled}
+        title={t("quizPresent.participants.timeHint")}
+        onChange={(event) => onChange(normalizeTimeMultiplier(Number(event.target.value)))}
+        className="focus-ring h-8 max-w-[9.5rem] rounded-md border border-line bg-surface px-2 text-xs font-medium text-fg disabled:opacity-60"
+      >
+        {TIME_MULTIPLIERS.map((option) => (
+          <option key={option} value={String(option)}>
+            {t(`quizPresent.participants.times.${TIME_KEY[option]}`)}
+          </option>
+        ))}
+      </select>
+    </>
+  );
+}
+
+function BotBadge() {
+  const { t } = useI18n();
+  return (
+    <span title={t("quizPresent.participants.botLabel")} className="inline-flex h-5 items-center gap-1 rounded-sm bg-surface-muted px-1.5 text-[0.6875rem] font-semibold text-fg-muted">
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3 fill-none stroke-current" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="5" width="10" height="8" rx="2" />
+        <path d="M8 5V2.5M6 9h.01M10 9h.01" />
+      </svg>
+      {t("quizPresent.participants.bot")}
+      <span className="sr-only">: {t("quizPresent.participants.botLabel")}</span>
+    </span>
+  );
+}
+
+/** Participants drawer: extended time per person, kick / kick-and-ban (confirmed). */
 export function ParticipantsPanel({
   open,
   onClose,
   participants,
-  onKick
+  onKick,
+  onSetTime,
+  canSetTime = true
 }: {
   open: boolean;
   onClose: () => void;
   participants: HostParticipant[];
   onKick: (participantId: string, ban: boolean) => void;
+  onSetTime: (participantId: string, multiplier: TimeMultiplier) => void;
+  /** False while the socket is not open (commands are not queued). */
+  canSetTime?: boolean;
 }) {
   const { t, locale } = useI18n();
   const [pending, setPending] = useState<{ person: HostParticipant; ban: boolean } | null>(null);
@@ -203,16 +345,21 @@ export function ParticipantsPanel({
         ) : (
           <ul className="flex flex-col divide-y divide-line">
             {sorted.map((person) => (
-              <li key={person.participant_id} className="flex items-center gap-3 py-2.5">
+              <li key={person.participant_id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
                 <Avatar seed={person.avatar_seed} size={32} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-fg">{person.display_name}</p>
+                  <p className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm font-semibold text-fg">{person.display_name}</span>
+                    {person.is_bot ? <BotBadge /> : null}
+                    <TimeBadge multiplier={normalizeTimeMultiplier(person.time_multiplier)} />
+                  </p>
                   <p className="flex items-center gap-1.5 text-xs text-fg-muted">
                     <span aria-hidden="true" className={cn("size-2 rounded-full", person.connected ? "bg-success" : "bg-fg-subtle")} />
                     {person.connected ? t("quizPresent.participants.online") : t("quizPresent.participants.offline")} ·{" "}
                     {t("quizPresent.participants.score", { score: new Intl.NumberFormat(locale).format(person.score) })}
                   </p>
                 </div>
+                <TimeSelect person={person} disabled={!canSetTime} onChange={(multiplier) => onSetTime(person.participant_id, multiplier)} />
                 <Button size="sm" variant="ghost" onClick={() => setPending({ person, ban: false })}>
                   {t("quizPresent.participants.kick")}
                 </Button>
@@ -251,6 +398,8 @@ export function HotkeysHelp({ open, onClose }: { open: boolean; onClose: () => v
     [["R"], t("quizPresent.hotkeys.reveal")],
     [["B"], t("quizPresent.hotkeys.leaderboard")],
     [["F"], t("quizPresent.hotkeys.fullscreen")],
+    [["P"], t("quizPresent.hotkeys.pause")],
+    [["+"], t("quizPresent.hotkeys.extend")],
     [["Z"], t("quizPresent.hotkeys.calm")],
     [["H"], t("quizPresent.hotkeys.controls")],
     [["?"], t("quizPresent.hotkeys.help")]

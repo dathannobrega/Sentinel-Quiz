@@ -77,7 +77,18 @@ export function useWakeLock(enabled: boolean) {
 
 // ----------------------------------------------------------------------------- hotkeys
 
-export type HotkeyCommand = "advance" | "lock" | "reveal" | "leaderboard" | "fullscreen" | "calm" | "help" | "controls" | "escape";
+export type HotkeyCommand =
+  | "advance"
+  | "lock"
+  | "reveal"
+  | "leaderboard"
+  | "fullscreen"
+  | "calm"
+  | "help"
+  | "controls"
+  | "pause"
+  | "extend"
+  | "escape";
 
 /** Maps a key event to a presenter command (exported for tests). Clickers send PageDown/PageUp. */
 export function hotkeyFor(event: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey">): HotkeyCommand | null {
@@ -108,6 +119,12 @@ export function hotkeyFor(event: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" 
     case "h":
     case "H":
       return "controls";
+    case "p":
+    case "P":
+      return "pause";
+    case "+":
+    case "=":
+      return "extend";
     case "?":
       return "help";
     case "Escape":

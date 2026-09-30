@@ -84,6 +84,8 @@ export const quizPlay = {
     reconnecting: "Unstable connection. Reconnecting...",
     offline: "You are offline. We will reconnect as soon as the network is back.",
     retry: "Reconnect",
+    transportSse: "Fallback connection",
+    transportSseHint: "Your network blocked the real-time connection. We switched to a fallback connection; everything keeps working.",
     closed: {
       auth: "Your entry is no longer valid.",
       token_expired: "Your entry expired.",
@@ -119,7 +121,15 @@ export const quizPlay = {
     typeLabel: "Your answer",
     typePlaceholder: "Type your answer",
     choose: "Choose an option",
-    option: "{letter}: {text}"
+    option: "{letter}: {text}",
+    extendedTime: "Extended time: {multiplier}×",
+    untimed: "No time limit",
+    untimedHint: "Take all the time you need for this question."
+  },
+  paused: {
+    title: "The host paused",
+    subtitle: "The timer is frozen. You pick up where you left off when the question resumes.",
+    timeLeft: "{seconds} seconds left when it resumes"
   },
   submitted: {
     title: "Answer sent!",
@@ -130,7 +140,8 @@ export const quizPlay = {
     rejected: {
       late: "Time ran out before your answer arrived.",
       closed: "The question was already closed.",
-      invalid: "We could not record that answer. Try again."
+      invalid: "We could not record that answer. Try again.",
+      paused: "The question was paused and your answer was not recorded. Answer again when the host resumes."
     }
   },
   locked: {
@@ -211,6 +222,8 @@ export const quizPlay = {
     leaderboard: "Leaderboard.",
     podium: "Final podium.",
     finished: "Session ended.",
-    submitted: "Answer sent."
+    submitted: "Answer sent.",
+    paused: "The host paused the question.",
+    resumed: "Question resumed. Answers are open."
   }
 } as const;
