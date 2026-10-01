@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { RepeatSuspectBadge } from "@/features/quiz-challenge/components/challenge-widgets";
 import { ChevronDownIcon, ChevronUpIcon } from "@/components/ui/icons";
 import {
   defaultSortDirection,
@@ -88,6 +89,7 @@ export function ParticipantsTable({ participants, scoredItems }: { participants:
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-fg">{row.display_name}</span>
                   {row.is_guest ? <Badge tone="neutral">{t("quizReports.participants.guest")}</Badge> : null}
+                  {row.repeat_suspect ? <RepeatSuspectBadge /> : null}
                 </span>
               </td>
               <td className="nums px-3 py-2.5 text-right font-semibold text-fg">{formatInteger(row.score, locale)}</td>

@@ -12,6 +12,8 @@ import { Page } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DownloadIcon, PrinterIcon } from "@/features/quiz-builder/components/icons";
 import { RehearsalBadge, SessionStatusBadge } from "@/features/quiz-builder/components/sessions/quiz-sessions-shell";
+import { ChallengeBadge, ChallengeStateBadge } from "@/features/quiz-challenge/components/challenge-widgets";
+import { ChallengeReportBlock } from "@/features/quiz-reports/components/challenge-report";
 import { DomainBars } from "@/features/quiz-reports/components/domain-bars";
 import { InfoTip } from "@/features/quiz-reports/components/info-tip";
 import { ItemAnalysis } from "@/features/quiz-reports/components/item-analysis";
@@ -104,8 +106,10 @@ function ReportView({ report, refetch, refreshing }: { report: LiveReport; refet
   }
 
   const kr20Band = reliabilityBand(kpis.kr20);
+  const challenge = report.challenge ?? null;
   const sections = [
     { id: "report-summary", label: t("quizReports.kpis.title") },
+    ...(challenge ? [{ id: "report-challenge", label: t("quizChallenge.report.title") }] : []),
     ...(report.domains.length ? [{ id: "report-domains", label: t("quizReports.domains.title") }] : []),
     { id: "report-items", label: t("quizReports.items.title") },
     { id: "report-participants", label: t("quizReports.participants.title") }
@@ -116,8 +120,15 @@ function ReportView({ report, refetch, refreshing }: { report: LiveReport; refet
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="min-w-0 flex-1">
           <p className="mb-1 flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium text-fg-muted">
-            {t("quizReports.header.context", { code: session.join_code })}
-            <SessionStatusBadge status={session.status} />
+            {t("quizReports.header.context", { code: challenge?.challenge.slug ?? session.join_code })}
+            {challenge ? (
+              <>
+                <ChallengeBadge />
+                <ChallengeStateBadge state={challenge.challenge.state} />
+              </>
+            ) : (
+              <SessionStatusBadge status={session.status} />
+            )}
             {session.rehearsal ? <RehearsalBadge hint={t("quizReports.header.rehearsalHint")} /> : null}
           </p>
           <h1 className="text-2xl font-semibold tracking-[-0.01em] text-fg sm:text-[1.75rem] sm:leading-tight">{session.quiz_title}</h1>
@@ -160,7 +171,7 @@ function ReportView({ report, refetch, refreshing }: { report: LiveReport; refet
       {session.status !== "finished" ? (
         <Alert
           tone="warning"
-          message={t("quizReports.header.live")}
+          message={challenge ? t("quizChallenge.report.open") : t("quizReports.header.live")}
           action={
             <Button size="sm" variant="secondary" onClick={refetch} busy={refreshing}>
               {t("quizReports.header.refresh")}
@@ -243,6 +254,12 @@ function ReportView({ report, refetch, refreshing }: { report: LiveReport; refet
           </div>
         )}
       </ReportSection>
+
+      {challenge ? (
+        <ReportSection id="report-challenge" title={t("quizChallenge.report.title")} description={t("quizChallenge.report.description")}>
+          <ChallengeReportBlock block={challenge} />
+        </ReportSection>
+      ) : null}
 
       {report.domains.length ? (
         <ReportSection id="report-domains" title={t("quizReports.domains.title")} description={t("quizReports.domains.description")}>

@@ -16,7 +16,7 @@ import {
   type JoinErrorCode
 } from "@/features/quiz-live/lib/live-fetch";
 import { useI18n } from "@/lib/i18n";
-import type { LiveJoinResult, LiveRoomInfo } from "@/types/api/live";
+import type { LiveJoinRequest, LiveJoinResult, LiveRoomInfo } from "@/types/api/live";
 import { cn } from "@/lib/utils/cn";
 
 export const NAME_MIN = 2;
@@ -59,15 +59,27 @@ export function GuestJoinForm({
   defaultName = "",
   onJoined,
   onWantRejoin,
-  onOpenMyData
+  onOpenMyData,
+  join,
+  returnTo,
+  labels,
+  mapError
 }: {
   code: string;
-  room: LiveRoomInfo;
+  room: Pick<LiveRoomInfo, "session_id" | "requires_login" | "consent_version">;
   defaultName?: string;
   onJoined: (result: LiveJoinResult) => void;
   onWantRejoin: () => void;
   /** "Meus dados" (RF-650/RF-606) from the consent area. */
   onOpenMyData?: () => void;
+  /** Alternative join endpoint with the same body/answer (challenges: POST /q/{slug}/join). */
+  join?: (body: LiveJoinRequest) => Promise<LiveJoinResult>;
+  /** Where the sign-in link returns to (default `/j/{code}`). */
+  returnTo?: string;
+  /** Copy overrides (a challenge has no projector and no room). */
+  labels?: { subtitle?: string; submit?: string };
+  /** Maps a join error to its message and field (default: the live room codes). */
+  mapError?: (error: unknown) => { message: string; field: "name" | "consent" | "form"; code: string };
 }) {
   const { t, locale } = useI18n();
   const [name, setName] = useState(defaultName);
@@ -121,9 +133,14 @@ export function GuestJoinForm({
     setError(null);
     try {
       const devH = await computeDeviceHash(room.session_id);
-      const result = await joinRoom(code, { display_name: name.trim(), consent: true, avatar_seed: seed, ...(devH ? { dev_h: devH } : {}) });
+      const body: LiveJoinRequest = { display_name: name.trim(), consent: true, avatar_seed: seed, ...(devH ? { dev_h: devH } : {}) };
+      const result = await (join ? join(body) : joinRoom(code, body));
       onJoined(result);
     } catch (caught) {
+      if (mapError) {
+        setError(mapError(caught));
+        return;
+      }
       const kind = toJoinErrorCode(caught);
       const field: FieldError["field"] = kind === "name_taken" || kind === "name_rejected" ? "name" : kind === "consent_required" ? "consent" : "form";
       setError({ field, message: t(`quizPlay.errors.${kind}`), code: kind });
@@ -132,7 +149,7 @@ export function GuestJoinForm({
     }
   }
 
-  const loginHref = `/login?next=${encodeURIComponent(`/j/${code}`)}`;
+  const loginHref = `/login?next=${encodeURIComponent(returnTo ?? `/j/${code}`)}`;
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5">
@@ -142,7 +159,7 @@ export function GuestJoinForm({
         </m.span>
         <div className="min-w-0">
           <h2 className="font-lq text-2xl font-extrabold text-lq-fg">{t("quizPlay.join.title")}</h2>
-          <p className="text-sm text-lq-fg-muted">{t("quizPlay.join.subtitle")}</p>
+          <p className="text-sm text-lq-fg-muted">{labels?.subtitle ?? t("quizPlay.join.subtitle")}</p>
         </div>
       </div>
 
@@ -244,7 +261,7 @@ export function GuestJoinForm({
       {error?.field === "form" ? <LqError id={formErrorId}>{error.message}</LqError> : null}
 
       <LqButton type="submit" size="lg" busy={busy} busyLabel={t("quizPlay.join.submitting")}>
-        {t("quizPlay.join.submit")}
+        {labels?.submit ?? t("quizPlay.join.submit")}
       </LqButton>
 
       <div className="flex flex-col items-center gap-1 text-sm">

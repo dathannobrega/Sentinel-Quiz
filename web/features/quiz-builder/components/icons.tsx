@@ -49,6 +49,14 @@ export const PresentIcon = (p: IconProps) => (
     <path d="M8 11v2.5M5.5 13.5h5M6.8 5.2v3.3l2.8-1.65z" />
   </svg>
 );
+/** Self-paced challenge (Incremento 6): a flag on a clock-ish base. */
+export const ChallengeIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3.5 14V2.5M3.5 3h7.2l-1.5 2.5 1.5 2.5H3.5" />
+    <circle cx="11.5" cy="11.5" r="2.8" />
+    <path d="M11.5 10.2v1.4l.9.6" />
+  </svg>
+);
 export const UploadIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M8 10.5V2.5M4.8 5.5L8 2.5l3.2 3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2" />

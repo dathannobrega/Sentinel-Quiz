@@ -34,8 +34,9 @@ function resolveChrome(pathname: string): Chrome {
   if (/^\/(exam|study)\/[^/]+\/?$/.test(pathname)) {
     return "none";
   }
-  // Sentinel Arena: the projector stage and the participant phone screens own the whole viewport.
-  if (/^\/(present|j)(\/|$)/.test(pathname)) {
+  // Sentinel Arena: the projector stage and the participant phone screens (live `/j`, challenge
+  // `/q`) own the whole viewport.
+  if (/^\/(present|j|q)(\/|$)/.test(pathname)) {
     return "none";
   }
   return PUBLIC_PATHS.has(pathname) ? "public" : "app";

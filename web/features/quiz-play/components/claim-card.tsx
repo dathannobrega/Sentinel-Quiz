@@ -40,13 +40,16 @@ export function ClaimCard({
   token,
   sessionId,
   defaultName,
-  onTokenRefreshed
+  onTokenRefreshed,
+  returnTo
 }: {
   code: string;
   token: string | null;
   sessionId: string | null;
   defaultName?: string;
   onTokenRefreshed?: (result: LiveJoinResult) => void;
+  /** Where sign-in/registration returns to (default: the live room `/j/{code}?claim=1`; challenges pass `/q/{slug}?claim=1`). */
+  returnTo?: string;
 }) {
   const { t, locale } = useI18n();
   const reduced = useLqReducedMotion();
@@ -133,7 +136,7 @@ export function ClaimCard({
   }
 
   const status = state.status;
-  const returnPath = encodeURIComponent(claimReturnPath(code));
+  const returnPath = encodeURIComponent(returnTo ?? claimReturnPath(code));
   const until = status.until ? formatDate(status.until, locale) : null;
 
   return (

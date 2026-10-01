@@ -13,6 +13,7 @@ import { DatabaseIcon, PlusIcon, PresentIcon } from "@/features/quiz-builder/com
 import { CreateQuizDialog } from "@/features/quiz-builder/components/library/create-quiz-dialog";
 import { QuizCard } from "@/features/quiz-builder/components/library/quiz-card";
 import { StartSessionDialog } from "@/features/quiz-builder/components/start-session-dialog";
+import { CreateChallengeDialog } from "@/features/quiz-challenge/components/create-challenge-dialog";
 import { ThemeSwatch } from "@/features/quiz-builder/components/theme-picker";
 import { publishLiveQuiz } from "@/lib/api/live-authoring";
 import { readErrorMessage } from "@/lib/api/client";
@@ -72,6 +73,7 @@ function LibraryContent({
   const archive = useArchiveLiveQuiz();
   const [archiveTarget, setArchiveTarget] = useState<LiveQuizSummary | null>(null);
   const [presentTarget, setPresentTarget] = useState<LiveQuizSummary | null>(null);
+  const [challengeTarget, setChallengeTarget] = useState<LiveQuizSummary | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
 
   async function onDuplicate(quiz: LiveQuizSummary) {
@@ -134,6 +136,7 @@ function LibraryContent({
                 index={index}
                 busy={(duplicate.isPending && duplicate.variables === quiz.id) || (archive.isPending && archive.variables === quiz.id)}
                 onPresent={setPresentTarget}
+                onChallenge={setChallengeTarget}
                 onDuplicate={(target) => void onDuplicate(target)}
                 onArchive={setArchiveTarget}
               />
@@ -168,6 +171,8 @@ function LibraryContent({
           }}
         />
       ) : null}
+
+      {challengeTarget ? <CreateChallengeDialog open onClose={() => setChallengeTarget(null)} quiz={challengeTarget} /> : null}
     </>
   );
 }
