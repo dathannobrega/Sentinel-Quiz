@@ -5,6 +5,7 @@ web/types/api/live.ts mirrors it). Kept apart from schemas.py (DC-19).
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -123,6 +124,42 @@ class SessionCreateIn(_Strict):
     # Rehearsal (RF-513): a private dry run, optionally with bots that answer.
     rehearsal: bool = False
     bots: int = Field(default=0, ge=0, le=200)
+
+
+class ChallengeCreateIn(_Strict):
+    """Self-paced challenge (E1.10, RF-801). ``feedback`` defaults to ``after_close`` with a
+    leaderboard (RF-813) and to ``end`` without one."""
+
+    quiz_id: Uuid
+    opens_at: Optional[datetime] = None
+    closes_at: datetime
+    attempts: int = Field(default=1, ge=1, le=5)
+    time_mode: Literal["per_item", "total", "none"] = "per_item"
+    total_time_s: Optional[int] = Field(default=None, ge=60, le=14400)
+    feedback: Optional[Literal["each", "end", "after_close", "never"]] = None
+    leaderboard: bool = False
+    shuffle_items: bool = True
+    allow_guests: bool = True
+    audience: Audience = "adulto"
+    max_participants: Optional[int] = Field(default=None, ge=1, le=10000)
+
+
+class ChallengeUpdateIn(_Strict):
+    closes_at: Optional[datetime] = None
+    close_now: bool = False
+
+
+class ChallengeAnswerIn(_Strict):
+    answer_id: str = Field(min_length=8, max_length=36)
+    qi: int = Field(ge=0, le=10000)
+    choice: Optional[List[Annotated[str, Field(max_length=16)]]] = Field(default=None, max_length=6)
+    text: Optional[str] = Field(default=None, max_length=120)
+    words: Optional[List[Annotated[str, Field(max_length=25)]]] = Field(default=None, max_length=3)
+    number: Optional[float] = Field(default=None, allow_inf_nan=False, ge=-1e12, le=1e12)
+
+
+class AdvanceIn(_Strict):
+    index: int = Field(ge=0, le=10000)
 
 
 class JoinIn(_Strict):

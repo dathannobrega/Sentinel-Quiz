@@ -1040,6 +1040,15 @@ def end_session(db: Session, session_id: str, *, now: datetime | None = None) ->
     session = room.session
     if session.status == "finished":
         return Outcome(error="stale")
+    if session.mode == "self_paced":
+        # A challenge has no room to broadcast to: ending it closes it now (final ranking
+        # from the counted attempts, open attempts finished).
+        from app.services import live_challenge
+
+        session.closes_at = min(session.closes_at or now, now)
+        db.commit()
+        live_challenge.close_if_due(db, session, now=now)
+        return Outcome()
     podium_already_shown = session.phase == "podium"
     seq = _cas(db, room, expect_phase=set(("lobby", "question", "locked", "reveal", "leaderboard", "content", "podium")), values={
         "phase": "finished", "status": "finished", "ended_at": now, "answers_open_at": None, "deadline_at": None,

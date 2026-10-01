@@ -40,19 +40,31 @@ def my_data(db: Session, participant: LiveParticipant) -> dict[str, Any]:
         .order_by(LiveAnswerEvent.id)
     ).scalars()
     answers = []
+    hidden_attempts: set[int] = set()
+    if session is not None and session.mode == "self_paced":
+        from app.services import live_challenge
+
+        # The feedback policy decides when a challenge's key may be shown (RF-806/813).
+        finished = {a.attempt_no for a in live_challenge._attempts(db, session.id, participant_id=participant.id)  # noqa: SLF001
+                    if a.status == "finished"}
+        hidden_attempts = {
+            int(e) for e in range(1, 1 + live_challenge.ATTEMPTS_MAX)
+            if not live_challenge._feedback_visible(session, e in finished, live_challenge.utcnow())  # noqa: SLF001
+        }
     for event in events:
         item = room.item(event.position) or {}
         # Never grade the question that is still open (same rule as "my results").
         open_now = (
             session is not None and session.status != "finished" and session.current_position == event.position
             and session.phase in {"question", "locked"}
-        )
+        ) or int(event.attempt_no or 1) in hidden_attempts
         answers.append(
             {
                 "position": event.position, "prompt": item.get("prompt") or "", "event_type": event.event_type,
                 "response": event.response_json or {}, "correct": None if open_now else event.is_correct,
                 "points": None if open_now else event.points,
                 "server_ms": event.server_ms, "received_at": _iso(event.received_at),
+                "attempt_no": int(event.attempt_no or 1),
             }
         )
     return {

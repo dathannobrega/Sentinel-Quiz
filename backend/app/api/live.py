@@ -41,7 +41,7 @@ from app.schemas_live import (
     SessionCreateIn,
 )
 from app.schemas_ai import BankSampleIn
-from app.services import live_admin, live_names, live_preflight, live_quiz, live_results, live_rights, live_session
+from app.services import live_admin, live_challenge, live_names, live_preflight, live_quiz, live_results, live_rights, live_session
 from app.services.auth import parse_bearer_token
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -233,14 +233,20 @@ def get_session(session_id: str, db: Session = Depends(get_db), user: User = Dep
 
 @router.post("/sessions/{session_id}/display-token")
 def display_token(session_id: str, db: Session = Depends(get_db), user: User = Depends(host_user)) -> dict[str, Any]:
-    return live_session.display_token(live_session.get_owned_session(db, user, session_id))
+    session = live_session.get_owned_session(db, user, session_id)
+    if live_challenge.is_challenge(session):
+        raise api_error(409, "not_a_live_room", "Self-paced challenges have no projector.")
+    return live_session.display_token(session)
 
 
 @router.post("/sessions/{session_id}/end")
 async def end_session(request: Request, session_id: str, user: User = Depends(host_user)) -> dict[str, Any]:
     def _end() -> tuple[runtime.Outcome, dict[str, Any]]:
         with live_db() as db:
-            live_session.get_owned_session(db, user, session_id)
+            session = live_session.get_owned_session(db, user, session_id)
+            if live_challenge.is_challenge(session):  # ending a challenge closes it now
+                live_challenge.update_window(db, session, closes_at=None, close_now=True)
+                return runtime.Outcome(error="challenge"), live_session.serialize_session(db, session)
             outcome = runtime.end_session(db, session_id)
             return outcome, live_session.serialize_session(db, live_session.get_owned_session(db, user, session_id))
 
@@ -255,7 +261,11 @@ def session_qr(session_id: str, db: Session = Depends(get_db), user: User = Depe
     import segno
 
     session = live_session.get_owned_session(db, user, session_id)
-    qr = segno.make(live_session.join_url(session.join_code), error="m", micro=False)
+    target = (
+        live_challenge.share_url(session.share_slug or "")
+        if live_challenge.is_challenge(session) else live_session.join_url(session.join_code)
+    )
+    qr = segno.make(target, error="m", micro=False)
     buffer = io.BytesIO()
     qr.save(buffer, kind="svg", scale=10, border=4, dark="#0b1220", light="#ffffff", xmldecl=False)
     return Response(

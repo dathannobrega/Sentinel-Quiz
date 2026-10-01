@@ -539,7 +539,7 @@ def _authenticate(hello: protocol.HelloData, cookie_token: str | None, origin_ok
             except LiveTokenError as exc:
                 raise AuthFailure(protocol.CLOSE_TOKEN_EXPIRED if exc.code == "expired" else protocol.CLOSE_AUTH) from None
             session = db.get(LiveSession, claims.session_id)
-            if session is None:
+            if session is None or session.mode == "self_paced":  # challenges are REST only
                 raise AuthFailure(protocol.CLOSE_AUTH)
             if claims.role == "display":
                 return Identity(role="display", session_id=session.id)
@@ -568,7 +568,7 @@ def _authenticate(hello: protocol.HelloData, cookie_token: str | None, origin_ok
                 raise AuthFailure(protocol.CLOSE_AUTH)
             user, _renewed = resolve_auth_token(db, cookie_token)
             session = db.get(LiveSession, hello.session_id)
-            if user is None or session is None:
+            if user is None or session is None or session.mode == "self_paced":
                 raise AuthFailure(protocol.CLOSE_AUTH)
             if session.owner_user_id != user.id and user.role != "admin":
                 raise AuthFailure(protocol.CLOSE_AUTH)

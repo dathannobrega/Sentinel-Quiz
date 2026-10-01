@@ -1214,6 +1214,12 @@ class LiveSession(Base):
     events_purged_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     report_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     join_code: Mapped[str] = mapped_column(String(8), nullable=False)
+    # Self-paced challenges (mode "self_paced", E1.10): permanent link /q/{share_slug},
+    # answering window and the "opened the link" counter of the funnel (RF-1029).
+    share_slug: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    opens_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    closes_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     allow_guests: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     room_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     max_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
@@ -1236,6 +1242,7 @@ class LiveSession(Base):
             postgresql_where=text("status IN ('lobby', 'live')"),
             sqlite_where=text("status IN ('lobby', 'live')"),
         ),
+        Index("uq_live_session_share_slug", "share_slug", unique=True),
         Index("ix_live_session_owner_created", "owner_user_id", "created_at"),
         Index("ix_live_session_quiz_created", "quiz_id", "created_at"),
         CheckConstraint(_sql_in("status", LIVE_SESSION_STATUSES), name="ck_live_session_status"),
@@ -1306,6 +1313,47 @@ class LiveParticipant(Base):
     )
 
 
+LIVE_ATTEMPT_STATUSES = ("in_progress", "finished")
+
+
+class LiveAttempt(Base):
+    """One run of a self-paced challenge by a participant (E1.10, RF-801..813).
+
+    The item order and option shuffle are fixed at the start; ``current_index`` and
+    ``item_started_at`` drive the lazy per-item deadline (RF-803); ``deadline_at`` is the
+    optional total time (RF-804), already capped at the challenge's ``closes_at``.
+    """
+
+    __tablename__ = "live_attempt"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("live_session.id", ondelete="CASCADE"), nullable=False)
+    participant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("live_participant.id", ondelete="CASCADE"), nullable=False
+    )
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="in_progress")
+    item_order_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    current_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    item_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    deadline_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    finish_reason: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    answered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # RF-813: another participant of the same device already played this challenge.
+    repeat_suspect: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "participant_id", "attempt_no", name="uq_live_attempt_no"),
+        Index("ix_live_attempt_session_status", "session_id", "status"),
+        CheckConstraint(_sql_in("status", LIVE_ATTEMPT_STATUSES), name="ck_live_attempt_status"),
+    )
+
+
 class LiveAnswerEvent(Base):
     """Append-only answer log (PostgreSQL: UPDATE blocked by trigger, migration 0019)."""
 
@@ -1320,6 +1368,8 @@ class LiveAnswerEvent(Base):
         String(36), ForeignKey("live_participant.id", ondelete="CASCADE"), nullable=False
     )
     event_type: Mapped[str] = mapped_column(String(16), nullable=False, default="submitted")
+    # Self-paced attempt (1 for live sessions): each attempt answers every item once.
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     # Original option keys (never the per-session opaque ids) or {"text": ...}.
     response_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -1336,7 +1386,7 @@ class LiveAnswerEvent(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "session_id", "position", "participant_id", "event_type", name="uq_live_answer_event_once"
+            "session_id", "position", "participant_id", "event_type", "attempt_no", name="uq_live_answer_event_once"
         ),
         Index("ix_live_answer_event_session_position", "session_id", "position"),
         Index("ix_live_answer_event_received", "received_at"),
