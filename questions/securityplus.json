@@ -12551,7 +12551,7 @@
     },
     {
       "id": "sim2_q075",
-      "question": "Sua organização recentemente atualizou um aplicativo online que os funcionários usam para fazer login quando trabalham de casa. Os funcionários inserem seu nome de usuário e senha no aplicativo a partir do smartphone, e o aplicativo registra a localização usando GPS. Que tipo de autenticação está sendo usada?",
+      "question": "Sua organização recentemente atualizou um aplicativo online corporativo que os funcionários usam para fazer login quando trabalham em regime de home office. Para que o acesso seja concedido, os colaboradores devem inserir seu nome de usuário e senha no smartphone e, simultaneamente, o aplicativo valida as coordenadas geográficas de GPS do dispositivo para garantir que a conexão parte de uma localização autorizada (geofencing). Que tipo de autenticação está sendo usada?",
       "language": "pt-BR",
       "multi_select": false,
       "domain": "General Security Concepts",
@@ -12596,7 +12596,8 @@
         }
       ],
       "source_materials": [
-        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
+        "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
+        "material/Modulos_sec+.md"
       ],
       "question_set": null,
       "quality_score": null,
@@ -12624,7 +12625,7 @@
       "correct_options": [
         "B"
       ],
-      "justification": "Resposta correta:\nB) Dois fatores.\nA autenticação exige um\nfator de conhecimento\n(nome de usuário e senha) e um\nfator de posse\n(smartphone com GPS). Isso caracteriza uma\nautenticação de dois fatores (2FA)\n.\nPor que as outras opções estão erradas?\nA) Um fator:\nApenas um método de autenticação seria usado, o que não é o caso.\nC) Algo que você é:\nSe refere a biometria (impressão digital, reconhecimento facial), o que não está sendo utilizado.\nD) Algo que você tem:\nApenas o smartphone não seria suficiente sem a senha.\nPortanto, a autenticação usada é\ndois fatores (2FA)\n.",
+      "justification": "Resposta correta: B) Dois fatores.\n\nA autenticação descrita exige e valida com sucesso dois fatores de categorias distintas (2FA / Multifactor Authentication):\n1. Fator de conhecimento (Something you know): Nome de usuário e senha inseridos pelo colaborador no smartphone.\n2. Fator de localização (Somewhere you are): Validação ativa das coordenadas de GPS pelo aplicativo (geofencing) para autorizar o login apenas a partir de locais permitidos.\n\nPor que as outras opções estão incorretas?\n- A) Um fator: Seria o caso se apenas usuário e senha fossem requeridos para entrar, ou se a localização de GPS fosse gravada meramente de forma passiva para fins de log/auditoria (Accounting no modelo AAA) sem influenciar na decisão de autenticação. Como as coordenadas são ativamente validadas para liberar o acesso, trata-se de autenticação de dois fatores.\n- C) Algo que você é (Something you are): Refere-se a características biométricas físicas ou comportamentais inerentes ao indivíduo (como impressão digital, reconhecimento facial, escaneamento de íris ou retina).\n- D) Algo que você tem (Something you have): Refere-se à posse de um objeto físico ou token (smart card, token gerador de OTP, chave física FIDO2/U2F ou certificado digital instalado). Nota importante de exame: usar um smartphone para digitar senha e fornecer GPS não transforma o aparelho isoladamente em um 'fator de posse'; o fator adicional avaliado pelas coordenadas é especificamente a localização geográfica (Somewhere you are).",
       "needs_review": false,
       "review_notes": null
     },

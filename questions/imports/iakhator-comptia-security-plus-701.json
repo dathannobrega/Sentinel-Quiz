@@ -20793,11 +20793,42 @@
       "format_type": "scenario_based",
       "citations": [
         {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 5.0 Security Program Management and Oversight -> 5.1 Effective Security Governance & 5.4 Effective Security Compliance"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md"
+        },
+        {
+          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
+          "reference": "Chapter 16: Security Governance and Compliance -> Complying with Laws and Regulations -> Common Compliance Requirements (GDPR)",
+          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
+          "locator": "OPS/c16.xhtml",
+          "page_start": 540,
+          "page_end": 543,
+          "chapter": "Chapter 16: Security Governance and Compliance",
+          "section": "Common Compliance Requirements"
+        },
+        {
+          "source": "CompTIA Security+ Study Guide Exam SY0-701 (EPUB)",
+          "reference": "Chapter 17: Risk Management and Privacy -> Privacy -> Right to Be Forgotten & Data Subject Rights",
+          "material_path": "material/CompTIA Security+ Study Guide Exam SY0-701.epub",
+          "locator": "OPS/c17.xhtml",
+          "page_start": 578,
+          "page_end": 585,
+          "chapter": "Chapter 17: Risk Management and Privacy",
+          "section": "Privacy and Data Subject Rights"
+        },
+        {
           "source": "iakhator/comptia-security-plus-701",
           "reference": "src/data/finalExam.json#feq97"
         }
       ],
-      "source_materials": [],
+      "source_materials": [
+        "material/Modulos_sec+.md",
+        "material/CompTIA Security+ Study Guide Exam SY0-701.epub"
+      ],
       "question_set": "external_ia",
       "quality_score": 80.0,
       "source_exam_id": "feq97",
@@ -20824,7 +20855,7 @@
       "correct_options": [
         "B"
       ],
-      "justification": "GDPR Article 12 requires organizations to respond to data subject requests (access, erasure, portability, etc.) within ONE MONTH (approximately 30 days). This can be extended by two additional months for complex or numerous requests, but the requester must be notified of the extension within the first month. Note: the 72-hour requirement (C) applies to DATA BREACH NOTIFICATION to supervisory authorities — not to subject access requests. 24 hours (A) has no specific GDPR basis. 6 months (D) is far too long.",
+      "justification": "Under GDPR Article 12(3), organizations must respond to Data Subject Access Requests (DSAR) — including requests for access, erasure, rectification, and data portability — 'without undue delay and in any event within one month' (approximately 30 days) of receipt. This period may be extended by two further months where necessary, taking into account the complexity and number of the requests, provided the data subject is informed within the first month.\n\nKey exam distinction to avoid confusion:\n- 30 days / 1 month (Option B): Legal deadline for answering Data Subject Access Requests (DSAR / GDPR Art. 12).\n- 72 hours (Option C): Mandatory deadline for reporting a personal DATA BREACH to the supervisory authority (GDPR Art. 33), NOT for responding to a citizen's data access request.\n- 24 hours (Option A): Not a standard timeframe under GDPR.\n- 6 months (Option D): Exceeds the statutory allowance even with extensions.",
       "needs_review": false,
       "review_notes": "empty answer key in the source; inferred from the explanation (the only option not cited as wrong); SME review: correct - Inferred key B verified: GDPR requires a response to a subject access request within one month; 72 hours is the breach-notification deadline.",
       "source_repo": "https://github.com/iakhator/comptia-security-plus-701",
