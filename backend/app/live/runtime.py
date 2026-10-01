@@ -73,6 +73,10 @@ class Outcome:
     clear_lock: bool = False
     # Every connection needs a fresh snapshot (moderation removed visible content).
     resnapshot: bool = False
+    # The lobby (and the host's waiting room) changed: coalesced lobby.update.
+    lobby_dirty: bool = False
+    # Only the hosts need a fresh snapshot (their waiting room or capacity changed).
+    resnapshot_hosts: bool = False
 
 
 class RoomNotFound(LookupError):
@@ -115,6 +119,7 @@ _version_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
 # Every kick/unkick changes the kicked count or max(kicked_at) and every join max(joined_at);
 # the TTL only bounds memory and pathological same-timestamp edits.
 STANDINGS_TTL_S = 60.0
+SNAPSHOT_SIGNATURE_TTL_S = 0.5  # a participant's snapshot may show a score up to 0.5 s old
 _standings_cache: dict[tuple[Any, ...], tuple[float, list[scoring.Standing]]] = {}
 _standings_lock = threading.Lock()
 _standings_inflight: dict[tuple[Any, ...], threading.Lock] = {}
@@ -262,24 +267,68 @@ def _answered_count(db: Session, session_id: str, position: int) -> int:
     )
 
 
+@dataclass
+class _Tally:
+    """Option counts of one open item, kept incrementally per process."""
+
+    low: int = 0  # every row with id <= low is counted (and settled)
+    seen: dict[int, float] = field(default_factory=dict)  # counted ids above ``low`` -> received (epoch s)
+    counts: Counter = field(default_factory=Counter)  # option key -> answers
+
+
+TALLY_SETTLE_S = 5.0  # a row commits within this of its id being allocated (batch commits are ms)
+_tallies: dict[tuple[str, int], _Tally] = {}
+_tally_lock = threading.Lock()
+
+
 def option_counts(db: Session, room: Room, position: int) -> dict[str, int]:
+    """Live distribution of an option item. Read 4x/s per room while it is open: only
+    rows newer than the settled watermark are read and parsed (2,000 answers re-parsed
+    every tick competed with the answer path for the GIL). Rows above the watermark are
+    remembered by id, so a lower id committed a little later is still counted once."""
     item = room.item(position)
     if item is None or item["item_type"] not in registry.OPTION_TYPES:
         return {}
     key_to_id = {key: oid for oid, key in registry.option_id_map(room.session.id, position, item).items()}
-    counts = {oid: 0 for oid in key_to_id.values()}
+    cache_key = (room.session.id, position)
+    with _tally_lock:
+        tally = _tallies.get(cache_key)
+        if tally is None:
+            if len(_tallies) > 512:
+                _tallies.clear()
+            tally = _tallies[cache_key] = _Tally()
+        low, seen = tally.low, dict(tally.seen)
     rows = db.execute(
-        select(LiveAnswerEvent.response_json).where(
+        select(LiveAnswerEvent.id, LiveAnswerEvent.response_json, LiveAnswerEvent.received_at).where(
             LiveAnswerEvent.session_id == room.session.id,
             LiveAnswerEvent.position == position,
             LiveAnswerEvent.event_type == "submitted",
+            LiveAnswerEvent.id > low,
         )
-    ).scalars()
-    for response in rows:
-        for key in (response or {}).get("keys") or []:
-            if key in key_to_id:
-                counts[key_to_id[key]] += 1
-    return counts
+    ).all()
+    fresh: list[tuple[int, list[str], float]] = []
+    for row_id, response, received in rows:
+        if row_id in seen:
+            continue
+        fresh.append((row_id, list((response or {}).get("keys") or []), received.timestamp() if received else time.time()))
+    settled_before = time.time() - TALLY_SETTLE_S
+    with _tally_lock:
+        for row_id, keys, received in fresh:
+            if row_id in tally.seen or row_id <= tally.low:
+                continue
+            tally.seen[row_id] = received
+            tally.counts.update(keys)
+        settled = [row_id for row_id, received in tally.seen.items() if received < settled_before]
+        if settled:
+            # Advance only up to ids below every unsettled one (a late commit stays countable).
+            unsettled = [row_id for row_id, received in tally.seen.items() if received >= settled_before]
+            ceiling = min(unsettled) if unsettled else max(settled) + 1
+            for row_id in settled:
+                if row_id < ceiling:
+                    tally.low = max(tally.low, row_id)
+            tally.seen = {row_id: received for row_id, received in tally.seen.items() if row_id > tally.low}
+        snapshot_counts = dict(tally.counts)
+    return {oid: int(snapshot_counts.get(key, 0)) for key, oid in key_to_id.items()}
 
 
 def _submitted_responses(db: Session, session_id: str, position: int) -> list[dict[str, Any]]:
@@ -381,7 +430,7 @@ def type_results(db: Session, room: Room, position: int, item: dict[str, Any], r
     return {}
 
 
-def lobby_state(db: Session, session_id: str) -> dict[str, Any]:
+def lobby_state(db: Session, session_id: str, *, count: int | None = None) -> dict[str, Any]:
     rows = db.execute(
         select(LiveParticipant.id, LiveParticipant.display_name, LiveParticipant.avatar_seed)
         .where(LiveParticipant.session_id == session_id, LiveParticipant.kicked_at.is_(None))
@@ -389,7 +438,7 @@ def lobby_state(db: Session, session_id: str) -> dict[str, Any]:
         .limit(RECENT_LOBBY)
     ).all()
     return {
-        "count": participant_count(db, session_id),
+        "count": participant_count(db, session_id) if count is None else count,
         "recent": [{"participant_id": pid, "display_name": name, "avatar_seed": seed} for pid, name, seed in rows],
     }
 
@@ -403,7 +452,15 @@ def _participant_rows(participants: list[LiveParticipant]) -> list[scoring.Parti
     ]
 
 
-def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored: bool = False) -> list[scoring.Standing]:
+_signature_cache: dict[tuple[Any, ...], tuple[float, tuple[Any, ...], tuple[Any, ...]]] = {}
+
+
+def standings(
+    db: Session, room: Room, *, up_to: int | None, exclude_last_scored: bool = False, signature_ttl: float = 0.0
+) -> list[scoring.Standing]:
+    """``signature_ttl`` > 0 (participant snapshots only) reuses the cache validation for
+    that long: a reconnect storm of 1,000 sockets is then 1,000 dictionary hits instead of
+    2,000 aggregate queries. Reveals, leaderboards and the podium always validate."""
     positions = room.scored_positions(up_to=up_to)
     # Only items whose answers are closed count (the current one while open does not).
     session = room.session
@@ -412,6 +469,14 @@ def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored
     if exclude_last_scored and positions:
         positions = positions[:-1]
     streak_bonus = bool(room.settings.get("streak_bonus"))
+    sig_key = (session.id, tuple(positions), streak_bonus)
+    if signature_ttl > 0:
+        with _standings_lock:
+            cached_sig = _signature_cache.get(sig_key)
+        if cached_sig is not None and time.monotonic() - cached_sig[0] < signature_ttl:
+            hit = _cached_standings((session.id, tuple(positions), streak_bonus, cached_sig[1], cached_sig[2]))
+            if hit is not None:
+                return hit
     # Standings are read by every snapshot (a reconnect storm is N reads) and by each
     # reveal/leaderboard; they only change when an answer of a scored position or the
     # roster changes. Two aggregate queries decide whether the cached table is current.
@@ -437,6 +502,10 @@ def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored
         ).one()
     )
     key = (session.id, tuple(positions), streak_bonus, answers_sig, roster_sig)
+    with _standings_lock:
+        if len(_signature_cache) > 512:
+            _signature_cache.clear()
+        _signature_cache[sig_key] = (time.monotonic(), answers_sig, roster_sig)
     hit = _cached_standings(key)
     if hit is not None:
         return hit
@@ -675,7 +744,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         "rehearsal": session.mode == "rehearsal",
     }
     if session.phase == "lobby":
-        data["lobby"] = lobby_state(db, session.id)
+        data["lobby"] = lobby_state(db, session.id, count=count)
     if item is not None and session.phase in {"question", "locked", "reveal", "content"}:
         data["question"] = registry.public_question(session.id, position, item)
         data["timer"] = _timer_payload(session)
@@ -698,6 +767,9 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
     if session.phase in {"podium", "finished"}:
         data["podium"] = podium_payload(db, room)
     if role == HOST:
+        from app.services import live_admission
+
+        data["waiting_room"] = live_admission.host_view(db, session)
         if item is not None:
             data["presenter"] = {
                 "item": _presenter_item(item),
@@ -721,7 +793,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         ]
     if role == "participant" and participant_id:
         participant = db.get(LiveParticipant, participant_id)
-        board = standings(db, room, up_to=position)
+        board = standings(db, room, up_to=position, signature_ttl=SNAPSHOT_SIGNATURE_TTL_S)
         mine = next((s for s in board if s.participant_id == participant_id), None)
         last_answer = None
         if position is not None:
@@ -790,15 +862,52 @@ def _presenter_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+PODIUM_TTL_S = 60.0
+_podium_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+_podium_lock = threading.Lock()
+
+
 def podium_payload(db: Session, room: Room) -> dict[str, Any]:
+    """The podium is the same for everyone: computed once per room state (2,000 reconnects
+    after the end would otherwise each recompute it, RNF-201)."""
+    key = (room.session.id, int(room.session.state_seq or 0))
+    with _podium_lock:
+        hit = _podium_cache.get(key)
+    if hit is not None and time.monotonic() - hit[0] < PODIUM_TTL_S:
+        return hit[1]
+    payload = _compute_podium(db, room)
+    with _podium_lock:
+        if len(_podium_cache) > 256:
+            _podium_cache.clear()
+        _podium_cache[key] = (time.monotonic(), payload)
+    return payload
+
+
+def _compute_podium(db: Session, room: Room) -> dict[str, Any]:
     board = standings(db, room, up_to=room.total - 1)
     scored = room.scored_positions(up_to=room.total - 1)
     hardest: tuple[float, int] | None = None
-    answers = scoring.effective_answers(_events(db, room.session.id))
+    # Column-only rows and one pass: 2,000 people x 20 items as ORM objects with their JSON
+    # cost ~200 ms per host snapshot.
+    rows = db.execute(
+        select(
+            LiveAnswerEvent.position, LiveAnswerEvent.participant_id, LiveAnswerEvent.event_type,
+            LiveAnswerEvent.points, LiveAnswerEvent.score_fraction, LiveAnswerEvent.is_correct, LiveAnswerEvent.server_ms,
+        )
+        .where(LiveAnswerEvent.session_id == room.session.id, LiveAnswerEvent.position.in_(scored))
+        .order_by(LiveAnswerEvent.id)
+    ).all() if scored else []
+    tally: dict[int, list[int]] = {}
+    for (position, _pid), answer in scoring.effective_answers(rows, with_response=False).items():
+        if answer.fraction is None:
+            continue
+        counts = tally.setdefault(position, [0, 0])
+        counts[0] += 1 if answer.fraction >= 1 else 0
+        counts[1] += 1
     for position in scored:
-        fractions = [a.fraction for (p, _pid), a in answers.items() if p == position and a.fraction is not None]
-        if fractions:
-            pct = sum(1 for f in fractions if f >= 1) / len(fractions)
+        right, total = tally.get(position, (0, 0))
+        if total:
+            pct = right / total
             if hardest is None or pct < hardest[0]:
                 hardest = (pct, position)
     avg_pct = (
@@ -1062,6 +1171,9 @@ def end_session(db: Session, session_id: str, *, now: datetime | None = None) ->
     if seq is None:
         return Outcome(error="stale")
     db.commit()
+    from app.services import live_admission
+
+    live_admission.expire_all(db, session_id, now=now)  # the waiting room closes with the room
     room = load_room(db, session_id)
     board = standings(db, room, up_to=room.total - 1)
     by_id = {s.participant_id: s for s in board}
@@ -1097,9 +1209,33 @@ def kick(db: Session, session_id: str, *, participant_id: str, ban: bool) -> Out
     participant.banned = participant.banned or bool(ban)
     participant.token_hash = None  # revokes the current token
     db.commit()
-    outcome = Outcome(kicked_participant=(participant_id, participant.banned))
+    from app.services import live_admission
+
+    session = db.get(LiveSession, session_id)
+    if session is not None:
+        live_admission.fill_seats(db, session)  # a freed seat goes to the waiting room
+    outcome = Outcome(kicked_participant=(participant_id, participant.banned), lobby_dirty=True)
     outcome.broadcasts.append(Broadcast("lobby.update", lobby_state(db, session_id)))
     return outcome
+
+
+def waiting_room_command(db: Session, session_id: str, action: str, **kwargs: Any) -> Outcome:
+    """Host waiting-room commands (Incremento 7): admit, reject, capacity, approval."""
+    from app.services import live_admission
+
+    session = db.get(LiveSession, session_id)
+    if session is None or session.status == "finished":
+        return Outcome(error="stale")
+    if action == "admit":
+        live_admission.admit(db, session_id, request_ids=kwargs.get("request_ids"))
+    elif action == "reject":
+        if not live_admission.reject(db, session_id, request_id=kwargs["request_id"]):
+            return Outcome(error="not_found")
+    elif action == "capacity":
+        live_admission.set_capacity(db, session_id, max_participants=int(kwargs["max_participants"]))
+    elif action == "approval":
+        live_admission.set_approval(db, session_id, required=bool(kwargs["required"]))
+    return Outcome(lobby_dirty=True, resnapshot_hosts=True)
 
 
 def hide_word(db: Session, session_id: str, *, qi: int, word: str, hidden: bool = True) -> Outcome:

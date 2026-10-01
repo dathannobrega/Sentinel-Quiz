@@ -24,7 +24,7 @@ from app.live.db import live_db
 from app.live import runtime
 from app.live.gateway import get_hub
 from app.live.metrics import metrics
-from app.models import User
+from app.models import LiveJoinRequest, User
 from app.schemas_live import (
     ExpectedVersionIn,
     FromBankIn,
@@ -41,7 +41,7 @@ from app.schemas_live import (
     SessionCreateIn,
 )
 from app.schemas_ai import BankSampleIn
-from app.services import live_admin, live_challenge, live_names, live_preflight, live_quiz, live_results, live_rights, live_session
+from app.services import live_admin, live_admission, live_challenge, live_names, live_preflight, live_quiz, live_results, live_rights, live_session
 from app.services.auth import parse_bearer_token
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -213,6 +213,7 @@ def create_session(body: SessionCreateIn, db: Session = Depends(get_db), user: U
         db, user,
         quiz_id=body.quiz_id, allow_guests=body.allow_guests, max_participants=body.max_participants,
         preset=body.preset, audience=body.audience, rehearsal=body.rehearsal, bots=body.bots,
+        require_approval=body.require_approval,
     )
     return live_session.serialize_session(db, session)
 
@@ -318,10 +319,14 @@ async def _publish_lobby(request: Request, session_id: str) -> None:
 @router.post("/rooms/{code}/join", status_code=201, dependencies=[Depends(_enabled)])
 async def join_room(
     request: Request,
+    response: Response,
     code: str,
     body: JoinIn,
     current_user: User | None = Depends(get_current_user_optional),
 ) -> dict[str, Any]:
+    """201 ``{status: "joined", token…}``, or 202 ``{status: "waiting", request_id,
+    wait_token, reason, position…}`` when the room needs approval or is full."""
+
     def _join() -> dict[str, Any]:
         with live_db() as db:
             return live_session.join(
@@ -330,8 +335,51 @@ async def join_room(
             )
 
     result = await run_in_threadpool(_join)
-    await _publish_lobby(request, result["session_id"])
+    if result.get("status") == "waiting":
+        response.status_code = 202
+    await _publish_lobby(request, result["session_id"])  # the host's waiting room rides on the lobby tick
     return result
+
+
+# ----------------------------------------------------------------------------- waiting room
+
+def _wait_token(authorization: Optional[str]) -> str:
+    token = parse_bearer_token(authorization)
+    if not token:
+        raise api_error(401, "invalid_wait_token", "Waiting-room ticket required.")
+    return token
+
+
+@router.get("/queue/{request_id}", dependencies=[Depends(_enabled)])
+async def queue_status(request: Request, request_id: str, authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """The waiting phone's poll (Bearer wait token). Once admitted: ``{status: "admitted",
+    join: <join result>}``; poll again only after ``retry_after_ms``."""
+    token = _wait_token(authorization)
+
+    def _poll() -> dict[str, Any]:
+        with live_db() as db:
+            return live_admission.poll(db, request_id, token)
+
+    result = await run_in_threadpool(_poll)
+    if result.get("status") == "admitted":
+        await _publish_lobby(request, result["session_id"])
+    return result
+
+
+@router.delete("/queue/{request_id}", dependencies=[Depends(_enabled)])
+async def queue_leave(request: Request, request_id: str, authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    token = _wait_token(authorization)
+
+    def _leave() -> dict[str, Any]:
+        with live_db() as db:
+            result = live_admission.withdraw(db, request_id, token)
+            request_row = db.get(LiveJoinRequest, request_id[:36])
+            return {**result, "session_id": request_row.session_id if request_row else None}
+
+    result = await run_in_threadpool(_leave)
+    if result.get("session_id"):
+        await _publish_lobby(request, result["session_id"])
+    return {"status": result["status"], "request_id": result["request_id"]}
 
 
 @router.post("/rooms/{code}/rejoin", dependencies=[Depends(_enabled)])

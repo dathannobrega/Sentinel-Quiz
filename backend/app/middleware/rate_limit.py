@@ -46,6 +46,8 @@ _LIVE_TOKEN_PATH = re.compile(r"^/api/live/me(?:/|$)")
 # opening the same link at once), everything else carries the participant token.
 _LIVE_CHALLENGE_PATH = re.compile(r"^/api/live/q/(?P<slug>[^/]{1,32})(?:/(?:join|access))?$")
 _LIVE_CHALLENGE_TOKEN_PATH = re.compile(r"^/api/live/q/[^/]{1,32}/(?:attempts|leaderboard)(?:/|$)")
+# Waiting room polls carry the wait token: one bucket per waiting phone.
+_LIVE_QUEUE_PATH = re.compile(r"^/api/live/queue/[^/]{1,64}$")
 _LIVE_PUBLIC_PATHS = frozenset({"/api/live/names/suggest", "/api/live/capabilities", "/api/live/healthz"})
 # SSE fallback (RNF-309): the stream (token in the query string) and its commands
 # (token as Bearer) are limited per participant token; the host (cookie) per IP.
@@ -681,7 +683,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             challenge = _LIVE_CHALLENGE_PATH.match(path)
             if challenge:
                 return "live_room", self._live_room_policy, "Q:" + challenge.group("slug").upper()
-            if _LIVE_TOKEN_PATH.match(path) or _LIVE_CHALLENGE_TOKEN_PATH.match(path):
+            if _LIVE_TOKEN_PATH.match(path) or _LIVE_CHALLENGE_TOKEN_PATH.match(path) or _LIVE_QUEUE_PATH.match(path):
                 token = str(authorization or "").removeprefix("Bearer ").strip()
                 if token:
                     return "live_token", self._live_token_policy, hashlib.sha256(token.encode("utf-8")).hexdigest()[:32]

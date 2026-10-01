@@ -1221,6 +1221,8 @@ class LiveSession(Base):
     closes_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     allow_guests: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Waiting room with host approval (RF-545): joins wait in live_join_request.
+    require_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     room_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     max_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
     preset: Mapped[str] = mapped_column(String(16), nullable=False, default="turma")
@@ -1310,6 +1312,54 @@ class LiveParticipant(Base):
         ),
         Index("ix_live_participant_user", "user_id"),
         CheckConstraint("time_multiplier IN (0, 1, 1.5, 2)", name="ck_live_participant_time_multiplier"),
+    )
+
+
+LIVE_JOIN_REQUEST_REASONS = ("approval", "capacity")
+LIVE_JOIN_REQUEST_STATUSES = ("waiting", "admitted", "rejected", "expired", "withdrawn")
+
+
+class LiveJoinRequest(Base):
+    """Someone in the waiting room (RF-545 approval, DC-16 overflow above the cap).
+
+    Not a participant yet: nothing that counts, ranks or reports sees it. Admission
+    creates the ``live_participant``; the waiting client then receives its token on the
+    next poll (authenticated by ``wait_token_hash``).
+    """
+
+    __tablename__ = "live_join_request"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("live_session.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(24), nullable=False)
+    nickname_norm: Mapped[str] = mapped_column(String(48), nullable=False)
+    avatar_seed: Mapped[str] = mapped_column(String(16), nullable=False)
+    dev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    consent_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    reason: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="waiting")
+    wait_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    participant_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("live_participant.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_live_join_request_queue", "session_id", "status", "created_at"),
+        Index(
+            "uq_live_join_request_waiting_name",
+            "session_id",
+            "nickname_norm",
+            unique=True,
+            postgresql_where=text("status = 'waiting'"),
+            sqlite_where=text("status = 'waiting'"),
+        ),
+        CheckConstraint(_sql_in("reason", LIVE_JOIN_REQUEST_REASONS), name="ck_live_join_request_reason"),
+        CheckConstraint(_sql_in("status", LIVE_JOIN_REQUEST_STATUSES), name="ck_live_join_request_status"),
     )
 
 

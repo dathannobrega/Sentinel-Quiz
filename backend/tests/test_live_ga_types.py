@@ -423,8 +423,9 @@ def test_bank_imports_pbq_ordering_tasks(live_on, login_client, db):
     assert published.status_code == 200, published.text
 
 
-def test_real_pbq_file_has_one_live_ordering_task():
-    """The shipped Security+ PBQ set: the 6-item volatility task fits; the 7-item one does not."""
+def test_real_pbq_file_live_ordering_tasks():
+    """The shipped Security+ PBQ set: ordering tasks of 3..6 items import as live ordering
+    (0001 uses its 6-item volatility task, never the 7-item one)."""
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -439,4 +440,9 @@ def test_real_pbq_file_has_one_live_ordering_task():
         task = pbq_ordering_task(row)
         if task:
             tasks.append((question["id"], task))
-    assert len(tasks) == 1 and len(tasks[0][1]["items"]) == 6 and tasks[0][1]["method"] == "kendall"
+    found = {question_id: (len(task["items"]), task["method"]) for question_id, task in tasks}
+    assert found == {
+        "sq_pbq_701_0001": (6, "kendall"),
+        "sq_pbq_701_0009": (5, "kendall"),
+        "sq_pbq_701_0011": (4, "exact"),
+    }

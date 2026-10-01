@@ -105,6 +105,8 @@ export interface HostControlBarProps {
   preview?: { active: boolean; busy: boolean; onToggle: () => void };
   /** Word cloud moderation (Incremento 5): offered while a word cloud is on screen. */
   words?: { count: number; onOpen: () => void };
+  /** Waiting room (Incremento 7): people waiting for approval or a seat. */
+  waiting?: { count: number; onOpen: () => void };
 }
 
 /**
@@ -232,6 +234,21 @@ export function HostControlBar(props: HostControlBarProps) {
               <path d="M7 12.2h2" strokeLinecap="round" />
             </svg>
             {props.preview.active ? t("quizPresent.preview.hide") : t("quizPresent.preview.toggle")}
+          </button>
+        ) : null}
+        {props.waiting ? (
+          <button
+            type="button"
+            onClick={props.waiting.onOpen}
+            className={barSecondary}
+            aria-label={t("quizPresent.waiting.buttonLabel", { count: props.waiting.count })}
+          >
+            {t("quizPresent.waiting.button")}
+            {props.waiting.count ? (
+              <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-lq-accent px-1.5 text-xs font-bold text-lq-on-accent">
+                {props.waiting.count}
+              </span>
+            ) : null}
           </button>
         ) : null}
         {props.words ? (

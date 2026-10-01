@@ -1,7 +1,7 @@
 /**
  * Sentinel Arena (live quizzes) REST types. Source of truth:
  * docs/live-quiz/CONTRATO-INCREMENTO-1.md §3–§5 and §7 (GA item types: CONTRATO-INCREMENTO-5.md;
- * self-paced challenges: CONTRATO-INCREMENTO-6.md).
+ * self-paced challenges: CONTRATO-INCREMENTO-6.md; waiting room: CONTRATO-INCREMENTO-7.md).
  * Keep in sync with backend/app/schemas_live.py.
  */
 
@@ -288,6 +288,8 @@ export interface LiveSession {
   mode?: LiveSessionMode;
   /** Incremento 6: the challenge settings and window; null on live rooms. */
   challenge?: LiveChallenge | null;
+  /** Incremento 7: everyone waits for the host's approval (older servers omit it). */
+  require_approval?: boolean;
 }
 
 export interface LiveSessionCreate {
@@ -300,6 +302,8 @@ export interface LiveSessionCreate {
   rehearsal?: boolean;
   /** 0..200 server-driven bots; only with `rehearsal` (422 `bots_require_rehearsal`). */
   bots?: number;
+  /** Incremento 7 (RF-545): each person waits for the host's approval (waiting room). */
+  require_approval?: boolean;
 }
 
 export interface LiveDisplayToken {
@@ -315,7 +319,12 @@ export interface LiveRoomInfo {
   phase: LivePhase;
   allow_guests: boolean;
   requires_login: boolean;
+  /** Only the host's lock closes the room; a full room still takes joins into the waiting room (Incremento 7). */
   accepting_joins: boolean;
+  /** Incremento 7: the room is at its cap (new joins wait for a seat). Older servers omit it. */
+  full?: boolean;
+  /** Incremento 7: new joins wait for the host's approval. */
+  requires_approval?: boolean;
   theme_key: LiveThemeKey;
   participant_count: number;
   consent_version: string;
@@ -328,7 +337,10 @@ export interface LiveJoinRequest {
   dev_h?: string;
 }
 
+/** 201 of the join (and the shape of rejoin, access with the return code and preview). */
 export interface LiveJoinResult {
+  /** Incremento 7: "joined" (older servers omit it). */
+  status?: "joined";
   session_id: string;
   participant_id: string;
   token: string;
@@ -337,6 +349,46 @@ export interface LiveJoinResult {
   display_name: string;
   avatar_seed: string;
 }
+
+// ----------------------------------------------------------------------------- waiting room (Incremento 7)
+
+/** `approval`: the host lets each person in (RF-545). `capacity`: the room is full (DC-16). */
+export type LiveWaitReason = "approval" | "capacity";
+
+/** Still waiting: the 202 of the join (with `wait_token`) and `GET /queue/{id}` (without it). */
+export interface LiveQueueWaiting {
+  status: "waiting";
+  reason: LiveWaitReason;
+  request_id: string;
+  session_id: string;
+  display_name: string;
+  avatar_seed: string;
+  /** Place in the capacity queue (1 = next); null while waiting for approval (the host decides). */
+  position: number | null;
+  /** Everyone waiting in this room (approval + capacity). */
+  waiting: number;
+  /** Poll again only after this long (3–15 s, grows with the queue). */
+  retry_after_ms: number;
+}
+
+/** 202 of `POST /rooms/{code}/join`: the wait token is a credential, kept only in the tab. */
+export interface LiveJoinWaiting extends LiveQueueWaiting {
+  wait_token: string;
+}
+
+/** Either answer of `POST /rooms/{code}/join`: 201 joined or 202 waiting. */
+export type LiveJoinOutcome = LiveJoinResult | LiveJoinWaiting;
+
+/**
+ * `GET /queue/{id}`: still waiting, admitted (the join result, return code only on the first
+ * delivery; every poll after that issues a fresh token) or another end.
+ */
+export type LiveQueueStatus =
+  | LiveQueueWaiting
+  | { status: "admitted"; request_id: string; session_id: string; join: LiveJoinResult }
+  | { status: "rejected" | "expired" | "withdrawn"; request_id?: string; session_id?: string | null };
+
+export type LiveQueueEnd = "rejected" | "expired" | "withdrawn";
 
 export interface LiveMyResultItem {
   position: number;

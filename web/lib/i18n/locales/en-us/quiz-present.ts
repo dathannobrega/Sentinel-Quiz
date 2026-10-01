@@ -282,7 +282,8 @@ export const quizPresent = {
   capacity: {
     near: "Room at {percent}% capacity ({count}/{max})",
     full: "Room full ({count}/{max})",
-    hint: "New joins are refused at the limit. Raise the limit in a new session if you need more room."
+    hint: "At the limit, newcomers join the waiting room queue. Change the cap in the Waiting room.",
+    queued: "+{count} in line"
   },
   preflight: {
     button: "Pre-event check",
@@ -356,5 +357,46 @@ export const quizPresent = {
     masked: "Answer hidden by moderation",
     previewBadge: "Preview",
     previewLabel: "Presenter's phone preview (not in reports)"
+  },
+  waiting: {
+    title: "Waiting room",
+    button: "Waiting room",
+    buttonLabel: "Waiting room: {count} waiting",
+    description: "People waiting to get in. They are not participants yet: they never show on the big screen, the leaderboard or the reports.",
+    approvalToggle: "Approve each entry",
+    approvalToggleHint: "Each person waits for you to let them in. Turning it off lets everyone waiting in (seats permitting).",
+    approvalTitle: "Awaiting approval",
+    approvalEmpty: "Nobody is awaiting approval.",
+    approvalOff: "Approval is off: people get straight in while there are seats.",
+    admit: "Approve",
+    admitLabel: "Let {name} in",
+    reject: "Decline",
+    rejectLabel: "Decline {name}",
+    admitAll: "Approve all ({count})",
+    more: "+{count} more waiting",
+    signedIn: "Account",
+    signedInLabel: "Joined with a Sentinel account",
+    online: "on the page",
+    offline: "left the page",
+    waitedNow: "just now",
+    queueTitle: "Queue for a seat",
+    queueOne: "1 person in line",
+    queueMany: "{count} people in line",
+    queueEmpty: "Nobody in line.",
+    queueHint: "They get in on their own, in arrival order, as seats free up.",
+    capacityTitle: "Room cap",
+    capacityLabel: "Maximum participants",
+    capacityUsage: "{count} of {max} seats taken",
+    capacityHint: "Up to {max}. Raising the cap lets the queue in, in arrival order.",
+    capacityBelow: "The cap is below the people already in the room: nobody is removed, but the next people join the queue.",
+    capacityInvalid: "Use a whole number from 1 to {max}.",
+    capacityApply: "Save cap",
+    capacityDecrease: "Lower the cap by {step}",
+    capacityIncrease: "Raise the cap by {step}",
+    stageOne: "1 person waiting to get in",
+    stageMany: "{count} people waiting to get in",
+    errors: {
+      not_found: "That person already left the waiting room."
+    }
   }
 } as const;

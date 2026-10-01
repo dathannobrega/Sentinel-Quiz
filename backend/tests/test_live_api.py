@@ -162,8 +162,9 @@ def test_session_lifecycle_and_guest_join(live_on, login_client, make_client):
     again = member.post(f"/api/live/rooms/{code}/join", json={"display_name": "Bia", "consent": True}).json()
     assert first["participant_id"] == again["participant_id"] and first["return_code"] is None
 
+    # Full room (GA): the next person waits for a seat instead of being turned away.
     full = guest.post(f"/api/live/rooms/{code}/join", json={"display_name": "Caio", "consent": True})
-    assert full.status_code == 409 and full.json()["code"] == "room_full"
+    assert full.status_code == 202 and full.json()["status"] == "waiting" and full.json()["reason"] == "capacity"
 
     wrong = guest.post(f"/api/live/rooms/{code}/rejoin", json={"display_name": "Ana", "return_code": "ZZZZZZ"})
     assert wrong.status_code == 403

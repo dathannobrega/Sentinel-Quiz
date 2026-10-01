@@ -124,6 +124,8 @@ class SessionCreateIn(_Strict):
     # Rehearsal (RF-513): a private dry run, optionally with bots that answer.
     rehearsal: bool = False
     bots: int = Field(default=0, ge=0, le=200)
+    # Waiting room with host approval (RF-545).
+    require_approval: bool = False
 
 
 class ChallengeCreateIn(_Strict):

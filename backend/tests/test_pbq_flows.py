@@ -11,7 +11,10 @@ import pytest
 BANK = Path(__file__).resolve().parents[2] / "questions" / "pbq_securityplus.json"
 KEY = "device-pbq"
 HEADERS = {"X-Client-Key": KEY}
-PBQ_IDS = {f"sq_pbq_701_000{i}" for i in range(1, 7)}
+PBQ_BANK = json.loads(BANK.read_text(encoding="utf-8"))["questions"]
+PBQ_IDS = {item["id"] for item in PBQ_BANK}
+# Tasks the exam shuffles per session (pbq_order_json); table_form/select_in_exhibit are not.
+SHUFFLED_TYPES = {"ordering", "categorization", "matching"}
 
 
 def _mcq_bank(count: int = 6) -> dict:
@@ -64,9 +67,9 @@ def _solutions(db, question_id):
 def test_ingest_splits_public_payload_and_answer_key(db, seeded):
     from app.models import Exam, Option, Question, QuestionBank, QuestionVersion
 
-    assert seeded["questions_imported"] == 12
+    assert seeded["questions_imported"] == 6 + len(PBQ_IDS)
     exam = db.get(Exam, "securityplus")
-    assert exam.question_count == 12  # union of both files
+    assert exam.question_count == 6 + len(PBQ_IDS)  # union of both files
     assert exam.title == "CompTIA Security+ - Banco de Questoes"
     question = db.get(Question, "sq_pbq_701_0002")
     assert question.question_format == "pbq" and question.multi_select is False
@@ -76,8 +79,10 @@ def test_ingest_splits_public_payload_and_answer_key(db, seeded):
     assert "solution" not in question.pbq_payload_json
     assert public["title"].startswith("Configurar a ACL")
     assert set(answer["tasks"]) == {"t1", "t2"} and answer["points"] == 3.0
-    # AI-authored PBQs ship with explanations but stay flagged for SME review.
-    assert question.explanation_missing is False and question.needs_review is True
+    # PBQs ship with explanations; the review flag follows the bank file (the SME review
+    # approves items by clearing needs_review there).
+    source = next(item for item in PBQ_BANK if item["id"] == "sq_pbq_701_0002")
+    assert question.explanation_missing is False and question.needs_review is bool(source.get("needs_review", False))
     version = db.get(QuestionVersion, db.get(QuestionBank, question.id).published_version_id)
     assert version.question_format == "pbq" and version.pbq_answer_json == question.pbq_answer_json
     assert db.get(Question, "mcq-0").question_format == "mcq"
@@ -92,7 +97,7 @@ def test_reingest_is_idempotent_and_supplement_file_removal_deactivates_pbqs(db,
 
     (bank_dir / "pbq_securityplus.json").unlink()
     result = ingest_questions_from_dir(db, str(bank_dir), material_dir=str(bank_dir.parent / "material"))
-    assert result["deactivated"] == 6
+    assert result["deactivated"] == len(PBQ_IDS)
     assert db.get(Question, "mcq-0").is_active is True
     assert db.get(Question, "sq_pbq_701_0001").is_active is False
 
@@ -137,8 +142,8 @@ def test_imports_subdirectory_is_ingested(db, bank_dir):
 # --------------------------------------------------------------------------- exam flow
 
 def _start_exam(client, **extra):
-    # Security Operations PBQs (0001, 0002, 0005) all have two tasks: answering only the
-    # first one always yields partial credit.
+    # Every Security Operations PBQ has two tasks: answering only the first one always
+    # yields partial credit.
     body = {"exam_id": "securityplus", "total_questions": 5, "pbq_count": 2, "domains": ["Security Operations"], **extra}
     response = client.post("/api/sessions", json=body, headers=HEADERS)
     assert response.status_code == 200, response.text
@@ -153,7 +158,7 @@ def test_exam_session_places_pbqs_first_and_serves_public_payload(client, db, se
     assert session["selection_mix"]["pbq"] == 2
     rows = db.query(SessionQuestion).filter_by(session_id=session["id"]).order_by(SessionQuestion.position).all()
     assert [row.question_id in PBQ_IDS for row in rows] == [True, True, False, False, False]
-    shuffled = {"sq_pbq_701_0001"}  # the only Security Operations PBQ with ordering/categorization/matching
+    shuffled = {item["id"] for item in PBQ_BANK if any(task["type"] in SHUFFLED_TYPES for task in item["tasks"])}
     for row in rows[:2]:
         assert bool(row.pbq_order_json) == (row.question_id in shuffled)
     assert rows[2].pbq_order_json is None

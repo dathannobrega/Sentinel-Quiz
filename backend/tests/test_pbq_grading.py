@@ -46,7 +46,8 @@ def _task_key(answer: dict, task_id: str) -> dict:
 
 def test_bank_items_are_valid_and_keep_ids():
     items = _items()
-    assert sorted(items) == [f"sq_pbq_701_000{i}" for i in range(1, 7)]
+    assert len(items) >= 6
+    assert sorted(items) == [f"sq_pbq_701_{i:04d}" for i in range(1, len(items) + 1)]
     for item_id, item in items.items():
         assert validate_authoring_item(item, where=item_id) == []
 

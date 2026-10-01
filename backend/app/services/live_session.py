@@ -23,7 +23,7 @@ from app.core.config import settings
 from app.core.errors import api_error
 from app.models import LIVE_ACTIVE_SESSION_STATUSES, LiveParticipant, LiveQuiz, LiveQuizVersion, LiveSession, User
 from app.services import licensing
-from app.services import live_moderation, live_names
+from app.services import live_admission, live_moderation, live_names
 from app.services.live_quiz import get_owned_quiz, latest_version
 from app.services.live_tokens import issue_token, jti_hash
 
@@ -70,6 +70,7 @@ def serialize_session(db: Session, session: LiveSession, *, quiz_title: str | No
         "join_url": join_url(session.join_code),
         "allow_guests": session.allow_guests,
         "max_participants": session.max_participants,
+        "require_approval": bool(session.require_approval),
         "preset": session.preset,
         "rehearsal": session.mode == "rehearsal",
         "audience": session.audience,
@@ -118,6 +119,7 @@ def create_session(
     audience: str,
     rehearsal: bool = False,
     bots: int = 0,
+    require_approval: bool = False,
 ) -> LiveSession:
     if bots and not rehearsal:
         raise api_error(422, "bots_require_rehearsal", "Bots are only available in rehearsal mode.")
@@ -161,6 +163,7 @@ def create_session(
             state_seq=1,
             join_code=code,
             allow_guests=allow_guests,
+            require_approval=bool(require_approval),
             room_locked=False,
             max_participants=max(1, cap),
             preset=preset,
@@ -286,7 +289,10 @@ def room_info(db: Session, code: str) -> dict[str, Any]:
         "phase": session.phase,
         "allow_guests": session.allow_guests,
         "requires_login": not session.allow_guests,
-        "accepting_joins": (not session.room_locked) and count < session.max_participants,
+        # A full room still accepts joins: they wait for a seat (Incremento 7).
+        "accepting_joins": not session.room_locked,
+        "full": count >= session.max_participants,
+        "requires_approval": bool(session.require_approval),
         "theme_key": session.theme_key,
         "participant_count": count,
         "consent_version": session.consent_version,
@@ -304,6 +310,7 @@ def _issue_participant_token(participant: LiveParticipant, ttl: int | None = Non
 
 def _join_result(participant: LiveParticipant, token: str, expires_at: str, return_code: str | None) -> dict[str, Any]:
     return {
+        "status": "joined",
         "session_id": participant.session_id,
         "participant_id": participant.id,
         "token": token,
@@ -366,10 +373,16 @@ def join_session(
             token, expires_at = _issue_participant_token(existing, token_ttl)
             db.commit()
             return _join_result(existing, token, expires_at, None)
+        waiting = live_admission.rejoin_waiting(db, session, user)
+        if waiting is not None:
+            return waiting
 
     if session.room_locked:
         raise api_error(423, "room_locked", "The host locked this room.")
-    if participant_count(db, session.id) >= session.max_participants:
+    # Live rooms: above the cap, or with approval on, people go to the waiting room
+    # (Incremento 7). Challenges keep the cap as a hard limit.
+    wait_reason = live_admission.needs_waiting(db, session, user)
+    if wait_reason is None and session.mode == "self_paced" and live_admission.at_capacity(db, session):
         raise api_error(409, "room_full", "This room is full.")
 
     if session.audience == "infantojuvenil":
@@ -391,6 +404,12 @@ def join_session(
             exc = api_error(409, "name_taken", "This name is already in use in the room.")
             exc.detail["details"] = {"suggestion": live_names.suggest_name()}  # type: ignore[index]
             raise exc
+
+    if wait_reason is not None:
+        return live_admission.enqueue(
+            db, session, user=user, name=name, key=key, avatar_seed=avatar_seed or live_names.avatar_seed(),
+            dev_h=dev_h, reason=wait_reason,
+        )
 
     return_code = None if user is not None else "".join(secrets.choice(RETURN_CODE_ALPHABET) for _ in range(RETURN_CODE_LENGTH))
     participant = LiveParticipant(
@@ -418,12 +437,13 @@ def join_session(
 
 
 def _nickname_taken(db: Session, session_id: str, key: str) -> bool:
+    """Taken by a participant or by someone in the waiting room."""
     return (
         db.execute(
             select(LiveParticipant.id).where(LiveParticipant.session_id == session_id, LiveParticipant.nickname_norm == key)
         ).first()
         is not None
-    )
+    ) or live_admission.name_waiting(db, session_id, key)
 
 
 def rejoin(db: Session, code: str, *, display_name: str, return_code: str) -> dict[str, Any]:

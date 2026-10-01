@@ -18,6 +18,10 @@
  * - `item.removed` (moderation, Incremento 4) swaps the item on screen for the neutral placeholder
  *   at once (no answers, no timer); the fresh `room.snapshot` the server sends right after is still
  *   authoritative. `removedItem` records the event so the host can show a toast.
+ * - Waiting room (Incremento 7, host only): `waitingRoom` comes from the snapshot and is REPLACED by
+ *   each `waiting_room.update` (the server always sends the whole block). Its cap also feeds
+ *   `maxParticipants`, so the capacity pill follows `host.set_capacity` at once. The stage only ever
+ *   sees the number of people waiting, never their names.
  */
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
@@ -44,6 +48,7 @@ import {
   type SnapshotSettings,
   type Standing,
   type TimeMultiplier,
+  type WaitingRoomState,
   type WordCloudResults
 } from "@/features/quiz-live/lib/protocol";
 import type { LiveItem, LivePhase, LiveSessionStatus, LiveThemeKey } from "@/types/api/live";
@@ -157,6 +162,8 @@ export interface LiveState {
   /** Host only: normalized keys hidden on the current word cloud (null = not known yet). */
   hiddenWords: string[] | null;
   participants: HostParticipant[] | null;
+  /** Host only (Incremento 7): approval switch, cap and queues; null until the server sends it. */
+  waitingRoom: WaitingRoomState | null;
 
   /** Participant only. */
   my: MySnapshot | null;
@@ -228,6 +235,7 @@ export function createInitialLiveState(role: LiveRole | null = null): LiveState 
     presenterQi: null,
     hiddenWords: null,
     participants: null,
+    waitingRoom: null,
     my: null,
     myTimeMultiplier: 1,
     submission: null,
@@ -350,6 +358,7 @@ function applySnapshot(state: LiveState, snapshot: Snapshot, seq: number | undef
     presenterQi: snapshot.presenter ? snapshot.qi : null,
     hiddenWords: snapshot.presenter?.hidden_words ?? null,
     participants: snapshot.participants ?? null,
+    waitingRoom: snapshot.waiting_room ?? null,
     my: snapshot.my ?? null,
     myTimeMultiplier: snapshot.my ? normalizeTimeMultiplier(snapshot.my.time_multiplier) : state.myTimeMultiplier,
     submission: submissionFromSnapshot(snapshot, state.submission),
@@ -584,6 +593,16 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
       return { ...state, seq, wordCloud, reveal, hiddenWords: hidden ?? state.hiddenWords };
     }
 
+    case "waiting_room.update": {
+      const waitingRoom = message.data;
+      return {
+        ...state,
+        seq,
+        waitingRoom,
+        maxParticipants: typeof waitingRoom.max_participants === "number" ? waitingRoom.max_participants : state.maxParticipants
+      };
+    }
+
     case "item.removed": {
       const { qi, current } = message.data;
       const removedItem: LiveRemovedItem = { qi, current, sts: message.sts };
@@ -741,8 +760,15 @@ export interface StageView {
   leaderboard: { top: Standing[]; total: number } | null;
   podium: { top: Standing[]; stats: PodiumStats } | null;
   lobby: LobbyState | null;
+  /** People waiting to get in (Incremento 7): a count only, never names; null when unknown. */
+  waitingCount: number | null;
   readingPhaseS: number;
   showExplanation: boolean;
+}
+
+/** Everyone waiting (approval + capacity queue); 0 without a waiting room block. */
+export function waitingTotal(waitingRoom: Pick<WaitingRoomState, "approval_count" | "capacity_count"> | null): number {
+  return waitingRoom ? Math.max(0, waitingRoom.approval_count) + Math.max(0, waitingRoom.capacity_count) : 0;
 }
 
 export function selectStageView(state: LiveState): StageView {
@@ -773,6 +799,7 @@ export function selectStageView(state: LiveState): StageView {
     leaderboard: state.leaderboard ? { top: state.leaderboard.top, total: state.leaderboard.total } : null,
     podium: state.podium ? { top: state.podium.top, stats: state.podium.stats } : null,
     lobby: state.lobby,
+    waitingCount: state.waitingRoom ? waitingTotal(state.waitingRoom) : null,
     readingPhaseS: state.settings?.reading_phase_s ?? 0,
     showExplanation: state.settings?.show_explanation ?? true
   };

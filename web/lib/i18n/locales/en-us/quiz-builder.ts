@@ -439,6 +439,8 @@ export const quizBuilder = {
     submit: "Open room",
     guests: "Allow guests without sign-in",
     guestsHint: "Participants join with just a nickname. Questions with restricted licenses require sign-in.",
+    approval: "Approve each person's entry (waiting room)",
+    approvalHint: "People wait until you let them in from the presenter view. You can turn it off at any time.",
     preset: "Format",
     presets: {
       turma: { name: "Class", description: "Lesson or training: guided pace, up to a few dozen people." },

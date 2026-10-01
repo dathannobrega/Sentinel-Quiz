@@ -42,7 +42,45 @@ export const quizPlay = {
     loginOnlyTitle: "This room requires sign-in",
     loginOnlyText: "The presenter asked everyone to join with a Sentinel account.",
     closedTitle: "Joining is closed",
-    closedText: "The presenter is not accepting new participants right now. If you were already in, use your return code."
+    closedText: "The presenter is not accepting new participants right now. If you were already in, use your return code.",
+    approvalNotice: "The presenter lets each person in. After joining, wait a moment in the waiting room.",
+    fullNotice: "The room is full right now. You join the queue and get in as soon as a seat frees up."
+  },
+  waiting: {
+    title: "Waiting room",
+    approvalTitle: "Waiting for the presenter to let you in",
+    approvalText: "As soon as the presenter approves, you enter the room on your own.",
+    capacityTitle: "The room is full",
+    position: "You are number {position} in line",
+    positionNext: "You are next in line",
+    waitingOne: "1 person waiting",
+    waitingMany: "{count} people waiting",
+    keepOpen: "Keep this tab open: when it is your turn, you get in on your own.",
+    reconnecting: "No answer from the server. Trying again...",
+    leave: "Leave the queue",
+    leaving: "Leaving...",
+    announceApproval: "You are in the waiting room. Waiting for the presenter to let you in.",
+    announcePosition: "You are number {position} in line.",
+    admitted: "You are in the room!",
+    retry: "Try again",
+    ended: {
+      rejected: {
+        title: "Entry not approved",
+        text: "The presenter did not let you into this room."
+      },
+      expired: {
+        title: "Your turn has passed",
+        text: "The session ended or your place expired because the tab was closed for too long."
+      },
+      withdrawn: {
+        title: "You left the queue",
+        text: "Your place in line was released."
+      },
+      invalid: {
+        title: "Your place in line is no longer valid",
+        text: "You joined the queue from another tab or device. Join again to get a place."
+      }
+    }
   },
   rejoin: {
     title: "Back to the room",
@@ -67,13 +105,14 @@ export const quizPlay = {
   errors: {
     room_not_found: "We could not find a room with that PIN. Check the digits on the big screen.",
     room_locked: "The presenter locked the room. Ask them to open it.",
-    room_full: "The room is full. Talk to the presenter.",
+    room_full: "The room and its waiting line are full. Talk to the presenter.",
     session_finished: "This session has already ended.",
     login_required: "This room requires sign-in. Sign in with your account to take part.",
     name_taken: "Someone already uses that name. Pick another or use your return code.",
     name_rejected: "That name is not allowed. Pick another or use the suggestion.",
     consent_required: "Tick the consent box to join.",
     invalid_return_code: "The return code does not match that name. Check it and try again.",
+    invalid_wait_token: "Your place in line is no longer valid. Join again.",
     rate_limited: "Lots of people joining at once. Try again in a few seconds.",
     offline: "No internet connection. Check your network and try again.",
     generic: "Something went wrong. Try again.",

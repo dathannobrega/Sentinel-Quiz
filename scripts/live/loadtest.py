@@ -381,4 +381,10 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
+    try:  # the generator's own event loop is the first bottleneck at 2,000 sockets
+        import uvloop
+
+        uvloop.install()
+    except ImportError:
+        pass
     sys.exit(asyncio.run(main()))

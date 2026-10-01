@@ -282,7 +282,8 @@ export const quizPresent = {
   capacity: {
     near: "Sala com {percent}% da capacidade ({count}/{max})",
     full: "Sala lotada ({count}/{max})",
-    hint: "Novas entradas são recusadas no limite. Aumente o limite em uma nova sessão se precisar."
+    hint: "No limite, quem chega entra na fila da sala de espera. Ajuste o teto na Sala de espera.",
+    queued: "+{count} na fila"
   },
   preflight: {
     button: "Checagem pré-evento",
@@ -356,5 +357,46 @@ export const quizPresent = {
     masked: "Resposta ocultada pela moderação",
     previewBadge: "Prévia",
     previewLabel: "Prévia do celular do apresentador (fora dos relatórios)"
+  },
+  waiting: {
+    title: "Sala de espera",
+    button: "Sala de espera",
+    buttonLabel: "Sala de espera: {count} aguardando",
+    description: "Quem aguarda para entrar. Quem espera ainda não é participante: não aparece no telão, no placar nem nos relatórios.",
+    approvalToggle: "Aprovar a entrada",
+    approvalToggleHint: "Cada pessoa espera você liberar. Ao desligar, quem aguardava entra (se houver vaga).",
+    approvalTitle: "Aguardando aprovação",
+    approvalEmpty: "Ninguém aguardando aprovação.",
+    approvalOff: "Aprovação desligada: quem chega entra direto enquanto houver vaga.",
+    admit: "Aprovar",
+    admitLabel: "Aprovar a entrada de {name}",
+    reject: "Recusar",
+    rejectLabel: "Recusar a entrada de {name}",
+    admitAll: "Aprovar todos ({count})",
+    more: "+{count} aguardando além destes",
+    signedIn: "Conta",
+    signedInLabel: "Entrou com uma conta Sentinel",
+    online: "na página",
+    offline: "saiu da página",
+    waitedNow: "agora",
+    queueTitle: "Fila por lotação",
+    queueOne: "1 pessoa na fila",
+    queueMany: "{count} pessoas na fila",
+    queueEmpty: "Ninguém na fila.",
+    queueHint: "Entram sozinhas, por ordem de chegada, quando abre uma vaga.",
+    capacityTitle: "Teto da sala",
+    capacityLabel: "Máximo de participantes",
+    capacityUsage: "{count} de {max} lugares ocupados",
+    capacityHint: "Até {max}. Ao subir o teto, a fila entra por ordem de chegada.",
+    capacityBelow: "O teto ficou abaixo de quem já está na sala: ninguém sai, mas as próximas entradas vão para a fila.",
+    capacityInvalid: "Use um número inteiro de 1 a {max}.",
+    capacityApply: "Salvar teto",
+    capacityDecrease: "Diminuir o teto em {step}",
+    capacityIncrease: "Aumentar o teto em {step}",
+    stageOne: "1 pessoa aguardando para entrar",
+    stageMany: "{count} pessoas aguardando para entrar",
+    errors: {
+      not_found: "Essa pessoa já saiu da sala de espera."
+    }
   }
 } as const;

@@ -42,7 +42,45 @@ export const quizPlay = {
     loginOnlyTitle: "Esta sala exige login",
     loginOnlyText: "O apresentador pediu que todos entrem com uma conta Sentinel.",
     closedTitle: "Entradas fechadas",
-    closedText: "O apresentador não está aceitando novas entradas agora. Se você já estava na sala, use seu código de retorno."
+    closedText: "O apresentador não está aceitando novas entradas agora. Se você já estava na sala, use seu código de retorno.",
+    approvalNotice: "O apresentador libera a entrada de cada pessoa. Depois de entrar, aguarde um instante na sala de espera.",
+    fullNotice: "A sala está cheia agora. Você entra na fila e passa para dentro assim que abrir uma vaga."
+  },
+  waiting: {
+    title: "Sala de espera",
+    approvalTitle: "Aguardando o apresentador liberar a entrada",
+    approvalText: "Assim que o apresentador aprovar, você entra na sala sozinho.",
+    capacityTitle: "A sala está cheia",
+    position: "Você é o nº {position} da fila",
+    positionNext: "Você é o próximo da fila",
+    waitingOne: "1 pessoa esperando",
+    waitingMany: "{count} pessoas esperando",
+    keepOpen: "Deixe esta aba aberta: quando chegar a sua vez, você entra sozinho.",
+    reconnecting: "Sem resposta do servidor. Tentando de novo...",
+    leave: "Sair da fila",
+    leaving: "Saindo...",
+    announceApproval: "Você está na sala de espera. Aguardando o apresentador liberar a entrada.",
+    announcePosition: "Você é o número {position} da fila.",
+    admitted: "Você entrou na sala!",
+    retry: "Tentar de novo",
+    ended: {
+      rejected: {
+        title: "Entrada não liberada",
+        text: "O apresentador não liberou sua entrada nesta sala."
+      },
+      expired: {
+        title: "Sua vez passou",
+        text: "A sessão terminou ou sua vaga expirou porque a aba ficou fechada por muito tempo."
+      },
+      withdrawn: {
+        title: "Você saiu da fila",
+        text: "Seu lugar na fila foi liberado."
+      },
+      invalid: {
+        title: "Sua vaga na fila não vale mais",
+        text: "Você entrou na fila por outra aba ou aparelho. Entre de novo para pegar um lugar."
+      }
+    }
   },
   rejoin: {
     title: "Voltar para a sala",
@@ -67,13 +105,14 @@ export const quizPlay = {
   errors: {
     room_not_found: "Não encontramos uma sala com esse PIN. Confira os números no telão.",
     room_locked: "A sala está trancada pelo apresentador. Peça para liberar a entrada.",
-    room_full: "A sala está lotada. Fale com o apresentador.",
+    room_full: "A sala e a fila de espera estão lotadas. Fale com o apresentador.",
     session_finished: "Esta sessão já terminou.",
     login_required: "Esta sala exige login. Entre com sua conta para participar.",
     name_taken: "Já tem alguém com esse nome. Escolha outro ou use seu código de retorno.",
     name_rejected: "Esse nome não é permitido. Escolha outro ou use a sugestão.",
     consent_required: "Marque o consentimento para entrar.",
     invalid_return_code: "O código de retorno não confere com esse nome. Confira e tente de novo.",
+    invalid_wait_token: "Sua vaga na fila não vale mais. Entre de novo.",
     rate_limited: "Muita gente entrando ao mesmo tempo. Tente de novo em alguns segundos.",
     offline: "Sem conexão com a internet. Confira sua rede e tente de novo.",
     generic: "Algo deu errado. Tente de novo.",

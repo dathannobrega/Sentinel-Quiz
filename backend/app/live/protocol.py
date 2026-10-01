@@ -43,6 +43,10 @@ HOST_COMMANDS = frozenset(
         "host.extend",
         "host.set_time",
         "host.hide_word",
+        "host.admit",
+        "host.reject",
+        "host.set_capacity",
+        "host.set_approval",
     }
 )
 COMMON_COMMANDS = frozenset({"time.sync", "pong"})
@@ -140,6 +144,24 @@ class HideWordData(_Strict):
     hidden: bool = True
 
 
+class AdmitData(_Strict):
+    """``all: true`` admits everyone waiting for approval; else the listed requests."""
+    request_ids: Optional[list[Annotated[str, Field(max_length=36)]]] = Field(default=None, max_length=500)
+    all: bool = False
+
+
+class RejectData(_Strict):
+    request_id: str = Field(max_length=36)
+
+
+class CapacityData(_Strict):
+    max_participants: int = Field(ge=1, le=100000)
+
+
+class ApprovalData(_Strict):
+    required: bool
+
+
 class SetTimeData(_Strict):
     participant_id: str = Field(max_length=36)
     multiplier: Literal[0, 1, 1.5, 2]
@@ -164,6 +186,10 @@ DATA_MODELS: dict[str, type[BaseModel]] = {
     "host.extend": ExtendData,
     "host.set_time": SetTimeData,
     "host.hide_word": HideWordData,
+    "host.admit": AdmitData,
+    "host.reject": RejectData,
+    "host.set_capacity": CapacityData,
+    "host.set_approval": ApprovalData,
 }
 
 

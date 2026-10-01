@@ -263,6 +263,11 @@ class RoomChannel:
                     self.lobby_sent_at = time.monotonic()
                     lobby = await run_in_threadpool(_with_db, runtime.lobby_state, self.session_id)
                     await self.deliver(runtime.Broadcast("lobby.update", lobby))
+                    if any(conn.role == "host" for conn in self.connections):
+                        # The host's waiting room changes with the same joins (coalesced too).
+                        waiting = await run_in_threadpool(_with_db, _waiting_room, self.session_id)
+                        if waiting is not None:
+                            await self.deliver(runtime.Broadcast("waiting_room.update", waiting, audience=runtime.HOST))
         except asyncio.CancelledError:
             pass
         except Exception:  # pragma: no cover - keep the room alive, log and restart on next join
@@ -296,13 +301,27 @@ def _with_db(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         return fn(db, *args, **kwargs)
 
 
+def _waiting_room(db: Any, session_id: str) -> dict[str, Any] | None:
+    from app.services import live_admission
+
+    session = db.get(LiveSession, session_id)
+    return live_admission.host_view(db, session) if session is not None else None
+
+
 def _personal_frames(
     session_id: str, kind: str, pids: list[str], type_: str, public_data: dict[str, Any], seq: int | None
 ) -> dict[str, str]:
     with live_db() as db:
         room = runtime.load_room(db, session_id)
         blocks = runtime.personal_blocks(db, room, kind, pids)
-    return {pid: protocol.dumps(protocol.envelope(type_, {**public_data, "my": block}, seq=seq)) for pid, block in blocks.items()}
+    # The public part is the same for everyone: serialize it once and splice each
+    # person's block in (2,000 full encodes of the reveal were most of its fan-out cost).
+    head, tail = protocol.dumps(protocol.envelope(type_, {**public_data, "my": _MY_SLOT}, seq=seq)).split(_MY_SLOT_JSON, 1)
+    return {pid: head + protocol.dumps(block) + tail for pid, block in blocks.items()}
+
+
+_MY_SLOT = "\u0001my-block\u0001"
+_MY_SLOT_JSON = protocol.dumps(_MY_SLOT)
 
 
 # ----------------------------------------------------------------------------- answers
@@ -475,6 +494,10 @@ class LiveHub:
             await self.bus.publish(session_id, {"control": "kick", "participant_id": pid, "banned": banned})
         if outcome.resnapshot:
             await self.bus.publish(session_id, {"control": "resnapshot"})
+        elif outcome.resnapshot_hosts:
+            await self.bus.publish(session_id, {"control": "presence"})  # refreshes the hosts' snapshots
+        if outcome.lobby_dirty:
+            await self.bus.publish(session_id, {"control": "lobby"})
 
     async def submit_answer(self, answer: runtime.AnswerIn) -> runtime.AnswerResult:
         loop = asyncio.get_running_loop()
@@ -655,6 +678,12 @@ HOST_ACTIONS: dict[str, Callable[..., runtime.Outcome]] = {
         db, sid, participant_id=d.participant_id, multiplier=float(d.multiplier)
     ),
     "host.hide_word": lambda db, sid, d: runtime.hide_word(db, sid, qi=d.qi, word=d.word, hidden=d.hidden),
+    "host.admit": lambda db, sid, d: runtime.waiting_room_command(
+        db, sid, "admit", request_ids=None if d.all else list(d.request_ids or [])
+    ),
+    "host.reject": lambda db, sid, d: runtime.waiting_room_command(db, sid, "reject", request_id=d.request_id),
+    "host.set_capacity": lambda db, sid, d: runtime.waiting_room_command(db, sid, "capacity", max_participants=d.max_participants),
+    "host.set_approval": lambda db, sid, d: runtime.waiting_room_command(db, sid, "approval", required=d.required),
 }
 
 
