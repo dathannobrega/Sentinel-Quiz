@@ -108,10 +108,12 @@ export function WaitingRoomPanel({
   const people = visibleApproval(room, decidedIds);
   const approvalLeft = Math.max(0, room.approval_count - decidedIds.size);
   const more = Math.max(0, approvalLeft - people.length);
-  const button = cn(
-    "focus-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60",
-    styles.button
-  );
+  // `cn` only joins classes, so each variant gets its own colours (no neutral bg to override).
+  const base =
+    "focus-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60";
+  const button = cn(base, styles.button);
+  const primary = cn(base, styles.primary);
+  const danger = cn(base, styles.danger);
 
   function waited(person: WaitingPerson): string {
     const value = waitedFor(person.created_at, now);
@@ -169,7 +171,7 @@ export function WaitingRoomPanel({
                 actions.admit("all");
                 decide(people.map((person) => person.request_id));
               }}
-              className={cn(button, "ml-auto border-0", styles.primary)}
+              className={cn(primary, "ml-auto")}
             >
               {t("quizPresent.waiting.admitAll", { count: format.format(approvalLeft) })}
             </button>
@@ -209,7 +211,7 @@ export function WaitingRoomPanel({
                       actions.admit([person.request_id]);
                       decide([person.request_id]);
                     }}
-                    className={cn(button, "border-0", styles.primary)}
+                    className={primary}
                   >
                     {t("quizPresent.waiting.admit")}
                   </button>
@@ -221,7 +223,7 @@ export function WaitingRoomPanel({
                       actions.reject(person.request_id);
                       decide([person.request_id]);
                     }}
-                    className={cn(button, styles.danger)}
+                    className={danger}
                   >
                     {t("quizPresent.waiting.reject")}
                   </button>
@@ -299,7 +301,7 @@ export function WaitingRoomPanel({
               +
             </button>
           </div>
-          <button type="submit" disabled={disabled || !capDirty} className={cn(button, "border-0", styles.primary)}>
+          <button type="submit" disabled={disabled || !capDirty} className={primary}>
             {t("quizPresent.waiting.capacityApply")}
           </button>
         </form>
