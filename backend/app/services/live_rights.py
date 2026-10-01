@@ -110,7 +110,13 @@ def erase(db: Session, participant: LiveParticipant) -> runtime.Outcome:
     logger.info("live participant erased", extra={"event": "live_participant_erased", "session_id": session_id})
     outcome = runtime.Outcome()
     if was_active:
+        from app.services import live_admission
+
+        session = db.get(LiveSession, session_id)
+        if session is not None:
+            live_admission.fill_seats(db, session)  # the freed seat goes to the waiting room
         outcome.kicked_participant = (participant.id, False)
+        outcome.lobby_dirty = True
         outcome.broadcasts.append(runtime.Broadcast("lobby.update", runtime.lobby_state(db, session_id)))
     return outcome
 

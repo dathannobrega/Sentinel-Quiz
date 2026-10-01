@@ -177,6 +177,8 @@ services:
       APP_LIVE_BUS_BACKEND: ${APP_LIVE_BUS_BACKEND:-redis}
       APP_LIVE_REDIS_URL: ${APP_LIVE_REDIS_URL:-}
       APP_LIVE_MAX_PARTICIPANTS: ${APP_LIVE_MAX_PARTICIPANTS:-}
+      APP_LIVE_WAITING_ROOM_MAX: ${APP_LIVE_WAITING_ROOM_MAX:-}
+      APP_LIVE_WAITING_STALE_SECONDS: ${APP_LIVE_WAITING_STALE_SECONDS:-}
       APP_LIVE_PLATFORM_GUEST_OK: ${APP_LIVE_PLATFORM_GUEST_OK:-false}
       # Incremento 3 (CONTRATO-INCREMENTO-3.md): limits per room code/token (never per IP),
       # SSE fallback and the internal metrics endpoint (set a token to scrape it).

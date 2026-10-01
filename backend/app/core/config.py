@@ -129,7 +129,12 @@ class Settings(BaseSettings):
     # allowlist | verified_users | all (platform admins can always host).
     live_host_policy: str = Field(default="allowlist", alias="LIVE_HOST_POLICY")
     live_host_allowlist: str = Field(default="", alias="LIVE_HOST_ALLOWLIST")
-    live_max_participants: int = Field(default=1000, alias="LIVE_MAX_PARTICIPANTS")
+    # GA (DC-16): 2,000 guaranteed per room; above the room's cap people wait in the
+    # waiting room (at most LIVE_WAITING_ROOM_MAX) instead of being turned away.
+    live_max_participants: int = Field(default=2000, alias="LIVE_MAX_PARTICIPANTS")
+    live_waiting_room_max: int = Field(default=2000, alias="LIVE_WAITING_ROOM_MAX")
+    # A waiting phone that stopped polling for this long loses its turn (it closed the tab).
+    live_waiting_stale_seconds: int = Field(default=45, alias="LIVE_WAITING_STALE_SECONDS")
     live_max_items: int = Field(default=100, alias="LIVE_MAX_ITEMS")
     live_join_code_length: int = Field(default=6, alias="LIVE_JOIN_CODE_LENGTH")
     # "kid:secret[,kid:secret]" — the first key signs, all keys verify (rotation).
@@ -178,7 +183,7 @@ class Settings(BaseSettings):
     # Live participants (DC-22, RNF-205): a whole auditorium may share one NAT IP, so the
     # public room endpoints are limited per room code and /api/live/me/* per participant
     # token, never per IP. Code guessing is limited per IP by counting invalid codes.
-    rate_limit_live_room_requests: int = Field(default=6000, alias="RATE_LIMIT_LIVE_ROOM_REQUESTS")
+    rate_limit_live_room_requests: int = Field(default=12000, alias="RATE_LIMIT_LIVE_ROOM_REQUESTS")
     rate_limit_live_room_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_ROOM_WINDOW_SECONDS")
     rate_limit_live_token_requests: int = Field(default=30, alias="RATE_LIMIT_LIVE_TOKEN_REQUESTS")
     rate_limit_live_token_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_TOKEN_WINDOW_SECONDS")

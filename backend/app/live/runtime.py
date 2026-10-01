@@ -73,6 +73,10 @@ class Outcome:
     clear_lock: bool = False
     # Every connection needs a fresh snapshot (moderation removed visible content).
     resnapshot: bool = False
+    # The lobby (and the host's waiting room) changed: coalesced lobby.update.
+    lobby_dirty: bool = False
+    # Only the hosts need a fresh snapshot (their waiting room or capacity changed).
+    resnapshot_hosts: bool = False
 
 
 class RoomNotFound(LookupError):
@@ -698,6 +702,9 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
     if session.phase in {"podium", "finished"}:
         data["podium"] = podium_payload(db, room)
     if role == HOST:
+        from app.services import live_admission
+
+        data["waiting_room"] = live_admission.host_view(db, session)
         if item is not None:
             data["presenter"] = {
                 "item": _presenter_item(item),
@@ -1099,6 +1106,9 @@ def end_session(db: Session, session_id: str, *, now: datetime | None = None) ->
     if seq is None:
         return Outcome(error="stale")
     db.commit()
+    from app.services import live_admission
+
+    live_admission.expire_all(db, session_id, now=now)  # the waiting room closes with the room
     room = load_room(db, session_id)
     board = standings(db, room, up_to=room.total - 1)
     by_id = {s.participant_id: s for s in board}
@@ -1134,9 +1144,33 @@ def kick(db: Session, session_id: str, *, participant_id: str, ban: bool) -> Out
     participant.banned = participant.banned or bool(ban)
     participant.token_hash = None  # revokes the current token
     db.commit()
-    outcome = Outcome(kicked_participant=(participant_id, participant.banned))
+    from app.services import live_admission
+
+    session = db.get(LiveSession, session_id)
+    if session is not None:
+        live_admission.fill_seats(db, session)  # a freed seat goes to the waiting room
+    outcome = Outcome(kicked_participant=(participant_id, participant.banned), lobby_dirty=True)
     outcome.broadcasts.append(Broadcast("lobby.update", lobby_state(db, session_id)))
     return outcome
+
+
+def waiting_room_command(db: Session, session_id: str, action: str, **kwargs: Any) -> Outcome:
+    """Host waiting-room commands (Incremento 7): admit, reject, capacity, approval."""
+    from app.services import live_admission
+
+    session = db.get(LiveSession, session_id)
+    if session is None or session.status == "finished":
+        return Outcome(error="stale")
+    if action == "admit":
+        live_admission.admit(db, session_id, request_ids=kwargs.get("request_ids"))
+    elif action == "reject":
+        if not live_admission.reject(db, session_id, request_id=kwargs["request_id"]):
+            return Outcome(error="not_found")
+    elif action == "capacity":
+        live_admission.set_capacity(db, session_id, max_participants=int(kwargs["max_participants"]))
+    elif action == "approval":
+        live_admission.set_approval(db, session_id, required=bool(kwargs["required"]))
+    return Outcome(lobby_dirty=True, resnapshot_hosts=True)
 
 
 def hide_word(db: Session, session_id: str, *, qi: int, word: str, hidden: bool = True) -> Outcome:
