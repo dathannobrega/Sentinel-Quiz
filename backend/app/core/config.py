@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     # GA (DC-16): 2,000 guaranteed per room; above the room's cap people wait in the
     # waiting room (at most LIVE_WAITING_ROOM_MAX) instead of being turned away.
     live_max_participants: int = Field(default=2000, alias="LIVE_MAX_PARTICIPANTS")
+    # Workers of this API process (exported by docker/entrypoint.sh): the pre-event check
+    # compares them with the room size (a crashed worker's sockets reconnect to the
+    # others at ~100/s each, RNF-302).
+    uvicorn_workers: int = Field(default=1, alias="UVICORN_WORKERS")
+    live_sockets_per_worker: int = Field(default=500, alias="LIVE_SOCKETS_PER_WORKER")
     live_waiting_room_max: int = Field(default=2000, alias="LIVE_WAITING_ROOM_MAX")
     # A waiting phone that stopped polling for this long loses its turn (it closed the tab).
     live_waiting_stale_seconds: int = Field(default=45, alias="LIVE_WAITING_STALE_SECONDS")

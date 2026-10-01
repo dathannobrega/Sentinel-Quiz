@@ -119,6 +119,7 @@ _version_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
 # Every kick/unkick changes the kicked count or max(kicked_at) and every join max(joined_at);
 # the TTL only bounds memory and pathological same-timestamp edits.
 STANDINGS_TTL_S = 60.0
+SNAPSHOT_SIGNATURE_TTL_S = 0.5  # a participant's snapshot may show a score up to 0.5 s old
 _standings_cache: dict[tuple[Any, ...], tuple[float, list[scoring.Standing]]] = {}
 _standings_lock = threading.Lock()
 _standings_inflight: dict[tuple[Any, ...], threading.Lock] = {}
@@ -451,7 +452,15 @@ def _participant_rows(participants: list[LiveParticipant]) -> list[scoring.Parti
     ]
 
 
-def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored: bool = False) -> list[scoring.Standing]:
+_signature_cache: dict[tuple[Any, ...], tuple[float, tuple[Any, ...], tuple[Any, ...]]] = {}
+
+
+def standings(
+    db: Session, room: Room, *, up_to: int | None, exclude_last_scored: bool = False, signature_ttl: float = 0.0
+) -> list[scoring.Standing]:
+    """``signature_ttl`` > 0 (participant snapshots only) reuses the cache validation for
+    that long: a reconnect storm of 1,000 sockets is then 1,000 dictionary hits instead of
+    2,000 aggregate queries. Reveals, leaderboards and the podium always validate."""
     positions = room.scored_positions(up_to=up_to)
     # Only items whose answers are closed count (the current one while open does not).
     session = room.session
@@ -460,6 +469,14 @@ def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored
     if exclude_last_scored and positions:
         positions = positions[:-1]
     streak_bonus = bool(room.settings.get("streak_bonus"))
+    sig_key = (session.id, tuple(positions), streak_bonus)
+    if signature_ttl > 0:
+        with _standings_lock:
+            cached_sig = _signature_cache.get(sig_key)
+        if cached_sig is not None and time.monotonic() - cached_sig[0] < signature_ttl:
+            hit = _cached_standings((session.id, tuple(positions), streak_bonus, cached_sig[1], cached_sig[2]))
+            if hit is not None:
+                return hit
     # Standings are read by every snapshot (a reconnect storm is N reads) and by each
     # reveal/leaderboard; they only change when an answer of a scored position or the
     # roster changes. Two aggregate queries decide whether the cached table is current.
@@ -485,6 +502,10 @@ def standings(db: Session, room: Room, *, up_to: int | None, exclude_last_scored
         ).one()
     )
     key = (session.id, tuple(positions), streak_bonus, answers_sig, roster_sig)
+    with _standings_lock:
+        if len(_signature_cache) > 512:
+            _signature_cache.clear()
+        _signature_cache[sig_key] = (time.monotonic(), answers_sig, roster_sig)
     hit = _cached_standings(key)
     if hit is not None:
         return hit
@@ -772,7 +793,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         ]
     if role == "participant" and participant_id:
         participant = db.get(LiveParticipant, participant_id)
-        board = standings(db, room, up_to=position)
+        board = standings(db, room, up_to=position, signature_ttl=SNAPSHOT_SIGNATURE_TTL_S)
         mine = next((s for s in board if s.participant_id == participant_id), None)
         last_answer = None
         if position is not None:

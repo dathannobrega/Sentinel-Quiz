@@ -90,7 +90,7 @@ async def run(hub: Any, session: LiveSession) -> dict[str, Any]:
     backend = str(settings.live_bus_backend or "memory")
     if not bus_ok:
         checks.append(_check("realtime_bus", "fail", "unreachable", backend=backend))
-    elif backend != "redis" and int(getattr(settings, "uvicorn_workers", 1) or 1) > 1:
+    elif backend != "redis" and int(settings.uvicorn_workers or 1) > 1:
         checks.append(_check("realtime_bus", "fail", "memory_bus_with_workers", backend=backend))
     else:
         checks.append(_check("realtime_bus", "ok", "", backend=backend, latency_ms=bus_ms))
@@ -103,6 +103,16 @@ async def run(hub: Any, session: LiveSession) -> dict[str, Any]:
     )
     keys_ok = bool(str(settings.live_token_keys or "").strip())
     checks.append(_check("token_keys", "ok" if keys_ok or not production else "fail", "" if keys_ok else "dev_key"))
+
+    # RNF-302 at scale: if a worker dies, its sockets reconnect to the others at ~100/s
+    # each; above ~500 people per worker that takes longer than 5 s.
+    workers = max(1, int(settings.uvicorn_workers or 1))
+    per_worker = max(1, int(settings.live_sockets_per_worker or 500))
+    recommended = -(-int(session.max_participants) // per_worker)
+    checks.append(
+        _check("workers", "warn" if workers < recommended else "ok", "few_workers" if workers < recommended else "",
+               workers=workers, recommended=recommended, max_participants=int(session.max_participants))
+    )
 
     lag = metrics.summary()["histograms"].get("live_event_loop_lag_seconds") or {}
     p95 = lag.get("p95_ms")

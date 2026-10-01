@@ -214,4 +214,10 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
+    try:  # 2,000 client sockets in one process: the generator's loop is the first bottleneck
+        import uvloop
+
+        uvloop.install()
+    except ImportError:
+        pass
     sys.exit(asyncio.run(main()))

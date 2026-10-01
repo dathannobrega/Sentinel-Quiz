@@ -299,9 +299,12 @@ def test_preflight_reports_readiness(live_on, login_client, make_client):
     session = host.post("/api/live/sessions", json={"quiz_id": published_quiz(host)["id"]}).json()
     result = host.get(f"/api/live/sessions/{session['id']}/preflight").json()
     checks = {c["key"]: c for c in result["checks"]}
-    assert {"database", "capacity", "content", "realtime_bus", "rate_limit", "token_keys", "event_loop"} <= set(checks)
+    assert {"database", "capacity", "content", "realtime_bus", "rate_limit", "token_keys", "event_loop", "workers"} <= set(checks)
     assert checks["content"]["status"] == "ok" and checks["database"]["status"] in {"ok", "warn"}
-    assert result["status"] in {"ready", "attention"} and result["large_room"] is True  # default cap is 1,000
+    assert result["status"] in {"ready", "attention"} and result["large_room"] is True  # default cap is 2,000
+    # 2,000 people on 1 worker: a crash would take far longer than 5 s to reconnect (RNF-302).
+    assert checks["workers"] == {"key": "workers", "status": "warn", "detail": "few_workers",
+                                 "values": {"workers": 1, "recommended": 4, "max_participants": 2000}}
     stranger, _ = login_client()
     assert stranger.get(f"/api/live/sessions/{session['id']}/preflight").status_code == 404
 
