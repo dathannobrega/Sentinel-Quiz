@@ -120,4 +120,10 @@ describe("helpers", () => {
     expect(progressOf(attemptState({ index: 4, total: 4, status: "finished" }))).toEqual({ current: 4, total: 4, fraction: 1 });
     expect(progressOf(null)).toEqual({ current: 0, total: 0, fraction: 0 });
   });
+
+  it("progressOf keeps the corrected item's number while its correction is shown", () => {
+    // The server already moved to item 2 (index 1); the screen still corrects item 1.
+    expect(progressOf(attemptState({ index: 1, total: 4 }), true)).toEqual({ current: 1, total: 4, fraction: 0.25 });
+    expect(progressOf(attemptState({ index: 4, total: 4, status: "finished" }), true).current).toBe(4);
+  });
 });

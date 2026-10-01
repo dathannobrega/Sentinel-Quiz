@@ -4,6 +4,7 @@ export const quizReports = {
   },
   header: {
     context: "Resultados · PIN {code}",
+    contextChallenge: "Resultados · link {code}",
     back: "Sessões do quiz",
     meta: "Versão {version} · {date}",
     generated: "Relatório gerado em {date}",

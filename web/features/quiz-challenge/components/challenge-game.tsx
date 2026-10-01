@@ -93,7 +93,8 @@ function GameInner({ slug, info, credentials, onTokenLost, onLeave, onTokenRefre
 
   const attempt = play.attempt;
   const inProgress = attempt?.status === "in_progress";
-  const progress = useMemo(() => progressOf(attempt), [attempt]);
+  const showingCorrection = Boolean(play.feedback);
+  const progress = useMemo(() => progressOf(attempt, showingCorrection), [attempt, showingCorrection]);
   const name = credentials.displayName;
 
   let key: string;

@@ -155,11 +155,19 @@ export async function withRetry<T>(
   }
 }
 
-/** Progress shown to people: "item 3 of 6" (1-based, clamped). */
-export function progressOf(state: Pick<LiveAttemptState, "index" | "total" | "status"> | null): { current: number; total: number; fraction: number } {
+/**
+ * Progress shown to people: "item 3 of 6" (1-based, clamped). While the correction of an
+ * answer is on screen the server has already moved on, so the header keeps the number of
+ * the item being corrected.
+ */
+export function progressOf(
+  state: Pick<LiveAttemptState, "index" | "total" | "status"> | null,
+  showingCorrection = false
+): { current: number; total: number; fraction: number } {
   if (!state || state.total <= 0) {
     return { current: 0, total: 0, fraction: 0 };
   }
   const done = state.status === "finished" ? state.total : Math.min(state.index, state.total);
-  return { current: Math.min(done + 1, state.total), total: state.total, fraction: done / state.total };
+  const current = showingCorrection ? Math.max(done, 1) : done + 1;
+  return { current: Math.min(current, state.total), total: state.total, fraction: done / state.total };
 }

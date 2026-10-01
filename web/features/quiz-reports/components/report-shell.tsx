@@ -120,7 +120,9 @@ function ReportView({ report, refetch, refreshing }: { report: LiveReport; refet
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="min-w-0 flex-1">
           <p className="mb-1 flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium text-fg-muted">
-            {t("quizReports.header.context", { code: challenge?.challenge.slug ?? session.join_code })}
+            {challenge
+              ? t("quizReports.header.contextChallenge", { code: challenge.challenge.slug })
+              : t("quizReports.header.context", { code: session.join_code })}
             {challenge ? (
               <>
                 <ChallengeBadge />
