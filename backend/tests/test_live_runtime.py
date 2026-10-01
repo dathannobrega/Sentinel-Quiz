@@ -322,3 +322,38 @@ def test_rehearsal_bots_answer_and_stay_out_of_reports(live_on, login_client, ma
     assert report["session"]["rehearsal"] is True
     # Live leaderboards do include them (it is a dress rehearsal).
     assert len(runtime.standings(db, runtime.load_room(db, sid), up_to=0)) == 13
+
+
+def test_incremental_option_counts_match_a_full_recount(live_on, login_client, make_client, db, monkeypatch):
+    """The live distribution reads only new rows per tick; it must equal a full recount,
+    also after rows settle below the watermark."""
+    poll = {"item_type": "poll", "prompt": "Usa MFA?", "options": [{"text": "Sim"}, {"text": "Não"}, {"text": "Às vezes"}], "time_limit_s": 60}
+    host, _ = login_client()
+    session = _session(host, settings_patch={"reading_phase_s": 0}, items=[poll])
+    sid = session["id"]
+    guest = make_client()
+    people = [_join(guest, session["join_code"], f"P{i}") for i in range(9)]
+    t0 = utcnow()
+    runtime.start(db, sid, now=t0)
+    ids = {o["text"]: o["id"] for o in live_items.public_question(sid, 0, runtime.load_room(db, sid).items[0])["options"]}
+    picks = ["Sim", "Não", "Sim", "Às vezes", "Sim", "Não", "Sim", "Sim", "Não"]
+
+    def full() -> dict[str, int]:
+        expected = {oid: 0 for oid in ids.values()}
+        for text in picks[:answered]:
+            expected[ids[text]] += 1
+        return expected
+
+    answered = 0
+    for batch in (3, 4, 2):
+        for person, text in zip(people[answered:answered + batch], picks[answered:answered + batch]):
+            _submit(db, sid, person, 0, text, t0 + timedelta(seconds=1))
+        answered += batch
+        assert runtime.option_counts(db, runtime.load_room(db, sid), 0) == full()
+        assert runtime.option_counts(db, runtime.load_room(db, sid), 0) == full()  # a tick with nothing new
+    # Rows older than the settle window move under the watermark; counts stay exact.
+    monkeypatch.setattr(runtime, "TALLY_SETTLE_S", -60.0)
+    assert runtime.option_counts(db, runtime.load_room(db, sid), 0) == full()
+    tally = runtime._tallies[(sid, 0)]  # noqa: SLF001
+    assert tally.low > 0 and not tally.seen
+    assert runtime.option_counts(db, runtime.load_room(db, sid), 0) == full()

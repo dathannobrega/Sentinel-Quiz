@@ -280,3 +280,30 @@ def test_redis_bus_retries_publish_and_recovers(monkeypatch):
         assert live_bus._pubsub.subscribed == [bus_module.channel_name("s1")] and recovered == [True]
 
     asyncio.run(scenario())
+
+
+def test_personal_frames_splice_matches_a_full_encode(monkeypatch):
+    """The reveal/podium is serialized once and each person's block spliced in."""
+    import json
+
+    from app.live import gateway, protocol, runtime
+
+    public = {"qi": 2, "counts": {"o_a": 3}, "explanation": 'aspas " e \\u0001 e ação'}
+    blocks = {"p1": {"correct": True, "points": 900, "rank": 1}, "p2": {"correct": None, "rank": None}}
+
+    class _Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(gateway, "live_db", lambda: _Db())
+    monkeypatch.setattr(runtime, "load_room", lambda db, sid: None)
+    monkeypatch.setattr(runtime, "personal_blocks", lambda db, room, kind, pids: blocks)
+    frames = gateway._personal_frames("s", "reveal", ["p1", "p2"], "question.reveal", public, 7)  # noqa: SLF001
+    for pid, text in frames.items():
+        frame = json.loads(text)
+        expected = json.loads(protocol.dumps(protocol.envelope("question.reveal", {**public, "my": blocks[pid]}, seq=7)))
+        frame.pop("sts"), expected.pop("sts")
+        assert frame == expected

@@ -266,24 +266,68 @@ def _answered_count(db: Session, session_id: str, position: int) -> int:
     )
 
 
+@dataclass
+class _Tally:
+    """Option counts of one open item, kept incrementally per process."""
+
+    low: int = 0  # every row with id <= low is counted (and settled)
+    seen: dict[int, float] = field(default_factory=dict)  # counted ids above ``low`` -> received (epoch s)
+    counts: Counter = field(default_factory=Counter)  # option key -> answers
+
+
+TALLY_SETTLE_S = 5.0  # a row commits within this of its id being allocated (batch commits are ms)
+_tallies: dict[tuple[str, int], _Tally] = {}
+_tally_lock = threading.Lock()
+
+
 def option_counts(db: Session, room: Room, position: int) -> dict[str, int]:
+    """Live distribution of an option item. Read 4x/s per room while it is open: only
+    rows newer than the settled watermark are read and parsed (2,000 answers re-parsed
+    every tick competed with the answer path for the GIL). Rows above the watermark are
+    remembered by id, so a lower id committed a little later is still counted once."""
     item = room.item(position)
     if item is None or item["item_type"] not in registry.OPTION_TYPES:
         return {}
     key_to_id = {key: oid for oid, key in registry.option_id_map(room.session.id, position, item).items()}
-    counts = {oid: 0 for oid in key_to_id.values()}
+    cache_key = (room.session.id, position)
+    with _tally_lock:
+        tally = _tallies.get(cache_key)
+        if tally is None:
+            if len(_tallies) > 512:
+                _tallies.clear()
+            tally = _tallies[cache_key] = _Tally()
+        low, seen = tally.low, dict(tally.seen)
     rows = db.execute(
-        select(LiveAnswerEvent.response_json).where(
+        select(LiveAnswerEvent.id, LiveAnswerEvent.response_json, LiveAnswerEvent.received_at).where(
             LiveAnswerEvent.session_id == room.session.id,
             LiveAnswerEvent.position == position,
             LiveAnswerEvent.event_type == "submitted",
+            LiveAnswerEvent.id > low,
         )
-    ).scalars()
-    for response in rows:
-        for key in (response or {}).get("keys") or []:
-            if key in key_to_id:
-                counts[key_to_id[key]] += 1
-    return counts
+    ).all()
+    fresh: list[tuple[int, list[str], float]] = []
+    for row_id, response, received in rows:
+        if row_id in seen:
+            continue
+        fresh.append((row_id, list((response or {}).get("keys") or []), received.timestamp() if received else time.time()))
+    settled_before = time.time() - TALLY_SETTLE_S
+    with _tally_lock:
+        for row_id, keys, received in fresh:
+            if row_id in tally.seen or row_id <= tally.low:
+                continue
+            tally.seen[row_id] = received
+            tally.counts.update(keys)
+        settled = [row_id for row_id, received in tally.seen.items() if received < settled_before]
+        if settled:
+            # Advance only up to ids below every unsettled one (a late commit stays countable).
+            unsettled = [row_id for row_id, received in tally.seen.items() if received >= settled_before]
+            ceiling = min(unsettled) if unsettled else max(settled) + 1
+            for row_id in settled:
+                if row_id < ceiling:
+                    tally.low = max(tally.low, row_id)
+            tally.seen = {row_id: received for row_id, received in tally.seen.items() if row_id > tally.low}
+        snapshot_counts = dict(tally.counts)
+    return {oid: int(snapshot_counts.get(key, 0)) for key, oid in key_to_id.items()}
 
 
 def _submitted_responses(db: Session, session_id: str, position: int) -> list[dict[str, Any]]:
@@ -385,7 +429,7 @@ def type_results(db: Session, room: Room, position: int, item: dict[str, Any], r
     return {}
 
 
-def lobby_state(db: Session, session_id: str) -> dict[str, Any]:
+def lobby_state(db: Session, session_id: str, *, count: int | None = None) -> dict[str, Any]:
     rows = db.execute(
         select(LiveParticipant.id, LiveParticipant.display_name, LiveParticipant.avatar_seed)
         .where(LiveParticipant.session_id == session_id, LiveParticipant.kicked_at.is_(None))
@@ -393,7 +437,7 @@ def lobby_state(db: Session, session_id: str) -> dict[str, Any]:
         .limit(RECENT_LOBBY)
     ).all()
     return {
-        "count": participant_count(db, session_id),
+        "count": participant_count(db, session_id) if count is None else count,
         "recent": [{"participant_id": pid, "display_name": name, "avatar_seed": seed} for pid, name, seed in rows],
     }
 
@@ -679,7 +723,7 @@ def snapshot(db: Session, room: Room, *, role: str, participant_id: str | None =
         "rehearsal": session.mode == "rehearsal",
     }
     if session.phase == "lobby":
-        data["lobby"] = lobby_state(db, session.id)
+        data["lobby"] = lobby_state(db, session.id, count=count)
     if item is not None and session.phase in {"question", "locked", "reveal", "content"}:
         data["question"] = registry.public_question(session.id, position, item)
         data["timer"] = _timer_payload(session)

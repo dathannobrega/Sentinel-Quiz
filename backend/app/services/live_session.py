@@ -382,7 +382,7 @@ def join_session(
     # Live rooms: above the cap, or with approval on, people go to the waiting room
     # (Incremento 7). Challenges keep the cap as a hard limit.
     wait_reason = live_admission.needs_waiting(db, session, user)
-    if wait_reason is None and session.mode == "self_paced" and participant_count(db, session.id) >= session.max_participants:
+    if wait_reason is None and session.mode == "self_paced" and live_admission.at_capacity(db, session):
         raise api_error(409, "room_full", "This room is full.")
 
     if session.audience == "infantojuvenil":

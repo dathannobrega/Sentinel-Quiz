@@ -314,7 +314,14 @@ def _personal_frames(
     with live_db() as db:
         room = runtime.load_room(db, session_id)
         blocks = runtime.personal_blocks(db, room, kind, pids)
-    return {pid: protocol.dumps(protocol.envelope(type_, {**public_data, "my": block}, seq=seq)) for pid, block in blocks.items()}
+    # The public part is the same for everyone: serialize it once and splice each
+    # person's block in (2,000 full encodes of the reveal were most of its fan-out cost).
+    head, tail = protocol.dumps(protocol.envelope(type_, {**public_data, "my": _MY_SLOT}, seq=seq)).split(_MY_SLOT_JSON, 1)
+    return {pid: head + protocol.dumps(block) + tail for pid, block in blocks.items()}
+
+
+_MY_SLOT = "\u0001my-block\u0001"
+_MY_SLOT_JSON = protocol.dumps(_MY_SLOT)
 
 
 # ----------------------------------------------------------------------------- answers

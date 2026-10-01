@@ -86,16 +86,35 @@ def name_waiting(db: Session, session_id: str, key: str) -> bool:
 
 # ----------------------------------------------------------------------------- joining the queue
 
+# Concurrent joins (several workers x threadpool) all read the count before any inserts:
+# within this many seats of the cap the decision is taken under a row lock on the room,
+# so the cap is exact; far from it the join storm stays lock-free.
+CAP_LOCK_MARGIN = 128
+
+
+def lock_room(db: Session, session_id: str) -> None:
+    """Serialize seat decisions of one room until the caller's commit (PostgreSQL)."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(select(LiveSession.id).where(LiveSession.id == session_id).with_for_update())
+
+
 def needs_waiting(db: Session, session: LiveSession, user: User | None) -> str | None:
     """``approval`` | ``capacity`` | None (join directly). The host joining their own room
-    and challenges (no approval; capacity is a hard limit there) never wait."""
+    never waits. Challenges never queue: the caller applies their hard cap with the same
+    lock (see ``at_capacity``)."""
     if session.mode == "self_paced":
         return None
     if session.require_approval and not (user is not None and user.id == session.owner_user_id):
         return "approval"
-    if seats_taken(db, session.id) >= session.max_participants:
-        return "capacity"
-    return None
+    return "capacity" if at_capacity(db, session) else None
+
+
+def at_capacity(db: Session, session: LiveSession) -> bool:
+    taken = seats_taken(db, session.id)
+    if taken < int(session.max_participants) - CAP_LOCK_MARGIN:
+        return False
+    lock_room(db, session.id)
+    return seats_taken(db, session.id) >= int(session.max_participants)
 
 
 def enqueue(
@@ -294,8 +313,10 @@ def fill_seats(db: Session, session: LiveSession, *, now: datetime | None = None
     now = now or utcnow()
     if session.status == "finished" or session.room_locked:
         return 0
+    lock_room(db, session.id)  # two workers filling at once must not overshoot the cap
     free = int(session.max_participants) - seats_taken(db, session.id)
     if free <= 0:
+        db.commit()
         return 0
     stale_before = now - timedelta(seconds=int(settings.live_waiting_stale_seconds))
     admitted = 0
@@ -319,6 +340,7 @@ def admit(db: Session, session_id: str, *, request_ids: list[str] | None, now: d
     session = db.get(LiveSession, session_id)
     if session is None or session.status == "finished":
         return 0
+    lock_room(db, session_id)
     free = int(session.max_participants) - seats_taken(db, session.id)
     admitted = 0
     for request in _waiting(db, session_id, reason="approval", ids=request_ids, limit=ADMIT_BATCH_MAX):
