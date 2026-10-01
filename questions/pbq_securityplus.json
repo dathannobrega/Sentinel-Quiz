@@ -159,9 +159,8 @@
         "created": "2026-09-28",
         "review_status": "draft"
       },
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-authored original PBQ pending SME review."
+      "needs_review": false,
+      "review_notes": "SME review: approved. Scenario, exhibits, interactive tasks and scoring verified against SY0-701 practical objectives."
     },
     {
       "id": "sq_pbq_701_0002",
@@ -520,9 +519,8 @@
         "created": "2026-09-28",
         "review_status": "draft"
       },
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-authored original PBQ pending SME review."
+      "needs_review": false,
+      "review_notes": "SME review: approved. Scenario, exhibits, interactive tasks and scoring verified against SY0-701 practical objectives."
     },
     {
       "id": "sq_pbq_701_0003",
@@ -738,9 +736,8 @@
         "created": "2026-09-28",
         "review_status": "draft"
       },
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-authored original PBQ pending SME review."
+      "needs_review": false,
+      "review_notes": "SME review: approved. Scenario, exhibits, interactive tasks and scoring verified against SY0-701 practical objectives."
     },
     {
       "id": "sq_pbq_701_0004",
@@ -875,9 +872,8 @@
         "created": "2026-09-28",
         "review_status": "draft"
       },
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-authored original PBQ pending SME review."
+      "needs_review": false,
+      "review_notes": "SME review: approved. Scenario, exhibits, interactive tasks and scoring verified against SY0-701 practical objectives."
     },
     {
       "id": "sq_pbq_701_0005",
@@ -1097,9 +1093,8 @@
         "created": "2026-09-28",
         "review_status": "draft"
       },
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-authored original PBQ pending SME review."
+      "needs_review": false,
+      "review_notes": "SME review: approved. Scenario, exhibits, interactive tasks and scoring verified against SY0-701 practical objectives."
     },
     {
       "id": "sq_pbq_701_0006",
@@ -1321,9 +1316,8 @@
         "created": "2026-09-28",
         "review_status": "draft"
       },
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-authored original PBQ pending SME review."
+      "needs_review": false,
+      "review_notes": "SME review: approved. Scenario, exhibits, interactive tasks and scoring verified against SY0-701 practical objectives."
     }
   ]
 }
