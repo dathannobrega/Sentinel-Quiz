@@ -23,11 +23,13 @@ import hashlib
 import logging
 import random
 import secrets
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -326,7 +328,7 @@ def close_if_due(db: Session, session: LiveSession, *, now: datetime | None = No
         .execution_options(synchronize_session=False)
     ).rowcount
     if claimed:
-        board = {s["participant_id"]: s for s in _standings(db, session)}
+        board = {s["participant_id"]: s for s in _standings(db, session, fresh=True)}
         for participant in _real_participants(db, session.id):
             row = board.get(participant.id)
             participant.final_score = row["score"] if row else 0
@@ -460,10 +462,10 @@ def _attempt_deadline(session: LiveSession, started_at: datetime) -> datetime | 
     return deadline
 
 
-def _room(db: Session, session_id: str):
+def _room(db: Session, session: LiveSession):
     from app.live import runtime  # local: the runtime imports the services package
 
-    return runtime.load_room(db, session_id)
+    return runtime.room_from_session(db, session)
 
 
 def start_attempt(db: Session, participant: LiveParticipant, *, now: datetime | None = None) -> dict[str, Any]:
@@ -480,7 +482,7 @@ def start_attempt(db: Session, participant: LiveParticipant, *, now: datetime | 
     config = challenge_settings(session)
     if len(mine) >= config["attempts"]:
         raise api_error(409, "attempts_exhausted", "You have used every attempt of this challenge.")
-    room = _room(db, session.id)
+    room = _room(db, session)
     hidden = {int(p) for p in (session.hidden_positions or [])}
     attempt_id = str(uuid.uuid4())
     order = item_order(playable_positions(room.items, hidden), room.items, shuffle=config["shuffle_items"], seed=attempt_id)
@@ -556,8 +558,8 @@ def current_attempt(db: Session, participant: LiveParticipant, *, now: datetime 
 
 def _get_attempt(db: Session, participant: LiveParticipant, attempt_id: str, *, lock: bool = False) -> LiveAttempt:
     stmt = select(LiveAttempt).where(LiveAttempt.id == attempt_id, LiveAttempt.participant_id == participant.id)
-    if lock:
-        stmt = stmt.with_for_update()
+    if lock:  # the row as the database has it now (another tab may have answered)
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     attempt = db.execute(stmt).scalar_one_or_none()
     if attempt is None:
         raise api_error(404, "attempt_not_found", "Attempt not found.")
@@ -587,7 +589,7 @@ def _expire(db: Session, session: LiveSession, attempt: LiveAttempt, now: dateti
         _finish(attempt, attempt.deadline_at, reason)
         db.commit()
         return
-    room = _room(db, session.id)
+    room = _room(db, session)
     participant = db.get(LiveParticipant, attempt.participant_id)
     order = list(attempt.item_order_json or [])
     while attempt.current_index < len(order):
@@ -636,8 +638,8 @@ def answer(
     if db.execute(select(LiveAnswerEvent.id).where(LiveAnswerEvent.idempotency_key == answer_id)).first():
         db.commit()
         return {"status": "duplicate", "state": attempt_state(db, attempt, now=now)}
-    close_if_due(db, session, now=now)
-    attempt = _get_attempt(db, participant, attempt_id, lock=True)
+    if close_if_due(db, session, now=now):  # closing committed (and released the lock): read it again
+        attempt = _get_attempt(db, participant, attempt_id, lock=True)
     order = list(attempt.item_order_json or [])
     position_at_entry = order[attempt.current_index] if attempt.current_index < len(order) else None
     _expire(db, session, attempt, now)
@@ -649,7 +651,7 @@ def answer(
         status = "late" if position_at_entry == qi else ("already_answered" if qi in order[: attempt.current_index] else "stale")
         db.commit()
         return {"status": status, "state": attempt_state(db, attempt, now=now)}
-    room = _room(db, session.id)
+    room = _room(db, session)
     item = room.items[position]
     if item["item_type"] not in registry.INTERACTIVE_TYPES:
         db.commit()
@@ -718,7 +720,7 @@ def advance(db: Session, participant: LiveParticipant, attempt_id: str, *, index
     _expire(db, session, attempt, now)
     order = list(attempt.item_order_json or [])
     if attempt.status == "in_progress" and attempt.current_index == index and index < len(order):
-        room = _room(db, session.id)
+        room = _room(db, session)
         if room.items[order[index]]["item_type"] == "content":
             attempt.current_index += 1
             attempt.item_started_at = now
@@ -809,7 +811,7 @@ def _response_view(response: dict[str, Any], key_to_id: dict[str, str]) -> dict[
 def attempt_state(db: Session, attempt: LiveAttempt, *, now: datetime | None = None) -> dict[str, Any]:
     now = now or utcnow()
     session = db.get(LiveSession, attempt.session_id)
-    room = _room(db, session.id)
+    room = _room(db, session)
     participant = db.get(LiveParticipant, attempt.participant_id)
     order = list(attempt.item_order_json or [])
     config = challenge_settings(session)
@@ -848,7 +850,7 @@ def attempt_state(db: Session, attempt: LiveAttempt, *, now: datetime | None = N
 
 def attempt_summary(db: Session, session: LiveSession, attempt: LiveAttempt, *, room=None, now: datetime | None = None) -> dict[str, Any]:
     now = now or utcnow()
-    room = room or _room(db, session.id)
+    room = room or _room(db, session)
     config = challenge_settings(session)
     order = list(attempt.item_order_json or [])
     questions = [p for p in order if room.items[p]["item_type"] in registry.INTERACTIVE_TYPES]
@@ -871,9 +873,7 @@ def attempt_summary(db: Session, session: LiveSession, attempt: LiveAttempt, *, 
         "items": [],
     }
     if config["leaderboard"]:
-        board = _standings(db, session)
-        summary["ranked"] = len(board)
-        summary["rank"] = next((row["rank"] for row in board if row["participant_id"] == attempt.participant_id), None)
+        summary["rank"], summary["ranked"] = _rank_of(db, session, attempt.participant_id)
     if summary["corrections_visible"]:
         events = db.execute(
             select(LiveAnswerEvent).where(
@@ -922,7 +922,72 @@ def _real_participants(db: Session, session_id: str) -> list[LiveParticipant]:
     )
 
 
-def _standings(db: Session, session: LiveSession) -> list[dict[str, Any]]:
+_BOARD_LOCK = threading.Lock()
+_BOARD_CACHE: dict[str, tuple[tuple[Any, ...], float, list[dict[str, Any]]]] = {}
+BOARD_STALE_S = 2.0  # while a challenge is open, a burst of finishes shares one table
+
+
+def _board_signature(db: Session, session_id: str) -> tuple[Any, ...]:
+    attempts = db.execute(
+        select(func.count(), func.max(LiveAttempt.finished_at)).where(
+            LiveAttempt.session_id == session_id, LiveAttempt.status == "finished"
+        )
+    ).one()
+    roster = db.execute(
+        select(func.count(LiveParticipant.kicked_at), func.count(LiveParticipant.erased_at), func.max(LiveParticipant.kicked_at))
+        .where(LiveParticipant.session_id == session_id)
+    ).one()
+    return tuple(attempts) + tuple(roster)
+
+
+def _standings(db: Session, session: LiveSession, *, fresh: bool = False) -> list[dict[str, Any]]:
+    """The ranking (RF-807), cached per process: exact when nothing changed, and at most
+    ``BOARD_STALE_S`` old while people keep finishing an open challenge."""
+    signature = _board_signature(db, session.id)
+    now = time.monotonic()
+    with _BOARD_LOCK:
+        hit = _BOARD_CACHE.get(session.id)
+    if hit is not None and not fresh:
+        same = hit[0] == signature
+        if same or (session.status != "finished" and now - hit[1] < BOARD_STALE_S):
+            return hit[2]
+    rows = _compute_standings(db, session)
+    with _BOARD_LOCK:
+        if len(_BOARD_CACHE) > 256:
+            _BOARD_CACHE.clear()
+        _BOARD_CACHE[session.id] = (signature, now, rows)
+    return rows
+
+
+def _rank_of(db: Session, session: LiveSession, participant_id: str) -> tuple[int | None, int]:
+    """(provisional rank, people ranked) of one participant with two aggregate queries,
+    for the end-of-attempt screen (no full table per finishing person)."""
+    eligible = (
+        select(LiveParticipant.id).where(
+            LiveParticipant.session_id == session.id, LiveParticipant.kicked_at.is_(None),
+            LiveParticipant.erased_at.is_(None), LiveParticipant.is_bot.is_(False), LiveParticipant.is_preview.is_(False),
+        )
+    )
+    finished = select(LiveAttempt).where(
+        LiveAttempt.session_id == session.id, LiveAttempt.status == "finished", LiveAttempt.participant_id.in_(eligible)
+    ).subquery()
+    ranked = int(db.execute(select(func.count(func.distinct(finished.c.participant_id)))).scalar_one())
+    mine = [a for a in _attempts(db, session.id, status="finished", participant_id=participant_id)]
+    if not mine:
+        return None, ranked
+    best = max(mine, key=lambda a: (a.score, a.correct, -a.correct_ms))
+    better = (
+        (finished.c.score > best.score)
+        | ((finished.c.score == best.score) & (finished.c.correct > best.correct))
+        | ((finished.c.score == best.score) & (finished.c.correct == best.correct) & (finished.c.correct_ms < best.correct_ms))
+    )
+    ahead = int(db.execute(
+        select(func.count(func.distinct(finished.c.participant_id))).where(better, finished.c.participant_id != participant_id)
+    ).scalar_one())
+    return ahead + 1, ranked
+
+
+def _compute_standings(db: Session, session: LiveSession) -> list[dict[str, Any]]:
     """RF-807: score, correct answers, faster correct answers, joined first."""
     counted = counted_attempts(db, session)
     rows = []
@@ -985,7 +1050,7 @@ def report_block(db: Session, session: LiveSession) -> dict[str, Any]:
         "attempts_per_person": data["attempts_per_person"],
         "repeat_suspects": data["repeat_suspects"],
         "median_duration_ms": data["median_duration_ms"],
-        "repeat_participants": sorted({r["participant_id"] for r in _standings(db, session) if r["repeat_suspect"]}),
+        "repeat_participants": sorted({r["participant_id"] for r in _standings(db, session, fresh=True) if r["repeat_suspect"]}),
     }
 
 
@@ -1001,11 +1066,10 @@ def my_results(db: Session, participant: LiveParticipant, *, room=None) -> dict[
     now = utcnow()
     session = db.get(LiveSession, participant.session_id)
     close_if_due(db, session, now=now)
-    room = room or _room(db, session.id)
+    room = room or _room(db, session)
     mine = [a for a in _attempts(db, session.id, participant_id=participant.id) if a.status == "finished"]
     attempt = counted_attempts(db, session).get(participant.id) or (mine[-1] if mine else None)
-    board = _standings(db, session)
-    rank = next((row["rank"] for row in board if row["participant_id"] == participant.id), None)
+    rank, ranked = _rank_of(db, session, participant.id)
     visible = _feedback_visible(session, attempt is not None, now)
     items: list[dict[str, Any]] = []
     total_scored = 0
@@ -1044,7 +1108,7 @@ def my_results(db: Session, participant: LiveParticipant, *, room=None) -> dict[
         "title": room.title,
         "display_name": participant.display_name,
         "rank": rank if challenge_settings(session)["leaderboard"] or state_of(session, now) == "closed" else None,
-        "participant_count": len(board),
+        "participant_count": ranked,
         "score": attempt.score if attempt else 0,
         "correct": attempt.correct if (attempt and visible) else 0,
         "answered": attempt.answered if attempt else 0,

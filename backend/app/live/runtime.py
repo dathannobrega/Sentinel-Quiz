@@ -124,6 +124,12 @@ def load_room(db: Session, session_id: str) -> Room:
     session = db.get(LiveSession, session_id, populate_existing=True)
     if session is None:
         raise RoomNotFound(session_id)
+    return room_from_session(db, session)
+
+
+def room_from_session(db: Session, session: LiveSession) -> Room:
+    """The room of an already loaded session (no re-read of the session row)."""
+    session_id = session.id
     cached = _version_cache.get(session.quiz_version_id)
     if cached is None:
         version = db.get(LiveQuizVersion, session.quiz_version_id)

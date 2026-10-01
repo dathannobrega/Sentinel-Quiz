@@ -74,6 +74,9 @@ def update_challenge(
 async def _public(fn: Callable[..., Any], *args: Any) -> Any:
     def _call() -> Any:
         with live_db() as db:
+            # Each call reads what it needs and commits; keeping the loaded rows after a
+            # commit avoids re-reading the session, attempt and participant (CPU per answer).
+            db.expire_on_commit = False
             return fn(db, *args)
 
     return await run_in_threadpool(_call)
