@@ -790,15 +790,52 @@ def _presenter_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+PODIUM_TTL_S = 60.0
+_podium_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+_podium_lock = threading.Lock()
+
+
 def podium_payload(db: Session, room: Room) -> dict[str, Any]:
+    """The podium is the same for everyone: computed once per room state (2,000 reconnects
+    after the end would otherwise each recompute it, RNF-201)."""
+    key = (room.session.id, int(room.session.state_seq or 0))
+    with _podium_lock:
+        hit = _podium_cache.get(key)
+    if hit is not None and time.monotonic() - hit[0] < PODIUM_TTL_S:
+        return hit[1]
+    payload = _compute_podium(db, room)
+    with _podium_lock:
+        if len(_podium_cache) > 256:
+            _podium_cache.clear()
+        _podium_cache[key] = (time.monotonic(), payload)
+    return payload
+
+
+def _compute_podium(db: Session, room: Room) -> dict[str, Any]:
     board = standings(db, room, up_to=room.total - 1)
     scored = room.scored_positions(up_to=room.total - 1)
     hardest: tuple[float, int] | None = None
-    answers = scoring.effective_answers(_events(db, room.session.id))
+    # Column-only rows and one pass: 2,000 people x 20 items as ORM objects with their JSON
+    # cost ~200 ms per host snapshot.
+    rows = db.execute(
+        select(
+            LiveAnswerEvent.position, LiveAnswerEvent.participant_id, LiveAnswerEvent.event_type,
+            LiveAnswerEvent.points, LiveAnswerEvent.score_fraction, LiveAnswerEvent.is_correct, LiveAnswerEvent.server_ms,
+        )
+        .where(LiveAnswerEvent.session_id == room.session.id, LiveAnswerEvent.position.in_(scored))
+        .order_by(LiveAnswerEvent.id)
+    ).all() if scored else []
+    tally: dict[int, list[int]] = {}
+    for (position, _pid), answer in scoring.effective_answers(rows, with_response=False).items():
+        if answer.fraction is None:
+            continue
+        counts = tally.setdefault(position, [0, 0])
+        counts[0] += 1 if answer.fraction >= 1 else 0
+        counts[1] += 1
     for position in scored:
-        fractions = [a.fraction for (p, _pid), a in answers.items() if p == position and a.fraction is not None]
-        if fractions:
-            pct = sum(1 for f in fractions if f >= 1) / len(fractions)
+        right, total = tally.get(position, (0, 0))
+        if total:
+            pct = right / total
             if hardest is None or pct < hardest[0]:
                 hardest = (pct, position)
     avg_pct = (
