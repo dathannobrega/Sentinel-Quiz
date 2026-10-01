@@ -24,7 +24,10 @@ QUESTION_FORMATS = ("mcq", "pbq")
 # audited yet, personal_use = private study only (never shown in live quizzes).
 LICENSE_SCOPES = ("own", "platform", "pending_audit", "personal_use")
 # Sentinel Arena (0019).
-LIVE_ITEM_TYPES = ("single_choice", "multi_choice", "true_false", "type_answer", "poll", "content", "leaderboard")
+LIVE_ITEM_TYPES = (
+    "single_choice", "multi_choice", "true_false", "type_answer", "poll", "content", "leaderboard",
+    "ordering", "numeric", "word_cloud",  # GA types (Incremento 5)
+)
 LIVE_SOURCE_KINDS = ("custom", "bank", "ai")
 LIVE_REVIEW_STATES = ("ok", "needs_review")
 LIVE_SESSION_STATUSES = ("lobby", "live", "finished")
@@ -1203,6 +1206,8 @@ class LiveSession(Base):
     paused_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # Positions removed by moderation while the room is open (RF-1114).
     hidden_positions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Word-cloud words the host hid from the projector: {"<position>": [normalized, ...]}.
+    hidden_words: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Retention (RF-1109): names anonymized / raw events purged; the report survives as
     # an aggregated snapshot taken before the purge.
     names_anonymized_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

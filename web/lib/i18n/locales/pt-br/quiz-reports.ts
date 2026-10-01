@@ -115,6 +115,24 @@ export const quizReports = {
       }
     }
   },
+  ga: {
+    orderingTitle: "Acerto por posição",
+    methods: {
+      kendall: "Pontuação parcial (Kendall)",
+      exact: "Só a ordem exata pontua"
+    },
+    slotSummary: "Posição {position}, {text}: {percent} acertaram",
+    orderingStats: "Ordem exata: {exact} · Crédito médio: {avg}",
+    numericTitle: "Distribuição das respostas",
+    numericAnswer: "Resposta: {value}",
+    numericAnswerTolerance: "Resposta: {value} (± {tolerance})",
+    numericStats: "{n} respostas · Média: {mean} · Mediana: {median}",
+    binSummary: "de {from} a {to}: {count}",
+    wordsTitle: "Palavras enviadas",
+    wordsDistinct: "{count} diferentes",
+    hidden: "ocultada pelo apresentador",
+    noWords: "Nenhuma palavra enviada."
+  },
   participants: {
     title: "Participantes",
     description: "Ranking final. Clique no cabeçalho para ordenar.",

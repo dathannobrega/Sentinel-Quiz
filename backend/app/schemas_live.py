@@ -5,12 +5,15 @@ web/types/api/live.ts mirrors it). Kept apart from schemas.py (DC-19).
 """
 from __future__ import annotations
 
-from typing import Annotated, Any, List, Literal, Optional
+from typing import Annotated, Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
 ThemeKey = Literal["sentinel", "terminal", "neon_soc", "aurora", "high_contrast"]
-ItemType = Literal["single_choice", "multi_choice", "true_false", "type_answer", "poll", "content", "leaderboard"]
+ItemType = Literal[
+    "single_choice", "multi_choice", "true_false", "type_answer", "poll", "content", "leaderboard",
+    "ordering", "numeric", "word_cloud",
+]
 Scoring = Literal["speed", "fixed", "none"]
 Preset = Literal["turma", "evento"]
 Audience = Literal["adulto", "misto", "infantojuvenil"]
@@ -72,6 +75,16 @@ class ItemWriteIn(_Strict):
     points_multiplier: Optional[Literal[0, 1, 2]] = None
     explanation: Optional[str] = Field(default=None, max_length=2000)
     presenter_notes: Optional[str] = Field(default=None, max_length=2000)
+    # GA types (Incremento 5). Numbers also accept pt-BR text ("1.234,5").
+    order_method: Optional[Literal["kendall", "exact"]] = None
+    min: Optional[Union[float, Annotated[str, Field(max_length=32)]]] = None
+    max: Optional[Union[float, Annotated[str, Field(max_length=32)]]] = None
+    step: Optional[Union[float, Annotated[str, Field(max_length=32)]]] = None
+    unit: Optional[str] = Field(default=None, max_length=12)
+    value: Optional[Union[float, Annotated[str, Field(max_length=32)]]] = None
+    tolerance: Optional[Union[float, Annotated[str, Field(max_length=32)]]] = None
+    partial: Optional[bool] = None
+    max_words: Optional[int] = Field(default=None, ge=1, le=3)
 
     def write_fields(self) -> dict[str, Any]:
         """Only the fields the client actually sent (partial update semantics)."""

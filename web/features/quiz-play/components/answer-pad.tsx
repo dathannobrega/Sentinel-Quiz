@@ -9,6 +9,9 @@ import { LqButton, LqInput } from "@/features/quiz-live/components/lq-ui";
 import { vibrate } from "@/features/quiz-live/components/live-chrome";
 import type { LiveAnswerDraft } from "@/features/quiz-live/lib/live-store";
 import { allowsMultipleChoices, optionLetter, type PublicQuestion } from "@/features/quiz-live/lib/protocol";
+import { NumericPad } from "@/features/quiz-play/components/numeric-pad";
+import { OrderingPad } from "@/features/quiz-play/components/ordering-pad";
+import { WordCloudPad } from "@/features/quiz-play/components/word-cloud-pad";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 
@@ -22,22 +25,34 @@ function gridFor(question: PublicQuestion): string {
   return "grid-cols-2";
 }
 
+interface PadProps {
+  question: PublicQuestion;
+  disabled?: boolean;
+  onSubmit: (answer: LiveAnswerDraft) => void;
+}
+
 /**
  * Answer input per item type (mobile-first, tactile):
  * - single / true-false / single poll: tap a tile → sent at once (the chosen tile grows, others recede);
  * - multi / multi poll: toggle tiles + "Enviar" with a "selecione N" hint;
- * - type answer: one big input.
+ * - type answer: one big input;
+ * - ordering / numeric / word cloud (Incremento 5): their own pads.
  * Each tile carries shape + letter + colour + text (never colour alone) and is ≥ 44 px.
  */
-export function AnswerPad({
-  question,
-  disabled = false,
-  onSubmit
-}: {
-  question: PublicQuestion;
-  disabled?: boolean;
-  onSubmit: (answer: LiveAnswerDraft) => void;
-}) {
+export function AnswerPad(props: PadProps) {
+  switch (props.question.item_type) {
+    case "ordering":
+      return <OrderingPad {...props} />;
+    case "numeric":
+      return <NumericPad {...props} />;
+    case "word_cloud":
+      return <WordCloudPad {...props} />;
+    default:
+      return <OptionPad {...props} />;
+  }
+}
+
+function OptionPad({ question, disabled = false, onSubmit }: PadProps) {
   const { t } = useI18n();
   const reduced = useLqReducedMotion();
   const multiple = allowsMultipleChoices(question);

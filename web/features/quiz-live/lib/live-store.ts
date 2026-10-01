@@ -11,6 +11,10 @@
  * - `timer` is always the ROOM timer (pause state included). A participant's own deadline (extended
  *   time, RF-622) is derived with `selectMyTimer`, never stored, so pause/resume/extend frames that
  *   only carry the room timer keep it right.
+ * - GA types (Incremento 5): `wordCloud`/`numeric` hold the live aggregates of the open question
+ *   (results.tick, snapshot); the revealed ones live inside `reveal`. `word_cloud.update` (host hid a
+ *   word) replaces the cloud of the current question in both places. `hiddenWords` (host only) is the
+ *   server's list of hidden keys, from the snapshot's presenter block and the host `word_cloud.update`.
  * - `item.removed` (moderation, Incremento 4) swaps the item on screen for the neutral placeholder
  *   at once (no answers, no timer); the fresh `room.snapshot` the server sends right after is still
  *   authoritative. `removedItem` records the event so the host can show a toast.
@@ -30,6 +34,7 @@ import {
   type LobbyPerson,
   type LobbyState,
   type MySnapshot,
+  type NumericResults,
   type OptionCounts,
   type PodiumStats,
   type PublicQuestion,
@@ -38,7 +43,8 @@ import {
   type Snapshot,
   type SnapshotSettings,
   type Standing,
-  type TimeMultiplier
+  type TimeMultiplier,
+  type WordCloudResults
 } from "@/features/quiz-live/lib/protocol";
 import type { LiveItem, LivePhase, LiveSessionStatus, LiveThemeKey } from "@/types/api/live";
 
@@ -53,8 +59,13 @@ export interface LiveConnectionState {
 }
 
 export interface LiveAnswerDraft {
+  /** Choice types; ordering: every id in the chosen order. */
   choice?: string[];
   text?: string;
+  /** word_cloud (Incremento 5). */
+  words?: string[];
+  /** numeric (Incremento 5): already parsed in the person's locale. */
+  number?: number;
 }
 
 export type SubmissionStatus = "sending" | "accepted" | "rejected";
@@ -130,6 +141,10 @@ export interface LiveState {
   answered: number | null;
   answerTotal: number | null;
   counts: OptionCounts | null;
+  /** Live word cloud of the current question (host and projector; Incremento 5). */
+  wordCloud: WordCloudResults | null;
+  /** Live numeric histogram of the current question (host; projector with live distribution). */
+  numeric: NumericResults | null;
   lockReason: "timer" | "all_answered" | "host" | null;
   reveal: Reveal | null;
   leaderboard: LiveLeaderboard | null;
@@ -139,6 +154,8 @@ export interface LiveState {
   /** Host only. `presenterQi` = the qi the presenter item belongs to (it only arrives in snapshots). */
   presenter: { item: LiveItem; next_prompt: string | null } | null;
   presenterQi: number | null;
+  /** Host only: normalized keys hidden on the current word cloud (null = not known yet). */
+  hiddenWords: string[] | null;
   participants: HostParticipant[] | null;
 
   /** Participant only. */
@@ -200,6 +217,8 @@ export function createInitialLiveState(role: LiveRole | null = null): LiveState 
     answered: null,
     answerTotal: null,
     counts: null,
+    wordCloud: null,
+    numeric: null,
     lockReason: null,
     reveal: null,
     leaderboard: null,
@@ -207,6 +226,7 @@ export function createInitialLiveState(role: LiveRole | null = null): LiveState 
     lobby: null,
     presenter: null,
     presenterQi: null,
+    hiddenWords: null,
     participants: null,
     my: null,
     myTimeMultiplier: 1,
@@ -232,6 +252,8 @@ export function removedPlaceholder(question: PublicQuestion): PublicQuestion {
     points_multiplier: 0,
     scored: false,
     select_count: null,
+    numeric: null,
+    max_words: null,
     removed: true
   };
 }
@@ -249,6 +271,26 @@ function mergeLobbyRecent(previous: LobbyPerson[], incoming: LobbyPerson[]): Lob
   return merged.slice(0, MAX_LOBBY_RECENT);
 }
 
+/** `my.last_answer` → the local draft shape (ordering `order` travels as `choice`). */
+export function answerFromLast(last: NonNullable<MySnapshot["last_answer"]>): LiveAnswerDraft {
+  const answer: LiveAnswerDraft = {};
+  if (last.order) {
+    answer.choice = last.order;
+  } else if (last.choice) {
+    answer.choice = last.choice;
+  }
+  if (typeof last.text === "string") {
+    answer.text = last.text;
+  }
+  if (typeof last.number === "number") {
+    answer.number = last.number;
+  }
+  if (last.words) {
+    answer.words = last.words;
+  }
+  return answer;
+}
+
 function submissionFromSnapshot(snapshot: Snapshot, previous: LiveSubmission | null): LiveSubmission | null {
   const my = snapshot.my;
   if (snapshot.qi === null || !my) {
@@ -256,7 +298,7 @@ function submissionFromSnapshot(snapshot: Snapshot, previous: LiveSubmission | n
   }
   if (my.answered_current) {
     const answer: LiveAnswerDraft = my.last_answer
-      ? { choice: my.last_answer.choice, text: my.last_answer.text }
+      ? answerFromLast(my.last_answer)
       : previous?.qi === snapshot.qi
         ? previous.answer
         : {};
@@ -297,6 +339,8 @@ function applySnapshot(state: LiveState, snapshot: Snapshot, seq: number | undef
     answered: snapshot.answered ?? null,
     answerTotal: typeof snapshot.answered === "number" ? snapshot.participant_count : null,
     counts: snapshot.counts ?? snapshot.reveal?.counts ?? null,
+    wordCloud: snapshot.word_cloud ?? snapshot.reveal?.word_cloud ?? null,
+    numeric: snapshot.numeric ?? snapshot.reveal?.numeric ?? null,
     lockReason: null,
     reveal: snapshot.reveal ?? null,
     leaderboard: snapshot.leaderboard ?? null,
@@ -304,6 +348,7 @@ function applySnapshot(state: LiveState, snapshot: Snapshot, seq: number | undef
     lobby: snapshot.lobby ?? null,
     presenter: snapshot.presenter ?? null,
     presenterQi: snapshot.presenter ? snapshot.qi : null,
+    hiddenWords: snapshot.presenter?.hidden_words ?? null,
     participants: snapshot.participants ?? null,
     my: snapshot.my ?? null,
     myTimeMultiplier: snapshot.my ? normalizeTimeMultiplier(snapshot.my.time_multiplier) : state.myTimeMultiplier,
@@ -377,6 +422,9 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
         answered: 0,
         answerTotal: state.participantCount || null,
         counts: null,
+        wordCloud: null,
+        numeric: null,
+        hiddenWords: state.role === "host" ? [] : null,
         lockReason: null,
         reveal: null,
         leaderboard: null,
@@ -409,8 +457,19 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
       if (!sameQi(state, message.data.qi)) {
         return state;
       }
-      const counts = message.type === "results.tick" && message.data.counts ? message.data.counts : state.counts;
-      return { ...state, seq, answered: message.data.answered, answerTotal: message.data.total, counts };
+      if (message.type === "participant.progress") {
+        return { ...state, seq, answered: message.data.answered, answerTotal: message.data.total };
+      }
+      const data = message.data;
+      return {
+        ...state,
+        seq,
+        answered: data.answered,
+        answerTotal: data.total,
+        counts: data.counts ?? state.counts,
+        wordCloud: data.word_cloud ?? state.wordCloud,
+        numeric: data.numeric ?? state.numeric
+      };
     }
 
     case "question.paused":
@@ -466,6 +525,8 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
         qi: reveal.qi,
         reveal,
         counts: reveal.counts,
+        wordCloud: reveal.word_cloud ?? state.wordCloud,
+        numeric: reveal.numeric ?? state.numeric,
         answered: reveal.answered,
         answerTotal: reveal.total,
         previousRank: state.my?.rank ?? state.previousRank,
@@ -514,6 +575,15 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
     case "participant.kicked":
       return { ...state, seq, kicked: message.data };
 
+    case "word_cloud.update": {
+      const { qi, word_cloud: wordCloud, hidden_words: hidden } = message.data;
+      if (!sameQi(state, qi)) {
+        return state;
+      }
+      const reveal = state.reveal && state.reveal.qi === qi ? { ...state.reveal, word_cloud: wordCloud } : state.reveal;
+      return { ...state, seq, wordCloud, reveal, hiddenWords: hidden ?? state.hiddenWords };
+    }
+
     case "item.removed": {
       const { qi, current } = message.data;
       const removedItem: LiveRemovedItem = { qi, current, sts: message.sts };
@@ -531,6 +601,9 @@ function reduceServer(state: LiveState, message: ServerMessage): LiveState {
         answered: null,
         answerTotal: null,
         counts: null,
+        wordCloud: null,
+        numeric: null,
+        hiddenWords: null,
         lockReason: null,
         reveal: null,
         submission: null,
@@ -659,6 +732,10 @@ export interface StageView {
   answerTotal: number | null;
   /** Live distribution only when the quiz shows it (or for polls); never before reveal otherwise. */
   liveCounts: OptionCounts | null;
+  /** Word cloud: always public, like a poll (Incremento 5 §5). */
+  wordCloud: WordCloudResults | null;
+  /** Numeric histogram: only with the live distribution on (never the correct value). */
+  liveNumeric: NumericResults | null;
   lockReason: LiveState["lockReason"];
   reveal: Reveal | null;
   leaderboard: { top: Standing[]; total: number } | null;
@@ -689,6 +766,8 @@ export function selectStageView(state: LiveState): StageView {
     answered: state.answered,
     answerTotal: state.answerTotal,
     liveCounts: showLive ? state.counts : null,
+    wordCloud: state.question?.item_type === "word_cloud" ? state.wordCloud : null,
+    liveNumeric: state.settings?.show_live_distribution && state.question?.item_type === "numeric" ? state.numeric : null,
     lockReason: state.lockReason,
     reveal,
     leaderboard: state.leaderboard ? { top: state.leaderboard.top, total: state.leaderboard.total } : null,

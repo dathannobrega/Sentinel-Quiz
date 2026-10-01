@@ -286,8 +286,7 @@ def _participant_view(broadcast: runtime.Broadcast) -> dict[str, Any]:
     """Participants never see presenter-only data; respect show_correct_on_device."""
     data = dict(broadcast.data)
     if broadcast.type == "question.reveal" and data.get("hide_correct_on_device"):
-        data["correct_option_ids"] = []
-        data["accepted_answers"] = []
+        data = runtime.without_correct(data)
     data.pop("hide_correct_on_device", None)
     return data
 
@@ -655,6 +654,7 @@ HOST_ACTIONS: dict[str, Callable[..., runtime.Outcome]] = {
     "host.set_time": lambda db, sid, d: runtime.set_time_multiplier(
         db, sid, participant_id=d.participant_id, multiplier=float(d.multiplier)
     ),
+    "host.hide_word": lambda db, sid, d: runtime.hide_word(db, sid, qi=d.qi, word=d.word, hidden=d.hidden),
 }
 
 
@@ -682,6 +682,8 @@ async def _handle(conn: Connection, hub: LiveHub, frame: protocol.ClientFrame, d
                 qi=data.qi,
                 choice=data.choice,
                 text=data.text,
+                words=data.words,
+                number=data.number,
                 client_elapsed_ms=data.client_elapsed_ms,
                 rtt_min_ms=conn.rtt_min,
             )

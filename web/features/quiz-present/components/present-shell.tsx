@@ -14,6 +14,7 @@ import { isAnswerableType } from "@/features/quiz-live/lib/protocol";
 import { LiveProvider, useLive, useLiveConnection, useLiveState } from "@/features/quiz-live/lib/use-live-session";
 import { HostControlBar, HotkeysHelp, ParticipantsPanel } from "@/features/quiz-present/components/host-controls";
 import { PresenterView } from "@/features/quiz-present/components/presenter-view";
+import { WordModerationDialog } from "@/features/quiz-present/components/word-moderation";
 import { PhonePreviewPanel, PreflightDialog, usePhonePreview, usePreflight } from "@/features/quiz-present/components/room-ops";
 import { Stage } from "@/features/quiz-present/components/stage";
 import { useElementHeight, useFullscreen, usePresenterHotkeys, useWakeLock, type HotkeyCommand } from "@/features/quiz-present/hooks/use-stage-hooks";
@@ -171,7 +172,9 @@ const selectHostMeta = (state: LiveState) => ({
   joinCode: state.joinCode,
   maxParticipants: state.maxParticipants,
   rehearsal: state.rehearsal,
-  removedItem: state.removedItem
+  removedItem: state.removedItem,
+  wordCloud: state.question?.item_type === "word_cloud" ? state.wordCloud : null,
+  hiddenWords: state.hiddenWords
 });
 
 function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "presenter" }) {
@@ -194,6 +197,7 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
   const [openingDisplay, setOpeningDisplay] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [preflightOpen, setPreflightOpen] = useState(false);
+  const [wordsOpen, setWordsOpen] = useState(false);
   const preflight = usePreflight(sessionId);
   const preview = usePhonePreview(sessionId);
   const autoPreflightDone = useRef(false);
@@ -312,6 +316,18 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
       return next;
     });
   }, []);
+
+  // Word cloud moderation (Incremento 5 §7): the qi is read at click time, like the time controls.
+  const sendHideWord = useCallback(
+    (word: string, hidden: boolean) => {
+      const qi = live.store.getState().qi;
+      if (qi !== null) {
+        live.send({ type: "host.hide_word", data: { qi, word, hidden } }, { queueWhileOffline: false });
+      }
+    },
+    [live]
+  );
+  const wordCloudOpen = meta.itemType === "word_cloud" && (meta.phase === "question" || meta.phase === "locked" || meta.phase === "reveal");
 
   const toggleRoomLock = useCallback(() => {
     live.send({ type: "host.room_lock", data: { locked: !live.store.getState().roomLocked } }, { queueWhileOffline: false });
@@ -440,6 +456,8 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
       maxParticipants={maxParticipants}
       preflight={{ overall: preflight.overall, running: preflight.state.kind === "running", onOpen: () => setPreflightOpen(true) }}
       preview={rehearsal ? { active: preview.active, busy: preview.state.kind === "opening", onToggle: preview.toggle } : undefined}
+      // The presenter view has the same list inline.
+      words={mode === "host" && wordCloudOpen ? { count: meta.wordCloud?.words.length ?? 0, onOpen: () => setWordsOpen(true) } : undefined}
     />
   );
 
@@ -517,6 +535,14 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
       <PreflightDialog open={preflightOpen} onClose={() => setPreflightOpen(false)} preflight={preflight} />
 
       <HotkeysHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <WordModerationDialog
+        open={wordsOpen && wordCloudOpen}
+        onClose={() => setWordsOpen(false)}
+        cloud={meta.wordCloud}
+        hidden={meta.hiddenWords ?? []}
+        onToggle={sendHideWord}
+        disabled={meta.connection.status !== "open"}
+      />
       <ParticipantsPanel
         open={participantsOpen}
         onClose={() => setParticipantsOpen(false)}

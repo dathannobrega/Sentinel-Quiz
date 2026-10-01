@@ -126,6 +126,30 @@ export const quizPlay = {
     untimed: "Sem limite de tempo",
     untimedHint: "Você tem o tempo que precisar para esta pergunta."
   },
+  ordering: {
+    hint: "Coloque na ordem certa: use as setas ou arraste pela alça.",
+    moved: "“{text}” agora está na posição {position} de {total}.",
+    moveUp: "Mover “{text}” para cima (posição {position})",
+    moveDown: "Mover “{text}” para baixo (posição {position})",
+    submit: "Enviar ordem"
+  },
+  numeric: {
+    label: "Seu número",
+    range: "Entre {min} e {max}",
+    invalid: "Isso não é um número. Use, por exemplo, 1.234,5.",
+    outOfRange: "Use um número entre {min} e {max}.",
+    slider: "Ou ajuste no controle deslizante"
+  },
+  words: {
+    hintOne: "Mande uma palavra ou expressão curta.",
+    hintMany: "Mande até {count} palavras ou expressões curtas.",
+    labelOne: "Sua palavra",
+    label: "Palavra {n}",
+    placeholder: "Ex.: Zero Trust",
+    counter: "{count}/{max}",
+    repeated: "Palavras repetidas contam uma vez só.",
+    sendMany: "Enviar {count} palavras"
+  },
   paused: {
     title: "O apresentador pausou",
     subtitle: "O tempo está congelado. Você continua de onde parou quando a pergunta voltar.",
@@ -136,6 +160,8 @@ export const quizPlay = {
     sending: "Enviando...",
     waiting: "Aguardando os outros...",
     yourChoice: "Sua resposta",
+    yourOrder: "Sua ordem",
+    yourWords: "Suas palavras",
     progress: "{answered} de {total} responderam",
     rejected: {
       late: "O tempo acabou antes da sua resposta chegar.",
@@ -158,6 +184,13 @@ export const quizPlay = {
     recorded: "Resposta registrada",
     correctWas: "A correta era {answer}",
     acceptedWere: "Respostas aceitas: {answer}",
+    correctOrder: "Ordem correta",
+    youPlaced: "Você colocou: {text}",
+    slotRight: "posição certa",
+    slotWrong: "posição errada",
+    numericAnswer: "Resposta:",
+    numericYours: "Você:",
+    yourWords: "Suas palavras: {words}",
     points: "+{points}",
     pointsLabel: "pontos nesta pergunta",
     streak: "Sequência de {count}",

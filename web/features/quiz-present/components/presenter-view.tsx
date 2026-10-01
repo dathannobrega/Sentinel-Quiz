@@ -1,13 +1,18 @@
 "use client";
 
-import { useId, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useId, useState, type FormEvent, type ReactNode } from "react";
 
 import { CountdownRing } from "@/components/quiz-kit/countdown-ring";
 import { OptionBadge } from "@/components/quiz-kit/option-shape";
 import { LiveThemeRoot, PauseGlyph } from "@/features/quiz-live/components/live-chrome";
 import { LqButton, LqInput } from "@/features/quiz-live/components/lq-ui";
+import { NumericHistogram } from "@/features/quiz-live/components/numeric-histogram";
 import { CapacityWarning } from "@/features/quiz-present/components/room-ops";
+import { WordModerationPanel } from "@/features/quiz-present/components/word-moderation";
 import type { LiveState } from "@/features/quiz-live/lib/live-store";
+import { formatWithUnit } from "@/features/quiz-live/lib/numeric";
+import { isGaType, type PublicQuestion, type Reveal } from "@/features/quiz-live/lib/protocol";
+import type { LiveItem } from "@/types/api/live";
 import { useLive, useLiveState } from "@/features/quiz-live/lib/use-live-session";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
@@ -21,6 +26,10 @@ const selectPresenter = (state: LiveState) => ({
   question: state.question,
   timer: state.timer,
   counts: state.counts,
+  wordCloud: state.wordCloud,
+  numeric: state.numeric,
+  hiddenWords: state.hiddenWords,
+  connected: state.connection.status === "open",
   answered: state.answered,
   answerTotal: state.answerTotal,
   participantCount: state.participantCount,
@@ -65,6 +74,16 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
   const counts = view.counts ?? {};
   const totalAnswers = Math.max(1, view.answered ?? 0);
   const canAccept = question?.item_type === "type_answer" && (view.phase === "locked" || view.phase === "reveal");
+  const isGa = question ? isGaType(question.item_type) : false;
+  const cloudOpen = question?.item_type === "word_cloud" && (view.phase === "question" || view.phase === "locked" || view.phase === "reveal");
+  const sendHide = useCallback(
+    (word: string, hidden: boolean) => {
+      if (view.qi !== null) {
+        live.send({ type: "host.hide_word", data: { qi: view.qi, word, hidden } }, { queueWhileOffline: false });
+      }
+    },
+    [live, view.qi]
+  );
 
   function onAccept(event: FormEvent) {
     event.preventDefault();
@@ -120,7 +139,10 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
                       />
                     ) : null}
                   </div>
-                  {question.options.length ? (
+                  {isGa ? (
+                    <GaAnswerKey question={question} item={item} reveal={view.reveal} liveNumeric={view.numeric} />
+                  ) : null}
+                  {question.options.length && !isGa ? (
                     <ul className="flex flex-col gap-2" aria-label={t("quizPresent.presenter.answerKey")}>
                       {[...question.options]
                         .sort((a, b) => a.index - b.index)
@@ -145,7 +167,7 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
                         })}
                     </ul>
                   ) : null}
-                  {!keyKnown && question.options.length ? <p className="text-sm text-lq-fg-muted">{t("quizPresent.presenter.answerKeyStale")}</p> : null}
+                  {!keyKnown && question.options.length && !isGa ? <p className="text-sm text-lq-fg-muted">{t("quizPresent.presenter.answerKeyStale")}</p> : null}
                   {typeof view.answered === "number" ? (
                     <p className="font-lq-mono text-sm text-lq-fg-muted">
                       {t("quizPresent.question.answered", { answered: view.answered, total: view.answerTotal ?? view.participantCount })}
@@ -156,6 +178,12 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
                 <p className="text-lq-fg-muted">{t("quizPresent.presenter.lobby")}</p>
               )}
             </Panel>
+
+            {cloudOpen ? (
+              <Panel title={t("quizPresent.words.title")}>
+                <WordModerationPanel cloud={view.wordCloud} hidden={view.hiddenWords ?? []} onToggle={sendHide} disabled={!view.connected} />
+              </Panel>
+            ) : null}
 
             {question?.item_type === "type_answer" ? (
               <Panel title={t("quizPresent.presenter.accepted")}>
@@ -224,4 +252,91 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
       </div>
     </LiveThemeRoot>
   );
+}
+
+/**
+ * Answer key of the GA types (Incremento 5). Ordering: the author's order (the presenter item lists
+ * the options in the correct order; public ids are shuffled, so it is matched by text) with the
+ * per-slot accuracy after the reveal. Numeric: value ± tolerance and the live histogram. Word cloud:
+ * how many words each person sends.
+ */
+function GaAnswerKey({
+  question,
+  item,
+  reveal,
+  liveNumeric
+}: {
+  question: PublicQuestion;
+  item: LiveItem | null;
+  reveal: Reveal | null;
+  liveNumeric: LiveState["numeric"];
+}) {
+  const { t, locale } = useI18n();
+  if (question.item_type === "ordering") {
+    const byId = new Map(question.options.map((option) => [option.id, option.text]));
+    const fromReveal = reveal?.ordering?.correct_order_ids.map((id) => byId.get(id) ?? "") ?? [];
+    const correct = item ? item.options.map((option) => option.text) : fromReveal;
+    const slots = reveal?.ordering?.slot_pct_correct ?? [];
+    if (!correct.length) {
+      return <p className="text-sm text-lq-fg-muted">{t("quizPresent.presenter.answerKeyStale")}</p>;
+    }
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-sm font-semibold text-lq-fg-muted">
+          {t("quizPresent.presenter.correctOrder")}
+          {item?.order_method ? ` · ${t(`quizPresent.presenter.orderMethod.${item.order_method}`)}` : ""}
+        </p>
+        <ol className="flex flex-col gap-2" aria-label={t("quizPresent.presenter.answerKey")}>
+          {correct.map((text, index) => {
+            const pct = slots[index];
+            return (
+              <li key={`${index}-${text}`} className="relative flex items-center gap-3 overflow-hidden rounded-[calc(var(--lq-radius)*0.6)] border border-lq-line bg-lq-surface-2 px-3 py-2">
+                {typeof pct === "number" ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 left-0 w-full origin-left bg-[color-mix(in_srgb,var(--lq-success)_22%,transparent)] transition-transform duration-300"
+                    style={{ transform: `scaleX(${pct / 100})` }}
+                  />
+                ) : null}
+                <span className="relative font-lq-mono text-sm font-bold text-lq-fg-muted tabular-nums">{index + 1}</span>
+                <span className="relative min-w-0 flex-1 font-semibold text-lq-fg">{text}</span>
+                {typeof pct === "number" ? (
+                  <span className="relative font-lq-mono text-sm text-lq-fg tabular-nums">{t("quizPresent.ordering.slotPct", { percent: Math.round(pct) })}</span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+        {reveal?.ordering ? <p className="text-sm text-lq-fg-muted">{t("quizPresent.ordering.exact", { count: reveal.ordering.exact })}</p> : null}
+      </div>
+    );
+  }
+  if (question.item_type === "numeric") {
+    const key = item?.numeric;
+    const unit = key?.unit ?? question.numeric?.unit ?? reveal?.numeric?.unit ?? "";
+    const value = key ? key.value : (reveal?.numeric?.value ?? null);
+    const tolerance = key ? key.tolerance : (reveal?.numeric?.tolerance ?? null);
+    const result = reveal?.numeric ?? liveNumeric;
+    return (
+      <div className="flex flex-col gap-3">
+        {typeof value === "number" ? (
+          <p className="rounded-[calc(var(--lq-radius)*0.6)] border border-lq-success bg-lq-surface-2 px-3 py-2 font-semibold text-lq-fg">
+            <span className="text-lq-fg-muted">{t("quizPresent.presenter.answerKey")}: </span>
+            {formatWithUnit(value, unit, locale)}
+            {tolerance ? ` (± ${formatWithUnit(tolerance, unit, locale)})` : ""}
+            {key?.partial && tolerance ? <span className="block text-sm font-normal text-lq-fg-muted">{t("quizPresent.presenter.partialCredit", { band: formatWithUnit(tolerance * 3, unit, locale) })}</span> : null}
+          </p>
+        ) : (
+          <p className="text-sm text-lq-fg-muted">{t("quizPresent.presenter.answerKeyStale")}</p>
+        )}
+        {result && result.n > 0 ? (
+          <NumericHistogram result={result} unit={unit} value={value} tolerance={tolerance} variant="compact" className="h-48 pt-7" />
+        ) : (
+          <p className="text-sm text-lq-fg-muted">{t("quizPresent.numeric.waiting")}</p>
+        )}
+      </div>
+    );
+  }
+  const maxWords = item?.max_words ?? question.max_words ?? 1;
+  return <p className="text-sm text-lq-fg-muted">{t("quizPresent.presenter.maxWords", { count: maxWords })}</p>;
 }

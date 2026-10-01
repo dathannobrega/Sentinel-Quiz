@@ -210,7 +210,62 @@ def _item_report(data: _Data, position: int, upper: set[str], lower: set[str]) -
             shown.setdefault(norm, answer.response.get("text") or norm)
             accepted[norm] = accepted.get(norm, False) or bool(answer.fraction and answer.fraction >= 1)
         report["top_answers"] = [{"text": shown[k], "n": n, "accepted": accepted[k]} for k, n in typed.most_common(20)]
+    if item_type in {"ordering", "numeric", "word_cloud"}:
+        report.update(_ga_report(data, position, item, list(answers.values())))
     return report
+
+
+def _ga_report(data: _Data, position: int, item: dict[str, Any], answers: list[scoring.EffectiveAnswer]) -> dict[str, Any]:
+    """Report blocks of the GA types: slot accuracy, numeric distribution, word counts."""
+    from app.live import runtime  # local: the runtime imports the services package
+
+    item_type = item["item_type"]
+    responses = [a.response for a in answers]
+    if item_type == "ordering":
+        orders = [list(r.get("order") or []) for r in responses]
+        summary = runtime.ordering_summary(data.session.id, position, item, orders)
+        texts = {o["key"]: o.get("text") or "" for o in (item.get("payload") or {}).get("options") or []}
+        solution = [str(o["key"]) for o in (item.get("payload") or {}).get("options") or []]
+        fractions = [a.fraction for a in answers if a.fraction is not None]
+        return {
+            "options": [],
+            "ordering": {
+                "correct_order": [texts[k] for k in solution],
+                "slot_pct_correct": summary["slot_pct_correct"],
+                "exact": summary["exact"],
+                "avg_fraction": round(sum(fractions) / len(fractions), 3) if fractions else None,
+                "method": (item.get("answer") or {}).get("method") or "kendall",
+            },
+        }
+    if item_type == "numeric":
+        numbers = [float(r["number"]) for r in responses if isinstance(r.get("number"), (int, float))]
+        answer = item.get("answer") or {}
+        return {
+            "options": [],
+            "numeric": {
+                **runtime.numeric_summary(item, numbers),
+                "value": answer.get("value"),
+                "tolerance": float(answer.get("tolerance") or 0.0),
+                "unit": (item.get("payload") or {}).get("unit") or "",
+            },
+        }
+    hidden = set(((data.session.hidden_words or {}).get(str(position))) or [])
+    counts: Counter[str] = Counter()
+    shown: dict[str, Counter[str]] = {}
+    for response in responses:
+        for word, norm in zip(response.get("words") or [], response.get("normalized") or []):
+            counts[norm] += 1
+            shown.setdefault(norm, Counter())[word] += 1
+    return {
+        "options": [],
+        "word_cloud": {
+            "words": [
+                {"text": shown[k].most_common(1)[0][0], "key": k, "n": n, "hidden": k in hidden}
+                for k, n in counts.most_common(registry.WORD_CLOUD_TOP)
+            ],
+            "distinct": len(counts),
+        },
+    }
 
 
 def session_report(db: Session, session: LiveSession) -> dict[str, Any]:
@@ -344,7 +399,9 @@ def iter_csv(db: Session, session: LiveSession) -> Iterator[str]:
             elif item["scored"]:
                 cells.append(round(float(answer.fraction or 0.0), 3))
             else:
-                cells.append(_cell(",".join(answer.response.get("keys") or []) or answer.response.get("text") or ""))
+                cells.append(_cell(
+                    ",".join(answer.response.get("keys") or answer.response.get("words") or []) or answer.response.get("text") or ""
+                ))
         writer.writerow(cells)
         yield buffer.getvalue()
 
@@ -356,8 +413,37 @@ def _answer_view(item: dict[str, Any], answer: scoring.EffectiveAnswer | None) -
         return None
     if "text" in answer.response:
         return answer.response.get("text")
+    if "number" in answer.response:
+        return _number_view(answer.response.get("number"), item)
+    if "words" in answer.response:
+        return list(answer.response.get("words") or [])
     texts = {o["key"]: o.get("text") or "" for o in (item.get("payload") or {}).get("options") or []}
-    return [texts.get(key, key) for key in answer.response.get("keys") or []]
+    return [texts.get(key, key) for key in answer.response.get("order") or answer.response.get("keys") or []]
+
+
+def _number_view(value: Any, item: dict[str, Any]) -> str:
+    unit = ((item.get("payload") or {}).get("unit") or "").strip()
+    text = f"{float(value):g}" if isinstance(value, (int, float)) else str(value or "")
+    return f"{text} {unit}".strip()
+
+
+def _correct_view(item: dict[str, Any]) -> list[str] | None:
+    item_type = item["item_type"]
+    answer = item.get("answer") or {}
+    options = (item.get("payload") or {}).get("options") or []
+    texts = {o["key"]: o.get("text") or "" for o in options}
+    if item_type in {"poll", "word_cloud"}:
+        return None
+    if item_type == "ordering":
+        return [o.get("text") or "" for o in options]
+    if item_type == "numeric":
+        if answer.get("value") is None:
+            return None
+        tolerance = float(answer.get("tolerance") or 0.0)
+        view = _number_view(answer.get("value"), item)
+        return [f"{view} (± {tolerance:g})" if tolerance else view]
+    keys = answer.get("correct_keys") or []
+    return [texts.get(k, k) for k in keys] or list(answer.get("accepted_answers") or [])
 
 
 def my_results(db: Session, participant: LiveParticipant) -> dict[str, Any]:
@@ -399,11 +485,7 @@ def my_results(db: Session, participant: LiveParticipant) -> dict[str, Any]:
         closed = finished or session.current_position != position or session.phase not in {"question", "locked"}
         answer = answers.get((position, participant.id))
         scored = registry.is_scored(item["item_type"], int(item.get("points_multiplier", 1)))
-        texts = {o["key"]: o.get("text") or "" for o in (item.get("payload") or {}).get("options") or []}
-        correct_answer = None
-        if closed and show_correct and item["item_type"] != "poll":
-            keys = (item.get("answer") or {}).get("correct_keys") or []
-            correct_answer = [texts.get(k, k) for k in keys] or list((item.get("answer") or {}).get("accepted_answers") or [])
+        correct_answer = _correct_view(item) if (closed and show_correct) else None
         items.append(
             {
                 "position": position,

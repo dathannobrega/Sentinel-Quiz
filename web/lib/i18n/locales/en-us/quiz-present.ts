@@ -28,7 +28,10 @@ export const quizPresent = {
       type_answer: "Type answer",
       poll: "Poll",
       content: "Slide",
-      leaderboard: "Leaderboard"
+      leaderboard: "Leaderboard",
+      ordering: "Ordering",
+      numeric: "Numeric answer",
+      word_cloud: "Word cloud"
     }
   },
   question: {
@@ -108,6 +111,7 @@ export const quizPresent = {
     lockRoom: "Lock room",
     unlockRoom: "Unlock room",
     participants: "Participants ({count})",
+    words: "Words ({count})",
     fullscreen: "Full screen",
     exitFullscreen: "Exit full screen",
     openDisplay: "Open display",
@@ -176,6 +180,44 @@ export const quizPresent = {
       m0: "No time limit"
     }
   },
+  cloud: {
+    empty: "Words show up here as soon as they arrive.",
+    label: "Word cloud",
+    wordCount: "{word}: {count}",
+    hintOne: "Send one word from your phone",
+    hintMany: "Send up to {count} words from your phone",
+    filtered: "{count} kept off screen",
+    distinct: "{count} different words"
+  },
+  numeric: {
+    hint: "Answer on your phone: a number between {min} and {max}",
+    you: "You: {value}",
+    count: "{count} answers",
+    mean: "Mean: {value}",
+    median: "Median: {value}",
+    answer: "Answer: {value}",
+    answerTolerance: "Answer: {value} (± {tolerance})",
+    binSummary: "from {from} to {to}: {count}",
+    waiting: "The histogram appears with the first answers."
+  },
+  ordering: {
+    hint: "Put them in the right order on your phone",
+    correctOrder: "Correct order",
+    slotPct: "{percent}% right",
+    exact: "{count} in the exact order"
+  },
+  words: {
+    title: "Word cloud words",
+    description: "Hide a word to take it off the projector and the phones. You can show it again.",
+    summary: "{distinct} different words · {filtered} kept off screen (filter or hidden)",
+    none: "No words yet.",
+    visible: "Words on screen",
+    hide: "Hide",
+    hideLabel: "Hide “{word}” from the cloud",
+    show: "Show",
+    showLabel: "Show “{word}” again",
+    hiddenTitle: "Hidden by you"
+  },
   presenter: {
     title: "Presenter view",
     privateWarning: "Do not project this window: it shows the answer key and notes.",
@@ -195,7 +237,14 @@ export const quizPresent = {
     acceptHint: "After locking, accept a typed answer that is also right.",
     acceptPlaceholder: "Text to accept",
     accept: "Accept",
-    accepted_ok: "Answer accepted: {text}"
+    accepted_ok: "Answer accepted: {text}",
+    correctOrder: "Correct order",
+    orderMethod: {
+      kendall: "partial credit (Kendall)",
+      exact: "only the exact order scores"
+    },
+    partialCredit: "Partial credit up to ± {band}",
+    maxWords: "Words per person: {count}"
   },
   errors: {
     auth: "Sign in as the presenter to control this session.",

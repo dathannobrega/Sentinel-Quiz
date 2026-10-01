@@ -103,6 +103,8 @@ export interface HostControlBarProps {
   preflight?: { overall: "ready" | "attention" | null; running: boolean; onOpen: () => void };
   /** Phone preview (RF-514): rehearsal sessions only. */
   preview?: { active: boolean; busy: boolean; onToggle: () => void };
+  /** Word cloud moderation (Incremento 5): offered while a word cloud is on screen. */
+  words?: { count: number; onOpen: () => void };
 }
 
 /**
@@ -230,6 +232,11 @@ export function HostControlBar(props: HostControlBarProps) {
               <path d="M7 12.2h2" strokeLinecap="round" />
             </svg>
             {props.preview.active ? t("quizPresent.preview.hide") : t("quizPresent.preview.toggle")}
+          </button>
+        ) : null}
+        {props.words ? (
+          <button type="button" onClick={props.words.onOpen} className={barSecondary}>
+            {t("quizPresent.controls.words", { count: props.words.count })}
           </button>
         ) : null}
         <button type="button" onClick={props.onOpenParticipants} className={barSecondary}>

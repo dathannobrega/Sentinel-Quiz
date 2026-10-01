@@ -126,6 +126,30 @@ export const quizPlay = {
     untimed: "No time limit",
     untimedHint: "Take all the time you need for this question."
   },
+  ordering: {
+    hint: "Put them in the right order: use the arrows or drag by the handle.",
+    moved: "“{text}” is now in position {position} of {total}.",
+    moveUp: "Move “{text}” up (position {position})",
+    moveDown: "Move “{text}” down (position {position})",
+    submit: "Submit order"
+  },
+  numeric: {
+    label: "Your number",
+    range: "Between {min} and {max}",
+    invalid: "That is not a number. Use, for example, 1,234.5.",
+    outOfRange: "Use a number between {min} and {max}.",
+    slider: "Or adjust it with the slider"
+  },
+  words: {
+    hintOne: "Send one word or short phrase.",
+    hintMany: "Send up to {count} words or short phrases.",
+    labelOne: "Your word",
+    label: "Word {n}",
+    placeholder: "E.g. Zero Trust",
+    counter: "{count}/{max}",
+    repeated: "Repeated words count only once.",
+    sendMany: "Send {count} words"
+  },
   paused: {
     title: "The host paused",
     subtitle: "The timer is frozen. You pick up where you left off when the question resumes.",
@@ -136,6 +160,8 @@ export const quizPlay = {
     sending: "Sending...",
     waiting: "Waiting for the others...",
     yourChoice: "Your answer",
+    yourOrder: "Your order",
+    yourWords: "Your words",
     progress: "{answered} of {total} answered",
     rejected: {
       late: "Time ran out before your answer arrived.",
@@ -158,6 +184,13 @@ export const quizPlay = {
     recorded: "Answer recorded",
     correctWas: "The correct answer was {answer}",
     acceptedWere: "Accepted answers: {answer}",
+    correctOrder: "Correct order",
+    youPlaced: "You placed: {text}",
+    slotRight: "right position",
+    slotWrong: "wrong position",
+    numericAnswer: "Answer:",
+    numericYours: "You:",
+    yourWords: "Your words: {words}",
     points: "+{points}",
     pointsLabel: "points on this question",
     streak: "{count} in a row",

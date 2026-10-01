@@ -1,7 +1,7 @@
 /**
  * Sentinel Arena (live quizzes) REST types. Source of truth:
- * docs/live-quiz/CONTRATO-INCREMENTO-1.md §3–§5 and §7. Keep in sync with
- * backend/app/schemas_live.py.
+ * docs/live-quiz/CONTRATO-INCREMENTO-1.md §3–§5 and §7 (GA item types: CONTRATO-INCREMENTO-5.md).
+ * Keep in sync with backend/app/schemas_live.py.
  */
 
 export type LiveItemType =
@@ -11,7 +11,28 @@ export type LiveItemType =
   | "type_answer"
   | "poll"
   | "content"
-  | "leaderboard";
+  | "leaderboard"
+  /** Incremento 5 (GA types). */
+  | "ordering"
+  | "numeric"
+  | "word_cloud";
+
+/** Ordering grading: Kendall tau (an adjacent swap still scores well) or all-or-nothing. */
+export type LiveOrderMethod = "kendall" | "exact";
+
+/** Numeric item settings as the author sees them (`quiz.items[]`, `presenter.item`). */
+export interface LiveItemNumeric {
+  min: number | null;
+  max: number | null;
+  /** null = free input (no step). */
+  step: number | null;
+  unit: string;
+  /** Correct value; null until the author sets it (publish issue `value/required`). */
+  value: number | null;
+  tolerance: number;
+  /** Linear partial credit up to 3× the tolerance. */
+  partial: boolean;
+}
 
 export type LiveThemeKey = "sentinel" | "terminal" | "neon_soc" | "aurora" | "high_contrast";
 export type LiveScoring = "speed" | "fixed" | "none";
@@ -97,6 +118,12 @@ export interface LiveItem {
   updated_at: string;
   /** Present on AI-generated or AI-improved items (Incremento 2). */
   ai?: import("./ai").LiveItemAiMeta | null;
+  /** Incremento 5, only on the matching type: ordering (options are in the correct order). */
+  order_method?: LiveOrderMethod;
+  /** Incremento 5, only on `numeric`. */
+  numeric?: LiveItemNumeric;
+  /** Incremento 5, only on `word_cloud`: 1..3 words per person. */
+  max_words?: number;
 }
 
 export interface LiveItemWrite {
@@ -111,6 +138,18 @@ export interface LiveItemWrite {
   points_multiplier?: 0 | 1 | 2;
   explanation?: string | null;
   presenter_notes?: string | null;
+  /** Incremento 5: ordering (the options order IS the answer; `correct` is ignored). */
+  order_method?: LiveOrderMethod;
+  /** Incremento 5: numeric. JSON numbers (the server also reads pt-BR text). `step: null` = free. */
+  min?: number;
+  max?: number;
+  step?: number | null;
+  unit?: string;
+  value?: number | null;
+  tolerance?: number;
+  partial?: boolean;
+  /** Incremento 5: word cloud, 1..3. */
+  max_words?: number;
 }
 
 export interface LiveSessionRef {
@@ -209,8 +248,13 @@ export interface LiveBankItem {
   difficulty: string | null;
   license_scope: LiveLicenseScope;
   guest_eligible: boolean;
-  convertible_to: "single_choice" | "multi_choice" | "true_false" | null;
+  convertible_to: "single_choice" | "multi_choice" | "true_false" | "ordering" | null;
   reject_reason: string | null;
+  /**
+   * Incremento 5: "pbq" items convert to `ordering`; their `options` are then the items to order,
+   * already in the CORRECT order (the author must check them). Older servers omit it.
+   */
+  question_format?: "mcq" | "pbq";
 }
 
 export interface LiveBankSearchResult {
@@ -344,6 +388,41 @@ export interface LiveReportItem {
   }>;
   top_answers?: Array<{ text: string; n: number; accepted: boolean }>;
   domain: string | null;
+  /** Incremento 5 blocks (their `options` is empty). */
+  ordering?: LiveReportOrdering;
+  numeric?: LiveReportNumeric;
+  word_cloud?: LiveReportWordCloud;
+}
+
+export interface LiveReportOrdering {
+  /** Item texts in the correct order. */
+  correct_order: string[];
+  /** % of answers with the right item in each slot (null when nobody answered). */
+  slot_pct_correct: Array<number | null>;
+  /** Answers in exactly the right order. */
+  exact: number;
+  /** Mean score fraction (0..1), Kendall partial credit included. */
+  avg_fraction: number | null;
+  method: LiveOrderMethod;
+}
+
+export interface LiveReportNumeric {
+  min: number;
+  max: number;
+  /** 20 equal bins over [min, max]. */
+  bins: number[];
+  n: number;
+  mean: number | null;
+  median: number | null;
+  value: number | null;
+  tolerance: number;
+  unit: string;
+}
+
+export interface LiveReportWordCloud {
+  /** Top 60; `hidden` = the host hid it during the session. */
+  words: Array<{ text: string; key: string; n: number; hidden: boolean }>;
+  distinct: number;
 }
 
 export interface LiveReportParticipant {

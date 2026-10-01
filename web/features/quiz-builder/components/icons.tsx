@@ -162,6 +162,25 @@ const typeGlyphs: Record<LiveItemType, (p: IconProps) => React.JSX.Element> = {
     <svg {...base(p)}>
       <path d="M1.8 13.5h12.4M3 13.5V9.5h3v4M6 13.5V6h4v7.5M10 13.5V8h3v5.5M7.4 3.8L8 2.6l.6 1.2 1.3.2-.95.9.23 1.3L8 5.6l-1.18.6.23-1.3-.95-.9z" />
     </svg>
+  ),
+  /** Three ranked rows with an up/down arrow. */
+  ordering: (p) => (
+    <svg {...base(p)}>
+      <path d="M6.5 3.5h7M6.5 8h7M6.5 12.5h7M3 2.5v11M1.6 4L3 2.5 4.4 4M1.6 12L3 13.5 4.4 12" />
+    </svg>
+  ),
+  /** A number line with a marker. */
+  numeric: (p) => (
+    <svg {...base(p)}>
+      <path d="M1.8 11h12.4M3 9.6v2.8M8 9.6v2.8M13 9.6v2.8M10.5 3.2l1.5 1.5-1.5 1.5M12 4.7H9a1.5 1.5 0 0 0-1.5 1.5v2.3" />
+    </svg>
+  ),
+  /** A cloud with words of different sizes. */
+  word_cloud: (p) => (
+    <svg {...base(p)}>
+      <path d="M4.5 12.5a3 3 0 0 1-.4-6A4 4 0 0 1 11.8 5.6a3.4 3.4 0 0 1-.3 6.9z" />
+      <path d="M5.5 9.3h3.4M6.6 10.9h4M9.9 9.3h.6" />
+    </svg>
   )
 };
 

@@ -1,7 +1,7 @@
 /**
  * WebSocket protocol `sq.live.v1` (docs/live-quiz/CONTRATO-INCREMENTO-1.md §6, plus the time controls
  * and SSE fallback of CONTRATO-INCREMENTO-3.md §3–§4 and the moderation fields of
- * CONTRATO-INCREMENTO-4.md §2/§4).
+ * CONTRATO-INCREMENTO-4.md §2/§4, and the GA item types of CONTRATO-INCREMENTO-5.md §3–§7).
  * Discriminated unions for every frame plus small type guards. Keep in sync with
  * backend/app/live/protocol.py.
  */
@@ -65,6 +65,13 @@ export interface PublicQuestion {
   /** multi_choice: number of correct options (for the "select N" hint). */
   select_count: number | null;
   /**
+   * numeric (Incremento 5): slider range and unit, `null` on other types (older servers omit it).
+   * The correct value never reaches this payload.
+   */
+  numeric?: NumericSpec | null;
+  /** word_cloud (Incremento 5): words per person (1..3), `null` on other types. */
+  max_words?: number | null;
+  /**
    * Removed by moderation (RF-1114, Incremento 4): a neutral, unscored slide with an empty prompt.
    * Clients show "content removed" and never the original text. Older servers omit it.
    */
@@ -74,6 +81,58 @@ export interface PublicQuestion {
 /** Whether the item was removed by moderation (neutral placeholder slide). */
 export function isRemovedQuestion(question: Pick<PublicQuestion, "removed"> | null | undefined): boolean {
   return Boolean(question?.removed);
+}
+
+/** Public numeric settings. `step: null` = any value in the range. */
+export interface NumericSpec {
+  min: number;
+  max: number;
+  step: number | null;
+  unit: string;
+}
+
+/** One word of a word cloud. `key` is the normalized form (React key and `host.hide_word`). */
+export interface WordCloudWord {
+  text: string;
+  key: string;
+  n: number;
+}
+
+/**
+ * Word cloud aggregate (live, reveal and `word_cloud.update`): top 60 by count, without filtered or
+ * hidden words, which only add to `filtered`.
+ */
+export interface WordCloudResults {
+  words: WordCloudWord[];
+  distinct: number;
+  filtered: number;
+}
+
+/** Numeric distribution: 20 equal bins over [min, max]. Never carries the correct value live. */
+export interface NumericResults {
+  min: number;
+  max: number;
+  bins: number[];
+  n: number;
+  mean: number | null;
+  median: number | null;
+}
+
+/** Numeric reveal: `value`/`tolerance` are null on phones when the quiz hides the answer. */
+export interface NumericReveal extends NumericResults {
+  value: number | null;
+  tolerance: number | null;
+  unit: string;
+}
+
+/**
+ * Ordering reveal. `correct_order_ids`/`slot_pct_correct` are empty on phones when the quiz hides
+ * the answer. A slot percentage is null when nobody answered.
+ */
+export interface OrderingReveal {
+  correct_order_ids: string[];
+  slot_pct_correct: Array<number | null>;
+  exact: number;
 }
 
 export interface LiveTimer {
@@ -133,6 +192,10 @@ export interface Reveal {
   explanation: string | null;
   top_answers?: TopAnswer[];
   my?: MyReveal;
+  /** Incremento 5 blocks, only on the matching type. */
+  ordering?: OrderingReveal;
+  numeric?: NumericReveal;
+  word_cloud?: WordCloudResults;
 }
 
 export interface Standing {
@@ -176,7 +239,8 @@ export interface MySnapshot {
   display_name: string;
   avatar_seed: string;
   answered_current: boolean;
-  last_answer?: { choice?: string[]; text?: string } | null;
+  /** Incremento 5 adds `order` (ordering ids), `number` and `words`. */
+  last_answer?: { choice?: string[]; text?: string; order?: string[]; number?: number; words?: string[] } | null;
   score: number;
   rank: number | null;
   time_multiplier?: number;
@@ -215,11 +279,18 @@ export interface Snapshot {
   timer?: LiveTimer;
   answered?: number;
   counts?: OptionCounts;
+  /** Incremento 5, while the question is open or locked (host; display for the cloud or live distribution). */
+  word_cloud?: WordCloudResults;
+  numeric?: NumericResults;
   reveal?: Reveal;
   leaderboard?: { top: Standing[]; total: number };
   podium?: { top: Standing[]; stats: PodiumStats };
   lobby?: LobbyState;
-  presenter?: { item: LiveItem; next_prompt: string | null };
+  /**
+   * `hidden_words` (Incremento 5): normalized keys the host hid on the current word cloud
+   * (`[]` on other items; older servers omit it).
+   */
+  presenter?: { item: LiveItem; next_prompt: string | null; hidden_words?: string[] };
   participants?: HostParticipant[];
   my?: MySnapshot;
 }
@@ -279,7 +350,10 @@ export type ServerMessage =
       { qi: number; total: number; question: PublicQuestion; answers_open_at_ms: number; deadline_ms: number | null }
     >
   | ServerBase<"answer.ack", { answer_id: string; qi: number; status: AnswerAckStatus }>
-  | ServerBase<"results.tick", { qi: number; answered: number; total: number; counts?: OptionCounts }>
+  | ServerBase<
+      "results.tick",
+      { qi: number; answered: number; total: number; counts?: OptionCounts; word_cloud?: WordCloudResults; numeric?: NumericResults }
+    >
   | ServerBase<"participant.progress", { qi: number; answered: number; total: number }>
   | ServerBase<"question.locked", { qi: number; reason: "timer" | "all_answered" | "host" }>
   | ServerBase<"question.paused", QuestionTimerData & { paused: true }>
@@ -294,6 +368,11 @@ export type ServerMessage =
   | ServerBase<"participant.kicked", { banned: boolean }>
   /** Moderation removed item `qi` (`current`: it was on screen). A fresh `room.snapshot` follows. */
   | ServerBase<"item.removed", { qi: number; current: boolean }>
+  /**
+   * The host hid/showed a word (Incremento 5 §7): replaces the cloud of item `qi` (live or revealed).
+   * Only the host copy carries `hidden_words` (normalized keys, sorted).
+   */
+  | ServerBase<"word_cloud.update", { qi: number; word_cloud: WordCloudResults; hidden_words?: string[] }>
   | ServerBase<"srv.ping", { ts: number }>
   | ServerBase<"error", { code: LiveErrorCode; ref_mid?: string; detail?: string }>;
 
@@ -308,7 +387,18 @@ export type ClientMessage =
   | { type: "pong"; data: { ts: number } }
   | {
       type: "answer.submit";
-      data: { answer_id: string; qi: number; choice?: string[]; text?: string; client_elapsed_ms?: number };
+      data: {
+        answer_id: string;
+        qi: number;
+        /** Choice types; ordering sends every id in the chosen order. */
+        choice?: string[];
+        text?: string;
+        /** word_cloud: 1..max_words words of ≤ 25 characters. */
+        words?: string[];
+        /** numeric: the value parsed on the device in the person's locale (JSON number). */
+        number?: number;
+        client_elapsed_ms?: number;
+      };
     }
   | { type: "host.start"; data: Record<string, never> }
   | { type: "host.next"; data: { expected_qi: number | null } }
@@ -322,7 +412,9 @@ export type ClientMessage =
   | { type: "host.pause"; data: { expected_qi: number } }
   | { type: "host.resume"; data: { expected_qi: number } }
   | { type: "host.extend"; data: { expected_qi: number; seconds: number } }
-  | { type: "host.set_time"; data: { participant_id: string; multiplier: TimeMultiplier } };
+  | { type: "host.set_time"; data: { participant_id: string; multiplier: TimeMultiplier } }
+  /** Word cloud moderation: `word` is the `key` (or the text, ≤ 25); `hidden: false` shows it again. */
+  | { type: "host.hide_word"; data: { qi: number; word: string; hidden?: boolean } };
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -354,6 +446,7 @@ const SERVER_TYPES: ReadonlySet<string> = new Set<ServerMessageType>([
   "room.locked",
   "participant.kicked",
   "item.removed",
+  "word_cloud.update",
   "srv.ping",
   "error"
 ]);
@@ -447,9 +540,23 @@ export function isAnswerableType(type: LiveItemType): boolean {
   return type !== "content" && type !== "leaderboard";
 }
 
-/** Choice-based types: answered with `choice` (option ids). `type_answer` sends `text`. */
+/**
+ * Choice-based types: answered with `choice` (option ids). `type_answer` sends `text`; the GA types
+ * have their own pads (ordering also sends `choice`, numeric `number`, word cloud `words`).
+ */
 export function isChoiceType(type: LiveItemType): boolean {
   return type === "single_choice" || type === "multi_choice" || type === "true_false" || type === "poll";
+}
+
+/** Word cloud limits (Incremento 5 §4). */
+export const WORD_MAX_LENGTH = 25;
+export const WORDS_PER_PERSON_MAX = 3;
+/** Numeric histogram resolution (server `NUMERIC_BINS`). */
+export const NUMERIC_BINS = 20;
+
+/** Types answered on a dedicated pad (not option tiles). */
+export function isGaType(type: LiveItemType): type is "ordering" | "numeric" | "word_cloud" {
+  return type === "ordering" || type === "numeric" || type === "word_cloud";
 }
 
 /** Whether the participant can pick more than one option. */

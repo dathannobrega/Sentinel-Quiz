@@ -6,14 +6,24 @@ import { LqButton, LqError, lqCardClass } from "@/features/quiz-live/components/
 import { getMyResults, isTokenRejected } from "@/features/quiz-live/lib/live-fetch";
 import { AccessForm } from "@/features/quiz-play/components/access-form";
 import { useI18n } from "@/lib/i18n";
-import type { LiveJoinResult, LiveMyResults } from "@/types/api/live";
+import type { LiveItemType, LiveJoinResult, LiveMyResults } from "@/types/api/live";
 import { cn } from "@/lib/utils/cn";
 
-function formatAnswer(value: string[] | string | null): string | null {
-  if (value === null) {
+/**
+ * `your_answer` / `correct_answer` as text: a string (typed answer, numeric "275 bits") or a list
+ * (options, word cloud words; ordering texts in order, joined with arrows).
+ */
+export function formatAnswer(value: string[] | string | null | undefined, itemType?: LiveItemType): string | null {
+  if (value === null || value === undefined) {
     return null;
   }
-  return Array.isArray(value) ? value.join(", ") : value;
+  if (!Array.isArray(value)) {
+    return value;
+  }
+  if (!value.length) {
+    return null;
+  }
+  return value.join(itemType === "ordering" ? " → " : itemType === "word_cloud" ? " · " : ", ");
 }
 
 /**
@@ -108,8 +118,8 @@ export function MyResultsPanel({
             notScored: "bg-lq-surface-2 text-lq-fg"
           }[status];
           const mark = { correct: "✓", incorrect: "✕", partial: "½", notScored: "·" }[status];
-          const yours = formatAnswer(item.your_answer);
-          const right = formatAnswer(item.correct_answer);
+          const yours = formatAnswer(item.your_answer, item.item_type);
+          const right = formatAnswer(item.correct_answer, item.item_type);
           return (
             <li key={item.position} className={cn(lqCardClass, "flex flex-col gap-2 p-4")}>
               <div className="flex items-center justify-between gap-3">

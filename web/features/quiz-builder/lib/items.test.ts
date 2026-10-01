@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   applyItemPatch,
   defaultItemWrite,
+  gaFieldsToWrite,
   hasBlockingIssue,
+  itemToWrite,
   moveInArray,
   normalizeAnswer,
   optionsToWrite,
@@ -152,5 +154,61 @@ describe("item helpers", () => {
 
   it("normalizeAnswer ignores case, accents, spaces and final punctuation", () => {
     expect(normalizeAnswer("  Criptografia   ASSIMÉTRICA. ")).toBe(normalizeAnswer("criptografia assimetrica"));
+  });
+});
+
+describe("GA item types (Incremento 5)", () => {
+  const labels = { true: "Verdadeiro", false: "Falso" };
+
+  it("new items start with the contract defaults", () => {
+    expect(defaultItemWrite("ordering", labels)).toMatchObject({ order_method: "kendall", time_limit_s: 45, points_multiplier: 1 });
+    expect(defaultItemWrite("ordering", labels).options).toHaveLength(4);
+    expect(defaultItemWrite("numeric", labels)).toMatchObject({ min: 0, max: 100, step: 1, tolerance: 0, partial: true, time_limit_s: 30 });
+    expect(defaultItemWrite("word_cloud", labels)).toMatchObject({ max_words: 1, points_multiplier: 0, time_limit_s: 45 });
+  });
+
+  it("ordering: 3 to 6 items with text, no duplicates", () => {
+    const ordering = item({
+      item_type: "ordering",
+      order_method: "exact",
+      options: [
+        { key: "A", text: "Preparação", correct: false },
+        { key: "B", text: "preparacao", correct: false }
+      ]
+    });
+    const codes = validateItem(ordering).map((issue) => issue.code);
+    expect(codes).toContain("order_count");
+    expect(codes).toContain("option_duplicate");
+    const ok = item({
+      item_type: "ordering",
+      options: ["Preparação", "Detecção", "Contenção"].map((text, index) => ({ key: "ABC"[index] as string, text, correct: false }))
+    });
+    expect(validateItem(ok)).toEqual([]);
+    expect(itemToWrite(ok).order_method).toBe("kendall");
+  });
+
+  it("numeric: range, value inside it, positive step, non-negative tolerance", () => {
+    const numeric = (overrides: Partial<NonNullable<LiveItem["numeric"]>>) =>
+      item({ item_type: "numeric", options: [], numeric: { min: 0, max: 1000, step: 1, unit: "bits", value: 256, tolerance: 10, partial: true, ...overrides } });
+    expect(validateItem(numeric({}))).toEqual([]);
+    expect(validateItem(numeric({ min: 10, max: 1 })).map((issue) => issue.code)).toEqual(["numeric_range"]);
+    expect(validateItem(numeric({ value: null })).map((issue) => issue.code)).toEqual(["numeric_value_required"]);
+    expect(validateItem(numeric({ value: 2000 })).map((issue) => issue.code)).toEqual(["numeric_value_out_of_range"]);
+    expect(validateItem(numeric({ step: 0 })).map((issue) => issue.code)).toEqual(["numeric_step"]);
+    expect(validateItem(numeric({ step: 0.001 })).map((issue) => issue.code)).toEqual(["numeric_step_too_fine"]);
+    expect(hasBlockingIssue(numeric({ tolerance: -1 }))).toBe(true);
+    expect(hasBlockingIssue(numeric({ unit: "x".repeat(13) }))).toBe(true);
+    expect(validateItem(numeric({ step: null }))).toEqual([]);
+  });
+
+  it("applies numeric, ordering and word cloud patches over the server item", () => {
+    const numeric = item({ item_type: "numeric", options: [], numeric: { min: 0, max: 100, step: 1, unit: "", value: null, tolerance: 0, partial: true } });
+    const patched = applyItemPatch(numeric, { min: 1234.5, value: 2000, unit: "ms", step: null });
+    expect(patched.numeric).toEqual({ min: 1234.5, max: 100, step: null, unit: "ms", value: 2000, tolerance: 0, partial: true });
+    expect(gaFieldsToWrite(patched)).toEqual({ min: 1234.5, max: 100, step: null, unit: "ms", value: 2000, tolerance: 0, partial: true });
+    expect(applyItemPatch(item({ item_type: "ordering" }), { order_method: "exact" }).order_method).toBe("exact");
+    expect(applyItemPatch(item({ item_type: "word_cloud" }), { max_words: 3 }).max_words).toBe(3);
+    expect(gaFieldsToWrite(item({ item_type: "word_cloud", max_words: 2 }))).toEqual({ max_words: 2 });
+    expect(gaFieldsToWrite(item())).toEqual({});
   });
 });

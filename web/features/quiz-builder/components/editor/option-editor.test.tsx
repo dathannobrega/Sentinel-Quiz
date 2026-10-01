@@ -130,14 +130,17 @@ describe("OptionEditor", () => {
 });
 
 describe("TypePickerGrid", () => {
-  it("lists the seven types with name, description and scoring, and reports the pick", () => {
+  it("lists the ten types with name, description and scoring, and reports the pick", () => {
     const onPick = vi.fn();
     render(<TypePickerGrid onPick={onPick} />, { wrapper: Wrapper });
     const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(7);
+    expect(buttons).toHaveLength(10);
     expect(screen.getByText("Type answer")).toBeTruthy();
     expect(screen.getByText("Short text checked against accepted answers.")).toBeTruthy();
-    expect(screen.getAllByText("Scored")).toHaveLength(4);
+    // Incremento 5: ordering and numeric score; the word cloud never does.
+    expect(screen.getByText("Ordering")).toBeTruthy();
+    expect(screen.getByText("Word cloud")).toBeTruthy();
+    expect(screen.getAllByText("Scored")).toHaveLength(6);
     fireEvent.click(screen.getByRole("button", { name: /Poll/ }));
     expect(onPick).toHaveBeenCalledWith("poll" satisfies LiveItemType);
   });
