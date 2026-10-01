@@ -9,12 +9,14 @@ import { LiveMotionProvider } from "@/components/quiz-kit/motion";
 import { LiveThemeRoot } from "@/features/quiz-live/components/live-chrome";
 import { lqButtonClass, LqButton } from "@/features/quiz-live/components/lq-ui";
 import { createDisplayToken, getSession, loadDisplayToken, saveDisplayToken } from "@/features/quiz-live/lib/live-fetch";
-import { selectStageView, type LiveState } from "@/features/quiz-live/lib/live-store";
+import { selectStageView, waitingTotal, type LiveState } from "@/features/quiz-live/lib/live-store";
 import { isAnswerableType } from "@/features/quiz-live/lib/protocol";
 import { LiveProvider, useLive, useLiveConnection, useLiveState } from "@/features/quiz-live/lib/use-live-session";
 import { HostControlBar, HotkeysHelp, ParticipantsPanel } from "@/features/quiz-present/components/host-controls";
 import { PresenterView } from "@/features/quiz-present/components/presenter-view";
+import { WaitingRoomDialog, type WaitingRoomActions } from "@/features/quiz-present/components/waiting-room-panel";
 import { WordModerationDialog } from "@/features/quiz-present/components/word-moderation";
+import { admitCommand, approvalCommand, capacityCommand, rejectCommand } from "@/features/quiz-present/lib/waiting-room";
 import { PhonePreviewPanel, PreflightDialog, usePhonePreview, usePreflight } from "@/features/quiz-present/components/room-ops";
 import { Stage } from "@/features/quiz-present/components/stage";
 import { useElementHeight, useFullscreen, usePresenterHotkeys, useWakeLock, type HotkeyCommand } from "@/features/quiz-present/hooks/use-stage-hooks";
@@ -174,7 +176,8 @@ const selectHostMeta = (state: LiveState) => ({
   rehearsal: state.rehearsal,
   removedItem: state.removedItem,
   wordCloud: state.question?.item_type === "word_cloud" ? state.wordCloud : null,
-  hiddenWords: state.hiddenWords
+  hiddenWords: state.hiddenWords,
+  waitingRoom: state.waitingRoom
 });
 
 function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "presenter" }) {
@@ -198,6 +201,7 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
   const [notice, setNotice] = useState<string | null>(null);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [wordsOpen, setWordsOpen] = useState(false);
+  const [waitingOpen, setWaitingOpen] = useState(false);
   const preflight = usePreflight(sessionId);
   const preview = usePhonePreview(sessionId);
   const autoPreflightDone = useRef(false);
@@ -329,6 +333,18 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
   );
   const wordCloudOpen = meta.itemType === "word_cloud" && (meta.phase === "question" || meta.phase === "locked" || meta.phase === "reveal");
 
+  // Waiting room (Incremento 7 §4): commands are not queued while offline (a stale approval
+  // replayed later could seat someone the host meant to refuse).
+  const waitingActions = useMemo<WaitingRoomActions>(
+    () => ({
+      admit: (target) => live.send(admitCommand(target), { queueWhileOffline: false }),
+      reject: (requestId) => live.send(rejectCommand(requestId), { queueWhileOffline: false }),
+      setCapacity: (max) => live.send(capacityCommand(max, live.store.getState().waitingRoom?.platform_max ?? max), { queueWhileOffline: false }),
+      setApproval: (required) => live.send(approvalCommand(required), { queueWhileOffline: false })
+    }),
+    [live]
+  );
+
   const toggleRoomLock = useCallback(() => {
     live.send({ type: "host.room_lock", data: { locked: !live.store.getState().roomLocked } }, { queueWhileOffline: false });
   }, [live]);
@@ -458,6 +474,8 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
       preview={rehearsal ? { active: preview.active, busy: preview.state.kind === "opening", onToggle: preview.toggle } : undefined}
       // The presenter view has the same list inline.
       words={mode === "host" && wordCloudOpen ? { count: meta.wordCloud?.words.length ?? 0, onOpen: () => setWordsOpen(true) } : undefined}
+      // The presenter view has the same panel inline.
+      waiting={mode === "host" && meta.waitingRoom ? { count: waitingTotal(meta.waitingRoom), onOpen: () => setWaitingOpen(true) } : undefined}
     />
   );
 
@@ -535,6 +553,14 @@ function HostInner({ sessionId, mode }: { sessionId: string; mode: "host" | "pre
       <PreflightDialog open={preflightOpen} onClose={() => setPreflightOpen(false)} preflight={preflight} />
 
       <HotkeysHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <WaitingRoomDialog
+        open={waitingOpen && mode === "host"}
+        onClose={() => setWaitingOpen(false)}
+        room={meta.waitingRoom}
+        participantCount={meta.participantCount}
+        actions={waitingActions}
+        disabled={meta.connection.status !== "open"}
+      />
       <WordModerationDialog
         open={wordsOpen && wordCloudOpen}
         onClose={() => setWordsOpen(false)}

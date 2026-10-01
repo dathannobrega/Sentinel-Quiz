@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 import { CountdownRing } from "@/components/quiz-kit/countdown-ring";
 import { OptionBadge } from "@/components/quiz-kit/option-shape";
@@ -8,7 +8,9 @@ import { LiveThemeRoot, PauseGlyph } from "@/features/quiz-live/components/live-
 import { LqButton, LqInput } from "@/features/quiz-live/components/lq-ui";
 import { NumericHistogram } from "@/features/quiz-live/components/numeric-histogram";
 import { CapacityWarning } from "@/features/quiz-present/components/room-ops";
+import { WaitingRoomPanel, type WaitingRoomActions } from "@/features/quiz-present/components/waiting-room-panel";
 import { WordModerationPanel } from "@/features/quiz-present/components/word-moderation";
+import { admitCommand, approvalCommand, capacityCommand, rejectCommand } from "@/features/quiz-present/lib/waiting-room";
 import type { LiveState } from "@/features/quiz-live/lib/live-store";
 import { formatWithUnit } from "@/features/quiz-live/lib/numeric";
 import { isGaType, type PublicQuestion, type Reveal } from "@/features/quiz-live/lib/protocol";
@@ -29,6 +31,7 @@ const selectPresenter = (state: LiveState) => ({
   wordCloud: state.wordCloud,
   numeric: state.numeric,
   hiddenWords: state.hiddenWords,
+  waitingRoom: state.waitingRoom,
   connected: state.connection.status === "open",
   answered: state.answered,
   answerTotal: state.answerTotal,
@@ -83,6 +86,17 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
       }
     },
     [live, view.qi]
+  );
+
+  // Waiting room (Incremento 7 §4): never queued while offline.
+  const waitingActions = useMemo<WaitingRoomActions>(
+    () => ({
+      admit: (target) => live.send(admitCommand(target), { queueWhileOffline: false }),
+      reject: (requestId) => live.send(rejectCommand(requestId), { queueWhileOffline: false }),
+      setCapacity: (max) => live.send(capacityCommand(max, live.store.getState().waitingRoom?.platform_max ?? max), { queueWhileOffline: false }),
+      setApproval: (required) => live.send(approvalCommand(required), { queueWhileOffline: false })
+    }),
+    [live]
   );
 
   function onAccept(event: FormEvent) {
@@ -178,6 +192,12 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
                 <p className="text-lq-fg-muted">{t("quizPresent.presenter.lobby")}</p>
               )}
             </Panel>
+
+            {view.waitingRoom ? (
+              <Panel title={t("quizPresent.waiting.title")}>
+                <WaitingRoomPanel room={view.waitingRoom} participantCount={view.participantCount} actions={waitingActions} disabled={!view.connected} />
+              </Panel>
+            ) : null}
 
             {cloudOpen ? (
               <Panel title={t("quizPresent.words.title")}>

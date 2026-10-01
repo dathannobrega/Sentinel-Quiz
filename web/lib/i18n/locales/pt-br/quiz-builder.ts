@@ -439,6 +439,8 @@ export const quizBuilder = {
     submit: "Abrir sala",
     guests: "Permitir convidados sem login",
     guestsHint: "Participantes entram só com um apelido. Questões com licença restrita exigem login.",
+    approval: "Aprovar a entrada de cada pessoa (sala de espera)",
+    approvalHint: "Quem chega espera você liberar na visão do apresentador. Dá para desligar a qualquer momento.",
     preset: "Formato",
     presets: {
       turma: { name: "Turma", description: "Aula ou treinamento: ritmo guiado, até algumas dezenas de pessoas." },

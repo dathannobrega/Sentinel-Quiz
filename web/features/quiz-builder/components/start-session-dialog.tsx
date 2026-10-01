@@ -63,6 +63,7 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
   const [audience, setAudience] = useState<LiveAudience>("adulto");
   const [maxInput, setMaxInput] = useState("");
   const [rehearsal, setRehearsal] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(false);
   const [botsInput, setBotsInput] = useState(String(DEFAULT_BOTS));
   const [publishing, setPublishing] = useState(false);
   const [issues, setIssues] = useState<LiveIssue[]>([]);
@@ -99,6 +100,7 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
       preset,
       audience,
       ...(parsedMax !== null ? { max_participants: parsedMax } : {}),
+      ...(requireApproval ? { require_approval: true } : {}),
       // Bots only exist in rehearsals (422 bots_require_rehearsal otherwise).
       ...(rehearsal ? { rehearsal: true, bots: bots ?? 0 } : {})
     });
@@ -188,6 +190,15 @@ export function StartSessionDialog({ open, onClose, quiz, maxParticipants, publi
           onChange={(event) => setAllowGuests(event.target.checked)}
           label={t("quizBuilder.present.guests")}
           description={t("quizBuilder.present.guestsHint")}
+          disabled={busy}
+        />
+
+        <Checkbox
+          id={`${baseId}-approval`}
+          checked={requireApproval}
+          onChange={(event) => setRequireApproval(event.target.checked)}
+          label={t("quizBuilder.present.approval")}
+          description={t("quizBuilder.present.approvalHint")}
           disabled={busy}
         />
 

@@ -1,7 +1,8 @@
 /**
  * WebSocket protocol `sq.live.v1` (docs/live-quiz/CONTRATO-INCREMENTO-1.md §6, plus the time controls
  * and SSE fallback of CONTRATO-INCREMENTO-3.md §3–§4 and the moderation fields of
- * CONTRATO-INCREMENTO-4.md §2/§4, and the GA item types of CONTRATO-INCREMENTO-5.md §3–§7).
+ * CONTRATO-INCREMENTO-4.md §2/§4, the GA item types of CONTRATO-INCREMENTO-5.md §3–§7 and the
+ * waiting room of CONTRATO-INCREMENTO-7.md §4).
  * Discriminated unions for every frame plus small type guards. Keep in sync with
  * backend/app/live/protocol.py.
  */
@@ -259,6 +260,30 @@ export interface HostParticipant {
   is_preview?: boolean;
 }
 
+/** One person waiting for the host's approval (Incremento 7). Never shown on the projector. */
+export interface WaitingPerson {
+  request_id: string;
+  display_name: string;
+  avatar_seed: string;
+  signed_in: boolean;
+  created_at: string;
+  /** False once the phone stopped polling (closed the tab). */
+  connected: boolean;
+}
+
+/**
+ * Host-only `waiting_room` block of the snapshot and of `waiting_room.update` (Incremento 7):
+ * approval switch, room cap, both queue sizes and the 100 oldest people awaiting approval.
+ */
+export interface WaitingRoomState {
+  require_approval: boolean;
+  max_participants: number;
+  platform_max: number;
+  approval_count: number;
+  capacity_count: number;
+  approval: WaitingPerson[];
+}
+
 export interface Snapshot {
   session_id: string;
   title: string;
@@ -292,6 +317,8 @@ export interface Snapshot {
    */
   presenter?: { item: LiveItem; next_prompt: string | null; hidden_words?: string[] };
   participants?: HostParticipant[];
+  /** Incremento 7, host only. */
+  waiting_room?: WaitingRoomState;
   my?: MySnapshot;
 }
 
@@ -373,6 +400,8 @@ export type ServerMessage =
    * Only the host copy carries `hidden_words` (normalized keys, sorted).
    */
   | ServerBase<"word_cloud.update", { qi: number; word_cloud: WordCloudResults; hidden_words?: string[] }>
+  /** Host only (Incremento 7): the waiting room changed (coalesced with `lobby.update`). */
+  | ServerBase<"waiting_room.update", WaitingRoomState>
   | ServerBase<"srv.ping", { ts: number }>
   | ServerBase<"error", { code: LiveErrorCode; ref_mid?: string; detail?: string }>;
 
@@ -414,7 +443,14 @@ export type ClientMessage =
   | { type: "host.extend"; data: { expected_qi: number; seconds: number } }
   | { type: "host.set_time"; data: { participant_id: string; multiplier: TimeMultiplier } }
   /** Word cloud moderation: `word` is the `key` (or the text, ≤ 25); `hidden: false` shows it again. */
-  | { type: "host.hide_word"; data: { qi: number; word: string; hidden?: boolean } };
+  | { type: "host.hide_word"; data: { qi: number; word: string; hidden?: boolean } }
+  /** Waiting room (Incremento 7): admit some (≤ 500 ids) or everyone awaiting approval. */
+  | { type: "host.admit"; data: { request_ids: string[] } | { all: true } }
+  | { type: "host.reject"; data: { request_id: string } }
+  /** New room cap, up to `platform_max`; raising it admits the capacity queue in order. */
+  | { type: "host.set_capacity"; data: { max_participants: number } }
+  /** Turning approval off admits everyone awaiting it (seats permitting). */
+  | { type: "host.set_approval"; data: { required: boolean } };
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -447,6 +483,7 @@ const SERVER_TYPES: ReadonlySet<string> = new Set<ServerMessageType>([
   "participant.kicked",
   "item.removed",
   "word_cloud.update",
+  "waiting_room.update",
   "srv.ping",
   "error"
 ]);

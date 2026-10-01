@@ -9,6 +9,7 @@ import { springs } from "@/components/quiz-kit/motion";
 import { LqButton, LqError, LqInput, lqButtonClass } from "@/features/quiz-live/components/lq-ui";
 import {
   computeDeviceHash,
+  isJoinWaiting,
   joinRoom,
   rejoinRoom,
   suggestName,
@@ -16,7 +17,7 @@ import {
   type JoinErrorCode
 } from "@/features/quiz-live/lib/live-fetch";
 import { useI18n } from "@/lib/i18n";
-import type { LiveJoinRequest, LiveJoinResult, LiveRoomInfo } from "@/types/api/live";
+import type { LiveJoinOutcome, LiveJoinRequest, LiveJoinResult, LiveJoinWaiting, LiveRoomInfo } from "@/types/api/live";
 import { cn } from "@/lib/utils/cn";
 
 export const NAME_MIN = 2;
@@ -58,6 +59,7 @@ export function GuestJoinForm({
   room,
   defaultName = "",
   onJoined,
+  onWaiting,
   onWantRejoin,
   onOpenMyData,
   join,
@@ -69,11 +71,13 @@ export function GuestJoinForm({
   room: Pick<LiveRoomInfo, "session_id" | "requires_login" | "consent_version">;
   defaultName?: string;
   onJoined: (result: LiveJoinResult) => void;
+  /** 202 of the live join (Incremento 7): the person goes to the waiting room. */
+  onWaiting?: (result: LiveJoinWaiting) => void;
   onWantRejoin: () => void;
   /** "Meus dados" (RF-650/RF-606) from the consent area. */
   onOpenMyData?: () => void;
   /** Alternative join endpoint with the same body/answer (challenges: POST /q/{slug}/join). */
-  join?: (body: LiveJoinRequest) => Promise<LiveJoinResult>;
+  join?: (body: LiveJoinRequest) => Promise<LiveJoinOutcome>;
   /** Where the sign-in link returns to (default `/j/{code}`). */
   returnTo?: string;
   /** Copy overrides (a challenge has no projector and no room). */
@@ -135,6 +139,15 @@ export function GuestJoinForm({
       const devH = await computeDeviceHash(room.session_id);
       const body: LiveJoinRequest = { display_name: name.trim(), consent: true, avatar_seed: seed, ...(devH ? { dev_h: devH } : {}) };
       const result = await (join ? join(body) : joinRoom(code, body));
+      if (isJoinWaiting(result)) {
+        if (!onWaiting) {
+          // Challenges never queue: an unexpected 202 is a generic failure there.
+          setError({ field: "form", message: t("quizPlay.errors.generic") });
+          return;
+        }
+        onWaiting(result);
+        return;
+      }
       onJoined(result);
     } catch (caught) {
       if (mapError) {

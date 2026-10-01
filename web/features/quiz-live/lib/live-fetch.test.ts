@@ -186,3 +186,67 @@ describe("participant identity (return-code flows)", () => {
     expect(loadParticipantIdentity("123456", now)).toBeNull();
   });
 });
+
+describe("waiting room (Incremento 7)", () => {
+  const waiting = {
+    status: "waiting",
+    reason: "capacity",
+    request_id: "r1",
+    wait_token: "wait-secret",
+    session_id: "s1",
+    display_name: "Ana",
+    avatar_seed: "a",
+    position: 3,
+    waiting: 40,
+    retry_after_ms: 3240
+  };
+
+  it("tells a 202 waiting join from a 201 joined one", async () => {
+    const { isJoinWaiting } = await import("@/features/quiz-live/lib/live-fetch");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse(202, waiting)).mockResolvedValueOnce(jsonResponse(201, { status: "joined", token: "t" })));
+    const queued = await joinRoom("482913", { display_name: "Ana", consent: true });
+    expect(isJoinWaiting(queued)).toBe(true);
+    const joined = await joinRoom("482913", { display_name: "Ana", consent: true });
+    expect(isJoinWaiting(joined)).toBe(false);
+  });
+
+  it("keeps the ticket in sessionStorage only and clears it", async () => {
+    const { clearWaitingTicket, loadWaitingTicket, saveWaitingTicket, ticketFromJoin, updateTicket } = await import("@/features/quiz-live/lib/live-fetch");
+    const ticket = ticketFromJoin(waiting as Parameters<typeof ticketFromJoin>[0]);
+    expect(ticket).toMatchObject({ requestId: "r1", waitToken: "wait-secret", reason: "capacity", position: 3, retryAfterMs: 3240 });
+    saveWaitingTicket("482913", ticket);
+    expect(loadWaitingTicket("482913")).toEqual(ticket);
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain("wait-secret");
+    const moved = updateTicket(ticket, { ...waiting, position: 1, waiting: 12, retry_after_ms: 3000 } as Parameters<typeof updateTicket>[1]);
+    expect(moved).toMatchObject({ position: 1, waiting: 12, retryAfterMs: 3000, waitToken: "wait-secret" });
+    clearWaitingTicket("482913");
+    expect(loadWaitingTicket("482913")).toBeNull();
+    window.sessionStorage.setItem("lq:wait:482913", JSON.stringify({ requestId: "r1" }));
+    expect(loadWaitingTicket("482913")).toBeNull(); // no token, no ticket
+  });
+
+  it("polls and leaves with the Bearer wait token and without cookies", async () => {
+    const { getQueueStatus, leaveQueue } = await import("@/features/quiz-live/lib/live-fetch");
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, waiting)).mockResolvedValueOnce(jsonResponse(200, { status: "withdrawn", request_id: "r1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await getQueueStatus("r1", "wait-secret");
+    await leaveQueue("r1", "wait-secret");
+    const [[getUrl, getInit], [deleteUrl, deleteInit]] = fetchMock.mock.calls as [string, RequestInit][];
+    expect(getUrl).toMatch(/\/api\/live\/queue\/r1$/);
+    expect(deleteUrl).toMatch(/\/api\/live\/queue\/r1$/);
+    expect(deleteInit.method).toBe("DELETE");
+    for (const init of [getInit, deleteInit]) {
+      expect(new Headers(init.headers).get("Authorization")).toBe("Bearer wait-secret");
+      expect(init.credentials).toBe("omit");
+    }
+  });
+
+  it("maps queue errors", async () => {
+    const { toQueueErrorCode } = await import("@/features/quiz-live/lib/live-fetch");
+    expect(toQueueErrorCode(apiError(403, "invalid_wait_token"))).toBe("invalid_wait_token");
+    expect(toQueueErrorCode(apiError(401, "unauthorized"))).toBe("invalid_wait_token");
+    expect(toQueueErrorCode(apiError(429, "rate_limited"))).toBe("rate_limited");
+    expect(toQueueErrorCode(apiError(0, "offline"))).toBe("offline");
+    expect(toQueueErrorCode(new Error("x"))).toBe("generic");
+  });
+});

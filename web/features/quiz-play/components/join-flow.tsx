@@ -9,25 +9,31 @@ import { LiveThemeRoot } from "@/features/quiz-live/components/live-chrome";
 import { LqButton, LqError, lqButtonClass, lqCardClass } from "@/features/quiz-live/components/lq-ui";
 import {
   clearParticipantCredentials,
+  clearWaitingTicket,
   credentialsFromJoin,
   forgetParticipant,
   getRoom,
   loadParticipantCredentials,
   loadParticipantIdentity,
+  loadWaitingTicket,
   saveParticipantCredentials,
   saveReturnCode,
+  saveWaitingTicket,
+  ticketFromJoin,
   toJoinErrorCode,
   type ParticipantCredentials,
-  type ParticipantIdentity
+  type ParticipantIdentity,
+  type WaitingTicket
 } from "@/features/quiz-live/lib/live-fetch";
 import { formatJoinCode, isValidJoinCode, normalizeJoinCode } from "@/features/quiz-live/lib/protocol";
 import { AccessForm } from "@/features/quiz-play/components/access-form";
 import { GuestJoinForm, RejoinForm, ReturnCodeCard } from "@/features/quiz-play/components/join-forms";
 import { MyDataDialog } from "@/features/quiz-play/components/my-data-panel";
 import { PlayScreen } from "@/features/quiz-play/components/play-screen";
+import { WaitingRoomScreen } from "@/features/quiz-play/components/waiting-room";
 import { useI18n } from "@/lib/i18n";
 import { useCurrentUser } from "@/lib/query/hooks";
-import type { LiveJoinResult, LiveRoomInfo } from "@/types/api/live";
+import type { LiveJoinResult, LiveJoinWaiting, LiveRoomInfo } from "@/types/api/live";
 import { cn } from "@/lib/utils/cn";
 
 type Stage =
@@ -40,6 +46,8 @@ type Stage =
   | { kind: "erased" }
   | { kind: "form" }
   | { kind: "rejoin"; notice: string | null }
+  /** Incremento 7: waiting for the host's approval or a seat. `resumed`: ticket from this tab's storage. */
+  | { kind: "waiting"; ticket: WaitingTicket; resumed: boolean }
   | { kind: "returnCode"; returnCode: string; credentials: ParticipantCredentials }
   | { kind: "play"; credentials: ParticipantCredentials };
 
@@ -47,6 +55,8 @@ type Stage =
  * `/j/{code}`: room lookup → join (guest/logged/rejoin) → return code once → live play screen.
  * Incremento 4: "Meus dados" from the consent area, access with the return code once the token is
  * gone (finished sessions: results, data and the claim), and the "data deleted" end state.
+ * Incremento 7: a 202 leads to the waiting room; its ticket is kept in this tab, so a reload
+ * resumes the wait, and admission continues exactly like a normal join.
  */
 export function JoinFlow({ rawCode }: { rawCode: string }) {
   const { t } = useI18n();
@@ -57,6 +67,8 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
   const [myDataOpen, setMyDataOpen] = useState(false);
   // Who joined from this tab (kept even after the token expires); read after mount.
   const [identity, setIdentity] = useState<ParticipantIdentity | null>(null);
+  // Admission is announced from a region that survives the switch to the play screen.
+  const [announcement, setAnnouncement] = useState("");
   const userQuery = useCurrentUser({ enabled: Boolean(room?.requires_login) });
 
   // Credentials live in sessionStorage (client only), so the first decision happens after mount.
@@ -66,9 +78,14 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
       return;
     }
     const stored = loadParticipantCredentials(code);
+    // A participant token wins over a leftover ticket (admitted in this tab already).
+    const ticket = stored ? null : loadWaitingTicket(code);
     setIdentity(loadParticipantIdentity(code));
     if (stored) {
+      clearWaitingTicket(code);
       setStage({ kind: "play", credentials: stored });
+    } else if (ticket) {
+      setStage({ kind: "waiting", ticket, resumed: true });
     } else {
       setStage({ kind: "loading" });
     }
@@ -77,7 +94,7 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
     getRoom(code, controller.signal)
       .then((info) => {
         setRoom(info);
-        if (!stored) {
+        if (!stored && !ticket) {
           if (info.status === "finished") {
             setStage({ kind: "error", message: t("quizPlay.errors.session_finished"), retry: false, finished: true });
           } else {
@@ -86,7 +103,8 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
         }
       })
       .catch((error) => {
-        if (controller.signal.aborted || stored) {
+        // While waiting, the poll is the source of truth (an ended room answers "expired").
+        if (controller.signal.aborted || stored || ticket) {
           return;
         }
         const kind = toJoinErrorCode(error);
@@ -116,6 +134,30 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
     [code]
   );
 
+  const onWaiting = useCallback(
+    (result: LiveJoinWaiting) => {
+      const ticket = ticketFromJoin(result);
+      saveWaitingTicket(code, ticket);
+      setStage({ kind: "waiting", ticket, resumed: false });
+    },
+    [code]
+  );
+
+  const onAdmitted = useCallback(
+    (result: LiveJoinResult) => {
+      setAnnouncement(t("quizPlay.waiting.admitted"));
+      onJoined(result);
+    },
+    [onJoined, t]
+  );
+
+  /** Back to the join form with fresh room info (after leaving the queue or "Tentar de novo"). */
+  const backToForm = useCallback(() => {
+    clearWaitingTicket(code);
+    setStage({ kind: "loading" });
+    setAttempt((value) => value + 1);
+  }, [code]);
+
   const onTokenLost = useCallback(() => {
     clearParticipantCredentials(code);
     setStage({ kind: "rejoin", notice: t("quizPlay.errors.tokenLost") });
@@ -134,8 +176,19 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
     setAttempt((value) => value + 1);
   }, [code]);
 
+  const liveRegion = (
+    <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {announcement}
+    </p>
+  );
+
   if (stage.kind === "play") {
-    return <PlayScreen code={code} credentials={stage.credentials} onTokenLost={onTokenLost} onLeave={onLeave} onErased={onErased} />;
+    return (
+      <>
+        {liveRegion}
+        <PlayScreen code={code} credentials={stage.credentials} onTokenLost={onTokenLost} onLeave={onLeave} onErased={onErased} />
+      </>
+    );
   }
 
   // The session this tab took part in; for a finished room the code still points at it.
@@ -189,16 +242,37 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
             <RejoinForm code={code} onJoined={onJoined} />
           </div>
         ) : room ? (
-          <GuestJoinForm
-            key={userQuery.data?.display_name ?? "guest"}
-            code={code}
-            room={room}
-            defaultName={userQuery.data?.display_name ?? ""}
-            onJoined={onJoined}
-            onWantRejoin={() => setStage({ kind: "rejoin", notice: null })}
-            onOpenMyData={() => setMyDataOpen(true)}
-          />
+          <div className="flex flex-col gap-4">
+            {room.requires_approval || room.full ? (
+              <p className="rounded-[calc(var(--lq-radius)*0.5)] border border-lq-line bg-lq-surface-2 px-3 py-2 text-sm text-lq-fg">
+                {room.requires_approval ? t("quizPlay.join.approvalNotice") : t("quizPlay.join.fullNotice")}
+              </p>
+            ) : null}
+            <GuestJoinForm
+              key={userQuery.data?.display_name ?? "guest"}
+              code={code}
+              room={room}
+              defaultName={userQuery.data?.display_name ?? ""}
+              onJoined={onJoined}
+              onWaiting={onWaiting}
+              onWantRejoin={() => setStage({ kind: "rejoin", notice: null })}
+              onOpenMyData={() => setMyDataOpen(true)}
+            />
+          </div>
         ) : null;
+      break;
+    case "waiting":
+      content = (
+        <WaitingRoomScreen
+          key={stage.ticket.requestId}
+          code={code}
+          ticket={stage.ticket}
+          resumed={stage.resumed}
+          onAdmitted={onAdmitted}
+          onLeft={backToForm}
+          onRetry={backToForm}
+        />
+      );
       break;
     case "rejoin":
       content = <RejoinForm code={code} notice={stage.notice} onJoined={onJoined} onBack={() => setStage({ kind: "form" })} />;
@@ -228,33 +302,36 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
   }
 
   return (
-    <LiveMotionProvider>
-      <LiveThemeRoot theme={theme} className="min-h-dvh" particles>
-        <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-4 py-8">
-          <header className="mb-5 flex flex-col items-center gap-1 text-center">
-            <p className="font-lq-mono text-xs font-medium tracking-[0.2em] text-lq-accent uppercase">{t("quizPlay.brand")}</p>
-            <h1 className="font-lq text-2xl font-extrabold text-balance text-lq-fg sm:text-3xl">{room?.title || t("quizPlay.meta.roomTitle")}</h1>
-            <p className="font-lq-mono text-sm text-lq-fg-muted">
-              {t("quizPlay.room.pin", { code: formatJoinCode(code) })}
-              {room ? ` · ${t("quizPlay.room.participants", { count: room.participant_count })}` : ""}
-            </p>
-          </header>
-          <m.div key={stage.kind} initial={{ y: 16 }} animate={{ y: 0 }} transition={springs.gentle} className={cn(lqCardClass, "px-5 py-7 sm:px-8")}>
-            {content}
-          </m.div>
-        </main>
-        <MyDataDialog
-          open={myDataOpen}
-          onClose={() => setMyDataOpen(false)}
-          intro={t("quizPlay.myData.rightsText")}
-          token={null}
-          sessionId={identity?.sessionId ?? null}
-          defaultName={identity?.displayName}
-          onTokenRefreshed={(result) => saveParticipantCredentials(code, credentialsFromJoin(result))}
-          onErased={onErased}
-        />
-      </LiveThemeRoot>
-    </LiveMotionProvider>
+    <>
+      {liveRegion}
+      <LiveMotionProvider>
+        <LiveThemeRoot theme={theme} className="min-h-dvh" particles>
+          <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-4 py-8">
+            <header className="mb-5 flex flex-col items-center gap-1 text-center">
+              <p className="font-lq-mono text-xs font-medium tracking-[0.2em] text-lq-accent uppercase">{t("quizPlay.brand")}</p>
+              <h1 className="font-lq text-2xl font-extrabold text-balance text-lq-fg sm:text-3xl">{room?.title || t("quizPlay.meta.roomTitle")}</h1>
+              <p className="font-lq-mono text-sm text-lq-fg-muted">
+                {t("quizPlay.room.pin", { code: formatJoinCode(code) })}
+                {room ? ` · ${t("quizPlay.room.participants", { count: room.participant_count })}` : ""}
+              </p>
+            </header>
+            <m.div key={stage.kind} initial={{ y: 16 }} animate={{ y: 0 }} transition={springs.gentle} className={cn(lqCardClass, "px-5 py-7 sm:px-8")}>
+              {content}
+            </m.div>
+          </main>
+          <MyDataDialog
+            open={myDataOpen}
+            onClose={() => setMyDataOpen(false)}
+            intro={t("quizPlay.myData.rightsText")}
+            token={null}
+            sessionId={identity?.sessionId ?? null}
+            defaultName={identity?.displayName}
+            onTokenRefreshed={(result) => saveParticipantCredentials(code, credentialsFromJoin(result))}
+            onErased={onErased}
+          />
+        </LiveThemeRoot>
+      </LiveMotionProvider>
+    </>
   );
 }
 

@@ -644,3 +644,34 @@ describe("liveReducer: GA item types (Incremento 5)", () => {
     expect(parseServerMessage(JSON.stringify({ v: 1, type: "word_cloud.nope", sts: 1, data: {} }))).toBeNull();
   });
 });
+
+describe("liveReducer: waiting room (Incremento 7)", () => {
+  const room = {
+    require_approval: true,
+    max_participants: 100,
+    platform_max: 2000,
+    approval_count: 2,
+    capacity_count: 3,
+    approval: [{ request_id: "r1", display_name: "Ana", avatar_seed: "a", signed_in: false, created_at: "2026-10-01T10:00:00Z", connected: true }]
+  };
+
+  it("takes the block from the host snapshot and replaces it on each update (the cap follows)", async () => {
+    const { waitingTotal } = await import("@/features/quiz-live/lib/live-store");
+    let state = apply(createInitialLiveState("host"), frame("room.snapshot", snapshot({ waiting_room: room }), 1));
+    expect(state.waitingRoom).toEqual(room);
+    expect(waitingTotal(state.waitingRoom)).toBe(5);
+    state = apply(state, frame("waiting_room.update", { ...room, max_participants: 150, approval_count: 0, capacity_count: 0, approval: [] }, 2));
+    expect(state.waitingRoom?.approval).toEqual([]);
+    expect(state.maxParticipants).toBe(150);
+    expect(waitingTotal(state.waitingRoom)).toBe(0);
+    expect(waitingTotal(null)).toBe(0);
+  });
+
+  it("the stage shows a count only, never names", () => {
+    const state = apply(createInitialLiveState("host"), frame("room.snapshot", snapshot({ waiting_room: room }), 1));
+    const view = selectStageView(state);
+    expect(view.waitingCount).toBe(5);
+    expect(JSON.stringify(view)).not.toContain("Ana");
+    expect(selectStageView(apply(createInitialLiveState("display"), frame("room.snapshot", snapshot(), 1))).waitingCount).toBeNull();
+  });
+});

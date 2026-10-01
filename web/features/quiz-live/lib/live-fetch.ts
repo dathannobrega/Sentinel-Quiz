@@ -11,19 +11,28 @@
  *
  * Incremento 4 adds the participant rights (`/me`: my data, erase, access with the return code,
  * report content) and the host's phone preview and pre-event check.
+ *
+ * Incremento 7: the join may answer 202 (waiting room). The wait token is a credential too: it
+ * lives only in this tab's `sessionStorage`, like the participant token, so a reload resumes the
+ * wait and another tab never inherits it.
  */
 import { buildApiUrl } from "@/lib/api/client";
 import { ApiError, apiMessage, normalizeErrorResponse } from "@/lib/api/errors";
 import type {
   LiveContentReport,
   LiveDisplayToken,
+  LiveJoinOutcome,
   LiveJoinRequest,
   LiveJoinResult,
+  LiveJoinWaiting,
   LiveMyData,
   LiveMyResults,
   LivePreflight,
+  LiveQueueStatus,
+  LiveQueueWaiting,
   LiveRoomInfo,
-  LiveSession
+  LiveSession,
+  LiveWaitReason
 } from "@/types/api/live";
 
 const LIVE_TIMEOUT_MS = 15_000;
@@ -118,8 +127,47 @@ export function getRoom(code: string, signal?: AbortSignal): Promise<LiveRoomInf
   return liveRequest(`/rooms/${encodeURIComponent(code)}`, { signal });
 }
 
-export function joinRoom(code: string, body: LiveJoinRequest): Promise<LiveJoinResult> {
+/** 201 `{status: "joined"}` or 202 `{status: "waiting"}` (waiting room, Incremento 7). */
+export function joinRoom(code: string, body: LiveJoinRequest): Promise<LiveJoinOutcome> {
   return liveRequest(`/rooms/${encodeURIComponent(code)}/join`, { method: "POST", body });
+}
+
+/** Whether the join answered 202: the person waits (approval or a full room). */
+export function isJoinWaiting(result: LiveJoinOutcome): result is LiveJoinWaiting {
+  return (result as { status?: string }).status === "waiting";
+}
+
+// ----------------------------------------------------------------------------- waiting room (Incremento 7 §3)
+
+/**
+ * The waiting phone's poll (Bearer wait token, no cookies). Waiting: position and pace updated.
+ * Admitted: the join result (return code only on the first delivery). 403 `invalid_wait_token`.
+ */
+export function getQueueStatus(requestId: string, waitToken: string, signal?: AbortSignal): Promise<LiveQueueStatus> {
+  return liveRequest(`/queue/${encodeURIComponent(requestId)}`, { token: waitToken, signal, withCredentials: false });
+}
+
+/** "Sair da fila": `{status: "withdrawn"}` (or the end it already had). */
+export function leaveQueue(requestId: string, waitToken: string): Promise<{ status: string; request_id: string }> {
+  return liveRequest(`/queue/${encodeURIComponent(requestId)}`, { method: "DELETE", token: waitToken, withCredentials: false });
+}
+
+export type QueueErrorCode = "invalid_wait_token" | "rate_limited" | "offline" | "generic";
+
+/** The ticket is gone for good only on 401/403 (`invalid_wait_token`); the rest is retried. */
+export function toQueueErrorCode(error: unknown): QueueErrorCode {
+  if (error instanceof ApiError) {
+    if (error.code === "invalid_wait_token" || error.status === 401 || error.status === 403) {
+      return "invalid_wait_token";
+    }
+    if (error.status === 429) {
+      return "rate_limited";
+    }
+    if (error.status === 0 || error.code === "timeout") {
+      return "offline";
+    }
+  }
+  return "generic";
 }
 
 export function rejoinRoom(code: string, body: { display_name: string; return_code: string }): Promise<LiveJoinResult> {
@@ -237,7 +285,8 @@ export const JOIN_ERROR_CODES = [
   "name_taken",
   "name_rejected",
   "consent_required",
-  "invalid_return_code"
+  "invalid_return_code",
+  "invalid_wait_token"
 ] as const;
 export type JoinErrorCode = (typeof JOIN_ERROR_CODES)[number];
 
@@ -274,6 +323,7 @@ const TOKEN_PREFIX = "lq:tok:";
 const RETURN_CODE_PREFIX = "lq:rc:";
 const DISPLAY_PREFIX = "lq:display:";
 const IDENTITY_PREFIX = "lq:who:";
+const WAIT_PREFIX = "lq:wait:";
 const DEVICE_KEY = "lq:dev";
 
 function session(): Storage | null {
@@ -344,6 +394,62 @@ export function clearParticipantCredentials(code: string): void {
   write(session(), `${TOKEN_PREFIX}${code}`, null);
 }
 
+/** A place in the waiting room (Incremento 7). `waitToken` is a credential: this tab only. */
+export interface WaitingTicket {
+  requestId: string;
+  waitToken: string;
+  sessionId: string;
+  displayName: string;
+  avatarSeed: string;
+  reason: LiveWaitReason;
+  position: number | null;
+  waiting: number;
+  retryAfterMs: number;
+}
+
+export function ticketFromJoin(result: LiveJoinWaiting): WaitingTicket {
+  return {
+    requestId: result.request_id,
+    waitToken: result.wait_token,
+    sessionId: result.session_id,
+    displayName: result.display_name,
+    avatarSeed: result.avatar_seed,
+    reason: result.reason,
+    position: result.position ?? null,
+    waiting: result.waiting,
+    retryAfterMs: result.retry_after_ms
+  };
+}
+
+/** A poll answer that is still "waiting" refreshes the ticket (reason, position, pace). */
+export function updateTicket(ticket: WaitingTicket, status: LiveQueueWaiting): WaitingTicket {
+  return {
+    ...ticket,
+    reason: status.reason,
+    position: status.position ?? null,
+    waiting: status.waiting,
+    retryAfterMs: status.retry_after_ms,
+    displayName: status.display_name || ticket.displayName,
+    avatarSeed: status.avatar_seed || ticket.avatarSeed
+  };
+}
+
+export function saveWaitingTicket(code: string, ticket: WaitingTicket): void {
+  write(session(), `${WAIT_PREFIX}${code}`, JSON.stringify(ticket));
+}
+
+export function loadWaitingTicket(code: string): WaitingTicket | null {
+  const stored = readJson<WaitingTicket>(session(), `${WAIT_PREFIX}${code}`);
+  if (!stored || typeof stored.requestId !== "string" || !stored.requestId || typeof stored.waitToken !== "string" || !stored.waitToken) {
+    return null;
+  }
+  return stored;
+}
+
+export function clearWaitingTicket(code: string): void {
+  write(session(), `${WAIT_PREFIX}${code}`, null);
+}
+
 /**
  * Who joined which session from this tab, kept apart from the token: tokens expire (and are then
  * dropped), but "my data"/"my results" and the claim still need the session id to ask for a fresh
@@ -388,6 +494,7 @@ export function loadParticipantIdentity(code: string, now: number = Date.now()):
 export function forgetParticipant(code: string): void {
   const storage = session();
   write(storage, `${TOKEN_PREFIX}${code}`, null);
+  write(storage, `${WAIT_PREFIX}${code}`, null);
   write(storage, `${RETURN_CODE_PREFIX}${code}`, null);
   write(local(), `${IDENTITY_PREFIX}${code}`, null);
 }
