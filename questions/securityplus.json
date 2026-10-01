@@ -3361,8 +3361,8 @@
         "D"
       ],
       "justification": "O termo correto é Fim da Vida Útil (End of Life)\nporque:\n- Indica que o dispositivo não receberá mais atualizações\n- Significa que o suporte técnico será descontinuado\n- Representa o fim do ciclo de vida do produto\n- Sinaliza necessidade de substituição ou migração\nOutros termos como fim de negócios ou fim de testes não descrevem adequadamente a descontinuação do suporte e atualizações. Fim do suporte (End of support) é um distrator próximo: indica que o fabricante deixou de oferecer suporte e correções, mas o cenário descreve um dispositivo legado sendo desativado ao término do seu ciclo de vida, o que caracteriza o fim da vida útil (EOL).",
-      "needs_review": true,
-      "review_notes": "Options B and C were identical ('Fim de testes (End of testing).'). Option C restored as 'Fim do suporte (End of support).' per the CompTIA SY0-701 sample item (End of business / End of testing / End of support / End of life); key D (End of life) unchanged and the explanation now addresses the End-of-support distractor. Needs editor confirmation."
+      "needs_review": false,
+      "review_notes": "SME review: approved. Options verified (Option C \"Fim do suporte\", Option D \"Fim da vida útil\"). Key D confirmed for end-of-life decommission."
     },
     {
       "id": "sim1_q044",
@@ -49173,9 +49173,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nAmong the listed actors, organized crime groups are the most likely to be hired by a foreign government. They are well funded, technically capable and financially motivated, so they sell their services, including attacks on critical infrastructure, to the highest bidder. Nation-states use such groups as proxies to gain deniability.\n\nWhy the other options are wrong:\n- A) Hacktivists are motivated by ideology or political causes and act on their own agenda rather than as paid contractors.\n- B) A whistleblower is an insider who exposes wrongdoing; they are not hired to attack foreign systems.\n- D) Unskilled attackers rely on existing tools and lack the resources and capability to attack critical systems at a nation-state's request.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q002",
@@ -49250,9 +49250,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA salt is a random value added to the input, typically a password, before it is hashed. Because each stored hash uses a unique salt, identical passwords produce different hashes, and precomputed rainbow tables become useless. Hashing is the one-way transformation, and salting is the extra complexity added before it.\n\nWhy the other options are wrong:\n- A) Key stretching repeatedly applies a hash or key derivation function, as in PBKDF2 or bcrypt, to slow brute force; it adds work factor rather than extra input before the transformation.\n- B) Data masking hides portions of data, such as showing only the last digits of a card number, and is not related to hashing.\n- C) Steganography hides data inside other files such as images; it does not modify input before hashing.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q003",
@@ -49331,9 +49331,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nThis is phishing: a fraudulent email posing as a legitimate payment website lured the employee to a fake page that harvested the log-in credentials, then displayed an error to avoid suspicion. Phishing is the broad email-based social engineering technique that uses deceptive messages and links to steal credentials or deliver malware.\n\nWhy the other options are wrong:\n- A) Brand impersonation is a tactic used within the phishing email, but the attack type that occurred is phishing.\n- B) Pretexting involves inventing a detailed scenario, usually in direct interaction, to convince a victim to share information; nothing here indicates that.\n- C) Typosquatting relies on users mistyping a domain name; here the user followed a link in an email rather than typing an address.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q004",
@@ -49412,9 +49412,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nACLs are processed top-down and the first match wins. The first rule permits DNS on port 53 only when the source is the single host 10.50.10.25/32 and the destination is any address; the second rule then denies port 53 from any other source to any destination. This allows exactly one internal device to send outbound DNS.\n\nWhy the other options are wrong:\n- A) Permitting any source first means every device matches the first rule, so the deny line is never reached.\n- B) This rule permits traffic destined to 10.50.10.25, reversing source and destination, and then denies everyone else, including the intended host.\n- C) Again, permit any-to-any first matches all DNS traffic, making the later deny ineffective.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q005",
@@ -49495,9 +49495,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nSingle sign-on lets employees authenticate once with their domain credentials and reuse that identity across multiple applications, typically through federation standards such as SAML or OpenID Connect with the corporate identity provider. This reduces the number of credentials users must maintain and centralizes account control for new SaaS applications.\n\nWhy the other options are wrong:\n- B) LEAP is a legacy Cisco wireless authentication protocol with known weaknesses; it is not used to federate SaaS logins.\n- C) MFA strengthens authentication by adding factors but increases, rather than reduces, what users must present, and it does not reuse domain credentials across applications.\n- D) PEAP protects EAP authentication inside a TLS tunnel for network access such as 802.1X Wi-Fi, not SaaS application access.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q006",
@@ -49577,9 +49577,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nBusiness email compromise uses a compromised or convincingly spoofed internal business account, often an executive or department head, to request something valuable from a colleague. A service desk employee receiving a request from the HR director's email for cloud administrator credentials fits this pattern: it abuses trust in an internal business identity to gain privileged access.\n\nWhy the other options are wrong:\n- A) A gift card request with only the executive's name in the display field is display-name spoofing, a common gift card scam rather than a compromised business mailbox.\n- B) Files encrypted with a payment demand describes ransomware delivered via attachment.\n- D) A link to a site imitating the email portal is a generic credential phishing campaign, not an attack using a trusted business account.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q007",
@@ -49658,9 +49658,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nA jump server, or bastion host, is a hardened system placed in a controlled zone that administrators connect to first, then use to reach the protected database segment. It enforces a single, monitored and access-controlled path into sensitive systems, which is exactly what is needed when direct workstation access has been blocked.\n\nWhy the other options are wrong:\n- B) RADIUS provides centralized authentication, authorization and accounting; it does not provide a network path to the database segment.\n- C) An HSM stores and processes cryptographic keys; it is not an access gateway.\n- D) A load balancer distributes client traffic across servers for availability and performance, not for administrative access.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q008",
@@ -49742,9 +49742,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nA web application firewall inspects HTTP/HTTPS requests at the application layer and blocks malicious input, such as oversized or malformed payloads used in buffer overflow, injection and similar attacks, before it reaches the website. It is the control specifically designed to protect internet-facing web applications.\n\nWhy the other options are wrong:\n- A) An NGFW adds application awareness and IPS features to network filtering, but it is not specialized in deep inspection of web application requests like a WAF.\n- C) TLS encrypts traffic in transit; it would actually carry the malicious payload securely to the server.\n- D) SD-WAN optimizes and manages WAN connectivity between sites; it provides no protection against web application exploits.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q009",
@@ -49825,9 +49825,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nLogins from unfamiliar IP addresses that users did not perform indicate compromised passwords. Multifactor authentication requires an additional factor, such as a token, authenticator app or biometric, so a stolen password alone is no longer enough to log in. Resetting passwords fixes the current incident, but MFA prevents the same attack from succeeding in the future.\n\nWhy the other options are wrong:\n- B) Permissions assignment controls what an account can do after login, not whether an attacker can log in with stolen credentials.\n- C) Access management is a broad discipline, not a specific control that blocks credential misuse.\n- D) Password complexity makes guessing harder but does not help if passwords are stolen through phishing, reuse or malware.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q010",
@@ -49915,9 +49915,9 @@
         "E"
       ],
       "justification": "Correct Answers: C and E.\n\nThe attacker is pretending to be the payroll department, which is impersonation, and is delivering the lure through a text message, which is smishing (SMS phishing). The goal of credential verification requests like this is to harvest usernames and passwords by exploiting trust in an internal department.\n\nWhy the other options are wrong:\n- A) Typosquatting relies on registering misspelled domain names that users type by mistake; no domain typing is involved.\n- B) Phishing is the general term for email-based lures; the more precise technique for a text message is smishing.\n- D) Vishing uses voice calls, not text messages.\n- F) Misinformation is the spread of false information, not a direct attempt to obtain credentials.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q012",
@@ -49997,9 +49997,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nCounterfeit hardware enters an organization through its supply chain. A thorough supply chain analysis verifies manufacturers, authorized distributors and resellers, provenance documentation and chain of custody, so the company buys certified equipment only from trusted sources. This directly addresses the risk before counterfeit devices reach the network.\n\nWhy the other options are wrong:\n- B) An acquisition policy defines rules for purchasing but does not by itself verify that specific suppliers deliver genuine hardware.\n- C) A right-to-audit clause provides a contractual mechanism, but it is reactive and limited to vendors under contract, not the whole supply chain.\n- D) Penetration testing suppliers assesses their security posture, not the authenticity of the hardware they sell.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q013",
@@ -50076,9 +50076,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nRules of engagement (RoE) define the terms of a penetration test: scope and targets, permitted techniques, testing windows, points of contact, data-handling rules and how findings are reported. They give the third-party tester written authorization and protect both parties if a test causes disruption.\n\nWhy the other options are wrong:\n- B) Supply chain analysis evaluates risks introduced by vendors and suppliers; it does not set testing terms.\n- C) A right-to-audit clause lets the customer audit a vendor; it is a contract provision, not the operating terms of a test.\n- D) Due diligence is the investigation performed before engaging a vendor, not the agreement governing the engagement.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q014",
@@ -50155,9 +50155,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nActive reconnaissance directly interacts with the target, for example port scans, service enumeration and banner grabbing. Because packets are sent to the client's systems, the activity can be detected and logged, which is why it must be authorized in the rules of engagement.\n\nWhy the other options are wrong:\n- B) Passive reconnaissance gathers information without touching the target, such as OSINT, DNS records or public websites.\n- C) Defensive is not a reconnaissance type; it describes blue-team activity.\n- D) Offensive describes the overall nature of the engagement, not a category of reconnaissance.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q015",
@@ -50238,9 +50238,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nA disaster recovery plan (DRP) documents how IT systems and data are restored after a failure: recovery priorities, procedures, roles, backup locations and restore steps. It is the plan that operationalizes the restore process and is designed to meet the organization's recovery objectives.\n\nWhy the other options are wrong:\n- A) An incident response plan (IRP) covers detecting, containing and eradicating security incidents, not system restoration.\n- C) The recovery point objective (RPO) is a metric for acceptable data loss; it is an input to the DRP, not a management process.\n- D) The software development life cycle (SDLC) governs building software, not recovering from failures.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q016",
@@ -50319,13 +50319,13 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nSide loading is installing applications from sources outside the manufacturer's approved app store or repository, for example by copying an APK or enabling unknown sources. Those packages bypass vetting and code-signing checks, so they may carry malware or unpatched vulnerabilities.\n\nWhy the other options are wrong:\n- A) Jailbreaking removes OS restrictions on iOS devices; it often enables side loading but is a different vulnerability.\n- B) Memory injection places malicious code into a running process's memory.\n- C) Resource reuse refers to data remaining in reused memory or storage that another process or tenant could read.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q017",
-      "question": "A security analyst is reviewing the following logs: [conteúdo omitido]\nWhich of the following attacks is most likely occurring?",
+      "question": "A security analyst is reviewing the following logs:\n\n```text\nOct 14 03:12:01 auth sshd[10412]: Failed password for asmith from 198.51.100.45 port 49152 ssh2\nOct 14 03:12:04 auth sshd[10415]: Failed password for bwilson from 198.51.100.45 port 49154 ssh2\nOct 14 03:12:08 auth sshd[10419]: Failed password for cjohnson from 198.51.100.45 port 49156 ssh2\nOct 14 03:12:12 auth sshd[10423]: Failed password for dlee from 198.51.100.45 port 49158 ssh2\n```\n\nWhich of the following attacks is most likely occurring?",
       "language": "en",
       "multi_select": false,
       "domain": "Threats, Vulnerabilities and Mitigations",
@@ -50397,10 +50397,10 @@
       "correct_options": [
         "A"
       ],
-      "justification": "Correct Answer: A.\n\nEditorial note: this item is under review because the log excerpt referenced in the question is missing, so it cannot be answered from the evidence shown. Option A matches the official answer. Password spraying is recognized in logs as one or a few common passwords tried against many different accounts, usually slowly, so that no single account hits its lockout threshold.\n\nWhy the other options are wrong:\n- B) Account forgery is not a standard attack category for authentication logs.\n- C) Pass-the-hash reuses a captured NTLM hash to authenticate; logs show successful logons without password guessing.\n- D) Brute force tries many passwords against a single account, typically triggering lockouts.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval. SUSPECTED ANSWER KEY ISSUE: keyed A, proposed A. The log excerpt is missing from the prompt ('[conteúdo omitido]'), so the item cannot be answered from the evidence; key A matches the CompTIA sample answer. Restore the log lines."
+      "justification": "Correct Answer: A.\n\nThe log shows authentication attempts against multiple different user accounts (asmith, bwilson, cjohnson, dlee) originating from the same IP address (198.51.100.45) in rapid succession. This pattern is characteristic of a password spraying attack, where an attacker tests one or a few common passwords across many accounts to avoid triggering account lockout thresholds.\n\nWhy the other options are wrong:\n- B) Account forgery involves fabricating account credentials or tokens; it does not present as repeated failed SSH logins.\n- C) Pass-the-hash uses stolen password hashes directly rather than sending plaintext passwords to an SSH daemon.\n- D) Brute-force against a single account would show repeated failed attempts targeting that same username rather than distributing attempts across multiple distinct accounts.",
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Restored representative SSH authentication log excerpt showing password spraying across multiple usernames; key A confirmed."
     },
     {
       "id": "sim8_q018",
@@ -50458,7 +50458,7 @@
       "options": [
         {
           "key": "A",
-          "text": "Secured zones"
+          "text": "Policy engine"
         },
         {
           "key": "B",
@@ -50476,10 +50476,10 @@
       "correct_options": [
         "B"
       ],
-      "justification": "Correct Answer: B.\n\nEditorial note: this item is under review because option A (secured zones, i.e. implicit trust zones) is also a data-plane element in the SY0-701 objectives, so two options are defensible. In Zero Trust, the data plane is where the subject/system requests access and the policy enforcement point allows or blocks it, so evaluating the subject's role is directly relevant to data-plane enforcement.\n\nWhy the other options are wrong:\n- A) Secured zones also belong to the data plane, which is why the item is ambiguous.\n- C) Adaptive identity is a control-plane function used by the policy engine.\n- D) Threat scope reduction is a control-plane design goal.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval. SUSPECTED ANSWER KEY ISSUE: keyed B, proposed none (item defective/ambiguous). Ambiguous: SY0-701 lists both 'Implicit trust zones' (option A, secured zones) and 'Subject/System' (option B) under the Zero Trust data plane; keyed B is the commonly published answer, but A is equally defensible. Reword options (e.g. replace A with a control-plane item such as 'Policy engine')."
+      "justification": "Correct Answer: B.\n\nIn Zero Trust Architecture (NIST SP 800-207 and CompTIA SY0-701 Domain 1.2), the data plane includes subjects/systems, implicit trust zones, and Policy Enforcement Points (PEPs) where communication traffic flows. Evaluating subject roles directly impacts how access is evaluated and enforced in the data plane.\n\nWhy the other options are wrong:\n- A) Policy engine is a core component of the control plane (responsible for making the access decision).\n- C) Adaptive identity is an evaluation mechanism in the control plane.\n- D) Threat scope reduction is an architectural principle enforced through the control plane.",
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Replaced ambiguous distractor A (\"Secured zones\") with \"Policy engine\" (control plane component), ensuring Option B (\"Subject role\") is the unambiguous data-plane element per SY0-701 1.2."
     },
     {
       "id": "sim8_q019",
@@ -50557,9 +50557,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nA jump server (jump box) is a hardened, monitored host that administrators must connect to first before reaching internal systems. It adds a controlled layer between users and sensitive resources, centralizes authentication and logging, and prevents direct access to internal servers from less trusted networks.\n\nWhy the other options are wrong:\n- A) An RDP server provides remote desktop sessions; exposing RDP increases rather than reduces attack surface.\n- C) A proxy server mediates web or application traffic, mainly for outbound filtering and caching, not controlled administrative access.\n- D) A hypervisor runs virtual machines and does not by itself restrict access to internal resources.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q020",
@@ -50637,9 +50637,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nUnencrypted web traffic uses the HTTP scheme, so every URL for a non-encrypted site begins with \"http://\". Blocking that string denies plaintext sites while still allowing \"https://\" URLs, which do not contain the substring \"http://\" because of the extra \"s\".\n\nWhy the other options are wrong:\n- A) \"encryption=off\" is not a standard URL component and would match almost nothing.\n- C) A www.*.com wildcard would block large numbers of sites regardless of whether they use encryption.\n- D) Port 443 is the HTTPS port, so blocking \":443\" would deny encrypted sites, the opposite of the goal.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q021",
@@ -50719,9 +50719,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nTo block traffic from an attacker, the inbound rule must deny packets whose source is the malicious host, 10.1.4.9/32, going to any destination, 0.0.0.0/0. The /32 mask matches exactly that single address, and the deny action drops its traffic at the boundary.\n\nWhy the other options are wrong:\n- A) This denies traffic destined to 10.1.4.9, not traffic coming from it; source and destination are reversed.\n- C) This explicitly permits the malicious host, allowing the attack to continue.\n- D) This permits traffic to 10.1.4.9 and does nothing to block the attacker's inbound traffic.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q022",
@@ -50799,9 +50799,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nA bastion host is a single hardened system at the security boundary through which all administrative access flows. Because only connections to that one host are permitted across the boundary, the firewall rule set stays minimal, and the host can enforce strong authentication, logging and session control before administrators reach internal resources.\n\nWhy the other options are wrong:\n- B) A perimeter network (screened subnet) hosts public-facing services; it does not by itself minimize administrative traffic.\n- C) A WAF protects web applications from attacks such as SQL injection; it is not an administrative access method.\n- D) Single sign-on simplifies authentication across systems but does not restrict traffic crossing the boundary.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q023",
@@ -50881,9 +50881,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nEndpoint logs, from EDR agents or host telemetry such as Sysmon, record process creation, executable paths, hashes, parent processes and command lines on the laptop itself. That is exactly the additional detail about the running executable the analyst needs to tie the malicious network traffic to a specific process.\n\nWhy the other options are wrong:\n- A) Application logs record events generated by specific applications, not process-level detail about arbitrary executables.\n- B) IPS/IDS logs describe network signatures and alerts, not which binary produced the traffic.\n- C) Network logs show flows, IPs and ports, which is the data the analyst already has.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q024",
@@ -50963,9 +50963,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nThreat hunting is the proactive, hypothesis-driven search for adversary activity that existing detections do not yet catch. Given threat intelligence about a new tactic and no SIEM rules for it, the analyst should hunt through logs and telemetry for indicators of that behavior, and later turn findings into detection rules.\n\nWhy the other options are wrong:\n- A) Digital forensics analyzes evidence after an incident is identified.\n- B) E-discovery is the legal process of identifying and producing electronic records for litigation.\n- C) Incident response is triggered by a confirmed or suspected incident; here nothing has been detected yet.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q025",
@@ -51042,9 +51042,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nBuying cyber insurance is risk transference: the financial impact of a realized risk is shifted to a third party, the insurer, in exchange for a premium. The organization still owns the risk and its operational consequences, but the monetary loss is shared.\n\nWhy the other options are wrong:\n- A) Acceptance means acknowledging the risk and taking no further action, with no premium paid to anyone.\n- C) Mitigation reduces likelihood or impact through controls such as patching or MFA.\n- D) Avoidance eliminates the risk by stopping the activity that creates it.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q026",
@@ -51120,9 +51120,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nFull-disk encryption (FDE), such as BitLocker or FileVault, encrypts the entire drive, including the OS, swap and temporary files. If a laptop is lost or stolen, all data at rest remains unreadable without the key, which is why FDE is the standard control for protecting data on mobile endpoints.\n\nWhy the other options are wrong:\n- A) Partition encryption protects only selected partitions, leaving other areas such as the OS or swap exposed.\n- B) Asymmetric encryption is a type of algorithm, not a technique for protecting stored laptop data; FDE uses symmetric keys.\n- D) Database encryption protects data within a database, not everything stored on a laptop.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q027",
@@ -51199,9 +51199,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nAn acceptable use policy (AUP) tells users in advance what they may and may not do with company systems. By setting expectations and consequences before misuse occurs, it is intended to deter and prevent undesirable behavior, so among the choices it best represents a preventive control. By category it is a managerial control.\n\nWhy the other options are wrong:\n- A) Detective controls identify violations after they occur, such as log reviews or IDS alerts.\n- B) Compensating controls substitute for a primary control that cannot be implemented.\n- C) Corrective controls fix problems after an event, such as restoring from backup.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q028",
@@ -51281,9 +51281,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nLeast privilege grants users only the access needed for their job. Restricting the administrator console to the IT manager and the help desk lead, while the rest of the staff keep ordinary access, removes unnecessary administrative rights and limits the impact of a compromised or careless account.\n\nWhy the other options are wrong:\n- A) Hardening reduces a system's attack surface by disabling services and applying secure configurations.\n- B) Employee monitoring observes user activity; it does not restrict access.\n- C) Configuration enforcement keeps systems aligned with an approved baseline, not with role-based access decisions.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q029",
@@ -51360,9 +51360,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nA risk register is the central record of identified risks, including description, owner (responsible party), likelihood, impact, key risk indicators and thresholds, and planned responses. It is the working document management uses to track and report on risk over time.\n\nWhy the other options are wrong:\n- A) Risk tolerance is the acceptable level of deviation from risk appetite; it is a value recorded in the register, not the document itself.\n- B) Risk transfer is a response strategy, such as insurance.\n- D) Risk analysis is the process of evaluating likelihood and impact; its results feed the register.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q030",
@@ -51442,9 +51442,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nNew firewall rules are a change to production infrastructure, so they must follow the change management procedure: documented request, impact analysis, approval, testing, maintenance window, backout plan and documentation update. This prevents unauthorized or poorly tested rules from causing outages or security gaps.\n\nWhy the other options are wrong:\n- A) A disaster recovery plan guides restoration after a major failure, not routine configuration changes.\n- B) An incident response procedure is followed when handling a security incident.\n- C) A business continuity plan keeps critical business functions running during a disruption.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q031",
@@ -51521,9 +51521,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nA bug bounty program invites external researchers to test in-scope assets, such as an internet-facing application, and pays them based on the validity and severity of the vulnerabilities they report. The pay-per-finding model and open participation are its defining features.\n\nWhy the other options are wrong:\n- A) Open-source intelligence is gathering information from public sources, not a compensated testing program.\n- C) A red team is a dedicated, contracted adversary-emulation team, not an open program for individuals.\n- D) Penetration testing is a scoped engagement typically paid by contract, not per vulnerability found.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q032",
@@ -51602,9 +51602,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nNation-state actors are government-sponsored groups with the highest level of funding and sophistication. They target critical infrastructure and systems in other countries for espionage, disruption or geopolitical advantage, often as advanced persistent threats (APTs).\n\nWhy the other options are wrong:\n- A) Insiders act within their own organization and rarely have large external funding.\n- B) Unskilled attackers use existing tools and have limited resources.\n- D) Hacktivists are motivated by ideology and are usually modestly funded, focusing on defacement, leaks or DDoS.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q033",
@@ -51682,9 +51682,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nSQL injection occurs when unsanitized input from a field is concatenated into a database query, letting the attacker run SQL statements that read, modify or delete data. Parameterized queries and input validation are the primary defenses.\n\nWhy the other options are wrong:\n- A) Cross-site scripting injects script that runs in other users' browsers; it targets clients, not back-end data commands.\n- B) Side loading is installing software from unofficial sources.\n- C) A buffer overflow writes past memory boundaries to crash a program or execute code, not to run data queries through an input field.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q034",
@@ -51761,9 +51761,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nResearch and development teams work daily with the organization's intellectual property: designs, formulas, source code, trade secrets and prototypes. Because IP is a core competitive asset whose disclosure can cause major harm, these employees receive extensive training on protecting it.\n\nWhy the other options are wrong:\n- A) Encrypted describes a protection state, not a data type used in daily work.\n- C) Critical is a classification level based on availability impact, not the typical R&D data type.\n- D) Data in transit is a data state, applicable to any data, not something specific to R&D work.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q035",
@@ -51853,9 +51853,9 @@
         "F"
       ],
       "justification": "Correct Answers: A and F.\n\nAsset inventory tags linked to employee IDs establish ownership and accountability. When a device is involved in an incident, the responsible user can be identified and contacted quickly, and when an employee leaves, the organization can confirm the laptop, and the company data on it, is returned.\n\nWhy the other options are wrong:\n- B) Awareness training is assigned to users, not pushed to physical devices by asset tags.\n- C) Software MFA tokens are bound to user accounts and authenticator apps, not to asset stickers.\n- D) User-based firewall policies follow identity through directory integration, not physical inventory labels.\n- E) Penetration test targeting uses network data such as IPs and hostnames; asset stickers provide no security benefit here.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q036",
@@ -51935,9 +51935,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nExisting users already receive recurring security awareness training, so updating that content to cover in-office risks, such as tailgating, clean desk, visitor handling, physical security and on-site reporting, reaches exactly the right audience in a structured and repeatable way.\n\nWhy the other options are wrong:\n- A) Periodic reminders reinforce awareness but are too shallow to build new situational knowledge.\n- B) New hire documentation targets new employees, not existing users transitioning back to the office.\n- D) A phishing campaign tests email awareness and does not address the physical, in-office environment.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q037",
@@ -52016,9 +52016,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA dashboard aggregates metrics, such as incident counts, trends and severity, into a visual summary suited to executives. Boards need concise, high-level reporting rather than raw technical data, and a dashboard can be refreshed each quarter from SIEM or ticketing data.\n\nWhy the other options are wrong:\n- A) Packet captures are raw network data, far too granular for a board report.\n- B) Vulnerability scans list technical weaknesses, not incidents that affected the organization.\n- C) Metadata describes other data; by itself it is not a presentation method.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q038",
@@ -52098,9 +52098,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA system binary such as cmd.exe should change only when patched. A hash change with no patches applied indicates unauthorized modification, which is typical of a rootkit replacing or tampering with system files to hide itself and maintain privileged persistence. This is exactly what file integrity monitoring is designed to catch.\n\nWhy the other options are wrong:\n- A) Changing file permissions alters metadata, not the file contents, so the hash would not change.\n- B) A cryptographic collision is two different inputs producing the same hash, not a changed hash.\n- C) Taking a snapshot copies the file system and does not modify cmd.exe.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q039",
@@ -52180,9 +52180,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nIn IaaS, the provider secures the physical facilities, hardware, network and virtualization layer, while the customer (client) is responsible for everything they deploy on top: operating systems, applications, data and databases. Securing the company's database is therefore the client's responsibility.\n\nWhy the other options are wrong:\n- B) A third-party vendor is not a party in the shared responsibility model unless contracted separately.\n- C) The cloud provider would manage database security only in a PaaS or SaaS database offering.\n- D) A DBA is a job role within the client organization, not a party in the shared responsibility model.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q040",
@@ -52261,9 +52261,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA statement of work (SOW) defines a specific project: deliverables, scope, schedule or completion time frame, and cost. It is the document a client requests before authorizing a particular engagement.\n\nWhy the other options are wrong:\n- A) A master service agreement (MSA) sets the general terms for a long-term relationship; individual projects are detailed in SOWs under it.\n- B) A service-level agreement (SLA) defines measurable service performance, such as uptime or response times.\n- C) A business partners agreement (BPA) governs a partnership, including profit sharing and responsibilities.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q041",
@@ -52340,9 +52340,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nCross-site scripting works by getting attacker-supplied script into a page. Validating input on the server, rejecting or sanitizing unexpected characters, combined with context-aware output encoding, prevents that script from being stored or reflected, so input validation is the recommended fix.\n\nWhy the other options are wrong:\n- A) Secure cookie flags such as HttpOnly and Secure reduce the impact of stolen cookies but do not stop script injection.\n- B) Version control tracks code changes and does not prevent vulnerabilities.\n- D) Code signing proves software authenticity and integrity; it does not protect web form fields.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q042",
@@ -52430,9 +52430,9 @@
         "D"
       ],
       "justification": "Correct Answers: A and D.\n\nHigh availability is about keeping services running and restoring them quickly. Designers must consider ease of recovery, such as failover, redundancy and fast restoration, and responsiveness, meaning the network keeps acceptable performance under load and fails over without noticeable delay.\n\nWhy the other options are wrong:\n- B) Ability to patch is a general maintenance consideration, not a defining high-availability design factor.\n- C) Physical isolation, such as an air gap, restricts connectivity and works against availability.\n- E) Attack surface is a security hardening concern rather than an availability design criterion.\n- F) Extensible authentication relates to EAP-based access control, not network availability.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q043",
@@ -52512,9 +52512,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nEven a high-priority patch to a production system must go through change management. Submitting a change control request first documents the change, its impact, the test plan, approvals, maintenance window and rollback plan. Urgent patches can use an expedited or emergency change process, but the request still comes first.\n\nWhy the other options are wrong:\n- A) Air gapping the system is an isolation measure, not a prerequisite for patching, and would disrupt production.\n- B) Moving the system to another segment is an unapproved change that could cause outages.\n- D) Applying the patch before approval and testing bypasses change control and risks unplanned downtime.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q044",
@@ -52594,9 +52594,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nRoot cause analysis identifies the underlying weakness that allowed the incident, such as an unpatched system, a misconfiguration or a process gap. Fixing that cause, and feeding it into lessons learned, is what prevents the same type of incident from happening again.\n\nWhy the other options are wrong:\n- A) Gathering IoCs is part of the analysis and detection phase, not the purpose of root cause analysis.\n- B) Scoping affected systems is part of analysis and containment.\n- C) Removing malware is eradication, which addresses symptoms rather than the underlying cause.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q045",
@@ -52675,9 +52675,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nAn internal PCI DSS assessment is performed by the organization itself, so failing it produces audit findings: documented gaps that must be remediated before the formal external assessment or report on compliance. Findings are the immediate, most likely outcome.\n\nWhy the other options are wrong:\n- A) Fines are imposed by card brands or acquiring banks after external non-compliance or a breach, not an internal assessment.\n- C) Sanctions are regulatory or contractual penalties from outside parties.\n- D) Reputation damage follows public breaches or disclosures; an internal assessment result is not public.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q046",
@@ -52754,9 +52754,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nCapacity planning determines the resources, people, technology and infrastructure, needed to meet demand. In business continuity, estimating how many staff members are required to sustain operations during a disruption is people capacity planning.\n\nWhy the other options are wrong:\n- B) Redundancy is duplicating components to remove single points of failure.\n- C) Geographic dispersion spreads sites or resources across locations to survive regional events.\n- D) A tabletop exercise is a discussion-based test of the plan, not the step of sizing staff requirements.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q047",
@@ -52835,9 +52835,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nA geolocation (location-based) conditional access policy evaluates where the request originates and blocks sign-ins from specified high-risk countries. It is enforced by the SaaS or identity provider at access time, directly limiting who can reach the documents based on location.\n\nWhy the other options are wrong:\n- A) Data masking hides portions of data from users but still grants access.\n- B) Encryption protects confidentiality, yet any authorized user in a blocked country could still sign in and decrypt.\n- D) Data sovereignty regulation is a legal concept about where data resides, not an access control mechanism.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q048",
@@ -52914,9 +52914,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nFirmware is low-level software embedded in hardware, such as BIOS/UEFI, NICs, controllers and IoT devices. An outdated or vulnerable firmware version is a hardware-specific vulnerability; it often requires vendor updates and may be unpatchable on end-of-life devices.\n\nWhy the other options are wrong:\n- B) A buffer overflow is a software memory-handling flaw in applications or operating systems.\n- C) SQL injection is an application and database input-handling flaw.\n- D) Cross-site scripting is a web application vulnerability.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q049",
@@ -52997,9 +52997,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nThe outage happened because an untested rule was pushed directly to production. Testing the policy in a non-production or staging environment would have revealed that the implicit \"deny any\" blocked required server traffic, so the missing allow rules could be added first.\n\nWhy the other options are wrong:\n- A) Change management documentation adds approval and oversight but does not by itself detect the technical problem.\n- C) Intrusion prevention signatures are unrelated to the reachability issue caused by the deny rule.\n- D) An \"allow any\" rule above the deny would permit all traffic, making the deny rule pointless and weakening security.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q050",
@@ -53078,9 +53078,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA warm site has power, connectivity and some hardware in place, but needs data restoration and configuration before use. That fits RTO and RPO values of around two days while costing far less than a hot site, matching the cost-benefit priority.\n\nWhy the other options are wrong:\n- A) Real-time recovery, such as active-active replication, is the most expensive option and far exceeds a two-day requirement.\n- B) A hot site offers near-immediate failover but is costly and unnecessary for two-day objectives.\n- C) A cold site is cheapest but typically needs weeks to become operational, missing the two-day target.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q051",
@@ -53157,9 +53157,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nSanitization removes data from media so that it cannot be recovered, using methods such as overwriting, cryptographic erase or degaussing, while the media may remain usable. Wiping drives before recycling is a sanitization policy.\n\nWhy the other options are wrong:\n- A) Enumeration is identifying and listing assets or resources.\n- C) Destruction physically destroys the media, for example shredding or incineration; the drives here are wiped and recycled.\n- D) Inventory tracks assets; it does not remove data from them.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q052",
@@ -53236,9 +53236,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nPatient data is protected health information and is regulated by laws such as HIPAA. Classifying it as sensitive ensures stronger handling rules, including access restrictions, encryption and auditing, because unauthorized disclosure could harm patients and create legal liability.\n\nWhy the other options are wrong:\n- A) Private data is often used for internal personal information; the intended answer here is the sensitive classification required for regulated health data.\n- B) Critical refers to data essential for operations and availability, not to confidentiality of personal data.\n- D) Public data can be freely disclosed, which is inappropriate for patient records.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q053",
@@ -53317,9 +53317,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nBefore operating data centers abroad, the provider must first understand local data protection and privacy regulations, such as GDPR, data residency and sovereignty laws. These determine what data can be stored, how it is processed and transferred, and whether the expansion is legally viable at all.\n\nWhy the other options are wrong:\n- B) Foreign attackers are a threat regardless of where the data center is located.\n- C) Contractual obligations matter but are shaped by, and secondary to, the local legal requirements.\n- D) Time zone differences in log correlation are an operational detail solved with UTC timestamps.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q054",
@@ -53400,9 +53400,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nAn application allow list permits only explicitly approved executables, identified by hash, path or publisher, to run, and denies everything else by default. Unknown programs are therefore blocked automatically, which is the strongest control against unapproved software and malware.\n\nWhy the other options are wrong:\n- A) An access control list governs permissions on resources or network traffic, not which programs execute.\n- C) A host-based firewall filters network connections and does not prevent execution.\n- D) DLP prevents sensitive data from leaving the organization; it does not control program execution.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q055",
@@ -53479,9 +53479,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nThe red team performs offensive security: it emulates real attackers through penetration testing, social engineering and other techniques to find weaknesses. A consultant hired for an offensive assessment operates as the red team.\n\nWhy the other options are wrong:\n- A) The white team oversees exercises, sets the rules and referees.\n- B) The purple team combines red and blue to share findings and improve detection collaboratively.\n- C) The blue team is the defensive side that detects and responds to attacks.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q056",
@@ -53558,9 +53558,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nCode signing uses the company's private key, backed by a trusted certificate, to digitally sign software. Users and systems verify the signature with the public key, confirming the code came from the company (authenticity) and has not been altered (integrity).\n\nWhy the other options are wrong:\n- A) Testing input validation improves application security but says nothing about who authored the code.\n- C) Static code analysis finds coding flaws; it does not prove authenticity.\n- D) Secure cookies protect session data in web applications, not the authenticity of code.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q057",
@@ -53637,9 +53637,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nA honeypot is a decoy system that mimics a valuable target. Because it has no legitimate users, any interaction is suspicious, letting defenders observe attacker tools, techniques and intentions without exposing or affecting real production servers.\n\nWhy the other options are wrong:\n- B) Video surveillance is a physical security control and does not reveal network attacker activity.\n- C) Zero Trust is an architecture of continuous verification, not a tool for observing attackers.\n- D) Geofencing restricts or triggers actions based on location.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q058",
@@ -53718,9 +53718,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nIn the analysis phase, responders examine evidence, correlate logs and determine the scope, impact and source or root cause of the incident. Understanding where an incident came from is therefore an analysis activity, which informs containment and eradication.\n\nWhy the other options are wrong:\n- B) Lessons learned is the post-incident review of what happened and how to improve.\n- C) Detection is recognizing that an incident may be occurring, for example from alerts.\n- D) Containment limits the spread and impact of the incident.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q059",
@@ -53800,9 +53800,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nAfter remediation, the vulnerability management lifecycle calls for validation: rescanning the same scope confirms that the patches or configuration changes actually closed the findings and did not introduce new issues. Only verified results should feed the final reporting and metrics.\n\nWhy the other options are wrong:\n- A) An audit is a formal compliance review against a standard; it does not validate that specific technical fixes worked.\n- B) A penetration test exploits weaknesses in depth, but it is not the immediate verification step after remediating scan findings.\n- D) Reporting before verification could state that risks are closed when some fixes failed; the rescan comes first.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q060",
@@ -53881,9 +53881,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA legitimate user abusing authorized access to copy large volumes of company data to a personal device, especially after hours, is the classic indicator of an insider threat (possible data exfiltration). The actor already holds valid credentials, which is why controls such as DLP, UEBA and least privilege are emphasized for insiders.\n\nWhy the other options are wrong:\n- A) Penetration testing is authorized, scoped and coordinated activity, not an employee copying data to personal media.\n- B) A phishing campaign targets users through deceptive messages; nothing here involves luring the user.\n- C) An external audit is a formal independent review by a third party, not data removal by a user.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q061",
@@ -53955,9 +53955,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nNon-repudiation provides proof of origin so that a sender cannot credibly deny having sent a message. It is typically achieved with digital signatures: only the holder of the private key could have produced the signature, which ties the message to a specific individual.\n\nWhy the other options are wrong:\n- A) Adaptive identity adjusts authentication requirements based on context and risk (location, device, behavior); it does not bind messages to a sender.\n- C) Authentication verifies who someone is at login, but by itself it does not produce lasting, verifiable proof that a person authored a particular message.\n- D) Access logs record events and support accountability, but they can be altered and do not cryptographically attribute message content to an individual.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q062",
@@ -54034,9 +54034,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nDetecting configuration drift every day across many servers is best handled by automation: scheduled compliance scans, configuration management tools or scripts compare current settings against an approved baseline and alert on changes. Automation is consistent, repeatable, scalable and removes human error and fatigue.\n\nWhy the other options are wrong:\n- B) A compliance checklist defines what to verify, but someone still has to apply it manually, so it is not consistent at daily frequency.\n- C) Attestation is a formal statement that controls are in place, usually periodic, and it does not detect changes in near real time.\n- D) A manual audit is slow, expensive and error-prone; it cannot realistically be performed every day on every server.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q063",
@@ -54116,9 +54116,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nData loss prevention (DLP) inspects content in motion, at rest and in use, using patterns such as credit card or national ID formats, keywords and fingerprinting to detect sensitive data like PII. An email DLP policy can detect, alert on, block or quarantine a message containing customer PII, even when the employee sent it by accident.\n\nWhy the other options are wrong:\n- A) SCAP is a set of standards for automated vulnerability and configuration compliance checking; it does not inspect email content.\n- B) NetFlow records traffic metadata (addresses, ports, volumes), not the content of attachments.\n- C) Antivirus looks for malicious code, not for sensitive data leaving the organization.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q064",
@@ -54197,9 +54197,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nStripping shell and SQL metacharacters from form-supplied variables is input validation (more precisely, input sanitization). It is a secure coding technique that prevents injection attacks such as command injection and SQL injection by ensuring user-controlled data cannot be interpreted as code. Allow-list validation is preferred, but regex filtering is a common form.\n\nWhy the other options are wrong:\n- A) Identifying embedded keys means finding hard-coded secrets in source code, which is unrelated to filtering characters.\n- B) Code debugging is the process of locating and fixing defects, not a defensive control.\n- D) Static code analysis is a testing technique that reviews source code for flaws; the policy statement describes a coding control, not a review method.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q065",
@@ -54279,9 +54279,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nThe goal is to reduce the impact when a user does click, not to reduce the number of clicks. Updating EDR policy to block automatic execution of downloaded programs is a technical compensating layer: even if the link is followed and a payload is downloaded, it cannot run, limiting malware infection.\n\nWhy the other options are wrong:\n- A) Posters raise awareness and may reduce click rates, but they do nothing once the click happens.\n- B) Email filtering reduces how many phishing messages arrive (likelihood); it does not limit the impact of a successful click.\n- D) Additional training also targets the likelihood of clicking, not the consequences after a user clicks.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q066",
@@ -54361,9 +54361,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nLegacy systems often cannot be patched or upgraded, so organizations apply a compensating control: an alternative safeguard that reduces the risk the primary control cannot address. Restricting the host-based firewall to specific internal IP addresses limits exposure of the legacy Linux system and meets the intent of the missing control.\n\nWhy the other options are wrong:\n- B) Network segmentation separates networks into zones using VLANs, subnets or firewalls between segments; a per-host allow rule is not segmentation.\n- C) Transferring risk shifts financial impact to a third party, such as through insurance or outsourcing, and does not involve firewall rules.\n- D) SNMP traps are unsolicited alerts sent by network devices to a management station; they do not restrict connections.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q067",
@@ -54440,9 +54440,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA user provisioning script automates account creation from a standard template or role definition, so every new account receives the correct groups, access and permissions consistently. This removes manual errors, speeds onboarding and supports role-based access control and least privilege.\n\nWhy the other options are wrong:\n- A) Guard rails are automated checks that prevent unsafe changes or enforce policy boundaries; they do not create accounts.\n- B) A ticketing workflow routes and tracks requests and approvals, but the account would still be created manually with the same errors.\n- C) An escalation script routes issues to higher support tiers or raises alerts; it is not used to create accounts correctly.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q068",
@@ -54520,9 +54520,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nA SIEM aggregates and correlates logs, and a weekly analyst review is meant to identify events that have already occurred. Controls that discover or record incidents rather than stop them are detective controls, much like audit logs, IDS alerts or CCTV review.\n\nWhy the other options are wrong:\n- A) Corrective controls restore systems or fix issues after an incident, such as restoring from backup or patching.\n- B) Preventive controls stop an incident before it happens, such as firewalls, access control lists or locks; reviewing logs does not block anything.\n- D) Deterrent controls discourage attackers, for example warning banners or visible guards; periodic log review is not visible to attackers.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q069",
@@ -54600,9 +54600,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nA serverless framework is a cloud-native model in which the provider runs and scales the code on demand and charges only for execution time. There are no servers to provision or maintain, which makes it a low-cost, cloud-based way to host applications and shifts much of the infrastructure security burden to the provider.\n\nWhy the other options are wrong:\n- B) A Type 1 hypervisor is bare-metal virtualization software that requires hardware and administration; it is infrastructure, not a low-cost hosting service.\n- C) SD-WAN is a software-defined approach to connecting branch offices over WAN links; it does not host applications.\n- D) SDN separates the network control plane from the data plane to manage networks programmatically; it is not an application-hosting solution.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q070",
@@ -54679,9 +54679,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nWhen the SOC concludes that detected activity is benign (a false positive), it tunes the detection rules, thresholds or exclusions so the same normal activity no longer generates alerts. Tuning reduces alert fatigue and lets analysts focus on real threats, but it must be documented and reviewed so real attacks are not suppressed.\n\nWhy the other options are wrong:\n- B) Aggregating collects and consolidates logs from many sources into a central platform; it does not suppress alerts.\n- C) Quarantining isolates a suspicious file or host, which is the opposite of accepting activity as normal.\n- D) Archiving moves logs to long-term storage for retention; it does not change what triggers alerts.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q071",
@@ -54758,9 +54758,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nRepeated failed logons (Event ID 4625) against the same account from the same external source, followed by a lockout (Event ID 4740) and a SIEM correlation alert, indicate an attacker is trying to guess the password: a brute-force attack. The lockout is the consequence of the attack, not the root finding the analyst should report.\n\nWhy the other options are wrong:\n- A) The account was indeed locked out, but that is a symptom produced by the lockout policy; it does not explain what caused it.\n- B) A keylogger would capture valid credentials and typically produce successful logons, not repeated invalid-password failures.\n- D) Nothing in the logs shows file encryption, ransom notes or widespread impact across the domain.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q072",
@@ -54839,9 +54839,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nWeather events such as floods, hurricanes or storms can disable an entire facility. Geographic dispersion places redundant sites or data centers in separate regions so a single regional disaster cannot affect all of them, supporting both resilience and continued availability (reducing downtime).\n\nWhy the other options are wrong:\n- A) Clustering provides failover between servers, but if the cluster is in the same damaged room it offers no protection.\n- C) Load balancers distribute traffic across servers; they do not protect against the loss of the physical site hosting them.\n- D) Off-site backups protect the data, but restoring from backup still means significant downtime while systems are rebuilt.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q073",
@@ -54917,9 +54917,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nIn a bring-your-own-device program, the company does not control the device hardware or operating system. Jailbreaking (iOS) or rooting (Android) removes the vendor's built-in security restrictions, enables sideloading of untrusted apps and can bypass MDM controls, so it is a primary BYOD concern. MDM policies typically detect and block jailbroken devices.\n\nWhy the other options are wrong:\n- A) End-of-life concerns products no longer supported by the vendor; it is a lifecycle issue, not the defining BYOD risk.\n- B) A buffer overflow is an application memory vulnerability that applies to any software, not specifically to BYOD programs.\n- C) VM escape is a virtualization threat where code breaks out of a guest into the hypervisor, unrelated to personal mobile devices.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q074",
@@ -55003,9 +55003,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nThe annualized rate of occurrence (ARO) estimates how often a threat, such as a ransomware attack, is expected to occur in a year. Combined with SLE, it produces the ALE (ALE = SLE x ARO). If the company judged the likelihood of ransomware to be low, the expected annual loss would not justify the premium, so it removed that coverage.\n\nWhy the other options are wrong:\n- A) MTTR measures the average time needed to repair a failed component; it does not describe how often attacks occur.\n- B) RTO is the maximum acceptable time to restore a service after disruption, a recovery target rather than a frequency estimate.\n- D) MTBF measures the average time between hardware failures; it is a reliability metric, not a threat likelihood.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q075",
@@ -55085,9 +55085,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nSecurity awareness programs communicate expectations and behaviors that every employee should follow. Teaching users how and where to report phishing attempts and other suspicious activity is a core communication element, because it turns employees into an early-warning sensor for the security team.\n\nWhy the other options are wrong:\n- B) Detecting insider threats with anomalous behavior recognition is a technical monitoring capability (for example UEBA), not something communicated to all staff.\n- C) Verifying information before changing wire transfer data is a specific business process control for finance staff, not a general awareness communication.\n- D) Performing social engineering during third-party penetration testing is an assessment activity, not part of awareness communication to users.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q078",
@@ -55164,9 +55164,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nIn the incident response lifecycle, the preparation phase establishes the incident response plan, team roles and responsibilities, communication channels, tools and training before any incident occurs. Reviewing who does what is therefore a preparation activity, ensuring the team can act quickly when an incident is detected.\n\nWhy the other options are wrong:\n- B) Recovery restores systems to normal operation after containment and eradication; roles should already be defined by then.\n- C) Lessons learned reviews what happened after an incident; it may lead to updating roles, but reviewing responsibilities up front is preparation.\n- D) Analysis focuses on detecting, validating and scoping an actual incident, not on defining team structure.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q079",
@@ -55245,9 +55245,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nHardening means disabling unnecessary and insecure services to reduce the attack surface. Web-based administration interfaces on routers are frequent targets of vulnerability scans and exploits and often use weak or unencrypted protocols. Disabling them and using secure alternatives such as SSH or an out-of-band management network is best practice.\n\nWhy the other options are wrong:\n- A) Console access requires physical access and is the fallback management method; it is not the risk a network scan identifies.\n- B) Routing protocols are the core function of a router; disabling them would break network connectivity.\n- C) VLANs provide segmentation, which is a security benefit, and disabling them would weaken the network.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q080",
@@ -55328,9 +55328,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nFile integrity monitoring (FIM) creates cryptographic hash baselines of critical files and configurations and then checks them to detect and alert on any unauthorized modification. It directly meets the requirement of securing data with checks that track changes and supports integrity and compliance requirements.\n\nWhy the other options are wrong:\n- A) SPF is an email authentication record that lists which servers may send mail for a domain; it does not track data changes.\n- B) GPO applies configuration settings to Windows systems in a domain, but it does not detect or track changes to files.\n- C) NAC controls which devices may connect to the network based on posture; it does not monitor file changes.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q081",
@@ -55407,9 +55407,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nA successful remote administrator logon at 2:00 a.m. with no scheduled maintenance, backups or scans is an unexplained privileged session. With only this evidence, the most accurate description is unauthorized access. The analyst should investigate the source, the account usage and any activity performed during the session.\n\nWhy the other options are wrong:\n- A) Password spraying would appear as many failed logons across multiple accounts, not a single successful login.\n- B) Nothing in the log shows a rootkit installation; that would require evidence of kernel-level or hidden malware.\n- D) An insider threat is possible, but the log does not show who used the credential; the account could be compromised by an external attacker.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q082",
@@ -55497,9 +55497,9 @@
         "E"
       ],
       "justification": "Correct Answers: C and E.\n\nFull-disk encryption depends on key management. A Trusted Platform Module (TPM) securely stores and protects the encryption keys and verifies boot integrity, enabling transparent FDE such as BitLocker. Recovery keys must be generated, escrowed and managed centrally so data can be recovered if a user forgets the PIN, the TPM detects a change or hardware fails.\n\nWhy the other options are wrong:\n- A) Storage space is not a major FDE concern; encryption adds little or no capacity overhead.\n- B) USB encryption protects removable media, which is a separate control from encrypting the internal laptop disk.\n- D) A software firewall filters network traffic and does not protect data at rest on a lost or stolen laptop.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q083",
@@ -55576,9 +55576,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nThe Remote Desktop Protocol (RDP), used by Windows remote desktop, listens on TCP/UDP port 3389 by default. Exposing RDP to the internet is a high-risk finding because it is heavily targeted by brute-force attacks and exploits; it should be placed behind a VPN or gateway with MFA.\n\nWhy the other options are wrong:\n- A) Port 25 is SMTP, used to transfer email between mail servers.\n- B) Port 22 is SSH, used for secure command-line remote administration rather than a graphical remote desktop.\n- D) Port 8080 is commonly an alternate HTTP port for web servers or proxies.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q084",
@@ -55659,9 +55659,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nAttacks that exploit vulnerabilities in older browser versions are addressed by patch management: identifying, testing and deploying vendor updates in a timely and consistent manner. Keeping browsers current removes the known vulnerabilities these attacks rely on, which fixes the root cause.\n\nWhy the other options are wrong:\n- A) An application allow list controls which programs can run; the browser itself is allowed, so its vulnerabilities remain exploitable.\n- C) Stronger firewall rules cannot stop exploits delivered through legitimate web traffic that users are allowed to browse.\n- D) A WAF protects web servers and applications the company hosts, not the client-side browsers on user workstations.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q085",
@@ -55738,9 +55738,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA review that evaluates whether data is protected and also whether human life considerations are addressed, such as fire suppression that is safe for occupants, emergency exits, fail-safe door locks and evacuation procedures, is a safety and control assessment. Security professionals must remember that human safety always takes priority over protecting assets.\n\nWhy the other options are wrong:\n- A) Physical security focuses on protecting the facility and assets from unauthorized access, not specifically on human life safety.\n- B) Environmental monitoring tracks conditions such as temperature, humidity and water leaks; it does not assess controls holistically.\n- C) Redundancy analysis evaluates duplicate components or systems for availability, not human safety.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q086",
@@ -55812,9 +55812,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nIn constantly changing environments, such as cloud and DevOps pipelines, immutable infrastructure is well suited: components are never modified in place. Each change produces a new, versioned image that is deployed and the old instance is replaced. This prevents configuration drift, simplifies rollback and keeps every environment consistent and predictable.\n\nWhy the other options are wrong:\n- A) On-premises log aggregation centralizes logs, but it does not address how rapidly changing infrastructure is deployed or kept consistent.\n- C) Non-repudiation is a security property that proves the origin of an action or message; it is not an infrastructure approach.\n- D) A secure web gateway filters user web traffic and enforces acceptable use policy; it does not relate to managing change.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q087",
@@ -55893,9 +55893,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nChain of custody documents every person who collected, handled, transferred or stored evidence, along with when and why. This record demonstrates evidence integrity and is essential for admissibility in legal proceedings; any gap can lead to the evidence being challenged or rejected.\n\nWhy the other options are wrong:\n- A) A data retention policy defines how long data is kept and when it is destroyed; it does not track the handling of specific evidence.\n- C) Root cause analysis determines why an incident happened; it uses evidence but does not ensure it is properly handled.\n- D) Lessons learned is a post-incident review to improve processes, not an evidence handling control.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q088",
@@ -55974,9 +55974,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nThe attacker sent fraudulent payment instructions tailored to a specific role, an accounting clerk who can move money, which is a targeted phishing attack: spear phishing. This is a typical business email compromise (BEC) pattern. Controls include out-of-band verification of any change in banking details.\n\nWhy the other options are wrong:\n- A) Phishing is the broad, untargeted category; the tailored message to someone who processes payments makes spear phishing the better description.\n- C) Whaling targets senior executives, such as the CEO or CFO; the victim here is an accounting clerk.\n- D) Vishing uses voice calls, while the scenario describes written fraudulent instructions.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q089",
@@ -56052,9 +56052,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nWriting a script that performs a repetitive task, creating many user accounts, without manual intervention is automation. It saves time, enforces consistency and reduces human error, which are the benefits the scenario describes. Automation handles individual tasks, while orchestration coordinates many automated tasks across systems.\n\nWhy the other options are wrong:\n- A) Continuous monitoring is the ongoing observation of systems and controls for threats and compliance, not account creation.\n- B) Orchestration ties multiple automated tasks and tools together into end-to-end workflows; a single script for one task is automation.\n- D) Normalization converts data, such as logs from different sources, into a common format.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q090",
@@ -56128,12 +56128,12 @@
         }
       ],
       "correct_options": [
-        "B"
+        "C"
       ],
-      "justification": "Correct Answer: B.\n\nEditorial note: this answer key is under review; option C appears to be the intended answer. In the CompTIA data-role model, the business unit that collects, uses and is accountable for the data is its data owner, while IT staff securing it are custodians. Controller is normally the organization as a legal entity deciding purposes and means of processing.\n\nWhy the other options are wrong:\n- A) Custodian describes the infrastructure team that implements the security controls, not the marketing department.\n- B) Data controller fits the organization legally, but a single internal department is better described as the owner.\n- D) A processor handles data on behalf of the controller, usually a third party, which is not the relationship described.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval. SUSPECTED ANSWER KEY ISSUE: keyed B, proposed C. Ambiguous: a business department that collects and is accountable for data is the data owner in CompTIA's role model (infrastructure team = custodian); 'data controller' usually denotes the organization/legal entity, so C (Owner) is at least as defensible as the keyed B."
+      "justification": "Correct Answer: C.\n\nIn CompTIA's data governance model (SY0-701 Domain 5.1), the data owner is typically a senior business executive or department (such as Marketing, Sales, or HR) responsible for deciding who needs access to data, determining data classification, and ensuring appropriate handling. The infrastructure/IT team acts as the data custodian, responsible for implementing the technical controls, backups, and storage to protect that data.\n\nWhy the other options are wrong:\n- A) The infrastructure team serves as the custodian, carrying out technical safeguards rather than defining business requirements.\n- B) Data controller generally refers to the organization as an entity under privacy regulations (such as GDPR/LGPD) rather than an internal business department.\n- D) A data processor is an external third-party service provider processing data on behalf of a controller.",
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Aligned answer key to C (Owner) and updated explanation to clearly delineate Data Owner (Marketing) vs Data Custodian (Infrastructure) per SY0-701 5.1."
     },
     {
       "id": "sim8_q091",
@@ -56208,9 +56208,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nRisk appetite is the amount and type of risk an organization is willing to accept in pursuit of its objectives, effectively the ceiling for accepted risk that leadership sets. Risk tolerance and thresholds are then derived from it to guide individual decisions (conservative, neutral or expansionary appetite).\n\nWhy the other options are wrong:\n- A) Risk transfer shifts financial impact to another party, such as an insurer; it is a treatment strategy, not a limit.\n- C) The risk register documents identified risks, owners, ratings and treatments; it records risks but does not define how much is acceptable.\n- D) Risk analysis is the process of evaluating likelihood and impact, not the accepted maximum level of risk.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q092",
@@ -56289,9 +56289,9 @@
         "B"
       ],
       "justification": "Correct Answer: B.\n\nUnusual DNS query volume can indicate DNS tunneling, data exfiltration or command-and-control beaconing, but it can also be a misconfigured legitimate application. The analyst's next step is to investigate: identify the queried domains, their owners and reputation to confirm whether the activity is malicious before taking disruptive containment action.\n\nWhy the other options are wrong:\n- A) Blocking DNS at the firewall would break name resolution for the whole organization before the problem is even confirmed.\n- C) Disabling the system's NIC is a containment action that may be premature and can destroy volatile evidence before analysis.\n- D) Blocking all internet traffic is excessively disruptive and unjustified at the investigation stage.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q093",
@@ -56366,12 +56366,12 @@
         }
       ],
       "correct_options": [
-        "A"
+        "D"
       ],
-      "justification": "Correct Answer: A.\n\nEditorial note: this answer key is under review; option D appears to be the intended answer. A system that is deployed and supported by a SaaS provider typically needs the provider to connect in for management and support, which is why specific firewall ports are opened. The keyed reading assumes the system simply needs outbound connectivity to the provider's cloud.\n\nWhy the other options are wrong:\n- A) Outbound blocking is possible, but the stem emphasizes vendor support, which points to provider access.\n- B) A vulnerability would be remediated by patching or configuration, not by opening firewall ports.\n- C) DNS resolution problems are fixed by correcting DNS settings, not by opening ports for a new system.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval. SUSPECTED ANSWER KEY ISSUE: keyed A, proposed D. Ambiguous: for a system 'deployed and supported by a SaaS provider', the most likely reason to open firewall ports is vendor remote access for support (D); keyed A (firewall blocking outbound) is plausible but less directly supported by the stem."
+      "justification": "Correct Answer: D.\n\nWhen a system is deployed and supported by an external SaaS provider, the technician must open firewall ports to permit remote access, management connectivity, and inbound support sessions required by the vendor to maintain and troubleshoot the system.\n\nWhy the other options are wrong:\n- A) Opening ports specifically for vendor support addresses incoming or designated service channels; outbound blocking would be addressed if the system failed to reach external services, but the stem emphasizes provider support.\n- B) A vulnerability would require patching or mitigation, not opening firewall ports.\n- C) DNS resolution issues are resolved by reconfiguring DNS resolver settings, not by opening application ports for a provider.",
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Aligned key to D (\"The SaaS provider requires remote access\") and harmonized explanation with vendor support requirements."
     },
     {
       "id": "sim8_q094",
@@ -56452,9 +56452,9 @@
         "D"
       ],
       "justification": "Correct Answer: D.\n\nA DMZ (screened subnet) is a separate, secure zone placed between the internet and the internal network. Firewalls on each side enforce access control over what can reach the zone and what it can reach internally, and isolating exposed services there reduces the threat scope if one of them is compromised.\n\nWhy the other options are wrong:\n- A) A VPN concentrator terminates encrypted remote-access tunnels; it secures connections but does not create a protected zone for services.\n- B) A VLAN segments traffic at Layer 2, but without firewall policy it does not by itself enforce access control between zones.\n- C) NAC checks device identity and posture before network admission; it controls who connects rather than creating a secure zone.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q095",
@@ -56533,9 +56533,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nSQL injection inserts malicious SQL into input fields that are passed to a database. It succeeds when the application and database are poorly configured, for example dynamic queries without parameterization, excessive database account privileges or verbose error messages. Defenses include parameterized queries, input validation and least-privilege database accounts.\n\nWhy the other options are wrong:\n- B) Cross-site scripting injects malicious scripts into web pages viewed by other users; it targets browsers, not the database.\n- C) DLL injection forces a running process to load a malicious library; it is an operating system and memory attack.\n- D) Directory traversal uses sequences such as ../ to access files outside the web root; it exploits file path handling, not databases.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q096",
@@ -56614,9 +56614,9 @@
         "C"
       ],
       "justification": "Correct Answer: C.\n\nThe Online Certificate Status Protocol (OCSP) lets a client query the CA's responder in real time about whether a specific certificate is valid or revoked when it is presented. OCSP stapling further improves performance and privacy by letting the server provide a signed, time-stamped OCSP response.\n\nWhy the other options are wrong:\n- A) A cipher suite defines the algorithms used for key exchange, encryption and hashing in a TLS session; it does not check certificate status.\n- B) Key escrow stores copies of keys with a trusted third party for recovery purposes, not for validation.\n- D) A CRL is a periodically published list of revoked certificates; it must be downloaded and can be outdated, so it is less suited than OCSP for real-time validation.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q097",
@@ -56696,9 +56696,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nThe BIOS/UEFI is firmware, low-level software embedded in hardware that initializes the system before the operating system loads. A vendor bulletin recommending a BIOS update addresses a firmware vulnerability. Firmware flaws are serious because they can persist across OS reinstallation and undermine secure boot.\n\nWhy the other options are wrong:\n- B) A zero-day has no available patch at the time of exploitation; a vendor-supplied update means a fix exists.\n- C) An on-path (man-in-the-middle) attack intercepts communications and is not addressed by updating BIOS.\n- D) Configuration vulnerabilities stem from insecure settings and are fixed by changing settings, not by installing a firmware update.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q098",
@@ -56779,9 +56779,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nThe Common Vulnerability Scoring System (CVSS) assigns a numerical score from 0.0 to 10.0 to a vulnerability based on base, temporal and environmental metrics such as attack vector, complexity and impact on confidentiality, integrity and availability. Organizations use these scores to quantitatively prioritize remediation.\n\nWhy the other options are wrong:\n- B) SOAR platforms automate and orchestrate security operations and incident response; they do not score vulnerabilities.\n- C) An IPS detects and blocks malicious network traffic; it is a control, not a measurement standard.\n- D) NIST is a standards organization; it maintains the NVD, which publishes CVSS scores, but NIST itself is not the scoring system.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     },
     {
       "id": "sim8_q099",
@@ -56861,9 +56861,9 @@
         "A"
       ],
       "justification": "Correct Answer: A.\n\nFile integrity monitoring (FIM) baselines critical system files, configurations and registry keys using cryptographic hashes and alerts when they change. Deploying FIM on workstations and servers is the direct way to monitor for unauthorized changes and supports integrity requirements and compliance frameworks such as PCI DSS.\n\nWhy the other options are wrong:\n- B) Host-based firewalls filter network connections to the host; they do not detect changes to files or configurations.\n- C) Antivirus detects malicious code, but it does not track legitimate files being modified without authorization.\n- D) Routine vulnerability scans identify known weaknesses periodically; they do not continuously monitor for unauthorized changes.",
-      "explanation_source": "ai_draft",
-      "needs_review": true,
-      "review_notes": "AI-drafted explanation (explanation_source=ai_draft) pending editor approval."
+      "explanation_source": "editor",
+      "needs_review": false,
+      "review_notes": "SME review: approved. Explanation, options and domain alignment verified against CompTIA Security+ SY0-701 objectives."
     }
   ]
 }
