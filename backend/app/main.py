@@ -11,6 +11,7 @@ from app.api.live_admin import router as live_admin_router
 from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.live import router as live_router
+from app.api.live_challenge import router as live_challenge_router
 from app.api.routes import router as api_router
 from app.api.study import router as study_router
 from app.core.config import Settings, settings
@@ -145,6 +146,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     # Sentinel Arena (live quizzes): REST + WebSocket. The same routers are served by the
     # dedicated `live` service (app.live.main) when it is deployed separately.
     app.include_router(live_router)
+    app.include_router(live_challenge_router)
     app.include_router(live_ws_router)
     app.include_router(live_sse_router)
     app.include_router(ai_router)

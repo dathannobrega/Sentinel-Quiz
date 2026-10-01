@@ -79,7 +79,15 @@ def serialize_session(db: Session, session: LiveSession, *, quiz_title: str | No
         "created_at": _iso(session.created_at),
         "started_at": _iso(session.started_at),
         "ended_at": _iso(session.ended_at),
+        "mode": "self_paced" if session.mode == "self_paced" else "live",
+        "challenge": _challenge_view(session),
     }
+
+
+def _challenge_view(session: LiveSession) -> dict[str, Any] | None:
+    from app.services import live_challenge  # local: live_challenge imports this module
+
+    return live_challenge.serialize_challenge(session) if live_challenge.is_challenge(session) else None
 
 
 # ----------------------------------------------------------------------------- host side
@@ -285,8 +293,8 @@ def room_info(db: Session, code: str) -> dict[str, Any]:
     }
 
 
-def _issue_participant_token(participant: LiveParticipant) -> tuple[str, str]:
-    ttl = int(settings.live_participant_token_ttl_hours) * 3600
+def _issue_participant_token(participant: LiveParticipant, ttl: int | None = None) -> tuple[str, str]:
+    ttl = ttl or int(settings.live_participant_token_ttl_hours) * 3600
     token, claims = issue_token(
         session_id=participant.session_id, role="participant", ttl_seconds=ttl, participant_id=participant.id
     )
@@ -325,6 +333,23 @@ def join(
     session = find_active_session(db, code)
     if session is None:
         raise api_error(404, "room_not_found", "No active room with this code.")
+    return join_session(
+        db, session, user=user, display_name=display_name, consent=consent, avatar_seed=avatar_seed, dev_h=dev_h
+    )
+
+
+def join_session(
+    db: Session,
+    session: LiveSession,
+    *,
+    user: User | None,
+    display_name: str,
+    consent: bool,
+    avatar_seed: str | None,
+    dev_h: str | None,
+    token_ttl: int | None = None,
+) -> dict[str, Any]:
+    """Join a live room or a self-paced challenge (the caller found and gated the session)."""
     if not session.allow_guests and user is None:
         raise api_error(401, "login_required", "This room requires signing in.")
     if not consent:
@@ -338,7 +363,7 @@ def join(
             if existing.banned:
                 raise api_error(403, "banned", "You were removed from this room.")
             existing.kicked_at = None  # kicked (not banned) people may come back
-            token, expires_at = _issue_participant_token(existing)
+            token, expires_at = _issue_participant_token(existing, token_ttl)
             db.commit()
             return _join_result(existing, token, expires_at, None)
 
@@ -381,7 +406,7 @@ def join(
         joined_at=utcnow(),
         banned=False,
     )
-    token, expires_at = _issue_participant_token(participant)
+    token, expires_at = _issue_participant_token(participant, token_ttl)
     result = _join_result(participant, token, expires_at, return_code)  # before commit: no reload
     db.add(participant)
     try:
@@ -405,6 +430,12 @@ def rejoin(db: Session, code: str, *, display_name: str, return_code: str) -> di
     session = find_active_session(db, code)
     if session is None:
         raise api_error(404, "room_not_found", "No active room with this code.")
+    return rejoin_session(db, session, display_name=display_name, return_code=return_code)
+
+
+def rejoin_session(
+    db: Session, session: LiveSession, *, display_name: str, return_code: str, token_ttl: int | None = None
+) -> dict[str, Any]:
     key = live_names.nickname_key(live_names.clean_display_name(display_name))
     participant = db.execute(
         select(LiveParticipant).where(LiveParticipant.session_id == session.id, LiveParticipant.nickname_norm == key)
@@ -415,7 +446,7 @@ def rejoin(db: Session, code: str, *, display_name: str, return_code: str) -> di
     if participant.banned:
         raise api_error(403, "banned", "You were removed from this room.")
     participant.kicked_at = None
-    token, expires_at = _issue_participant_token(participant)  # the old tab's token stops working
+    token, expires_at = _issue_participant_token(participant, token_ttl)  # the old tab's token stops working
     db.commit()
     return _join_result(participant, token, expires_at, None)
 

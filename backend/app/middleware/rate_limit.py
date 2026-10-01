@@ -42,6 +42,10 @@ INVALID_CODES_MESSAGE = "Too many invalid room codes. Check the code and retry l
 # auditorium can sit behind one NAT address (RNF-205).
 _LIVE_ROOM_PATH = re.compile(r"^/api/live/rooms/(?P<code>[^/]{1,32})(?:/(?:join|rejoin))?$")
 _LIVE_TOKEN_PATH = re.compile(r"^/api/live/me(?:/|$)")
+# Self-paced challenges: the link and its entry points are per-link buckets (a class
+# opening the same link at once), everything else carries the participant token.
+_LIVE_CHALLENGE_PATH = re.compile(r"^/api/live/q/(?P<slug>[^/]{1,32})(?:/(?:join|access))?$")
+_LIVE_CHALLENGE_TOKEN_PATH = re.compile(r"^/api/live/q/[^/]{1,32}/(?:attempts|leaderboard)(?:/|$)")
 _LIVE_PUBLIC_PATHS = frozenset({"/api/live/names/suggest", "/api/live/capabilities", "/api/live/healthz"})
 # SSE fallback (RNF-309): the stream (token in the query string) and its commands
 # (token as Bearer) are limited per participant token; the host (cookie) per IP.
@@ -674,7 +678,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             room = _LIVE_ROOM_PATH.match(path)
             if room:
                 return "live_room", self._live_room_policy, "".join(room.group("code").split()).upper()
-            if _LIVE_TOKEN_PATH.match(path):
+            challenge = _LIVE_CHALLENGE_PATH.match(path)
+            if challenge:
+                return "live_room", self._live_room_policy, "Q:" + challenge.group("slug").upper()
+            if _LIVE_TOKEN_PATH.match(path) or _LIVE_CHALLENGE_TOKEN_PATH.match(path):
                 token = str(authorization or "").removeprefix("Bearer ").strip()
                 if token:
                     return "live_token", self._live_token_policy, hashlib.sha256(token.encode("utf-8")).hexdigest()[:32]

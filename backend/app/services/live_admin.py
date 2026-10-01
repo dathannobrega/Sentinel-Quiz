@@ -356,6 +356,7 @@ def overview(db: Session, *, presence_window_s: int = 60) -> dict[str, Any]:
         {
             "id": s.id, "join_code": s.join_code, "quiz_title": title, "owner_email": email, "status": s.status,
             "phase": s.phase, "rehearsal": s.mode == "rehearsal", "allow_guests": s.allow_guests,
+            "mode": "self_paced" if s.mode == "self_paced" else "live", "closes_at": _iso(s.closes_at),
             "participants": int(people or 0), "online": int(online or 0), "max_participants": s.max_participants,
             "created_at": _iso(s.created_at), "started_at": _iso(s.started_at),
         }

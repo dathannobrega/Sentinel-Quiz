@@ -22,13 +22,16 @@ export function AccessForm({
   defaultName = "",
   onAccess,
   autoFocus = true,
-  variant = "app"
+  variant = "app",
+  access
 }: {
   sessionId: string;
   defaultName?: string;
   onAccess: (result: LiveJoinResult) => void;
   autoFocus?: boolean;
   variant?: "app" | "live";
+  /** Alternative endpoint with the same body/answer (challenges: POST /q/{slug}/access). */
+  access?: (body: { display_name: string; return_code: string }) => Promise<LiveJoinResult>;
 }) {
   const { t } = useI18n();
   const baseId = useId();
@@ -55,7 +58,8 @@ export function AccessForm({
     setBusy(true);
     setError(null);
     try {
-      onAccess(await accessWithReturnCode({ session_id: sessionId, display_name: displayName, return_code: returnCode }));
+      const body = { display_name: displayName, return_code: returnCode };
+      onAccess(await (access ? access(body) : accessWithReturnCode({ session_id: sessionId, ...body })));
     } catch (caught) {
       setError(t(`quizPlay.access.errors.${toAccessErrorCode(caught)}`));
     } finally {

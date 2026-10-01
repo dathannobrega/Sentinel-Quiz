@@ -20,8 +20,18 @@ import {
   searchBank,
   type LiveBankSearchParams
 } from "@/lib/api/live-authoring";
+import { createChallenge, getChallengeProgress, updateChallenge } from "@/lib/api/live-challenge";
 import { createSerialQueue, type SerialQueue } from "@/lib/utils/serial-queue";
-import type { LiveQuizCreate, LiveQuizDetail, LiveQuizSummary, LiveSession, LiveSessionCreate } from "@/types/api";
+import type {
+  LiveChallengeCreate,
+  LiveChallengeProgress,
+  LiveChallengeUpdate,
+  LiveQuizCreate,
+  LiveQuizDetail,
+  LiveQuizSummary,
+  LiveSession,
+  LiveSessionCreate
+} from "@/types/api";
 
 /** Every Sentinel Arena key starts with "live" so auth changes can drop them by prefix. */
 export const liveKeys = {
@@ -45,8 +55,12 @@ export const liveKeys = {
     ] as const,
   sessions: (quizId: string) => ["live", "sessions", quizId] as const,
   session: (sessionId: string) => ["live", "session", sessionId] as const,
-  report: (sessionId: string) => ["live", "report", sessionId] as const
+  report: (sessionId: string) => ["live", "report", sessionId] as const,
+  challenge: (sessionId: string) => ["live", "challenge", sessionId] as const
 };
+
+/** Owner panel poll (RF-809). */
+export const CHALLENGE_POLL_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -245,6 +259,49 @@ export function useEndLiveSession() {
         list?.map((item) => (item.id === session.id ? session : item))
       );
       void queryClient.invalidateQueries({ queryKey: liveKeys.quizzes });
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Self-paced challenges (Incremento 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Owner panel, polled every 10 s. react-query pauses interval refetches while the tab is hidden
+ * (`refetchIntervalInBackground: false`) and refetches on focus, so a background tab costs nothing.
+ */
+export function useChallengeProgress(sessionId: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: liveKeys.challenge(sessionId),
+    queryFn: ({ signal }) => getChallengeProgress(sessionId, { signal }),
+    enabled: (options?.enabled ?? true) && Boolean(sessionId),
+    refetchInterval: CHALLENGE_POLL_MS,
+    refetchIntervalInBackground: false
+  });
+}
+
+export function useCreateChallenge() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: LiveChallengeCreate) => createChallenge(payload),
+    onSuccess: (session) => {
+      queryClient.setQueryData(liveKeys.session(session.id), session);
+      void queryClient.invalidateQueries({ queryKey: liveKeys.sessions(session.quiz_id) });
+      void queryClient.invalidateQueries({ queryKey: liveKeys.quizzes });
+    }
+  });
+}
+
+/** Moves the deadline or closes now; the answer is the fresh panel. */
+export function useUpdateChallenge(sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: LiveChallengeUpdate) => updateChallenge(sessionId, body),
+    onSuccess: (progress: LiveChallengeProgress) => {
+      queryClient.setQueryData(liveKeys.challenge(sessionId), progress);
+      void queryClient.invalidateQueries({ queryKey: liveKeys.session(sessionId) });
+      void queryClient.invalidateQueries({ queryKey: ["live", "sessions"] });
     }
   });
 }

@@ -57,6 +57,17 @@ class _Data:
                 select(LiveAnswerEvent).where(LiveAnswerEvent.session_id == session.id).order_by(LiveAnswerEvent.id)
             ).scalars()
         )
+        self.is_challenge = session.mode == "self_paced"
+        if self.is_challenge:
+            # Self-paced: one attempt per participant counts (the best finished one), people
+            # without a finished attempt are not in the report yet, and every playable item
+            # was "reached".
+            from app.services import live_challenge
+
+            events, finished = live_challenge.report_filter(db, session, events)
+            self.participants = [p for p in self.participants if p.id in finished]
+            hidden = {int(p) for p in (session.hidden_positions or [])}
+            self.reached = live_challenge.playable_positions(self.items, hidden)
         active = {p.id for p in self.participants}
         self.answers = {k: v for k, v in scoring.effective_answers(events).items() if k[1] in active}
         self._by_position: dict[int, dict[str, scoring.EffectiveAnswer]] = {}
@@ -345,7 +356,7 @@ def build_report(db: Session, session: LiveSession, *, data: _Data | None = None
                 "band": _band(pct, bucket["answers"], cert),
             }
         )
-    return {
+    report: dict[str, Any] = {
         "session": serialize_session(db, session, version=data.version),
         "generated_at": utcnow().isoformat(),
         "kpis": {
@@ -362,6 +373,15 @@ def build_report(db: Session, session: LiveSession, *, data: _Data | None = None
         "participants": participant_rows,
         "domains": domains,
     }
+    if data.is_challenge:
+        from app.services import live_challenge
+
+        block = live_challenge.report_block(db, session)
+        repeats = set(block.pop("repeat_participants"))
+        for row in participant_rows:
+            row["repeat_suspect"] = row["participant_id"] in repeats  # RF-813
+        report["challenge"] = block
+    return report
 
 
 # ----------------------------------------------------------------------------- CSV
@@ -454,6 +474,10 @@ def my_results(db: Session, participant: LiveParticipant) -> dict[str, Any]:
 
     room = runtime.load_room(db, participant.session_id)
     session = room.session
+    if session.mode == "self_paced":
+        from app.services import live_challenge
+
+        return live_challenge.my_results(db, participant, room=room)
     reached = sorted(
         {
             position

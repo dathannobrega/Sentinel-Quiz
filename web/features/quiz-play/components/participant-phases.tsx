@@ -382,7 +382,8 @@ export function RevealFeedback({
   reveal,
   showCorrect,
   showExplanation,
-  submission = null
+  submission = null,
+  showTotal = true
 }: {
   question: PublicQuestion | null;
   reveal: Reveal;
@@ -390,6 +391,8 @@ export function RevealFeedback({
   showExplanation: boolean;
   /** The person's own answer (GA types compare it with the correct order/value). */
   submission?: LiveSubmission | null;
+  /** The running total under the verdict (challenges have no running score per item). */
+  showTotal?: boolean;
 }) {
   const { t, locale } = useI18n();
   const reduced = useLqReducedMotion();
@@ -516,7 +519,7 @@ export function RevealFeedback({
         <p className={cn(lqCardClass, "p-4 text-lq-fg")}>{t("quizPlay.reveal.acceptedWere", { answer: reveal.accepted_answers.join(" · ") })}</p>
       ) : null}
 
-      {my ? <p className="text-center font-lq-mono text-sm text-lq-fg-muted">{t("quizPlay.reveal.total", { score: new Intl.NumberFormat(locale).format(my.total_score) })}</p> : null}
+      {my && showTotal ? <p className="text-center font-lq-mono text-sm text-lq-fg-muted">{t("quizPlay.reveal.total", { score: new Intl.NumberFormat(locale).format(my.total_score) })}</p> : null}
 
       {showExplanation && reveal.explanation ? (
         <details className={cn(lqCardClass, "group p-4")}>

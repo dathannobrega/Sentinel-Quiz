@@ -28,7 +28,7 @@ import type {
 
 const LIVE_TIMEOUT_MS = 15_000;
 
-interface LiveRequestOptions {
+export interface LiveRequestOptions {
   method?: "GET" | "POST" | "DELETE";
   body?: unknown;
   /** Participant/display Bearer token. */
@@ -38,7 +38,8 @@ interface LiveRequestOptions {
   withCredentials?: boolean;
 }
 
-async function liveRequest<T>(path: string, options: LiveRequestOptions = {}): Promise<T> {
+/** Participant-side fetch (no X-Client-Key, Bearer token); also used by the challenge client. */
+export async function liveRequest<T>(path: string, options: LiveRequestOptions = {}): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {

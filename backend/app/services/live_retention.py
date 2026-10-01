@@ -64,6 +64,9 @@ def purge_session(db: Session, session: LiveSession, now: datetime) -> int:
 
 def run(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
     now = now or utcnow()
+    from app.services import live_challenge  # local: live_challenge imports the runtime lazily
+
+    challenges_closed = live_challenge.close_due_challenges(db, now=now)  # RF-810 for untouched links
     names_window, events_window = windows()
     anonymized = purged = events = 0
     while True:
@@ -102,7 +105,7 @@ def run(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
             purged += 1
             events += removed
         db.commit()
-    summary = {"sessions_anonymized": anonymized, "sessions_purged": purged, "events_deleted": events,
+    summary = {"challenges_closed": challenges_closed, "sessions_anonymized": anonymized, "sessions_purged": purged, "events_deleted": events,
                "names_days": names_window.days, "events_days": events_window.days}
     logger.info("live retention run", extra={"event": "live_retention_run", **summary})
     return summary

@@ -1,6 +1,7 @@
 /**
  * Sentinel Arena (live quizzes) REST types. Source of truth:
- * docs/live-quiz/CONTRATO-INCREMENTO-1.md §3–§5 and §7 (GA item types: CONTRATO-INCREMENTO-5.md).
+ * docs/live-quiz/CONTRATO-INCREMENTO-1.md §3–§5 and §7 (GA item types: CONTRATO-INCREMENTO-5.md;
+ * self-paced challenges: CONTRATO-INCREMENTO-6.md).
  * Keep in sync with backend/app/schemas_live.py.
  */
 
@@ -283,6 +284,10 @@ export interface LiveSession {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  /** Incremento 6: "self_paced" for challenges (older servers omit it: live). */
+  mode?: LiveSessionMode;
+  /** Incremento 6: the challenge settings and window; null on live rooms. */
+  challenge?: LiveChallenge | null;
 }
 
 export interface LiveSessionCreate {
@@ -346,6 +351,10 @@ export interface LiveMyResultItem {
 }
 
 export interface LiveMyResults {
+  /** Incremento 6: "self_paced" for challenges; the key follows the feedback policy. */
+  mode?: LiveSessionMode;
+  corrections_visible?: boolean;
+  corrections_at?: string | null;
   session_id: string;
   title: string;
   display_name: string;
@@ -435,6 +444,8 @@ export interface LiveReportParticipant {
   answered: number;
   score_pct: number;
   avg_ms: number | null;
+  /** Incremento 6 (challenges): the counted attempt came from a device already used by someone else (RF-813). */
+  repeat_suspect?: boolean;
 }
 
 export type LiveDomainBand = "not_ready" | "approaching" | "ready" | "insufficient_data";
@@ -470,6 +481,18 @@ export interface LiveReport {
    * aggregate report frozen before the purge. Older servers omit it.
    */
   retention?: LiveReportRetention;
+  /** Incremento 6: only on self-paced challenges (one counted attempt per participant). */
+  challenge?: LiveReportChallenge | null;
+}
+
+/** Report block of a challenge: funnel, attempts and repeat suspects (RF-1029, RF-813). */
+export interface LiveReportChallenge {
+  challenge: LiveChallenge;
+  funnel: LiveChallengeFunnel;
+  attempts: number;
+  attempts_per_person: Record<string, number>;
+  repeat_suspects: number;
+  median_duration_ms: number | null;
 }
 
 export interface LiveReportRetention {
@@ -558,4 +581,233 @@ export interface LivePreflight {
   status: "ready" | "attention";
   large_room: boolean;
   checks: LivePreflightCheck[];
+}
+
+// ----------------------------------------------------------------------------- self-paced challenges (Incremento 6)
+
+export type LiveSessionMode = "live" | "self_paced";
+export type LiveChallengeState = "scheduled" | "open" | "closed";
+/** per_item: each item's own time (× extended time); total: one clock for the attempt; none: untimed. */
+export type LiveChallengeTimeMode = "per_item" | "total" | "none";
+/** When the key (correct answers, explanations) is shown to participants. */
+export type LiveChallengeFeedback = "each" | "end" | "after_close" | "never";
+export type LiveAttemptFinishReason = "completed" | "time_up" | "closed" | "handed_in";
+
+/** `session.challenge` (serialize_challenge). */
+export interface LiveChallenge {
+  slug: string;
+  share_url: string;
+  state: LiveChallengeState;
+  opens_at: string | null;
+  closes_at: string | null;
+  attempts: number;
+  time_mode: LiveChallengeTimeMode;
+  total_time_s: number | null;
+  feedback: LiveChallengeFeedback;
+  leaderboard: boolean;
+  shuffle_items: boolean;
+}
+
+/** POST /api/live/challenges. `feedback: null` lets the server pick (after_close with leaderboard, end without). */
+export interface LiveChallengeCreate {
+  quiz_id: string;
+  opens_at?: string | null;
+  closes_at: string;
+  attempts?: number;
+  time_mode?: LiveChallengeTimeMode;
+  total_time_s?: number | null;
+  feedback?: LiveChallengeFeedback | null;
+  leaderboard?: boolean;
+  shuffle_items?: boolean;
+  allow_guests?: boolean;
+  audience?: LiveAudience;
+  max_participants?: number | null;
+}
+
+/** PATCH /sessions/{id}/challenge: `{closes_at}` moves the deadline, `{close_now: true}` closes now. */
+export interface LiveChallengeUpdate {
+  closes_at?: string;
+  close_now?: boolean;
+}
+
+export interface LiveChallengeFunnel {
+  /** Link opened without a token. */
+  opened: number;
+  joined: number;
+  started: number;
+  finished: number;
+}
+
+export interface LiveChallengeRecent {
+  participant_id: string;
+  display_name: string;
+  attempt_no: number;
+  score: number;
+  correct: number;
+  finished_at: string | null;
+  finish_reason: LiveAttemptFinishReason | null;
+  repeat_suspect: boolean;
+}
+
+export interface LiveChallengeStanding {
+  rank: number;
+  participant_id: string;
+  display_name: string;
+  avatar_seed: string;
+  score: number;
+  correct: number;
+}
+
+/** GET/PATCH /sessions/{id}/challenge: the owner panel (polled every 10 s, RF-809). */
+export interface LiveChallengeProgress {
+  challenge: LiveChallenge;
+  funnel: LiveChallengeFunnel;
+  in_progress: number;
+  attempts: number;
+  /** "number of attempts" → people. */
+  attempts_per_person: Record<string, number>;
+  repeat_suspects: number;
+  median_duration_ms: number | null;
+  recent: LiveChallengeRecent[];
+  leaderboard: LiveChallengeStanding[];
+  generated_at: string;
+}
+
+/** GET /api/live/q/{slug} (public; counts one "opened" without a token). */
+export interface LiveChallengeInfo {
+  session_id: string;
+  slug: string;
+  title: string;
+  theme_key: LiveThemeKey;
+  state: LiveChallengeState;
+  opens_at: string | null;
+  closes_at: string | null;
+  server_now: string;
+  /** Questions (content slides excluded). */
+  item_count: number;
+  attempts: number;
+  time_mode: LiveChallengeTimeMode;
+  total_time_s: number | null;
+  feedback: LiveChallengeFeedback;
+  leaderboard: boolean;
+  requires_login: boolean;
+  allow_guests: boolean;
+  audience: LiveAudience;
+  consent_version: string;
+}
+
+/** `your_answer` in a correction: option ids, typed text, ordering ids, a number or words. */
+export interface LiveChallengeYourAnswer {
+  choice?: string[];
+  text?: string;
+  order?: string[];
+  number?: number;
+  words?: string[];
+}
+
+/** Correction of one item (`feedback` with policy "each", and `summary.items`). */
+export interface LiveChallengeItemFeedback {
+  qi: number;
+  item_type: LiveItemType;
+  answered: boolean;
+  correct: boolean | null;
+  fraction: number | null;
+  points: number | null;
+  correct_option_ids: string[];
+  accepted_answers: string[];
+  /** Only on ordering. */
+  correct_order_ids?: string[];
+  /** Only on numeric. */
+  numeric?: { value: number | null; tolerance: number; unit: string };
+  explanation: string | null;
+  your_answer?: LiveChallengeYourAnswer;
+}
+
+export interface LiveChallengeSummaryItem extends LiveChallengeItemFeedback {
+  prompt: string;
+  /** The question in the session's option order (PublicQuestion). */
+  question: import("@/features/quiz-live/lib/protocol").PublicQuestion;
+}
+
+export interface LiveAttemptSummary {
+  score: number;
+  correct: number;
+  answered: number;
+  questions: number;
+  scored_questions: number;
+  duration_ms: number;
+  finish_reason: LiveAttemptFinishReason | null;
+  attempts_left: number;
+  best_score: number;
+  /** Only with a leaderboard. */
+  rank: number | null;
+  ranked: number;
+  corrections_visible: boolean;
+  /** The deadline, with policy after_close. */
+  corrections_at: string | null;
+  /** Empty while the policy hides the key. */
+  items: LiveChallengeSummaryItem[];
+}
+
+/** AttemptState: what the participant sees; always replaced by the latest server copy. */
+export interface LiveAttemptState {
+  attempt_id: string;
+  attempt_no: number;
+  attempts_allowed: number;
+  status: "in_progress" | "finished";
+  /** Current position in this attempt (0-based); equals `total` when finished. */
+  index: number;
+  /** Items in the attempt, content slides included. */
+  total: number;
+  questions_total: number;
+  started_at: string | null;
+  /** Only with time_mode "total" (capped at the close). */
+  deadline_at: string | null;
+  closes_at: string | null;
+  server_now: string;
+  feedback: LiveChallengeFeedback;
+  leaderboard: boolean;
+  /** The current item, options in this attempt's order; null when finished. */
+  item: import("@/features/quiz-live/lib/protocol").PublicQuestion | null;
+  item_started_at?: string | null;
+  /** Extended time and the challenge close already applied; null when untimed. */
+  item_deadline_at: string | null;
+  /**
+   * Policy "each": after an accepted answer the next item is not sent yet (`item: null`) and its
+   * clock has not started; GET attempts/current reveals it ("Próxima"). Reading the correction is free.
+   */
+  next_pending?: boolean;
+  /** Running score, only with policy "each" (it would reveal the key otherwise); null elsewhere. */
+  score?: number | null;
+  /** Attempts this participant has, the current one included. */
+  attempts_used?: number;
+  /** Only when finished. */
+  summary?: LiveAttemptSummary;
+}
+
+export type LiveChallengeAnswerStatus = "accepted" | "duplicate" | "invalid" | "late" | "stale" | "already_answered" | "closed";
+
+export interface LiveChallengeAnswerRequest {
+  answer_id: string;
+  qi: number;
+  choice?: string[];
+  text?: string;
+  words?: string[];
+  number?: number;
+}
+
+export interface LiveChallengeAnswerResult {
+  status: LiveChallengeAnswerStatus;
+  state: LiveAttemptState;
+  /** Policy "each" and status "accepted" only. */
+  feedback?: LiveChallengeItemFeedback;
+}
+
+/** GET /q/{slug}/leaderboard (404 leaderboard_disabled without a leaderboard). */
+export interface LiveChallengeLeaderboard {
+  top: LiveChallengeStanding[];
+  total: number;
+  me: LiveChallengeStanding | null;
+  /** The challenge closed: the ranking is final. */
+  final: boolean;
 }

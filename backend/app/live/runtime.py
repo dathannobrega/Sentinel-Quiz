@@ -124,6 +124,12 @@ def load_room(db: Session, session_id: str) -> Room:
     session = db.get(LiveSession, session_id, populate_existing=True)
     if session is None:
         raise RoomNotFound(session_id)
+    return room_from_session(db, session)
+
+
+def room_from_session(db: Session, session: LiveSession) -> Room:
+    """The room of an already loaded session (no re-read of the session row)."""
+    session_id = session.id
     cached = _version_cache.get(session.quiz_version_id)
     if cached is None:
         version = db.get(LiveQuizVersion, session.quiz_version_id)
@@ -1040,6 +1046,15 @@ def end_session(db: Session, session_id: str, *, now: datetime | None = None) ->
     session = room.session
     if session.status == "finished":
         return Outcome(error="stale")
+    if session.mode == "self_paced":
+        # A challenge has no room to broadcast to: ending it closes it now (final ranking
+        # from the counted attempts, open attempts finished).
+        from app.services import live_challenge
+
+        session.closes_at = min(session.closes_at or now, now)
+        db.commit()
+        live_challenge.close_if_due(db, session, now=now)
+        return Outcome()
     podium_already_shown = session.phase == "podium"
     seq = _cas(db, room, expect_phase=set(("lobby", "question", "locked", "reveal", "leaderboard", "content", "podium")), values={
         "phase": "finished", "status": "finished", "ended_at": now, "answers_open_at": None, "deadline_at": None,

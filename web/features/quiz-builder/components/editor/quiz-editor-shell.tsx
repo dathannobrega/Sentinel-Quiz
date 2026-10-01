@@ -24,8 +24,9 @@ import { SaveStatus } from "@/features/quiz-builder/components/editor/save-statu
 import { SettingsDrawer } from "@/features/quiz-builder/components/editor/settings-drawer";
 import { StagePreview } from "@/features/quiz-builder/components/editor/stage-preview";
 import { TypePickerDialog } from "@/features/quiz-builder/components/editor/type-picker-dialog";
-import { PresentIcon, SparklesIcon, UploadIcon } from "@/features/quiz-builder/components/icons";
+import { ChallengeIcon, PresentIcon, SparklesIcon, UploadIcon } from "@/features/quiz-builder/components/icons";
 import { StartSessionDialog } from "@/features/quiz-builder/components/start-session-dialog";
+import { CreateChallengeDialog } from "@/features/quiz-challenge/components/create-challenge-dialog";
 import { QUIZ_KEY, useEditorAutosave, type QuizPatch } from "@/features/quiz-builder/hooks/use-editor-autosave";
 import {
   applyItemPatch,
@@ -62,7 +63,7 @@ export function QuizEditorShell({ quizId }: { quizId: string }) {
   );
 }
 
-type Dialogs = "type" | "bank" | "ai" | "settings" | "publish" | "present" | null;
+type Dialogs = "type" | "bank" | "ai" | "settings" | "publish" | "present" | "challenge" | null;
 
 function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: LiveCapabilities }) {
   const { t } = useI18n();
@@ -382,6 +383,15 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
                 {t("quizBuilder.editor.publish")}
               </Button>
             ) : null}
+            <Button
+              variant="secondary"
+              onClick={() => setDialog("challenge")}
+              disabled={items.length === 0 || server.published_version_no === null}
+              title={server.published_version_no === null ? t("quizChallenge.create.mustPublish") : undefined}
+            >
+              <ChallengeIcon />
+              {t("quizChallenge.create.title")}
+            </Button>
             <Button onClick={() => setDialog("present")} disabled={items.length === 0}>
               <PresentIcon />
               {t("quizBuilder.editor.present")}
@@ -583,6 +593,10 @@ function QuizEditor({ quizId, capabilities }: { quizId: string; capabilities: Li
           publish={publish}
           onSelectItem={setSelectedId}
         />
+      ) : null}
+
+      {dialog === "challenge" ? (
+        <CreateChallengeDialog open onClose={() => setDialog(null)} quiz={server} onSelectItem={setSelectedId} />
       ) : null}
 
       <ConfirmDialog

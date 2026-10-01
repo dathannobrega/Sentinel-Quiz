@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { AlertIcon, CircleCheckIcon, ClockIcon } from "@/components/ui/icons";
-import { ArchiveIcon, CopyIcon, PresentIcon, UsersIcon } from "@/features/quiz-builder/components/icons";
+import { ArchiveIcon, ChallengeIcon, CopyIcon, PresentIcon, UsersIcon } from "@/features/quiz-builder/components/icons";
 import { ThemeSwatch } from "@/features/quiz-builder/components/theme-picker";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
@@ -18,11 +18,13 @@ interface QuizCardProps {
   index: number;
   busy?: boolean;
   onPresent: (quiz: LiveQuizSummary) => void;
+  /** "Criar desafio" (Incremento 6): only for published quizzes. */
+  onChallenge?: (quiz: LiveQuizSummary) => void;
   onDuplicate: (quiz: LiveQuizSummary) => void;
   onArchive: (quiz: LiveQuizSummary) => void;
 }
 
-export function QuizCard({ quiz, index, busy = false, onPresent, onDuplicate, onArchive }: QuizCardProps) {
+export function QuizCard({ quiz, index, busy = false, onPresent, onChallenge, onDuplicate, onArchive }: QuizCardProps) {
   const { t, locale } = useI18n();
   const editHref = `/quizzes/${encodeURIComponent(quiz.id)}/edit`;
   const itemsLabel =
@@ -91,6 +93,12 @@ export function QuizCard({ quiz, index, busy = false, onPresent, onDuplicate, on
           <PresentIcon />
           {t("quizBuilder.library.card.present")}
         </Button>
+        {onChallenge && quiz.published_version_no !== null ? (
+          <Button size="sm" variant="secondary" onClick={() => onChallenge(quiz)} disabled={busy} title={t("quizChallenge.create.title")}>
+            <ChallengeIcon />
+            {t("quizChallenge.create.short")}
+          </Button>
+        ) : null}
         <Link href={editHref} className={buttonClassName("ghost", "sm")}>
           {t("quizBuilder.library.card.edit")}
         </Link>

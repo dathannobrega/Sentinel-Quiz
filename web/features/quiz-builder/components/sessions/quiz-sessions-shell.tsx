@@ -13,7 +13,8 @@ import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Page, PageHeader } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CapabilityGate } from "@/features/quiz-builder/components/capability-gate";
-import { PresentIcon, QrIcon } from "@/features/quiz-builder/components/icons";
+import { ChallengeIcon, PresentIcon, QrIcon } from "@/features/quiz-builder/components/icons";
+import { ChallengeBadge, ChallengeStateBadge } from "@/features/quiz-challenge/components/challenge-widgets";
 import { sessionQrSvgUrl } from "@/lib/api/live-authoring";
 import { readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
@@ -136,7 +137,14 @@ function SessionsContent({ quizId }: { quizId: string }) {
                   <td className="px-4 py-3 whitespace-nowrap text-fg">{formatDateTime(session.started_at ?? session.created_at, locale)}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <SessionStatusBadge status={session.status} />
+                      {session.mode === "self_paced" && session.challenge ? (
+                        <>
+                          <ChallengeBadge />
+                          <ChallengeStateBadge state={session.challenge.state} />
+                        </>
+                      ) : (
+                        <SessionStatusBadge status={session.status} />
+                      )}
                       {session.rehearsal ? <RehearsalBadge /> : null}
                       <span className="text-xs text-fg-muted">
                         {session.allow_guests ? t("quizBuilder.sessions.guests") : t("quizBuilder.sessions.loginOnly")}
@@ -144,11 +152,28 @@ function SessionsContent({ quizId }: { quizId: string }) {
                     </div>
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-fg-muted">v{session.version_no}</td>
-                  <td className="px-4 py-3 font-mono tracking-wider text-fg">{session.join_code}</td>
+                  <td className="px-4 py-3 font-mono tracking-wider text-fg">{session.challenge?.slug ?? session.join_code}</td>
                   <td className="nums px-4 py-3 text-right text-fg">{session.participant_count}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap justify-end gap-1">
-                      {session.status === "finished" ? (
+                      {session.mode === "self_paced" ? (
+                        // Challenges have no presenter screen: the panel (link, progress, deadline) replaces it.
+                        <>
+                          <Link
+                            href={`/quizzes/${encodeURIComponent(quizId)}/challenges/${encodeURIComponent(session.id)}`}
+                            className={buttonClassName(session.status === "finished" ? "secondary" : "primary", "sm")}
+                          >
+                            <ChallengeIcon />
+                            {t("quizChallenge.sessions.panel")}
+                          </Link>
+                          <Link
+                            href={`/quizzes/${encodeURIComponent(quizId)}/results/${encodeURIComponent(session.id)}`}
+                            className={buttonClassName("ghost", "sm")}
+                          >
+                            {t("quizBuilder.sessions.results")}
+                          </Link>
+                        </>
+                      ) : session.status === "finished" ? (
                         <Link
                           href={`/quizzes/${encodeURIComponent(quizId)}/results/${encodeURIComponent(session.id)}`}
                           className={buttonClassName("secondary", "sm")}

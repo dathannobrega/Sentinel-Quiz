@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import { getMessageValue, getMessages } from "@/lib/i18n/core";
 
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-/** Live screens and the Arena admin (Incremento 4 added keys to all of them). */
-const DIRS = ["features/quiz-live", "features/quiz-play", "features/quiz-present", "features/admin/components/arena"];
+/** Live screens, the Arena admin (Incremento 4) and the self-paced challenges (Incremento 6). */
+const DIRS = ["features/quiz-live", "features/quiz-play", "features/quiz-present", "features/admin/components/arena", "features/quiz-challenge", "features/quiz-reports"];
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -18,13 +18,13 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** Static keys only: t("quizPlay.x.y") / t(`admin.arena.x`) without interpolation. */
+/** Static keys only: t("quizPlay.x.y") / t(`admin.arena.x`) / t("quizChallenge.x") without interpolation. */
 function usedKeys(): string[] {
   const keys = new Set<string>();
   for (const dir of DIRS) {
     for (const file of sourceFiles(join(ROOT, dir))) {
       const text = readFileSync(file, "utf8");
-      for (const match of text.matchAll(/\bt\(\s*["`]((?:quizPlay|quizPresent|admin\.arena)\.[\w.-]+)["`]/g)) {
+      for (const match of text.matchAll(/\bt\(\s*["`]((?:quizPlay|quizPresent|quizChallenge|admin\.arena)\.[\w.-]+)["`]/g)) {
         keys.add(match[1] as string);
       }
     }
