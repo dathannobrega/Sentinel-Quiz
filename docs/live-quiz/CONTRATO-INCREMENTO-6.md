@@ -153,6 +153,9 @@ O cliente sempre passa a usar o `state` devolvido.
   "item": { "…": "PublicQuestion do ao vivo; opções na ordem desta tentativa, com index refeito" },
   "item_started_at": "…",
   "item_deadline_at": "… | null",
+  "next_pending": false,
+  "score": "4200 | null (só com feedback each)",
+  "attempts_used": 1,
   "summary": { "…": "só quando status = finished" }
 }
 ```
@@ -160,6 +163,10 @@ O cliente sempre passa a usar o `state` devolvido.
 - **Cronômetro:** use `server_now` para corrigir o relógio local. `item_deadline_at` já considera o tempo estendido
   e o fim do desafio. Há 1,5 s de folga no servidor. Ao zerar, chame `attempts/current` (o item expira sozinho) ou
   mostre "tempo esgotado".
+- **Correção a cada item (`each`):** depois de uma resposta, o próximo item vem como `next_pending: true` com
+  `item: null`. Ele só aparece, e só então o relógio dele começa, quando o cliente chama `attempts/current`
+  (botão "Próxima"): ler a correção não consome tempo. Responder a um item ainda não mostrado volta `stale`.
+- **Placar parcial:** `score` só vem com `each`; nas outras políticas ele revelaria os acertos.
 - **Conteúdo:** `item.item_type = "content"` traz `prompt` e `body`, com botão "Continuar" (`advance`).
 - **Itens:** tipos e payloads iguais ao ao vivo, incluindo os do Incremento 5. Placar intermediário e itens
   removidos pela moderação nunca aparecem.

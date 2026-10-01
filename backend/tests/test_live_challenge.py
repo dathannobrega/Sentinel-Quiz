@@ -60,6 +60,8 @@ def _play(client, slug, token, answers):
     state = client.post(f"/api/live/q/{slug}/attempts", headers=_auth(token)).json()
     feedbacks = []
     while state["status"] == "in_progress":
+        if state["next_pending"]:  # after a per-item correction the next item is revealed on request
+            state = client.get(f"/api/live/q/{slug}/attempts/current", headers=_auth(token)).json()
         item = state["item"]
         if item["item_type"] == "content":
             state = client.post(f"/api/live/q/{slug}/attempts/{state['attempt_id']}/advance", headers=_auth(token),
@@ -204,6 +206,7 @@ def test_each_feedback_and_after_close_policies(live_on, login_client, make_clie
     ana = _join(guest, each["challenge"]["slug"], "Ana")
     _final, feedbacks = _play(guest, each["challenge"]["slug"], ana["token"], HALF)
     by_type = {f["item_type"]: f for f in feedbacks}
+    assert _final["score"] == 1000 and _final["attempts_used"] == 1
     assert by_type["single_choice"]["correct"] is False and len(by_type["single_choice"]["correct_option_ids"]) == 1
     assert by_type["type_answer"]["accepted_answers"] == ["smishing"] and by_type["type_answer"]["correct"] is True
 
@@ -421,3 +424,36 @@ def test_report_counts_only_the_counted_attempt(live_on, login_client, make_clie
     single = next(i for i in report["items"] if i["prompt"] == SINGLE["prompt"])
     assert single["answered"] == 1 and single["n_correct"] == 1  # attempt 2 (best), not 1 or 3
     assert report["participants"][0]["score"] == 2000
+
+
+def test_each_feedback_starts_the_next_clock_when_the_item_is_shown(live_on, login_client, make_client, db):
+    """Reading the correction costs no time; an unseen item cannot be answered (no clock)."""
+    host, _ = login_client()
+    quiz = _quiz(host, items=(SINGLE, MULTI))
+    created = _challenge(host, quiz, feedback="each", shuffle_items=False)
+    guest = make_client()
+    ana = _join(guest, created["challenge"]["slug"], "Ana")
+    participant = db.get(LiveParticipant, ana["participant_id"])
+    t0 = utcnow()
+    state = live_challenge.start_attempt(db, participant, now=t0)
+    first = live_challenge.answer(
+        db, participant, state["attempt_id"], answer_id=str(uuid.uuid4()), qi=0,
+        choice=[_option(state, "Treinamento")], text=None, words=None, number=None, now=t0 + timedelta(seconds=1),
+    )
+    assert first["feedback"]["correct"] is True and first["state"]["next_pending"] is True and first["state"]["item"] is None
+    assert first["state"]["score"] == 975  # speed scoring: 1 s of 20
+    sneaky = live_challenge.answer(
+        db, participant, state["attempt_id"], answer_id=str(uuid.uuid4()), qi=1,
+        choice=["o_x"], text=None, words=None, number=None, now=t0 + timedelta(seconds=2),
+    )
+    assert sneaky["status"] == "stale"
+    # A long read of the correction (60 s > the 20 s limit) does not expire the next item.
+    shown = live_challenge.current_attempt(db, participant, now=t0 + timedelta(seconds=61))
+    assert shown["item"]["qi"] == 1 and shown["item_deadline_at"]
+    late = live_challenge.answer(
+        db, participant, state["attempt_id"], answer_id=str(uuid.uuid4()), qi=1,
+        choice=[_option(shown, "Senha"), _option(shown, "Token")], text=None, words=None, number=None,
+        now=t0 + timedelta(seconds=62),
+    )
+    assert late["status"] == "accepted" and late["state"]["summary"]["score"] == 1950  # the read did not count
+

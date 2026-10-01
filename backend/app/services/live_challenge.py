@@ -477,6 +477,7 @@ def start_attempt(db: Session, participant: LiveParticipant, *, now: datetime | 
     ensure_joinable(db, session)
     current = _open_attempt(db, participant, now)
     if current is not None:
+        _serve(db, current, now)
         return attempt_state(db, current, now=now)
     mine = _attempts(db, session.id, participant_id=participant.id)
     config = challenge_settings(session)
@@ -540,6 +541,13 @@ def _open_attempt(db: Session, participant: LiveParticipant, now: datetime) -> L
     return None
 
 
+def _serve(db: Session, attempt: LiveAttempt, now: datetime) -> None:
+    """Reveal the pending item (after a per-item correction): its clock starts now."""
+    if attempt.status == "in_progress" and attempt.item_started_at is None:
+        attempt.item_started_at = now
+        db.commit()
+
+
 def current_attempt(db: Session, participant: LiveParticipant, *, now: datetime | None = None) -> dict[str, Any]:
     """The open attempt, else the latest finished one (with its summary), else 404."""
     now = now or utcnow()
@@ -553,6 +561,7 @@ def current_attempt(db: Session, participant: LiveParticipant, *, now: datetime 
         if not mine:
             raise api_error(404, "attempt_not_found", "No attempt yet.")
         attempt = mine[-1]
+    _serve(db, attempt, now)
     return attempt_state(db, attempt, now=now)
 
 
@@ -653,6 +662,9 @@ def answer(
         return {"status": status, "state": attempt_state(db, attempt, now=now)}
     room = _room(db, session)
     item = room.items[position]
+    if attempt.item_started_at is None:  # not shown yet (it would be answered with no clock)
+        db.commit()
+        return {"status": "stale", "state": attempt_state(db, attempt, now=now)}
     if item["item_type"] not in registry.INTERACTIVE_TYPES:
         db.commit()
         return {"status": "invalid", "state": attempt_state(db, attempt, now=now)}
@@ -696,7 +708,9 @@ def answer(
         attempt.correct += 1
         attempt.correct_ms += elapsed
     attempt.current_index += 1
-    attempt.item_started_at = now
+    # With a correction after each item, the next item is revealed (and its clock starts)
+    # only when the participant asks for it: reading the correction costs no time.
+    attempt.item_started_at = None if config["feedback"] == "each" else now
     if attempt.current_index >= len(order):
         _finish(attempt, now, "completed")
     try:
@@ -831,8 +845,14 @@ def attempt_state(db: Session, attempt: LiveAttempt, *, now: datetime | None = N
         "leaderboard": config["leaderboard"],
         "item": None,
         "item_deadline_at": None,
+        "next_pending": False,
+        # Running score only where every item is corrected anyway (it would leak the key).
+        "score": attempt.score if config["feedback"] == "each" else None,
+        "attempts_used": len(_attempts(db, session.id, participant_id=attempt.participant_id)),
     }
-    if attempt.status == "in_progress" and attempt.current_index < len(order):
+    if attempt.status == "in_progress" and attempt.current_index < len(order) and attempt.item_started_at is None:
+        data["next_pending"] = True  # GET attempts/current reveals it
+    elif attempt.status == "in_progress" and attempt.current_index < len(order):
         position = order[attempt.current_index]
         item = room.items[position]
         data["item"] = shuffled_question(session.id, position, item, attempt.id)
