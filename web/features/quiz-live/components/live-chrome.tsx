@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import type { LiveConnectionState } from "@/features/quiz-live/lib/live-store";
 import type { LiveTransport } from "@/features/quiz-live/lib/protocol";
 import type { LiveThemeKey } from "@/types/api/live";
+import { pushThemeColor } from "@/lib/theme/theme-color";
 import { cn } from "@/lib/utils/cn";
 
 const THEME_KEYS: ReadonlySet<string> = new Set(["sentinel", "terminal", "neon_soc", "aurora", "high_contrast"]);
@@ -56,12 +57,25 @@ export function LiveThemeRoot({
   backdrop?: boolean;
   particles?: boolean;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const themeKey = safeThemeKey(theme);
+
+  // Live surfaces are full screen with their own (dark) background: paint the browser chrome /
+  // phone status bar with it while mounted.
+  useEffect(() => {
+    const root = rootRef.current;
+    const color = root ? getComputedStyle(root).getPropertyValue("--lq-bg").trim() : "";
+    return color ? pushThemeColor(color) : undefined;
+  }, [themeKey]);
+
   return (
-    <div data-lq-theme={safeThemeKey(theme)} data-lq-calm={calm ? "true" : undefined} className={cn("relative isolate overflow-hidden", className)}>
+    <div ref={rootRef} data-lq-theme={themeKey} data-lq-calm={calm ? "true" : undefined} className={cn("relative isolate overflow-hidden", className)}>
       {backdrop ? <LiveBackdrop particles={particles} /> : null}
       {/* h-full gives descendants a DEFINITE height: the stage is a size container, and with
-          only min-height its cqh/cqmin units resolve to 0 (tiny text, collapsed QR). */}
-      <div className="relative z-[1] flex h-full min-h-full flex-col">{children}</div>
+          only min-height its cqh/cqmin units resolve to 0 (tiny text, collapsed QR).
+          The background stays edge to edge; content keeps clear of notches and the home
+          indicator (full-screen children use min-h-dvh-safe, not min-h-dvh). */}
+      <div className="relative z-[1] flex h-full min-h-full flex-col px-safe pt-safe pb-safe">{children}</div>
     </div>
   );
 }

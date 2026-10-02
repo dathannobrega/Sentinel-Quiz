@@ -28,10 +28,11 @@ interface DialogProps {
 const placements: Record<Placement, string> = {
   center:
     "m-auto w-[min(32rem,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] rounded-lg motion-safe:animate-[rise-in_160ms_var(--ease-out)]",
+  // Edge drawers touch the screen edges: keep their content clear of notches and the home indicator.
   right:
-    "my-0 mr-0 ml-auto h-dvh max-h-dvh w-[min(26rem,100vw)] rounded-none border-y-0 border-r-0 motion-safe:animate-[slide-in-right_200ms_var(--ease-out)]",
+    "my-0 mr-0 ml-auto h-dvh max-h-dvh w-[min(26rem,100vw)] rounded-none border-y-0 border-r-0 pt-safe pb-safe pr-[env(safe-area-inset-right)] motion-safe:animate-[slide-in-right_200ms_var(--ease-out)]",
   left:
-    "my-0 ml-0 mr-auto h-dvh max-h-dvh w-[min(20rem,88vw)] rounded-none border-y-0 border-l-0 motion-safe:animate-[slide-in-left_200ms_var(--ease-out)]"
+    "my-0 ml-0 mr-auto h-dvh max-h-dvh w-[min(20rem,88vw)] rounded-none border-y-0 border-l-0 pt-safe pb-safe pl-[env(safe-area-inset-left)] motion-safe:animate-[slide-in-left_200ms_var(--ease-out)]"
 };
 
 /**

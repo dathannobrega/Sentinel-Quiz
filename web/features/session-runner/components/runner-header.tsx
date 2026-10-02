@@ -51,7 +51,7 @@ export function RunnerHeader({
   const percent = totalQuestions ? Math.round((answered / totalQuestions) * 100) : 0;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-canvas/95 backdrop-blur-sm">
+    <header className="sticky top-0 z-30 border-b border-line bg-canvas/95 pt-safe backdrop-blur-sm">
       <div className="flex h-14 items-center gap-2 px-2 sm:gap-3 sm:px-4">
         {!isExamDayMode ? (
           <Link href="/dashboard" className="focus-ring inline-flex h-9 items-center gap-2 rounded-md px-2.5 text-sm text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg" aria-label={t("runner.layout.exit")}>

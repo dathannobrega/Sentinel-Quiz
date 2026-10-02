@@ -70,7 +70,7 @@ export function RunnerPanel({ sessionId, runner, notes, docked, open, onClose, r
           "flex flex-col gap-7 overflow-y-auto overscroll-contain bg-canvas px-5 pt-6 pb-10",
           docked
             ? "sticky top-14 h-[calc(100dvh-3.5rem)] w-[22rem] shrink-0 border-l border-line"
-            : "fixed inset-y-0 right-0 z-50 w-[min(24rem,100vw)] border-l border-line bg-surface-raised shadow-overlay transition-[transform,visibility] duration-200 ease-out",
+            : "fixed inset-y-0 right-0 z-50 w-[min(24rem,100vw)] border-l border-line bg-surface-raised pt-[max(1.5rem,env(safe-area-inset-top))] pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(2.5rem,env(safe-area-inset-bottom))] shadow-overlay transition-[transform,visibility] duration-200 ease-out",
           !docked && (open ? "visible translate-x-0" : "invisible translate-x-full")
         )}
       >

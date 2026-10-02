@@ -61,7 +61,10 @@ export function LiveToast({
 }) {
   const reduced = useLqReducedMotion();
   return (
-    <div aria-live="polite" aria-atomic="true" className={cn("pointer-events-none inset-x-0 top-3 z-[60] flex justify-center px-3", contained ? "absolute" : "fixed")}>
+    <div aria-live="polite" aria-atomic="true" className={cn(
+        "pointer-events-none inset-x-0 z-[60] flex justify-center px-3",
+        contained ? "absolute top-3" : "fixed top-[max(0.75rem,env(safe-area-inset-top))]"
+      )}>
       <AnimatePresence>
         {toast ? (
           <m.div

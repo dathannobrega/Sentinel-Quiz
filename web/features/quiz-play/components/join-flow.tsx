@@ -306,7 +306,7 @@ export function JoinFlow({ rawCode }: { rawCode: string }) {
       {liveRegion}
       <LiveMotionProvider>
         <LiveThemeRoot theme={theme} className="min-h-dvh" particles>
-          <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-4 py-8">
+          <main className="mx-auto flex min-h-dvh-safe w-full max-w-lg flex-col justify-center px-4 py-8">
             <header className="mb-5 flex flex-col items-center gap-1 text-center">
               <p className="font-lq-mono text-xs font-medium tracking-[0.2em] text-lq-accent uppercase">{t("quizPlay.brand")}</p>
               <h1 className="font-lq text-2xl font-extrabold text-balance text-lq-fg sm:text-3xl">{room?.title || t("quizPlay.meta.roomTitle")}</h1>

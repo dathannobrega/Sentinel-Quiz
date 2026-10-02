@@ -30,7 +30,17 @@ export default function nextConfig(phase) {
     poweredByHeader: false,
     output: "standalone",
     async headers() {
-      return [{ source: "/:path*", headers: securityHeaders }];
+      return [
+        { source: "/:path*", headers: securityHeaders },
+        // Service worker (PWA): always revalidated so a new deploy reaches installed apps.
+        {
+          source: "/sw.js",
+          headers: [
+            { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+            { key: "Content-Type", value: "application/javascript; charset=utf-8" }
+          ]
+        }
+      ];
     },
     async rewrites() {
       if (!enableApiRewrite) {

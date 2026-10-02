@@ -2,8 +2,9 @@ import { forwardRef, type InputHTMLAttributes, type ReactNode, type SelectHTMLAt
 
 import { cn } from "@/lib/utils/cn";
 
+// pointer-coarse:text-base — iOS Safari zooms the page into any focused field under 16px.
 const control =
-  "w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-fg placeholder:text-fg-subtle " +
+  "w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-fg placeholder:text-fg-subtle pointer-coarse:text-base " +
   "transition-[border-color,box-shadow] duration-150 ease-out hover:border-fg-subtle " +
   "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 " +
   "disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-fg-subtle " +

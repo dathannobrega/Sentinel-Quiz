@@ -15,8 +15,35 @@ export const navigation = {
     faq: "FAQ"
   },
   menu: {
-    open: "Abrir menu",
     title: "Menu"
+  },
+  tabBar: {
+    label: "Atalhos",
+    more: "Mais"
+  },
+  install: {
+    action: "Instalar app",
+    actionShort: "Instalar",
+    hint: "Abra pela tela inicial, em tela cheia.",
+    done: "Entendi",
+    ios: {
+      title: "Instalar no iPhone ou iPad",
+      intro: "Adicione o Sentinel Quiz à Tela de Início para abrir como um app:",
+      steps: [
+        "Toque em Compartilhar na barra do navegador.",
+        "Escolha “Adicionar à Tela de Início” (role a lista, se precisar).",
+        "Toque em “Adicionar”. O ícone aparece na tela inicial."
+      ]
+    },
+    mac: {
+      title: "Instalar no Mac",
+      intro: "No Safari, adicione o Sentinel Quiz ao Dock para abrir como um app:",
+      steps: [
+        "Abra o menu Arquivo do Safari (ou toque em Compartilhar).",
+        "Escolha “Adicionar ao Dock”.",
+        "Confirme em “Adicionar”. O app abre em uma janela própria."
+      ]
+    }
   },
   theme: {
     label: "Tema",

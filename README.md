@@ -18,6 +18,7 @@ Aplicação full-stack para simulados de certificações de cibersegurança. O b
 * **SRS Incremental:** a fila de revisão guarda repetições, lapsos, estabilidade e fator de facilidade.
 * **Sentinel Arena (quizzes ao vivo):** quizzes interativos no estilo Mentimeter/Kahoot — criação com questões próprias e/ou do Banco (respeitando a licença de cada questão), telão com QR code/PIN, entrada de convidados só com o nome, respostas em tempo real por WebSocket, placar, pódio e relatório com psicometria e CSV. Liga com `LIVE_ENABLED=true` (ligado no stack de dev). Inclui **criação com IA** (Gemini): rascunhos a partir de um tema ou texto, checados por regras, deduplicação e um revisor automático cego, sempre com revisão humana antes de publicar (`AI_AUTHORING_ENABLED=true`). Pronto para 2.000 participantes numa sala (teste de carga em `scripts/live/loadtest.py`), com sala de espera quando a sala lota e aprovação opcional de cada entrada pelo apresentador, com fallback SSE quando o WebSocket é bloqueado, pausa e extensão do tempo, tempo estendido por participante e ensaio com bots. Salas com convidados têm moderação (filtro de termos, revisão na publicação, denúncias e fila no admin), "Meus dados" com exclusão, claim do resultado para a conta, retenção automática (`entrypoint.sh live-cleanup`) e checagem pré-evento. Além das alternativas, V/F, resposta digitada e enquete, há ordenar (inclusive PBQs do Banco), resposta numérica com tolerância e nuvem de palavras. Também há **desafios self-paced**: um link permanente (`/q/{código}`) para cada pessoa responder no próprio ritmo até o prazo, com tentativas, correção configurável, ranking com anti-fraude e painel com funil. Veja [Incremento 1](docs/live-quiz/INCREMENTO-1.md), [Incremento 2](docs/live-quiz/INCREMENTO-2.md), [Incremento 3](docs/live-quiz/INCREMENTO-3.md), [Incremento 4](docs/live-quiz/INCREMENTO-4.md), [Incremento 5](docs/live-quiz/INCREMENTO-5.md), [Incremento 6](docs/live-quiz/INCREMENTO-6.md), [Incremento 7](docs/live-quiz/INCREMENTO-7.md) e o [plano completo](docs/live-quiz/PLANO.md).
 * **Snapshots Editoriais Históricos:** snapshots por `question_version` para acompanhar dificuldade, erro e pressão de revisão ao longo do tempo.
+* **App instalável (PWA) para celular e desktop:** "Instalar app" no Edge/Chrome e "Adicionar à Tela de Início" no Android/iOS, abrindo em tela cheia com ícone próprio; layout com barra de navegação inferior no celular e respeito a notch/indicador de home. Veja [App instalável](#-app-instalável-pwa).
 
 ## 🚀 Tecnologias
 
@@ -118,6 +119,27 @@ echo "NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000" > .env.local   # API em outr
 npm run dev        # http://127.0.0.1:3000
 npm run lint && npm run typecheck && npm run build
 ```
+
+### 📱 App instalável (PWA)
+
+O frontend é um Progressive Web App: em HTTPS (ou `localhost`) o navegador oferece instalar o Sentinel Quiz como app, com ícone na tela inicial / menu Iniciar e janela própria, sem barra do navegador.
+
+| Plataforma | Como instalar |
+| --- | --- |
+| Edge / Chrome (Windows, macOS, Linux, ChromeOS) | Ícone "Instalar app" na barra de endereço, ou o botão **Instalar app** no menu lateral |
+| Android (Chrome, Edge, Samsung Internet) | Botão **Instalar** no topo do app (ou "Instalar app" no menu do navegador) |
+| iPhone / iPad (Safari e demais navegadores) | Botão **Instalar** mostra o passo a passo: Compartilhar → "Adicionar à Tela de Início" |
+| Safari no macOS 17+ | Arquivo → "Adicionar ao Dock" (o botão mostra os passos) |
+
+Peças, todas em `web/`:
+
+* `app/manifest.ts` → `/manifest.webmanifest` (nome, cores, `start_url=/dashboard`, ícones e atalhos: Nova sessão, Revisão, Entrar no quiz ao vivo, Histórico; idioma pelo `Accept-Language`).
+* Ícones gerados de `scripts/generate-pwa-icons.mjs` (rode `node scripts/generate-pwa-icons.mjs` só se a marca mudar): `public/icons/*` (192/512, normal e *maskable*), `app/apple-icon.png`, `app/icon.svg`, `app/favicon.ico`.
+* `public/sw.js`: service worker mínimo, registrado só em produção. Não guarda API nem páginas (que têm nonce de CSP e dados privados); serve só `public/offline.html` quando uma página não carrega sem rede. Para mudar a página offline, incremente `VERSION` no `sw.js`. Para desligar o worker, troque o arquivo por um que chame `self.registration.unregister()`.
+* `viewport-fit=cover` + utilitários `pt-safe`, `pb-safe`, `px-safe` e `min-h-dvh-safe` (`app/globals.css`) para notch, cantos e indicador de home; `theme-color` acompanha o tema claro/escuro escolhido no app e o fundo das telas do Sentinel Arena.
+* No celular os campos ficam com 16px (o iOS dá zoom em campos menores) e a navegação usa uma barra inferior (Dashboard, Iniciar, Revisão, Histórico, Mais).
+
+O nginx já repassa `/manifest.webmanifest`, `/sw.js` e `/icons/*` ao Next; o `sw.js` sai com `Cache-Control: no-cache` (`next.config.mjs`) para que um deploy novo chegue aos apps instalados.
 
 ---
 
