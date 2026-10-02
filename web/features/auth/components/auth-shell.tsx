@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -41,8 +41,14 @@ function fieldError(error: unknown, field: string): string | undefined {
   return error.fieldErrors.find((item) => item.field === field || item.field.endsWith(`.${field}`))?.message;
 }
 
+const noopSubscribe = () => () => {};
+
 export function AuthShell({ mode }: { mode: AuthMode }) {
   const { t, getMessage } = useI18n();
+  // This boundary hydrates after the app chrome, which already started the session query: when
+  // /api/auth/me answers first, rendering the form during hydration would not match the server's
+  // skeleton (React error 418). Keep the skeleton until hydrated, then follow the query.
+  const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = sanitizeNextPath(searchParams.get("next")) ?? "/dashboard";
@@ -161,7 +167,7 @@ export function AuthShell({ mode }: { mode: AuthMode }) {
     }
   }
 
-  if (currentUserQuery.isPending) {
+  if (!hydrated || currentUserQuery.isPending) {
     return (
       <AuthLayout busy title={mode === "login" ? t("auth.form.loginTitle") : t("auth.form.registerTitle")}>
         <div className="flex flex-col gap-4" role="status">

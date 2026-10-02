@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 
 import { AppShell } from "@/components/navigation/app-shell";
@@ -7,6 +7,7 @@ import { getServerRuntimeConfig, serializeRuntimeConfig } from "@/lib/config/ser
 import { fontVariables } from "@/lib/fonts";
 import { getMessages, I18nProvider } from "@/lib/i18n";
 import { getRequestLocale } from "@/lib/i18n/server";
+import { pwaBootScript } from "@/lib/pwa/boot";
 import { AppQueryProvider } from "@/lib/query/provider";
 import { themeBootScript } from "@/lib/theme/boot";
 
@@ -24,9 +25,23 @@ export async function generateMetadata(): Promise<Metadata> {
       template: `%s · ${messages.common.appName}`
     },
     description: messages.metadata.description,
-    applicationName: messages.common.appName
+    applicationName: messages.common.appName,
+    // Installed on iOS ("Add to Home Screen"): standalone, short title under the icon. "default"
+    // keeps the status bar readable in both themes (black-translucent is white text on any canvas).
+    appleWebApp: { capable: true, title: messages.metadata.shortName, statusBarStyle: "default" },
+    // iOS would turn PINs and scores into phone links.
+    formatDetection: { telephone: false }
   };
 }
+
+// viewport-fit=cover: the page runs under notches / home indicators; layouts pad with
+// env(safe-area-inset-*). Zoom stays enabled (accessibility). theme-color is set by the boot script
+// so it follows the in-app light/dark choice, not only the OS preference.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover"
+};
 
 export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const { locale, fromCookie } = await getRequestLocale();
@@ -38,6 +53,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     <html lang={locale} className={fontVariables} suppressHydrationWarning>
       <head>
         <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: pwaBootScript(process.env.NODE_ENV === "production") }}
+        />
       </head>
       <body>
         <script

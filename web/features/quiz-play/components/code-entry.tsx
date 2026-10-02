@@ -139,7 +139,7 @@ export function CodeEntry({ initialCode = "" }: { initialCode?: string }) {
   return (
     <LiveMotionProvider>
       <LiveThemeRoot theme="sentinel" className="min-h-dvh" particles>
-        <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-4 py-10">
+        <main className="mx-auto flex min-h-dvh-safe w-full max-w-lg flex-col justify-center px-4 py-10">
           <m.div initial={{ y: 16 }} animate={{ y: 0 }} transition={springs.gentle} className={cn(lqCardClass, "flex flex-col gap-6 px-5 py-8 sm:px-8")}>
             <div className="flex flex-col items-center gap-2 text-center">
               <p className="font-lq-mono text-xs font-medium tracking-[0.2em] text-lq-accent uppercase">{t("quizPlay.brand")}</p>

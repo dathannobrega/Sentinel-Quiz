@@ -35,7 +35,7 @@ export const RunnerActionBar = forwardRef<HTMLButtonElement, RunnerActionBarProp
   }
 
   return (
-    <div className="sticky bottom-0 z-20 border-t border-line bg-canvas/95 backdrop-blur-sm">
+    <div className="sticky bottom-0 z-20 border-t border-line bg-canvas/95 pb-safe backdrop-blur-sm">
       <div className="mx-auto flex max-w-reading flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
         {isExamMode ? (
           <>

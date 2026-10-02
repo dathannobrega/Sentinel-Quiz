@@ -112,7 +112,7 @@ export function PresenterView({ controls }: { controls: ReactNode }) {
 
   return (
     <LiveThemeRoot theme={view.themeKey} backdrop={false} className="min-h-dvh">
-      <div className="flex min-h-dvh flex-col">
+      <div className="flex min-h-dvh-safe flex-col">
         <p role="note" className="bg-lq-warning px-4 py-2 text-center text-sm font-bold text-lq-on-warning">
           {t("quizPresent.presenter.privateWarning")}
         </p>

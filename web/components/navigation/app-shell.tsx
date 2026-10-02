@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, type ComponentType, type ReactNode, type 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
-import { Button, buttonClassName } from "@/components/ui/button";
+import { InstallAppButton } from "@/components/navigation/install-app";
+import { buttonClassName } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import {
   HomeIcon,
@@ -29,14 +30,18 @@ type Chrome = "app" | "public" | "none";
 
 const PUBLIC_PATHS = new Set(["/", "/login", "/register", "/forgot-password", "/reset-password", "/verify-email"]);
 
+/** Sentinel Arena: the projector stage and the participant phone screens (live `/j`, challenge `/q`). */
+function isLivePath(pathname: string): boolean {
+  return /^\/(present|j|q)(\/|$)/.test(pathname);
+}
+
 /** Runner screens own the whole viewport (focus). Result pages keep the app chrome. */
 function resolveChrome(pathname: string): Chrome {
   if (/^\/(exam|study)\/[^/]+\/?$/.test(pathname)) {
     return "none";
   }
-  // Sentinel Arena: the projector stage and the participant phone screens (live `/j`, challenge
-  // `/q`) own the whole viewport.
-  if (/^\/(present|j|q)(\/|$)/.test(pathname)) {
+  // Live screens own the whole viewport.
+  if (isLivePath(pathname)) {
     return "none";
   }
   return PUBLIC_PATHS.has(pathname) ? "public" : "app";
@@ -290,6 +295,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
       <div className="mt-auto flex flex-col gap-4">
         <SessionNotice />
+        <InstallAppButton />
         <div className="flex items-center justify-between gap-2 px-1">
           <ThemeSwitch />
           <LocaleSwitch />
@@ -299,6 +305,59 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Phone / tablet navigation (below lg): a bottom tab bar, like a native app, with the four study
+ * destinations within thumb reach and "More" for the full menu (account, admin, theme, language).
+ */
+function MobileTabBar({ menuOpen, onOpenMenu }: { menuOpen: boolean; onOpenMenu: () => void }) {
+  const { t } = useI18n();
+  const pathname = usePathname() || "/";
+  const tabs: NavItem[] = [
+    { href: "/dashboard", label: t("common.labels.dashboard"), icon: HomeIcon },
+    { href: "/start", label: t("common.labels.start"), icon: PlayCircleIcon },
+    { href: "/review", label: t("common.labels.review"), icon: RepeatIcon },
+    { href: "/history", label: t("common.labels.history"), icon: ListIcon }
+  ];
+  const tabClass = (active: boolean) =>
+    cn(
+      "focus-ring flex h-full w-full flex-col items-center justify-center gap-1 rounded-md text-[0.6875rem] leading-none transition-colors",
+      active ? "font-semibold text-fg" : "font-medium text-fg-muted hover:text-fg"
+    );
+  const pillClass = (active: boolean) =>
+    cn("grid h-7 w-14 place-items-center rounded-full transition-colors", active ? "bg-primary-soft text-primary" : "text-fg-subtle");
+
+  return (
+    <nav
+      aria-label={t("navigation.tabBar.label")}
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas/95 px-safe pb-safe backdrop-blur-sm lg:hidden"
+    >
+      <ul className="mx-auto grid h-16 max-w-xl grid-cols-5 px-1">
+        {tabs.map(({ href, label, icon: TabIcon }) => {
+          const active = isActive(pathname, href);
+          return (
+            <li key={href} className="min-w-0">
+              <Link href={href} aria-current={active ? "page" : undefined} className={tabClass(active)}>
+                <span aria-hidden="true" className={pillClass(active)}>
+                  <TabIcon size={20} />
+                </span>
+                <span className="max-w-full truncate px-0.5">{label}</span>
+              </Link>
+            </li>
+          );
+        })}
+        <li className="min-w-0">
+          <button type="button" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={onOpenMenu} className={tabClass(menuOpen)}>
+            <span aria-hidden="true" className={pillClass(menuOpen)}>
+              <MenuIcon size={20} />
+            </span>
+            <span className="max-w-full truncate px-0.5">{t("navigation.tabBar.more")}</span>
+          </button>
+        </li>
+      </ul>
+    </nav>
   );
 }
 
@@ -313,7 +372,7 @@ function AppChrome({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
+    <div className="min-h-dvh px-safe lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh flex-col gap-8 overflow-y-auto border-r border-line bg-canvas px-3 py-5 lg:flex">
         <Link href="/dashboard" className="focus-ring self-start rounded-md px-3 py-1">
           <BrandMark />
@@ -321,23 +380,25 @@ function AppChrome({ children }: { children: ReactNode }) {
         <SidebarContent />
       </aside>
 
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-canvas/95 px-4 backdrop-blur-sm lg:hidden">
-        <Link href="/dashboard" className="focus-ring rounded-md">
-          <BrandMark />
-        </Link>
-        <Button variant="ghost" size="sm" aria-label={t("navigation.menu.open")} aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
-          <MenuIcon size={18} />
-          <span className="max-sm:sr-only">{t("navigation.menu.title")}</span>
-        </Button>
+      <header className="sticky top-0 z-30 border-b border-line bg-canvas/95 pt-safe backdrop-blur-sm lg:hidden">
+        <div className="flex h-14 items-center justify-between gap-3 px-4">
+          <Link href="/dashboard" className="focus-ring rounded-md">
+            <BrandMark />
+          </Link>
+          <InstallAppButton variant="compact" />
+        </div>
       </header>
 
       <Dialog open={menuOpen} onClose={() => setMenuOpen(false)} placement="left" title={t("navigation.menu.title")}>
         <SidebarContent onNavigate={() => setMenuOpen(false)} />
       </Dialog>
 
-      <div id="main-content" tabIndex={-1} className="min-w-0 outline-none">
+      {/* Below lg the fixed tab bar covers the last 4rem (+ home indicator): keep content clear of it. */}
+      <div id="main-content" tabIndex={-1} className="min-w-0 outline-none max-lg:pb-[calc(4rem+env(safe-area-inset-bottom))]">
         {children}
       </div>
+
+      <MobileTabBar menuOpen={menuOpen} onOpenMenu={() => setMenuOpen(true)} />
     </div>
   );
 }
@@ -349,8 +410,8 @@ function PublicChrome({ children }: { children: ReactNode }) {
   const onLanding = pathname === "/";
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="border-b border-line">
+    <div className="flex min-h-dvh flex-col px-safe">
+      <header className="border-b border-line pt-safe">
         <div className="mx-auto flex h-16 w-full max-w-page items-center gap-2 px-4 sm:gap-4 sm:px-6 lg:px-10">
           <Link href="/" className="focus-ring mr-auto rounded-md">
             <BrandMark />
@@ -400,8 +461,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const chrome = resolveChrome(pathname);
 
   if (chrome === "none") {
+    // Live screens (/present, /j, /q) paint edge to edge and pad for the safe areas themselves
+    // (LiveThemeRoot); the runner keeps its content clear of notches here.
     return (
-      <div id="main-content" tabIndex={-1} className="outline-none">
+      <div id="main-content" tabIndex={-1} className={cn("outline-none", !isLivePath(pathname) && "px-safe")}>
         {children}
       </div>
     );

@@ -234,6 +234,25 @@ export const ExternalIcon = (p: IconProps) => (
     <path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v3.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5h3.5" />
   </svg>
 );
+/** Install app (download into the device). */
+export const DownloadIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M8 2.5v7.5M4.8 7L8 10.2 11.2 7M2.5 11v1.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V11" />
+  </svg>
+);
+/** The iOS / Safari share glyph (box with an arrow up), used in "Add to Home Screen" steps. */
+export const ShareIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M8 1.8v8M5.3 4.3L8 1.8l2.7 2.5M5.5 6.5H4a1 1 0 0 0-1 1v5.5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7.5a1 1 0 0 0-1-1h-1.5" />
+  </svg>
+);
+/** "Add" inside a rounded square (iOS "Add to Home Screen" row). */
+export const PlusSquareIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" />
+    <path d="M8 5.5v5M5.5 8h5" />
+  </svg>
+);
 export const SpinnerIcon = ({ className, ...p }: IconProps) => (
   <svg {...base(p)} className={`animate-spin ${className ?? ""}`}>
     <path d="M8 2a6 6 0 1 0 6 6" />

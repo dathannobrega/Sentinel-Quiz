@@ -3,6 +3,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { THEME_STORAGE_KEY } from "@/lib/theme/boot";
+import { syncThemeColor } from "@/lib/theme/theme-color";
 
 export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
@@ -31,6 +32,7 @@ function resolve(preference: ThemePreference): ResolvedTheme {
 
 function apply(preference: ThemePreference) {
   document.documentElement.dataset.theme = resolve(preference);
+  syncThemeColor();
 }
 
 function subscribe(onChange: () => void) {
