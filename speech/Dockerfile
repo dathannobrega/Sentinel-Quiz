@@ -26,6 +26,8 @@ RUN uv venv /opt/venv --python 3.12 \
  && uv pip install --python /opt/venv/bin/python \
       fastapi "uvicorn[standard]" pydantic pydantic-settings python-multipart numpy soundfile rapidfuzz httpx \
       "kokoro>=0.9.4" "faster-whisper>=1.2" \
+      "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
+ && /opt/venv/bin/python -c "import en_core_web_sm, misaki.en" \
  && find /opt/venv -name "*.pyc" -path "*/tests/*" -delete \
  && find /opt/venv -type d -name "tests" -prune -exec rm -rf {} + 2>/dev/null || true
 
@@ -51,8 +53,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
     HF_HUB_DISABLE_TELEMETRY=1 \
     SPEECH_HOST=0.0.0.0 \
     SPEECH_PORT=8100 \
-    SPEECH_CACHE_DIR=/var/cache/speech \
-    OMP_NUM_THREADS=4
+    SPEECH_CACHE_DIR=/var/cache/speech
 
 USER speech
 WORKDIR /home/speech

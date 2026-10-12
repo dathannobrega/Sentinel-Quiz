@@ -28,14 +28,21 @@ _LANG_CODES = {"en-us": "a", "en-gb": "b"}
 class KokoroTTS(LazyLoader):
     name = "kokoro"
 
-    def __init__(self, model: str, default_voice: str) -> None:
+    def __init__(self, model: str, default_voice: str, torch_threads: int = 0) -> None:
         self.model = model
         self.default_voice = default_voice
+        self.torch_threads = torch_threads
         self._pipelines: dict[str, Any] = {}
         self._pipeline_lock = threading.Lock()
         self._init_loader()
 
     def _do_load(self) -> None:
+        if self.torch_threads > 0:
+            import torch
+
+            # Big servers (e.g. 16-core Xeons) get faster synthesis with more threads; the
+            # default keeps a laptop responsive.
+            torch.set_num_threads(self.torch_threads)
         pipeline = self._pipeline("a")
         # Loading the default voice up front makes the first request fast and surfaces
         # a missing voice file during startup instead of under a user's click.

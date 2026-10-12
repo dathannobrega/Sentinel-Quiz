@@ -74,6 +74,7 @@ A API local aponta `SPEECH_SERVICE_URL=http://127.0.0.1:8100`.
 | `SPEECH_TTS_DEFAULT_VOICE` / `SPEECH_TTS_VOICES` | `af_heart` / `af_heart,af_bella,af_nicole,am_michael,am_adam,bf_emma,bm_george` | vozes oferecidas (ids desconhecidos → 400 `voice_invalid`) |
 | `SPEECH_ASR_ENGINE` / `SPEECH_ASR_MODEL` | `faster-whisper` / `small.en` | `faster-whisper\|mlx-whisper\|fake\|none` |
 | `SPEECH_ASR_COMPUTE_TYPE` / `SPEECH_ASR_THREADS` | `int8` / `4` | CTranslate2 |
+| `SPEECH_TORCH_THREADS` | `4` | threads do torch (Kokoro); `0` = todos os núcleos. Num servidor de 16 núcleos (ex.: Xeon E5-2682 v4) use 8 aqui e em `SPEECH_ASR_THREADS` |
 | `SPEECH_AUDIO_FORMAT` | `mp3` | `mp3` (ffmpeg, 64 kb/s mono) ou `wav`; sem ffmpeg cai para `wav` |
 | `SPEECH_CACHE_DIR` / `SPEECH_CACHE_MAX_MB` | `/var/cache/speech` / `2048` | cache do áudio sintetizado (`0` = sem limite) |
 | `SPEECH_MAX_AUDIO_BYTES` / `SPEECH_MAX_TEXT_CHARS` | `8000000` / `2000` | limites |

@@ -230,6 +230,8 @@ services:
       SPEECH_ASR_MODEL: ${APP_SPEECH_ASR_MODEL:-small.en}
       SPEECH_ASR_COMPUTE_TYPE: ${APP_SPEECH_ASR_COMPUTE_TYPE:-int8}
       SPEECH_ASR_THREADS: ${APP_SPEECH_ASR_THREADS:-4}
+      # Torch threads for Kokoro TTS (0 = all cores). Raise both on big CPUs (e.g. 8 on a 16-core Xeon).
+      SPEECH_TORCH_THREADS: ${APP_SPEECH_TORCH_THREADS:-4}
       SPEECH_AUDIO_FORMAT: ${APP_SPEECH_AUDIO_FORMAT:-mp3}
       SPEECH_CACHE_DIR: /var/cache/speech
       SPEECH_CACHE_MAX_MB: ${APP_SPEECH_CACHE_MAX_MB:-2048}

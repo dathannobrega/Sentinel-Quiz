@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     asr_model: str = Field(default="small.en", alias="SPEECH_ASR_MODEL")
     asr_compute_type: str = Field(default="int8", alias="SPEECH_ASR_COMPUTE_TYPE")
     asr_threads: int = Field(default=4, alias="SPEECH_ASR_THREADS")
+    # Intra-op threads for torch (Kokoro TTS). 0 = leave torch's default (all cores).
+    torch_threads: int = Field(default=4, alias="SPEECH_TORCH_THREADS")
 
     audio_format: str = Field(default="mp3", alias="SPEECH_AUDIO_FORMAT")  # mp3|wav
 

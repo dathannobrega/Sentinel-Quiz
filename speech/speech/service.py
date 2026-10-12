@@ -58,7 +58,7 @@ def build_tts_engine(settings: Settings) -> TTSEngine:
     if engine == "kokoro":
         from .engines.kokoro_tts import KokoroTTS
 
-        return KokoroTTS(settings.tts_model, settings.tts_default_voice)
+        return KokoroTTS(settings.tts_model, settings.tts_default_voice, settings.torch_threads)
     if engine == "fake":
         return FakeTTS(settings.tts_model)
     if engine == "none":
