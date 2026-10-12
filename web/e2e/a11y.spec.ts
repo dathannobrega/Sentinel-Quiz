@@ -4,6 +4,9 @@ import { t } from "./i18n";
 test.describe("a11y smoke (axe: fail on serious/critical)", () => {
   test("landing", async ({ page }) => {
     await page.goto("/");
+    // On a cold server the route's loading skeleton (<main aria-busy>) can still be on screen
+    // next to the streamed page; audit the page only after it is gone.
+    await expect(page.locator('main[aria-busy="true"]')).toHaveCount(0);
     await expect(page.locator("main")).toBeVisible();
     await expectNoSeriousA11yViolations(page, "landing");
   });
