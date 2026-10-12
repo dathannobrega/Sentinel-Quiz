@@ -1,7 +1,7 @@
 # Sentinel Reader: plano da feature de estudo de livros por voz (ouvir, ler junto e shadowing)
 
 > **Nome de trabalho:** Estudo de Livros. **Nome de produto proposto:** **Sentinel Reader** (na UI, "Leitura"). O código usa o namespace técnico `reading` e o serviço `speech`.
-> **Status:** plano aprovado para execução, **Incrementos 1 e 2 implementados** (ver [INCREMENTO-1](./INCREMENTO-1.md), [INCREMENTO-2](./INCREMENTO-2.md) e os contratos [1](./CONTRATO-INCREMENTO-1.md) e [2](./CONTRATO-INCREMENTO-2.md)). **Data de referência:** 12/10/2026. **Idioma:** pt-BR.
+> **Status:** plano aprovado para execução, **Incrementos 1, 2 e 3 implementados** (ver [INCREMENTO-1](./INCREMENTO-1.md), [INCREMENTO-2](./INCREMENTO-2.md), [INCREMENTO-3](./INCREMENTO-3.md) e os contratos [1](./CONTRATO-INCREMENTO-1.md), [2](./CONTRATO-INCREMENTO-2.md) e [3](./CONTRATO-INCREMENTO-3.md)). **Data de referência:** 12/10/2026. **Idioma:** pt-BR.
 > **Base:** os livros já convertidos em JSON (`material/json`, 7 títulos, ~4 milhões de palavras), o corpus normalizado (`backend/app/services/material_corpus.py`), o leitor de seções existente (`/theory?section=`) e a análise de modelos abertos de voz abaixo.
 > **Convenções:** **[a verificar]** fato não confirmado em fonte primária; **[estimativa]** número de projeto a validar em medição; **[decisão]** escolha deste plano; **[hipótese]** afirmação de produto ainda sem medição.
 
@@ -237,7 +237,7 @@ Levantamento de práticas (não de código) para fixar a barra. Fatos de produto
 
 | ID | Requisito | Alvo |
 |---|---|---|
-| RNF-R01 | Primeiro áudio de um bloco (90 palavras, cache frio, CPU 4 threads) | p95 < 5 s (medido no M1 Pro: 0,135 s por segundo de áudio, ~4,5 s para 90 palavras); cache quente < 300 ms (medido: 9 ms) |
+| RNF-R01 | Primeira frase de um bloco (cache frio) | p95 < 3 s no M1 Pro e < 6 s numa VM de 4 vCPUs **[estimativa]** (Inc. 3: síntese frase a frase; o parágrafo inteiro levava 4,5 s no M1 Pro); cache quente < 300 ms |
 | RNF-R02 | Avaliação de gravação de 30 s (`small.en` int8, CPU 4 threads) | p95 < 8 s (medido no M1 Pro: 0,12 s por segundo de áudio, ~3,6 s para 30 s); MLX no Mac < 3 s **[estimativa]** |
 | RNF-R03 | RAM do serviço de voz em regime | 2,3 GB medidos (pico 2,9 GB); limite 4 GB |
 | RNF-R04 | Disponibilidade: a API nunca falha por causa do speech | degradação por capacidades; timeouts 60 s; 503/504 com código |
@@ -350,7 +350,8 @@ Whisper pode aceitar pronúncia ruim como certa (falso `ok`) e, em silêncio, in
 |---|---|---|
 | **1 (feito)** | Biblioteca, read-along com Kokoro, fallback do navegador, shadowing por palavra, progresso/stats, serviço `speech`, compose/CI, docs | testes verdes nas três camadas; smoke real no Mac; `docker compose up` com `speech` |
 | **2 (feito: itens 2, 3 e 4 do roadmap original)** | GOP por fonema (wav2vec2), prosódia básica, drill por frase, SRS de palavras (pronúncia e vocabulário), glossário com tradução pt-BR (cache), perguntas de compreensão por IA, "Seus dados", capítulos offline no PWA, MediaSession, timer de sono, métricas Prometheus do `speech`, testes do `speech` no CI, E2E, ferramenta de calibração (sintética) | ver [CONTRATO-INCREMENTO-2](./CONTRATO-INCREMENTO-2.md) e [INCREMENTO-2](./INCREMENTO-2.md) |
-| **3** | Calibração com gravações reais de alunos (precisão/recall por status), painel do Reader no `/admin`, dicionário offline, perguntas abertas, Background Fetch | precisão/recall medidos com gravações humanas; latência p95 dentro do alvo |
+| **3 (feito)** | Áudio frase a frase (primeira frase em segundos), antecipação do próximo parágrafo e da próxima seção, aquecimento em segundo plano com prioridade baixa, threads/concorrência automáticas pelo cgroup, fonemas em paralelo com o Whisper, velocidades 0,5× e 0,6×, idioma do livro, modo "ouvir e repetir" com parada por silêncio | ver [CONTRATO-INCREMENTO-3](./CONTRATO-INCREMENTO-3.md) e [INCREMENTO-3](./INCREMENTO-3.md) |
+| **4** | Calibração com gravações reais de alunos (opt-in para guardar gravações, precisão/recall por status), painel do Reader no `/admin`, feedback em tempo real durante a leitura (ASR em streaming, só com CPU sobrando), dicionário offline, Background Fetch | precisão/recall medidos com gravações humanas |
 | **5** | Narração expressiva (Chatterbox) opcional, vozes pt-BR (Kokoro `p*`) para materiais em português, tarefas de leitura para turmas (Arena) | um instrutor atribui um trecho e vê o painel da turma |
 
 ## 15. Riscos e mitigações
