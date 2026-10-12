@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ChallengeGame } from "@/features/quiz-challenge/components/challenge-game";
 import { attemptState, question } from "@/features/quiz-challenge/lib/test-fixtures";
@@ -63,6 +63,21 @@ function Wrapper({ children }: { children: ReactNode }) {
 
 function show(info: LiveChallengeInfo = INFO) {
   return render(<ChallengeGame slug="SLUG0001" info={info} credentials={CREDENTIALS} onTokenLost={vi.fn()} onLeave={vi.fn()} />, { wrapper: Wrapper });
+}
+
+/**
+ * Clicks a button once the first render has settled. On a loaded CI runner the node found by
+ * `findByRole` can be replaced right after (clock sync, enter transition) and a click on the
+ * detached node is silently lost, which made these tests flaky.
+ */
+async function clickSettled(name: string) {
+  await screen.findByRole("button", { name });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }));
+  });
 }
 
 const SUMMARY: LiveAttemptSummary = {
@@ -127,10 +142,8 @@ describe("ChallengeGame", () => {
       }
     });
     show();
-    const option = await screen.findByRole("button", { name: "B: B" });
-    await act(async () => {
-      fireEvent.click(option);
-    });
+    await clickSettled("B: B");
+    await waitFor(() => expect(mocked.submitChallengeAnswer).toHaveBeenCalled());
     expect(mocked.submitChallengeAnswer.mock.calls[0]?.[3]).toMatchObject({ qi: 4, choice: ["o_4b"] });
     expect(await screen.findByText("Não foi dessa vez")).toBeTruthy();
     expect(screen.getByText("Treinamento reduz o risco.")).toBeTruthy();
@@ -150,10 +163,8 @@ describe("ChallengeGame", () => {
     mocked.getCurrentAttempt.mockResolvedValue(attemptState());
     mocked.submitChallengeAnswer.mockResolvedValue({ status: "late", state: attemptState({ index: 1, item: question(5) }) });
     show();
-    const option = await screen.findByRole("button", { name: "A: A" });
-    await act(async () => {
-      fireEvent.click(option);
-    });
+    await clickSettled("A: A");
+    await waitFor(() => expect(mocked.submitChallengeAnswer).toHaveBeenCalled());
     expect(await screen.findByText("Pergunta 5")).toBeTruthy();
     expect(screen.getAllByText("Tempo esgotado").length).toBeGreaterThan(0);
   });

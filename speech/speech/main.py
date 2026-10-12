@@ -29,7 +29,7 @@ def create_app(settings: Settings | None = None, service: SpeechService | None =
             svc.preload()
         yield
 
-    app = FastAPI(title="Sentinel Speech", version="0.2.0", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(title="Sentinel Speech", version="1.0.0", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.settings = settings
     app.state.service = svc
     register_exception_handlers(app)

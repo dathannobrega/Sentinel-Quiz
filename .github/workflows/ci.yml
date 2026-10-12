@@ -69,8 +69,12 @@ jobs:
           python -m pip install -r backend/requirements-dev.txt
 
       - name: Check requirements.lock is in sync with requirements.txt
+        # Seeded with the committed lock: pip-compile keeps every pin that still satisfies
+        # requirements.txt, so this fails only when requirements.txt changed without
+        # regenerating the lock, not whenever PyPI publishes a newer transitive dependency.
         run: |
           python -m pip install pip-tools
+          cp backend/requirements.lock /tmp/requirements.lock
           pip-compile --quiet --allow-unsafe --generate-hashes --strip-extras \
             --output-file=/tmp/requirements.lock backend/requirements.txt
           diff <(grep -v '^#' backend/requirements.lock) <(grep -v '^#' /tmp/requirements.lock)
