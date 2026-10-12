@@ -65,7 +65,8 @@ server {
   # Keep the values in sync with web/next.config.mjs.
   add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-  # The API only accepts small JSON bodies (no uploads).
+  # The API only accepts small JSON bodies; the one upload (Sentinel Reader recordings)
+  # has its own limit in the /api/reading/ location below.
   client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
 
   proxy_http_version 1.1;
@@ -118,6 +119,17 @@ server {
   # Prometheus metrics are scraped inside the Docker network, never through nginx.
   location = /api/live/metrics {
     return 404;
+  }
+
+  # Sentinel Reader: a recorded paragraph (<= 8 MB) goes up and is scored by the speech
+  # service, which can take several seconds on CPU.
+  location /api/reading/ {
+    include /etc/nginx/snippets/api-security-headers.conf;
+    proxy_pass http://${NGINX_API_HOST}:${NGINX_API_PORT};
+    client_max_body_size 10m;
+    proxy_request_buffering off;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
   }
 
   location /api/ {

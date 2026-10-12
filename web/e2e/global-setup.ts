@@ -10,6 +10,8 @@ const WEB_DIR = path.resolve(__dirname, "..");
 const REPO_DIR = path.resolve(WEB_DIR, "..");
 const BACKEND_DIR = path.join(REPO_DIR, "backend");
 const FIXTURE_QUESTIONS_DIR = path.join(__dirname, "fixtures", "questions");
+/** Synthetic, non-licensed book for the Reading E2E (json/<slug>/manifest.json + chapters). */
+const FIXTURE_MATERIAL_DIR = path.join(__dirname, "fixtures", "material");
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -98,7 +100,14 @@ export default async function globalSetup() {
     INGEST_ON_STARTUP: "true",
     EXPOSE_API_DOCS: "true",
     QUESTION_JSON_DIR: FIXTURE_QUESTIONS_DIR,
-    MATERIAL_DIR: path.join(REPO_DIR, "material"),
+    MATERIAL_DIR: FIXTURE_MATERIAL_DIR,
+    // The study-track sources (non-licensed, in the repo) still come from material/.
+    STUDY_TRACK_DIR: path.join(REPO_DIR, "material"),
+    // Reading (Sentinel Reader): in-process fake speech service and fake AI provider.
+    READING_ENABLED: "true",
+    SPEECH_PROVIDER: "fake",
+    SPEECH_SERVICE_URL: "",
+    AI_PROVIDER: "fake",
     CORS_ORIGINS: webUrl,
     PUBLIC_WEB_ORIGIN: webUrl,
     // http://127.0.0.1: the session cookie cannot be Secure (only honoured outside production).

@@ -112,6 +112,41 @@ jobs:
       - name: Validate compose stacks (portainer == base + prod)
         run: scripts/check_compose.sh
 
+  speech-tests:
+    name: speech-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: speech
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: speech/uv.lock
+
+      - name: System packages (espeak-ng, ffmpeg)
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends espeak-ng ffmpeg
+
+      - name: Install dependencies (CPU-only torch)
+        # uv sync would pull the CUDA torch wheels (~3 GB of nvidia-*). Export the locked
+        # versions, drop the CUDA packages and let uv take torch from the CPU index.
+        run: |
+          uv venv --python 3.12
+          uv export --frozen --no-hashes --no-emit-project --group dev | grep -v -E '^(nvidia-|triton)' > /tmp/speech-req.txt
+          uv pip install --torch-backend cpu -r /tmp/speech-req.txt
+          uv pip install --no-deps -e .
+
+      - name: Tests (fake engines, no model downloads)
+        run: uv run --no-sync pytest -q
+
   web-checks:
     name: web-checks
     runs-on: ubuntu-latest
@@ -224,6 +259,9 @@ jobs:
           - image: proxy
             context: ./docker/nginx
             file: ./docker/nginx/Dockerfile
+          - image: speech
+            context: ./speech
+            file: ./speech/Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -261,6 +299,7 @@ jobs:
     needs:
       - backend-tests
       - content-validate
+      - speech-tests
       - web-checks
       - image-scan
     runs-on: ubuntu-latest
@@ -284,6 +323,10 @@ jobs:
             suffix: "-proxy"
             context: ./docker/nginx
             file: ./docker/nginx/Dockerfile
+          - image: speech
+            suffix: "-speech"
+            context: ./speech
+            file: ./speech/Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -41,6 +41,11 @@ LIVE_CASE_REASONS = ("offensive", "spam", "cheating", "copyright", "privacy", "o
 # AI authoring (0020).
 AI_JOB_KINDS = ("generate", "from_source", "improve")
 AI_JOB_STATUSES = ("queued", "running", "succeeded", "failed", "degraded")
+# Sentinel Reader (0026): how the learner was using a book when the position was saved.
+READING_MODES = ("listen", "read", "shadow")
+# Sentinel Reader practice (0027): spaced-repetition cards and where they came from.
+READING_WORD_KINDS = ("pronunciation", "vocabulary")
+READING_WORD_SOURCES = ("assessment", "glossary", "manual")
 # Why a question projection was deactivated (soft delete).
 QUESTION_DEACTIVATED_DELETED = "deleted"
 QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE = "removed_from_source"
@@ -1581,4 +1586,179 @@ class LiveAuditEvent(Base):
     __table_args__ = (
         Index("ix_live_audit_event_session", "session_id", "created_at"),
         Index("ix_live_audit_event_created", "created_at"),
+    )
+
+
+class ReadingProgress(Base):
+    """Where a learner stopped in a book (Sentinel Reader, 0026): one row per user and book.
+
+    ``words_read`` / ``seconds_listened`` are running totals (the client sends increments).
+    """
+
+    __tablename__ = "reading_progress"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    book_slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    section_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    part_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    block_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="listen")
+    words_read: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    seconds_listened: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "book_slug", name="uq_reading_progress_user_book"),
+        CheckConstraint(_sql_in("mode", READING_MODES), name="ck_reading_progress_mode"),
+    )
+
+
+class ReadingAttempt(Base):
+    """One shadowing attempt (a recorded paragraph scored by the speech service).
+
+    Only the result is kept (per-word statuses, scores, transcript); the recording itself is
+    never persisted (contract §3).
+    """
+
+    __tablename__ = "reading_attempt"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    book_slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    section_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    part_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    block_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    reference_words: Mapped[int] = mapped_column(Integer, nullable=False)
+    accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    completeness: Mapped[float] = mapped_column(Float, nullable=False)
+    fluency: Mapped[float] = mapped_column(Float, nullable=False)
+    overall: Mapped[float] = mapped_column(Float, nullable=False)
+    wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    engine: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # Drill (0027): the sentence of the block that was read; NULL = the whole paragraph.
+    sentence_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_reading_attempt_user_created", "user_id", "created_at"),
+        Index("ix_reading_attempt_section", "user_id", "section_id"),
+    )
+
+
+class ReadingWord(Base):
+    """A spaced-repetition card of the learner (docs/reading/CONTRATO-INCREMENTO-2.md §3.2).
+
+    ``pronunciation`` cards come from assessments (or are added by hand) and are reviewed by
+    recording the word; ``vocabulary`` cards are reviewed by meaning. ``display`` is always
+    copied from the corpus (or the assessed reference), never from client input.
+    """
+
+    __tablename__ = "reading_word"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    word_norm: Mapped[str] = mapped_column(String(64), nullable=False)
+    display: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    ipa: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    meaning_pt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    section_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    part_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    block_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reps: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lapses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ease: Mapped[float] = mapped_column(Float, nullable=False, default=2.5)
+    interval_days: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    due_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    last_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "word_norm", "kind", name="uq_reading_word_user_word_kind"),
+        Index("ix_reading_word_user_due", "user_id", "due_at"),
+        CheckConstraint(_sql_in("kind", READING_WORD_KINDS), name="ck_reading_word_kind"),
+        CheckConstraint(_sql_in("source", READING_WORD_SOURCES), name="ck_reading_word_source"),
+    )
+
+
+class ReadingGlossaryEntry(Base):
+    """AI glossary answer cached per word and context sentence (shared by every user).
+
+    The key is the normalized word plus a hash of the normalized sentence, so the same word in
+    another sentence gets its own contextual explanation.
+    """
+
+    __tablename__ = "reading_glossary_entry"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    word_norm: Mapped[str] = mapped_column(String(64), nullable=False)
+    context_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("word_norm", "context_hash", name="uq_reading_glossary_entry_word_context"),
+    )
+
+
+class ReadingSectionQuiz(Base):
+    """Comprehension questions of a section, generated once and shared (answer key included)."""
+
+    __tablename__ = "reading_section_quiz"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    section_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    questions_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("section_id", name="uq_reading_section_quiz_section_id"),
+    )
+
+
+class ReadingQuizAnswer(Base):
+    """The learner's answer to one comprehension question (the latest one per question counts)."""
+
+    __tablename__ = "reading_quiz_answer"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    quiz_id: Mapped[str] = mapped_column(String(36), ForeignKey("reading_section_quiz.id", ondelete="CASCADE"), nullable=False)
+    question_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    choice: Mapped[str] = mapped_column(String(1), nullable=False)
+    correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "quiz_id", "question_index", name="uq_reading_quiz_answer_user_quiz_question"),
+    )
+
+
+class ReadingAiCall(Base):
+    """Usage ledger of the reader's metered upstream calls, one row per call (no content).
+
+    ``kind``: ``glossary`` / ``quiz`` (count toward READING_AI_DAILY_QUOTA) and ``word_review``
+    (a word recording, counted toward READING_DAILY_ASSESS_QUOTA with the attempts).
+    """
+
+    __tablename__ = "reading_ai_call"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_reading_ai_call_user_created", "user_id", "created_at"),
     )

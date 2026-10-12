@@ -172,6 +172,30 @@ def split_paragraphs(text: str, target_words: int = PARAGRAPH_TARGET_WORDS) -> l
     return paragraphs
 
 
+def sentence_spans(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` offsets of each sentence of ``text`` (Sentinel Reader drill and context).
+
+    Same boundaries as :func:`split_paragraphs` (``_SENTENCE_BREAK``), so a block of the reader
+    always splits into whole sentences; offsets index ``text`` and exclude surrounding spaces.
+    """
+    text = text or ""
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+    for match in [*_SENTENCE_BREAK.finditer(text), None]:
+        end = match.start() if match is not None else len(text)
+        start = cursor
+        while start < end and text[start].isspace():
+            start += 1
+        stop = end
+        while stop > start and text[stop - 1].isspace():
+            stop -= 1
+        if stop > start:
+            spans.append((start, stop))
+        if match is not None:
+            cursor = match.end()
+    return spans
+
+
 def _is_sidebar(title: str) -> bool:
     """Boxes emitted as headings: "Note", "Exam Tip"... and For Dummies' ALL-CAPS box titles
     ("KEY ESCROW AND KEY RECOVERY"). Chapter openers are never sidebars (index 0 is excluded)."""

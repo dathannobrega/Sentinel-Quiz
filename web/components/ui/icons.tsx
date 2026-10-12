@@ -253,6 +253,64 @@ export const PlusSquareIcon = (p: IconProps) => (
     <path d="M8 5.5v5M5.5 8h5" />
   </svg>
 );
+/** Reader: listen mode. */
+export const HeadphonesIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.5 9.5V8a5.5 5.5 0 0 1 11 0v1.5" />
+    <path d="M2.5 9.5h2a.8.8 0 0 1 .8.8v2.4a.8.8 0 0 1-.8.8h-1.2a.8.8 0 0 1-.8-.8zM13.5 9.5h-2a.8.8 0 0 0-.8.8v2.4a.8.8 0 0 0 .8.8h1.2a.8.8 0 0 0 .8-.8z" />
+  </svg>
+);
+/** Reader: record (shadowing). */
+export const MicIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="5.8" y="1.8" width="4.4" height="7.4" rx="2.2" />
+    <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.2M5.8 14.2h4.4" />
+  </svg>
+);
+/** Reader: microphone unavailable or permission denied. */
+export const MicOffIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M5.8 5.5V4a2.2 2.2 0 0 1 4.4 0v3.2M9.6 9.3A2.2 2.2 0 0 1 5.8 7.7V7" />
+    <path d="M3.5 7.5a4.5 4.5 0 0 0 7.7 3.2M12.5 7.5c0 .6-.1 1.2-.4 1.7M8 12v2.2M5.8 14.2h4.4M2.5 2.5l11 11" />
+  </svg>
+);
+/** Reader: stop recording / playback. */
+export const StopIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3.8" y="3.8" width="8.4" height="8.4" rx="1.2" />
+  </svg>
+);
+/** Reader: previous block. */
+export const SkipBackIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 3.5v9M12.5 3.5L6 8l6.5 4.5z" />
+  </svg>
+);
+/** Reader: next block. */
+export const SkipForwardIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M12 3.5v9M3.5 3.5L10 8l-6.5 4.5z" />
+  </svg>
+);
+/** Reader: voice picker. */
+export const VolumeIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.5 6h2.3L8 3.5v9L4.8 10H2.5zM10.6 5.6a3.3 3.3 0 0 1 0 4.8M12.4 3.8a5.8 5.8 0 0 1 0 8.4" />
+  </svg>
+);
+/** Reader: audio / "listen to the model" and the assessment legend. */
+export const WaveIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.5 7v2M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3" />
+  </svg>
+);
+/** Reader: playback speed and words per minute. */
+export const GaugeIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.5 11.5a5.5 5.5 0 1 1 11 0" />
+    <path d="M8 11.5l2.6-3.6M8 11.5h.1" />
+  </svg>
+);
 export const SpinnerIcon = ({ className, ...p }: IconProps) => (
   <svg {...base(p)} className={`animate-spin ${className ?? ""}`}>
     <path d="M8 2a6 6 0 1 0 6 6" />

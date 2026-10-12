@@ -39,6 +39,10 @@ services:
       # point APP_LOCAL_QUESTIONS_HOST_DIR to a host folder or fill "local_questions".
       - ${APP_LOCAL_QUESTIONS_HOST_DIR:-local_questions}:/questions/local:ro
 
+  speech:
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-speech:${APP_IMAGE_TAG:-latest}
+    pull_policy: missing
+
   web:
     image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-web:${APP_IMAGE_TAG:-latest}
     pull_policy: missing

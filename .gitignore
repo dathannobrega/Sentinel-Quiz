@@ -47,3 +47,6 @@ questions/local/
 
 # graphify knowledge-graph output
 graphify-out/
+
+# Sentinel Reader speech service: local model/audio cache (uv run speech-server)
+speech/.cache/

@@ -8,6 +8,7 @@ import { InstallAppButton } from "@/components/navigation/install-app";
 import { buttonClassName } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import {
+  BookIcon,
   HomeIcon,
   ListIcon,
   LogOutIcon,
@@ -153,6 +154,7 @@ function useNavItems(): { study: NavItem[]; manage: NavItem[] } {
         { href: "/dashboard", label: t("common.labels.dashboard"), icon: HomeIcon },
         { href: "/start", label: t("common.actions.newSession"), icon: PlayCircleIcon },
         { href: "/review", label: t("common.labels.review"), icon: RepeatIcon },
+        { href: "/read", label: t("common.labels.reading"), icon: BookIcon },
         { href: "/history", label: t("common.labels.history"), icon: ListIcon },
         { href: "/quizzes", label: t("quizBuilder.library.title"), icon: MonitorIcon }
       ],

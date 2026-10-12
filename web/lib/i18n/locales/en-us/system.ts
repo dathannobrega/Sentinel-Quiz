@@ -46,6 +46,7 @@ export const system = {
     forgotPassword: "Recover password",
     resetPassword: "Reset password",
     verifyEmail: "Verify email",
+    read: "Reading",
     theory: "Theory review",
     exam: "Exam",
     study: "Study session",

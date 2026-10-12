@@ -38,8 +38,8 @@ function isAdminGuardEnabled(request: NextRequest, apiOrigin: string): boolean {
   }
 }
 
-/** Authenticated-only areas: /admin and the Sentinel Arena authoring/reports (/quizzes). */
-const GUARDED_PREFIXES = ["/admin", "/quizzes", "/present"];
+/** Authenticated-only areas: /admin, the Sentinel Arena authoring/reports (/quizzes) and the reader (/read). */
+const GUARDED_PREFIXES = ["/admin", "/quizzes", "/present", "/read"];
 
 function isGuardedPath(pathname: string): boolean {
   return GUARDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

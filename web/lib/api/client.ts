@@ -306,6 +306,20 @@ export function saveBlobAsFile(blob: Blob, filename: string): void {
   globalThis.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
+/**
+ * Fire-and-forget JSON request that survives page unload (`keepalive`), for last-moment saves on
+ * `pagehide`. Same URL, auth headers and credentials as apiClient; the response is not read.
+ */
+export function sendKeepaliveJson(path: string, method: "POST" | "PUT", body: unknown): void {
+  if (typeof fetch !== "function") {
+    return;
+  }
+  const { headers, body: encoded } = buildHeaders({ body });
+  void fetch(buildApiUrl(path), { method, headers, body: encoded, keepalive: true, credentials: "include" }).catch(() => {
+    // Best effort: the page is going away.
+  });
+}
+
 export const apiClient = {
   get<T>(path: string, options?: MethodOptions) {
     return sendRequest<T>(path, { ...options, method: "GET" });

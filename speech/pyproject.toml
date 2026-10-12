@@ -1,0 +1,57 @@
+[project]
+name = "sentinel-speech"
+version = "0.1.0"
+description = "Sentinel Reader speech service: neural TTS with word timestamps and read-aloud assessment (ASR + alignment + phoneme GOP + prosody)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-multipart>=0.0.9",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+    "rapidfuzz>=3.9",
+    "kokoro>=0.9.4",
+    # misaki (Kokoro's G2P) loads this spaCy model and otherwise tries to pip-install it at
+    # runtime, which fails in the container (no installer, read-only venv): ship it pinned.
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "faster-whisper>=1.2",
+    "httpx>=0.27",
+    "transformers>=4.48",
+    "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+# Apple Silicon only: native Metal ASR via mlx-whisper (SPEECH_ASR_ENGINE=mlx-whisper).
+mlx = ["mlx-whisper>=0.4"]
+
+[project.scripts]
+speech-server = "speech.main:run"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+]
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# en-core-web-sm is published only as a GitHub release wheel (direct URL).
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["speech"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.uv]
+# Kokoro pulls torch; on Linux the CPU index keeps the image small (the Dockerfile
+# installs torch first from the CPU index, then the rest). On macOS the default
+# PyPI wheel is already CPU/MPS and has no CUDA payload.
