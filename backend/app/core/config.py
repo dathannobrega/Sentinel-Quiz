@@ -185,6 +185,20 @@ class Settings(BaseSettings):
     ai_job_stale_minutes: int = Field(default=10, alias="AI_JOB_STALE_MINUTES")
     rate_limit_ai_requests: int = Field(default=6, alias="RATE_LIMIT_AI_REQUESTS")
     rate_limit_ai_window_seconds: int = Field(default=60, alias="RATE_LIMIT_AI_WINDOW_SECONDS")
+    # Sentinel Reader (docs/reading/CONTRATO-INCREMENTO-1.md §8): listen / read-along / shadowing
+    # over the licensed books. The speech service (TTS + pronunciation assessment) is optional:
+    # without SPEECH_SERVICE_URL the reader falls back to the browser's speech synthesis and the
+    # shadowing mode stays off.
+    reading_enabled: bool = Field(default=True, alias="READING_ENABLED")
+    speech_service_url: str = Field(default="", alias="SPEECH_SERVICE_URL")
+    speech_api_token: str = Field(default="", alias="SPEECH_API_TOKEN")
+    speech_timeout_seconds: float = Field(default=60.0, alias="SPEECH_TIMEOUT_SECONDS")
+    speech_max_audio_bytes: int = Field(default=8_000_000, alias="SPEECH_MAX_AUDIO_BYTES")
+    # http = real speech service; fake = deterministic in-process stand-in (development/tests only).
+    speech_provider: str = Field(default="http", alias="SPEECH_PROVIDER")
+    reading_daily_assess_quota: int = Field(default=400, alias="READING_DAILY_ASSESS_QUOTA")
+    rate_limit_reading_requests: int = Field(default=60, alias="RATE_LIMIT_READING_REQUESTS")
+    rate_limit_reading_window_seconds: int = Field(default=60, alias="RATE_LIMIT_READING_WINDOW_SECONDS")
     # Live participants (DC-22, RNF-205): a whole auditorium may share one NAT IP, so the
     # public room endpoints are limited per room code and /api/live/me/* per participant
     # token, never per IP. Code guessing is limited per IP by counting invalid codes.
@@ -198,6 +212,12 @@ class Settings(BaseSettings):
     rate_limit_live_ip_window_seconds: int = Field(default=60, alias="RATE_LIMIT_LIVE_IP_WINDOW_SECONDS")
     live_invalid_code_limit: int = Field(default=60, alias="LIVE_INVALID_CODE_LIMIT")
     live_invalid_code_window_seconds: int = Field(default=600, alias="LIVE_INVALID_CODE_WINDOW_SECONDS")
+
+    def normalized_speech_provider(self) -> str:
+        return str(self.speech_provider or "http").strip().lower()
+
+    def speech_base_url(self) -> str:
+        return str(self.speech_service_url or "").strip().rstrip("/")
 
     def effective_ai_model(self) -> str:
         return str(self.ai_authoring_model or self.gemini_model or "").strip()
@@ -296,6 +316,11 @@ class Settings(BaseSettings):
             problems.append("AI_JOB_RUNNER must be one of: thread, worker.")
         if self.ai_authoring_enabled and self.is_production() and provider == "fake":
             problems.append("AI_PROVIDER=fake is for development/tests only.")
+        speech_provider = str(self.speech_provider or "").strip().lower()
+        if speech_provider not in {"http", "fake"}:
+            problems.append("SPEECH_PROVIDER must be one of: http, fake.")
+        if speech_provider == "fake" and self.is_production():
+            problems.append("SPEECH_PROVIDER=fake is for development/tests only.")
         if self.live_enabled and self.is_production():
             from app.services.live_tokens import parse_token_keys  # local: avoids an import cycle
 

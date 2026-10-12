@@ -7,6 +7,7 @@ export const common = {
     history: "History",
     settings: "Settings",
     admin: "Admin",
+    reading: "Reading",
     exam: "Exam",
     study: "Study"
   },

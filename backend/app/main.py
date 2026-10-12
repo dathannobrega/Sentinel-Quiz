@@ -12,6 +12,7 @@ from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.live import router as live_router
 from app.api.live_challenge import router as live_challenge_router
+from app.api.reading import router as reading_router
 from app.api.routes import router as api_router
 from app.api.study import router as study_router
 from app.core.config import Settings, settings
@@ -150,6 +151,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.include_router(live_ws_router)
     app.include_router(live_sse_router)
     app.include_router(ai_router)
+    app.include_router(reading_router)
     # NOTE: the original material files are intentionally NOT served (no StaticFiles
     # mount). Excerpts are only available through the authenticated
     # /api/materials/preview endpoint.

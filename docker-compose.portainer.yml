@@ -198,6 +198,15 @@ services:
       APP_AI_MAX_CONCURRENT_JOBS: ${APP_AI_MAX_CONCURRENT_JOBS:-}
       APP_AI_JOB_RUNNER: ${APP_AI_JOB_RUNNER:-thread}
       APP_RATE_LIMIT_AI_REQUESTS: ${APP_RATE_LIMIT_AI_REQUESTS:-}
+      # --- Sentinel Reader: listen / read-along / shadowing (docs/reading/CONTRATO-INCREMENTO-1.md §8) ---
+      APP_READING_ENABLED: ${APP_READING_ENABLED:-}
+      # Empty = no neural TTS and no pronunciation scoring (browser speech synthesis only).
+      APP_SPEECH_SERVICE_URL: ${APP_SPEECH_SERVICE_URL:-http://speech:8100}
+      APP_SPEECH_API_TOKEN: ${APP_SPEECH_API_TOKEN:-}
+      APP_SPEECH_TIMEOUT_SECONDS: ${APP_SPEECH_TIMEOUT_SECONDS:-}
+      APP_SPEECH_MAX_AUDIO_BYTES: ${APP_SPEECH_MAX_AUDIO_BYTES:-}
+      APP_READING_DAILY_ASSESS_QUOTA: ${APP_READING_DAILY_ASSESS_QUOTA:-}
+      APP_RATE_LIMIT_READING_REQUESTS: ${APP_RATE_LIMIT_READING_REQUESTS:-}
     volumes:
       # The question bank is baked into the image (/questions).
       # Licensed EPUBs are never in the image: point APP_MATERIAL_HOST_DIR to a
@@ -209,11 +218,51 @@ services:
     networks:
       - edge
       - data
+      - speech
     deploy:
       resources:
         limits:
           cpus: "${APP_API_CPUS:-2.0}"
           memory: ${APP_API_MEMORY:-1g}
+    logging: *default-logging
+
+  # Sentinel Reader speech service: neural TTS with word timestamps (Kokoro-82M) and
+  # pronunciation scoring (faster-whisper). CPU only. Reachable only from the API on the
+  # "speech" network; the model weights are downloaded on first start into speech_cache
+  # (the image ships no weights). Optional: without it the reader falls back to the browser
+  # voice and shadowing is off.
+  speech:
+    container_name: ${APP_SPEECH_CONTAINER_NAME:-sentinel-quiz-speech}
+    image: ${APP_IMAGE_REPOSITORY:-ghcr.io/dathannobrega/sentinel-quiz}-speech:${APP_IMAGE_TAG:-latest}
+    pull_policy: missing
+    restart: unless-stopped
+    expose:
+      - "8100"
+    environment:
+      SPEECH_TTS_ENGINE: ${APP_SPEECH_TTS_ENGINE:-kokoro}
+      SPEECH_TTS_MODEL: ${APP_SPEECH_TTS_MODEL:-hexgrad/Kokoro-82M}
+      SPEECH_TTS_DEFAULT_VOICE: ${APP_SPEECH_TTS_DEFAULT_VOICE:-af_heart}
+      SPEECH_ASR_ENGINE: ${APP_SPEECH_ASR_ENGINE:-faster-whisper}
+      SPEECH_ASR_MODEL: ${APP_SPEECH_ASR_MODEL:-small.en}
+      SPEECH_ASR_COMPUTE_TYPE: ${APP_SPEECH_ASR_COMPUTE_TYPE:-int8}
+      SPEECH_ASR_THREADS: ${APP_SPEECH_ASR_THREADS:-4}
+      SPEECH_AUDIO_FORMAT: ${APP_SPEECH_AUDIO_FORMAT:-mp3}
+      SPEECH_CACHE_DIR: /var/cache/speech
+      SPEECH_CACHE_MAX_MB: ${APP_SPEECH_CACHE_MAX_MB:-2048}
+      SPEECH_MAX_AUDIO_BYTES: ${APP_SPEECH_MAX_AUDIO_BYTES:-8000000}
+      SPEECH_MAX_CONCURRENCY: ${APP_SPEECH_MAX_CONCURRENCY:-2}
+      SPEECH_PRELOAD: ${APP_SPEECH_PRELOAD:-true}
+      SPEECH_API_TOKEN: ${APP_SPEECH_API_TOKEN:-}
+      HF_HOME: /var/cache/speech/hf
+    volumes:
+      - speech_cache:/var/cache/speech
+    networks:
+      - speech
+    deploy:
+      resources:
+        limits:
+          cpus: "${APP_SPEECH_CPUS:-4.0}"
+          memory: ${APP_SPEECH_MEMORY:-4g}
     logging: *default-logging
 
   web:
@@ -298,9 +347,13 @@ networks:
   # api <-> postgres/redis. Internal: no host access, no egress.
   data:
     internal: true
+  # api <-> speech. Not internal: the speech container downloads its model weights
+  # (Hugging Face) on first start.
+  speech:
 
 volumes:
   postgres18_data:
   proxy_certs:
+  speech_cache:
   material_data:
   local_questions:

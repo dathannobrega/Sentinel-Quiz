@@ -14,3 +14,4 @@ export type * from "./admin";
 export type * from "./live";
 export type * from "./live-admin";
 export type * from "./ai";
+export type * from "./reading";

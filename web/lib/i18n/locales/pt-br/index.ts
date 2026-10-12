@@ -25,6 +25,7 @@ import { quizPlay } from "./quiz-play";
 import { quizPresent } from "./quiz-present";
 import { quizAi } from "./quiz-ai";
 import { quizChallenge } from "./quiz-challenge";
+import { reading } from "./reading";
 
 export const ptBRMessages = {
   metadata,
@@ -53,5 +54,6 @@ export const ptBRMessages = {
   quizPlay,
   quizPresent,
   quizAi,
-  quizChallenge
+  quizChallenge,
+  reading
 } as const;

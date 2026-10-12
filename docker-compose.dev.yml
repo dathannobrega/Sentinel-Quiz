@@ -37,6 +37,12 @@ services:
       # Licensed books stay on the host (git-ignored, not in the image).
       - ./material:/app/material:ro
 
+  speech:
+    image: sentinel-quiz-speech:local
+    build:
+      context: ./speech
+      dockerfile: Dockerfile
+
   web:
     image: sentinel-quiz-web:local
     build:

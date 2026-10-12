@@ -38,6 +38,8 @@ export function buildContentSecurityPolicy(nonce: string, apiOrigin: string, isD
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
+    // Reader audio: TTS blobs from URL.createObjectURL and the API's /api/reading/audio stream.
+    `media-src 'self' blob:${apiOrigin ? ` ${apiOrigin}` : ""}`,
     `connect-src ${connectSources}`,
     `frame-src 'self'${apiOrigin ? ` ${apiOrigin}` : ""}`,
     "worker-src 'self' blob:",

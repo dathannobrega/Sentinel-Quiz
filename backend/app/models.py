@@ -41,6 +41,8 @@ LIVE_CASE_REASONS = ("offensive", "spam", "cheating", "copyright", "privacy", "o
 # AI authoring (0020).
 AI_JOB_KINDS = ("generate", "from_source", "improve")
 AI_JOB_STATUSES = ("queued", "running", "succeeded", "failed", "degraded")
+# Sentinel Reader (0026): how the learner was using a book when the position was saved.
+READING_MODES = ("listen", "read", "shadow")
 # Why a question projection was deactivated (soft delete).
 QUESTION_DEACTIVATED_DELETED = "deleted"
 QUESTION_DEACTIVATED_REMOVED_FROM_SOURCE = "removed_from_source"
@@ -1581,4 +1583,63 @@ class LiveAuditEvent(Base):
     __table_args__ = (
         Index("ix_live_audit_event_session", "session_id", "created_at"),
         Index("ix_live_audit_event_created", "created_at"),
+    )
+
+
+class ReadingProgress(Base):
+    """Where a learner stopped in a book (Sentinel Reader, 0026): one row per user and book.
+
+    ``words_read`` / ``seconds_listened`` are running totals (the client sends increments).
+    """
+
+    __tablename__ = "reading_progress"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    book_slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    section_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    part_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    block_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="listen")
+    words_read: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    seconds_listened: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "book_slug", name="uq_reading_progress_user_book"),
+        CheckConstraint(_sql_in("mode", READING_MODES), name="ck_reading_progress_mode"),
+    )
+
+
+class ReadingAttempt(Base):
+    """One shadowing attempt (a recorded paragraph scored by the speech service).
+
+    Only the result is kept (per-word statuses, scores, transcript); the recording itself is
+    never persisted (contract §3).
+    """
+
+    __tablename__ = "reading_attempt"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    book_slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    section_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    part_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    block_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    reference_words: Mapped[int] = mapped_column(Integer, nullable=False)
+    accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    completeness: Mapped[float] = mapped_column(Float, nullable=False)
+    fluency: Mapped[float] = mapped_column(Float, nullable=False)
+    overall: Mapped[float] = mapped_column(Float, nullable=False)
+    wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    engine: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_reading_attempt_user_created", "user_id", "created_at"),
+        Index("ix_reading_attempt_section", "user_id", "section_id"),
     )

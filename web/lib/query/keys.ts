@@ -18,5 +18,14 @@ export const queryKeys = {
   reviewQueue: (params: string) => ["review-queue", params] as const,
   sessionReview: (mode: "exam" | "study", sessionId: string) => ["session-review", mode, sessionId] as const,
   studySection: (sectionId: string) => ["study-section", sectionId] as const,
-  weakSections: (limit: number) => ["weak-sections", limit] as const
+  weakSections: (limit: number) => ["weak-sections", limit] as const,
+  readingCapabilities: ["reading", "capabilities"] as const,
+  readingLibrary: ["reading", "library"] as const,
+  readingChapter: (slug: string, file: string) => ["reading", "chapter", slug, file] as const,
+  readingSection: (sectionId: string) => ["reading", "section", sectionId] as const,
+  readingTts: (sectionId: string, partId: string, blockIndex: number, voice: string, speed: number) =>
+    ["reading", "tts", sectionId, partId, blockIndex, voice, speed] as const,
+  readingAttempts: (sectionId: string) => ["reading", "attempts", sectionId] as const,
+  readingStats: ["reading", "stats"] as const,
+  readingProgress: ["reading", "progress"] as const
 };

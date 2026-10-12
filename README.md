@@ -19,10 +19,12 @@ Aplicação full-stack para simulados de certificações de cibersegurança. O b
 * **Sentinel Arena (quizzes ao vivo):** quizzes interativos no estilo Mentimeter/Kahoot — criação com questões próprias e/ou do Banco (respeitando a licença de cada questão), telão com QR code/PIN, entrada de convidados só com o nome, respostas em tempo real por WebSocket, placar, pódio e relatório com psicometria e CSV. Liga com `LIVE_ENABLED=true` (ligado no stack de dev). Inclui **criação com IA** (Gemini): rascunhos a partir de um tema ou texto, checados por regras, deduplicação e um revisor automático cego, sempre com revisão humana antes de publicar (`AI_AUTHORING_ENABLED=true`). Pronto para 2.000 participantes numa sala (teste de carga em `scripts/live/loadtest.py`), com sala de espera quando a sala lota e aprovação opcional de cada entrada pelo apresentador, com fallback SSE quando o WebSocket é bloqueado, pausa e extensão do tempo, tempo estendido por participante e ensaio com bots. Salas com convidados têm moderação (filtro de termos, revisão na publicação, denúncias e fila no admin), "Meus dados" com exclusão, claim do resultado para a conta, retenção automática (`entrypoint.sh live-cleanup`) e checagem pré-evento. Além das alternativas, V/F, resposta digitada e enquete, há ordenar (inclusive PBQs do Banco), resposta numérica com tolerância e nuvem de palavras. Também há **desafios self-paced**: um link permanente (`/q/{código}`) para cada pessoa responder no próprio ritmo até o prazo, com tentativas, correção configurável, ranking com anti-fraude e painel com funil. Veja [Incremento 1](docs/live-quiz/INCREMENTO-1.md), [Incremento 2](docs/live-quiz/INCREMENTO-2.md), [Incremento 3](docs/live-quiz/INCREMENTO-3.md), [Incremento 4](docs/live-quiz/INCREMENTO-4.md), [Incremento 5](docs/live-quiz/INCREMENTO-5.md), [Incremento 6](docs/live-quiz/INCREMENTO-6.md), [Incremento 7](docs/live-quiz/INCREMENTO-7.md) e o [plano completo](docs/live-quiz/PLANO.md).
 * **Snapshots Editoriais Históricos:** snapshots por `question_version` para acompanhar dificuldade, erro e pressão de revisão ao longo do tempo.
 * **App instalável (PWA) para celular e desktop:** "Instalar app" no Edge/Chrome e "Adicionar à Tela de Início" no Android/iOS, abrindo em tela cheia com ícone próprio; layout com barra de navegação inferior no celular e respeito a notch/indicador de home. Veja [App instalável](#-app-instalável-pwa).
+* **Sentinel Reader (Leitura):** estude os livros de referência **ouvindo e lendo junto** (read-along: voz neural Kokoro-82M por parágrafo, palavra destacada em sincronia, clique para pular, velocidade e voz) e pratique **shadowing com correção de pronúncia**: você grava a leitura de um parágrafo e cada palavra volta marcada (ok, fraca, pronunciada errado com o que o modelo ouviu e o IPA esperado, omitida), com notas de precisão, completude, fluência e WPM. Roda 100% local num serviço de voz separado (`speech/`, CPU, faster-whisper); sem ele o leitor usa a voz do navegador. Progresso por livro, tentativas por parágrafo e estatísticas. Veja o [plano](docs/reading/PLANO.md), o [contrato](docs/reading/CONTRATO-INCREMENTO-1.md) e o [Incremento 1](docs/reading/INCREMENTO-1.md).
 
 ## 🚀 Tecnologias
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy, Alembic, PostgreSQL 16, Redis 7 (rate limit).
+- **Voz (Sentinel Reader):** serviço `speech/` em Python 3.12 com Kokoro-82M (TTS, Apache 2.0) e faster-whisper (ASR, MIT), CPU, sem nuvem.
 - **Frontend:** Next.js (App Router), React, TypeScript — Node 22 LTS.
 - **Infra:** Docker Compose (local) / Portainer (produção), nginx (TLS + headers), GitHub Actions → GHCR.
 - **IA:** Google Gemini API (REST), modelo padrão `gemini-2.5-flash`.
@@ -36,8 +38,10 @@ Aplicação full-stack para simulados de certificações de cibersegurança. O b
 navegador ───────────────► proxy (nginx) ──► web  (Next.js :3000)
                               │   /api/*
                               └────────────► api  (FastAPI/uvicorn :8000) ──► postgres :5432
-                                                                          └─► redis    :6379
+                                                                          ├─► redis    :6379
+                                                                          └─► speech   :8100 (TTS + avaliação de leitura, CPU)
 rede "edge": proxy, web, api          rede "data" (internal, sem egress): api, postgres, redis
+rede "speech": api, speech (o speech baixa os pesos dos modelos no primeiro start)
 ```
 
 Somente o proxy publica portas no host. `web`, `api`, `postgres` e `redis` não são acessíveis de fora; o frontend chama a API na mesma origem (`https://<host>/api`).
@@ -110,6 +114,18 @@ python -m pytest                     # testes (TEST_DATABASE_URL habilita os de 
 
 Sem `APP_ENV` definido o backend assume `production` (fail-closed): exige Redis, cookie `Secure`, senha de banco forte etc. O `.env.example` já define `APP_ENV=development`.
 
+### Serviço de voz (Sentinel Reader, opcional)
+
+```bash
+brew install espeak-ng ffmpeg        # G2P de palavras raras e conversão de áudio
+cd speech
+uv sync                              # Python 3.12; baixa torch CPU, Kokoro e faster-whisper
+uv run speech-server                 # http://127.0.0.1:8100 (os modelos baixam no primeiro start)
+uv run pytest                        # testes (engines fake, sem modelos)
+```
+
+No `backend/.env` aponte `SPEECH_SERVICE_URL=http://127.0.0.1:8100`. Em Apple Silicon, `uv sync --extra mlx` e `SPEECH_ASR_ENGINE=mlx-whisper` aceleram o reconhecimento. Sem o serviço, `/read` continua funcionando com a voz do navegador e o shadowing fica desligado. Detalhes em [speech/README.md](speech/README.md).
+
 ### Frontend (Next.js)
 
 ```bash
@@ -151,11 +167,13 @@ Cada imagem tem seu próprio contexto de build:
 docker build -t sentinel-quiz:local .                        # API (contexto = raiz, allowlist em .dockerignore)
 docker build -t sentinel-quiz-web:local web                  # frontend (contexto = web/)
 docker build -t sentinel-quiz-proxy:local docker/nginx       # proxy nginx
+docker build -t sentinel-quiz-speech:local speech            # serviço de voz (Sentinel Reader)
 ```
 
 - **API:** multi-stage (`builder` com venv → runtime `python:3.12-slim`), usuário não-root `app`, código read-only, healthcheck em `/api/health`. As questões (`questions/`) vão na imagem; os EPUBs **não**. A trilha de estudo também vai na imagem: **somente** `material/Modulos_sec+.md`, `material/cissp_domain.json` e `material/ceh_modules.md` (conteúdo próprio, não licenciado) são liberados na allowlist do `.dockerignore` e copiados para `/app/study-tracks` (`STUDY_TRACK_DIR=/app/study-tracks`; o backend cai para `MATERIAL_DIR` se o diretório não existir). Alterou esses arquivos? Rebuild da imagem.
 - **Web:** `node:22-alpine`, `npm ci` a partir do `package-lock.json` (o build falha sem lockfile), saída `standalone`, usuário não-root.
-- **Proxy:** `nginx:1.30-alpine` com TLS, `server_tokens off`, gzip, `limit_req` em `/api/auth/`. Headers de segurança sem duplicação: HSTS em tudo; nas rotas `/api` o nginx aplica `docker/nginx/api-security-headers.conf` (oculta cópias do upstream); nas páginas do Next.js os headers e a CSP vêm do próprio app (`web/next.config.mjs` + `web/middleware.ts`).
+- **Proxy:** `nginx:1.30-alpine` com TLS, `server_tokens off`, gzip, `limit_req` em `/api/auth/`. Headers de segurança sem duplicação: HSTS em tudo; nas rotas `/api` o nginx aplica `docker/nginx/api-security-headers.conf` (oculta cópias do upstream); nas páginas do Next.js os headers e a CSP vêm do próprio app (`web/next.config.mjs` + `web/proxy.ts`). `Permissions-Policy` libera só `microphone=(self)` (gravação do Sentinel Reader na mesma origem). A location `/api/reading/` aceita uploads até 10 MB com timeout de 120 s.
+- **Speech:** `python:3.12-slim` com `ffmpeg` e `espeak-ng`, torch CPU, usuário não-root, healthcheck em `/healthz`. **Não** leva pesos de modelo: Kokoro-82M (~330 MB) e `whisper small.en` (~480 MB) são baixados do Hugging Face no primeiro start para o volume `speech_cache` (`HF_HOME`), que também guarda o áudio sintetizado (LRU, `APP_SPEECH_CACHE_MAX_MB`). Só a API fala com ele (rede `speech`, porta 8100 não publicada).
 - Imagens base fixadas por digest (`@sha256:…`); o Dependabot abre PRs para atualizá-las.
 
 `docker run` direto da API (precisa de Postgres e Redis acessíveis):
@@ -247,7 +265,7 @@ Os EPUBs são material comercial licenciado: **não** são versionados (`materia
 - local: `./material:/app/material:ro`;
 - Portainer: `APP_MATERIAL_HOST_DIR` (bind) ou volume `material_data`.
 
-O preview de referências (`/api/materials/preview`) exige usuário autenticado e não há rota de download do arquivo original. Sem os arquivos o app funciona normalmente, apenas sem o preview. A **trilha de estudo** não depende desse volume (vem de `/app/study-tracks` na imagem), então funciona também no Portainer sem EPUBs.
+O preview de referências (`/api/materials/preview`) exige usuário autenticado e não há rota de download do arquivo original. Sem os arquivos o app funciona normalmente, apenas sem o preview. O **Sentinel Reader** (`/read`) lê os mesmos livros a partir de `material/json` (saída de `scripts/convert_*_to_json.py`, também ignorada pelo git): o texto nunca sai do servidor além do trecho em leitura, o áudio sintetizado fica em cache só no container `speech` e as gravações do usuário não são persistidas (apenas as notas). A **trilha de estudo** não depende desse volume (vem de `/app/study-tracks` na imagem), então funciona também no Portainer sem EPUBs.
 
 > ⚠️ O histórico do git **ainda contém** os três EPUBs (commits anteriores a esta mudança) e imagens antigas no GHCR os incluem em `/app/material`. Veja [Limpeza do histórico](#limpeza-do-histórico-e-do-ghcr-epubs).
 
@@ -337,8 +355,14 @@ docker compose start api web proxy
 | `SMTP_TIMEOUT_SECONDS` | `20` | — | Timeout do envio SMTP (roda em background). |
 | `RATE_LIMIT_AUTH_SENSITIVE_REQUESTS` / `RATE_LIMIT_AUTH_SENSITIVE_WINDOW_SECONDS` | `10` / `60` | — | Bucket extra para cadastro/reset/verificação. |
 | `GEMINI_THINKING_BUDGET` | `0` | — | Orçamento de "thinking" do Gemini 2.5 (0 = desligado). |
+| `READING_ENABLED` | `true` | `true` | Sentinel Reader (`/read`, `/api/reading`). |
+| `SPEECH_SERVICE_URL` / `SPEECH_API_TOKEN` / `SPEECH_TIMEOUT_SECONDS` | vazio / vazio / `60` | `http://speech:8100` / vazio / — | Serviço de voz; vazio = voz do navegador e sem shadowing. |
+| `SPEECH_PROVIDER` | `http` | — | `fake` = substituto determinístico em processo (dev/testes; recusado em produção). |
+| `SPEECH_MAX_AUDIO_BYTES` / `READING_DAILY_ASSESS_QUOTA` | `8000000` / `400` | — | Teto da gravação enviada e avaliações por usuário/dia. |
+| `RATE_LIMIT_READING_REQUESTS` / `_WINDOW_SECONDS` | `60` / `60` | — | Bucket `reading` (POST/PUT em `/api/reading/*`, por IP). |
+| `APP_SPEECH_*` (container `speech`) | ver `.env.docker.example` | `kokoro`, `faster-whisper`, `small.en`… | Engines, modelo ASR, threads, formato do áudio, cache, concorrência, `APP_SPEECH_CPUS`/`_MEMORY`. |
 
-Somente da stack (não viram configuração da API): `APP_IMAGE_TAG`, `APP_IMAGE_REPOSITORY`, `APP_*_CONTAINER_NAME`, `APP_HTTP_PORT`, `APP_HTTPS_PORT`, `APP_NGINX_HOST`, `APP_NGINX_ALT_NAMES`, `APP_NGINX_CERT_DAYS`, `APP_NGINX_AUTH_RATE`, `APP_NGINX_AUTH_BURST`, `APP_NGINX_CLIENT_MAX_BODY_SIZE`, `APP_TLS_MODE`, `APP_TLS_CERTS_DIR`, `APP_TLS_CERTIFICATE`, `APP_TLS_CERTIFICATE_KEY`, `APP_MATERIAL_HOST_DIR`, `APP_*_CPUS`, `APP_*_MEMORY`.
+Somente da stack (não viram configuração da API): `APP_IMAGE_TAG`, `APP_SPEECH_CONTAINER_NAME`, `APP_IMAGE_REPOSITORY`, `APP_*_CONTAINER_NAME`, `APP_HTTP_PORT`, `APP_HTTPS_PORT`, `APP_NGINX_HOST`, `APP_NGINX_ALT_NAMES`, `APP_NGINX_CERT_DAYS`, `APP_NGINX_AUTH_RATE`, `APP_NGINX_AUTH_BURST`, `APP_NGINX_CLIENT_MAX_BODY_SIZE`, `APP_TLS_MODE`, `APP_TLS_CERTS_DIR`, `APP_TLS_CERTIFICATE`, `APP_TLS_CERTIFICATE_KEY`, `APP_MATERIAL_HOST_DIR`, `APP_*_CPUS`, `APP_*_MEMORY`.
 
 **Frontend:** `APP_PUBLIC_API_ORIGIN` → `NEXT_PUBLIC_API_ORIGIN` e `API_ORIGIN` no container `web`. Deixe **vazio** para usar a mesma origem do proxy (`https://<host>/api`); preencha só para apontar para outra API. O valor é lido em runtime pelo layout do servidor; em `npm run dev` use `web/.env.local`.
 
