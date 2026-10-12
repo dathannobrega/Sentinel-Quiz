@@ -18,7 +18,7 @@ Primeira versão marcada. Reúne tudo o que já estava em produção pela `main`
 - Simulados, modo estudo, revisão espaçada, PBQs, tutor de IA, admin e app instalável (PWA).
 
 ### Alterado
-- Dependências: fastapi 0.142.2, sqlalchemy 2.1.3, python-dotenv 1.2.4, next 16.3.8, eslint-config-next 16.3.8, @tanstack/react-query 5.104.1, vitest 5.0.3 e motion 14.
+- Dependências: fastapi 0.143.0, sqlalchemy 2.1.4, pydantic 2.14.0, python-dotenv 1.2.4, next 16.3.8, eslint-config-next 16.3.8, @tanstack/react-query 5.104.1, vitest 5.0.3 e motion 14.
 
 ### Corrigido
 - Imagem `speech` não sobe mais presa em "aquecendo" em Linux (modelo do spaCy embutido).
