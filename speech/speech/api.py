@@ -12,9 +12,9 @@ import re
 from contextlib import asynccontextmanager
 from typing import Annotated, AsyncIterator
 
-from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
@@ -25,6 +25,7 @@ from .service import ServiceError, SpeechService
 AUDIO_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 TTS_LANGS = {"en-us", "en-gb"}
 ASSESS_LANGS = {"en", "en-us", "en-gb"}
+G2P_LANGS = {"en-us", "en-gb"}
 RETRY_AFTER = {"Retry-After": "5"}
 
 
@@ -32,6 +33,11 @@ class TTSRequest(BaseModel):
     text: str | None = None
     voice: str | None = None
     speed: float = Field(default=1.0, ge=0.5, le=1.5)
+    lang: str = "en-us"
+
+
+class G2PRequest(BaseModel):
+    words: list[Annotated[str, StringConstraints(min_length=1, max_length=64)]] = Field(min_length=1, max_length=50)
     lang: str = "en-us"
 
 
@@ -90,6 +96,13 @@ async def healthz(request: Request) -> JSONResponse:
     return JSONResponse(_service(request).health())
 
 
+@router.get("/metrics", dependencies=[Depends(require_token)])
+async def metrics(request: Request) -> Response:
+    service = _service(request)
+    payload = await run_in_threadpool(service.metrics_payload)
+    return Response(content=payload, media_type=service.metrics.content_type)
+
+
 @v1.post("/tts")
 async def tts(payload: TTSRequest, request: Request) -> dict:
     service, limiter = _service(request), _limiter(request)
@@ -105,6 +118,7 @@ async def tts(payload: TTSRequest, request: Request) -> dict:
 
     audio_id = service.tts_audio_id(text, voice, speed, lang)
     hit = service.cached_tts(audio_id)
+    (service.metrics.cache_hits if hit is not None else service.metrics.cache_misses).inc()
     if hit is None:
         async with limiter.slot(limiter.tts):
             # Re-check: another request may have produced the same audio while we waited.
@@ -169,6 +183,15 @@ async def assess(
         except EngineError as exc:
             raise api_error(500, "asr_failed", str(exc)) from exc
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+@v1.post("/g2p")
+async def g2p(payload: G2PRequest, request: Request) -> dict:
+    lang = payload.lang.lower()
+    if lang not in G2P_LANGS:
+        raise api_error(400, "lang_invalid", f"lang must be one of {sorted(G2P_LANGS)}")
+    items = await run_in_threadpool(_service(request).g2p, payload.words, lang)
+    return {"items": items}
 
 
 def register_routes(app: FastAPI) -> None:

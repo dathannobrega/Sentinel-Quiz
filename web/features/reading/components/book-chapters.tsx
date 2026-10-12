@@ -12,13 +12,14 @@ import { Meter } from "@/components/ui/meter";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Page, PageHeader } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useReadingChapterQuery, useReadingLibraryQuery } from "@/features/reading/hooks";
+import { ChapterOfflineControl } from "@/features/reading/components/offline-download";
+import { useReadingCapabilitiesQuery, useReadingChapterQuery, useReadingLibraryQuery } from "@/features/reading/hooks";
 import { formatCount } from "@/features/reading/lib/format";
 import { buildReaderHref } from "@/features/reading/lib/hrefs";
 import { ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
-import type { ReadingBook, ReadingChapterSummary } from "@/types/api";
+import type { ReadingBook, ReadingCapabilities, ReadingChapterSummary } from "@/types/api";
 
 const INDENT_BY_LEVEL: Record<number, string> = { 1: "pl-0", 2: "pl-5", 3: "pl-10" };
 
@@ -87,7 +88,7 @@ function chapterFileOfSection(sectionId: string | null | undefined): string | nu
   return parts.length >= 3 ? parts[1] : null;
 }
 
-function ChapterList({ book }: { book: ReadingBook }) {
+function ChapterList({ book, capabilities }: { book: ReadingBook; capabilities: ReadingCapabilities | undefined }) {
   const { t, locale } = useI18n();
   const currentSectionId = book.progress?.section_id ?? null;
   const currentFile = chapterFileOfSection(currentSectionId);
@@ -125,7 +126,12 @@ function ChapterList({ book }: { book: ReadingBook }) {
           hint={t("reading.book.chapterMeta", { sections: formatCount(chapter.sections, locale), minutes: formatCount(chapter.minutes, locale) })}
           meta={chapter.file === currentFile ? <Badge tone="primary">{t("reading.library.continueButton")}</Badge> : null}
         >
-          <ChapterSections slug={book.slug} file={chapter.file} enabled={opened.has(chapter.file)} currentSectionId={currentSectionId} />
+          <div className="flex flex-col gap-3">
+            {capabilities?.offline && opened.has(chapter.file) ? (
+              <ChapterOfflineControl bookSlug={book.slug} chapterFile={chapter.file} chapterTitle={chapter.title} capabilities={capabilities} />
+            ) : null}
+            <ChapterSections slug={book.slug} file={chapter.file} enabled={opened.has(chapter.file)} currentSectionId={currentSectionId} />
+          </div>
         </Disclosure>
       ))}
     </div>
@@ -136,6 +142,7 @@ function ChapterList({ book }: { book: ReadingBook }) {
 export function BookChapters({ slug }: { slug: string }) {
   const { t, locale } = useI18n();
   const library = useReadingLibraryQuery();
+  const capabilities = useReadingCapabilitiesQuery();
 
   const back = (
     <Link href="/read" className="focus-ring -ml-1 inline-flex items-center gap-1.5 self-start rounded-sm px-1 text-sm text-fg-muted hover:text-fg">
@@ -204,7 +211,7 @@ export function BookChapters({ slug }: { slug: string }) {
         </span>
       </div>
       <section aria-label={t("reading.book.chaptersTitle")}>
-        <ChapterList book={book} />
+        <ChapterList book={book} capabilities={capabilities.data} />
       </section>
     </Page>
   );

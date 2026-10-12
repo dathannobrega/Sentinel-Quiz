@@ -1,7 +1,7 @@
 # Sentinel Reader: plano da feature de estudo de livros por voz (ouvir, ler junto e shadowing)
 
 > **Nome de trabalho:** Estudo de Livros. **Nome de produto proposto:** **Sentinel Reader** (na UI, "Leitura"). O código usa o namespace técnico `reading` e o serviço `speech`.
-> **Status:** plano aprovado para execução, **Incremento 1 implementado** (ver [INCREMENTO-1](./INCREMENTO-1.md) e o [contrato](./CONTRATO-INCREMENTO-1.md)). **Data de referência:** 12/10/2026. **Idioma:** pt-BR.
+> **Status:** plano aprovado para execução, **Incrementos 1 e 2 implementados** (ver [INCREMENTO-1](./INCREMENTO-1.md), [INCREMENTO-2](./INCREMENTO-2.md) e os contratos [1](./CONTRATO-INCREMENTO-1.md) e [2](./CONTRATO-INCREMENTO-2.md)). **Data de referência:** 12/10/2026. **Idioma:** pt-BR.
 > **Base:** os livros já convertidos em JSON (`material/json`, 7 títulos, ~4 milhões de palavras), o corpus normalizado (`backend/app/services/material_corpus.py`), o leitor de seções existente (`/theory?section=`) e a análise de modelos abertos de voz abaixo.
 > **Convenções:** **[a verificar]** fato não confirmado em fonte primária; **[estimativa]** número de projeto a validar em medição; **[decisão]** escolha deste plano; **[hipótese]** afirmação de produto ainda sem medição.
 
@@ -63,7 +63,7 @@ Um modo **Leitura** com três capacidades, todas rodando **localmente** (no Mac 
 
 ### 0.4 O que fica para depois (resumo do roadmap, §14)
 
-Nota por fonema, drill por frase e SRS de palavras difíceis (Inc. 2); glossário e perguntas de compreensão com IA (Inc. 3); áudio offline no PWA e controles de tela bloqueada (Inc. 4); narração expressiva (Chatterbox) e livros em outros idiomas (Inc. 5).
+O Incremento 2 entregou nota por fonema, drill, SRS de palavras, glossário, compreensão por IA, offline e controles de tela bloqueada. Seguem: calibração com gravações reais e painel no admin (Inc. 3); narração expressiva (Chatterbox), vozes pt-BR e tarefas para turmas (Inc. 5).
 
 ---
 
@@ -227,9 +227,9 @@ Levantamento de práticas (não de código) para fixar a barra. Fatos de produto
 | RF-R16 | Nota por fonema (GOP) e dicas de articulação por som. | 2 |
 | RF-R17 | Drill por frase: repetir até atingir um limiar; palavras difíceis entram na fila de revisão (SRS). | 2 |
 | RF-R18 | Prosódia (acento de palavra, entonação) e `UnexpectedBreak`/`MissingBreak`. | 2 |
-| RF-R19 | Glossário (clique na palavra → definição/tradução pt-BR, cache) e deck de vocabulário. | 3 |
-| RF-R20 | Perguntas rápidas de compreensão geradas por IA ao fim da seção (reuso do AI authoring). | 3 |
-| RF-R21 | Áudio offline no PWA (Cache Storage por capítulo), MediaSession (controles na tela bloqueada), sleep timer. | 4 |
+| RF-R19 | Glossário (clique na palavra → definição/tradução pt-BR, cache) e deck de vocabulário. | 2 |
+| RF-R20 | Perguntas rápidas de compreensão geradas por IA ao fim da seção (reuso do AI authoring). | 2 |
+| RF-R21 | Áudio offline no PWA (Cache Storage por capítulo), MediaSession (controles na tela bloqueada), sleep timer. | 2 |
 | RF-R22 | Narração expressiva opcional (Chatterbox em GPU/MPS); livros em pt-BR com vozes `p*` do Kokoro. | 5 |
 | RF-R23 | Tarefas de leitura em voz alta para turmas (integração com a Arena). | 5 |
 
@@ -297,11 +297,17 @@ Levenshtein entre referência e hipótese com custo de substituição `1 − rat
 - `completeness = (referência − missed) / referência`
 - `fluency = clamp(1 − 0,5·penalidade_wpm − 0,1·pausas_longas − 0,05·extras, 0, 1)`, onde `penalidade_wpm = 0` em [120, 170] e cresce linearmente até 1 a 60 wpm de distância; pausa longa = intervalo > 0,8 s.
 - `overall = 0,6·accuracy + 0,2·completeness + 0,2·fluency`
-- **Dicas**: para palavras `mispronounced`, diff de caracteres entre `expected_ipa` e `heard_ipa`; os 3 pares de sons mais frequentes viram `tips` (`{expected: "θ", heard: "t", examples: [...]}`). Calibração dos pesos e limiares é um item do Inc. 2 (com gravações reais e avaliação cega).
+- **Dicas**: para palavras `mispronounced`, diff de caracteres entre `expected_ipa` e `heard_ipa`; os 3 pares de sons mais frequentes viram `tips` (`{expected: "θ", heard: "t", examples: [...]}`). A partir do Inc. 2 as dicas vêm dos fonemas (§10.6); a calibração sintética está em [CALIBRACAO.md](./CALIBRACAO.md) e a com gravações reais é do Inc. 3.
 
-### 10.5 Limites declarados
+### 10.5 Limites declarados (Inc. 1)
 
 Whisper pode aceitar pronúncia ruim como certa (falso `ok`) e, em silêncio, inventar palavras (`extras`). O VAD e o limiar de confiança reduzem o segundo; o primeiro só melhora com o modelo fonético do Inc. 2. A UI diz "o que o modelo ouviu", não "você errou".
+
+### 10.6 Incremento 2: fonemas e prosódia
+
+- **GOP:** um wav2vec2 fonético (CTC sobre IPA do espeak) roda uma vez por gravação; para cada palavra com tempo, os fonemas esperados (`espeak-ng`) são alinhados à força (Viterbi CTC) e cada fonema recebe `exp(média(log P(esperado) − max log P))`. A palavra cuja média fica abaixo de 0,6 vira "pronúncia diferente" mesmo quando o Whisper a reconheceu: é o que fecha o falso `ok` de §10.5.
+- **Prosódia:** F0 por autocorrelação (monotonia por desvio < 2 semitons), pausas inesperadas (> 0,5 s fora de pontuação) e pausas que faltam depois de `. ! ?`.
+- **Notas:** `accuracy` passa a ser a média da qualidade fonética por palavra; `overall = 0,5·accuracy + 0,2·completeness + 0,15·fluency + 0,15·prosody` (configurável). Detalhes e números em [CONTRATO-INCREMENTO-2](./CONTRATO-INCREMENTO-2.md) §2 e [CALIBRACAO.md](./CALIBRACAO.md).
 
 ## 11. Experiência e acessibilidade
 
@@ -336,16 +342,15 @@ Whisper pode aceitar pronúncia ruim como certa (falso `ok`) e, em silêncio, in
 | Web | tokenização e mapeamento palavra→token; escolha de MIME do gravador; resultado da avaliação (status, legenda, `heard`); biblioteca com fallback | `web/features/reading/**/*.test.ts(x)` |
 | Smoke real | Kokoro + whisper no Mac: offsets batem com o texto, áudio sintetizado avaliado contra o próprio texto ≥ 0,85, texto alterado gera `missed`/`mispronounced`; latências registradas | `speech/README.md` |
 | E2E (Inc. 2) | Playwright com `SPEECH_PROVIDER=fake`: ouvir um bloco, gravar com `MediaRecorder` falso, ver resultado | `web/e2e/reading.spec.ts` |
-| Calibração (Inc. 2) | 50 gravações reais rotuladas por humanos; precisão/recall por status; ajuste de limiares | `scripts/reading/calibrate.py` |
+| Calibração | Inc. 2: casos sintéticos (TTS com palavras omitidas, trocadas, inseridas e mal pronunciadas); Inc. 3: 50 gravações reais rotuladas por humanos; precisão/recall por status; ajuste de limiares | `speech/scripts/calibrate.py`, [CALIBRACAO.md](./CALIBRACAO.md) |
 
 ## 14. Roadmap por incrementos
 
 | Inc. | Escopo | Critério de pronto |
 |---|---|---|
 | **1 (feito)** | Biblioteca, read-along com Kokoro, fallback do navegador, shadowing por palavra, progresso/stats, serviço `speech`, compose/CI, docs | testes verdes nas três camadas; smoke real no Mac; `docker compose up` com `speech` |
-| **2** | GOP por fonema (wav2vec2), prosódia básica, drill por frase, SRS de palavras difíceis, "Meus dados" do Reader, métricas Prometheus, E2E, calibração com gravações reais | precisão/recall por status medidos; latência p95 dentro do alvo |
-| **3** | Glossário com tradução pt-BR (cache), deck de vocabulário, perguntas de compreensão por IA ao fim da seção, ligação "ouvir a seção por trás do erro" no feedback das questões | uso do glossário e das perguntas instrumentado |
-| **4** | Áudio offline no PWA por capítulo, MediaSession (tela bloqueada), sleep timer, download de capítulo | ouvir um capítulo inteiro no celular em modo avião |
+| **2 (feito: itens 2, 3 e 4 do roadmap original)** | GOP por fonema (wav2vec2), prosódia básica, drill por frase, SRS de palavras (pronúncia e vocabulário), glossário com tradução pt-BR (cache), perguntas de compreensão por IA, "Seus dados", capítulos offline no PWA, MediaSession, timer de sono, métricas Prometheus do `speech`, testes do `speech` no CI, E2E, ferramenta de calibração (sintética) | ver [CONTRATO-INCREMENTO-2](./CONTRATO-INCREMENTO-2.md) e [INCREMENTO-2](./INCREMENTO-2.md) |
+| **3** | Calibração com gravações reais de alunos (precisão/recall por status), painel do Reader no `/admin`, dicionário offline, perguntas abertas, Background Fetch | precisão/recall medidos com gravações humanas; latência p95 dentro do alvo |
 | **5** | Narração expressiva (Chatterbox) opcional, vozes pt-BR (Kokoro `p*`) para materiais em português, tarefas de leitura para turmas (Arena) | um instrutor atribui um trecho e vê o painel da turma |
 
 ## 15. Riscos e mitigações
@@ -359,8 +364,8 @@ Whisper pode aceitar pronúncia ruim como certa (falso `ok`) e, em silêncio, in
 | Safari/iOS: formatos de gravação (`audio/mp4`) e permissão de microfone no PWA | média | médio | Seleção de MIME em cascata; ffmpeg decodifica qualquer container; mensagens de permissão; testar em iOS 17+ **[a verificar]** |
 | Áudio derivado de texto licenciado vazar | baixa | alto | Cache só no `speech`, rede interna, servido autenticado, `private`; nunca em CDN |
 | Sincronia do destaque "escorrega" (offsets errados) | média | alto | Offsets calculados no serviço a partir do texto exato sintetizado; teste `text[char_start:char_end] == word`; interpolação de tokens sem timestamp |
-| Vocabulário técnico fora do dicionário do G2P | média | baixo | `espeak-ng` como fallback; lista de pronúncias próprias (Inc. 2) |
-| Fonte única de verdade do corpus muda (reconversão de livro) | baixa | médio | Ids estáveis `livro:capitulo:ancora`; progresso aponta para seção, com fallback para o início do capítulo se o id sumir (Inc. 2) |
+| Vocabulário técnico fora do dicionário do G2P | média | baixo | `espeak-ng` como fallback; lista de pronúncias próprias (Inc. 3) |
+| Fonte única de verdade do corpus muda (reconversão de livro) | baixa | médio | Ids estáveis `livro:capitulo:ancora`; progresso aponta para seção, com fallback para o início do capítulo se o id sumir (Inc. 3) |
 
 ## 16. Métricas de sucesso
 
@@ -373,15 +378,15 @@ Whisper pode aceitar pronúncia ruim como certa (falso `ok`) e, em silêncio, in
 | Retomada | sessões que começam por "Continuar" | 60 % |
 | Técnicas | cache hit TTS, p95 TTS/ASR, taxa de 503/504, taxa de fallback do navegador | > 70 %, < 3 s / < 8 s, < 1 %, < 5 % |
 
-Instrumentação: tabelas existentes + logs estruturados; painel no `/admin` no Inc. 2.
+Instrumentação: tabelas existentes, logs estruturados e métricas Prometheus do `speech` (Inc. 2); painel no `/admin` no Inc. 3.
 
 ## 17. Questões em aberto
 
 | # | Questão | Dono | Prazo |
 |---|---|---|---|
-| Q-R1 | Faixa de WPM alvo e pesos das notas: calibrar com gravações reais ou manter Azure-like? | produto + dados | Inc. 2 |
+| Q-R1 | Faixa de WPM alvo e pesos das notas: calibrar com gravações reais ou manter Azure-like? | produto + dados | Inc. 3 |
 | Q-R2 | Expor o resultado do shadowing para instrutores (turmas) exige consentimento adicional? | jurídico | Inc. 5 |
-| Q-R3 | Guardar a gravação **opcionalmente** (opt-in) para o usuário se ouvir depois? | produto | Inc. 2 |
+| Q-R3 | Guardar a gravação **opcionalmente** (opt-in) para o usuário se ouvir depois? | produto | Inc. 3 |
 | Q-R4 | Supertonic 3 (OpenRAIL-M) e Pocket TTS (CC BY) podem entrar como engines alternativas? | jurídico | Inc. 5 |
 | Q-R5 | Reconverter o CEH v13 (PDF) para liberar o livro no Reader (hoje excluído do corpus). | conteúdo | Inc. 3 |
 

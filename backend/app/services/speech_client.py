@@ -17,7 +17,7 @@ import re
 import struct
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -54,6 +54,8 @@ class SpeechHealth:
     status: str  # ok | warming | degraded | unavailable
     tts: dict[str, Any]
     asr: dict[str, Any]
+    # Increment 2 (§2.6): the phoneme engine may still be warming while TTS/ASR are ready.
+    phoneme: dict[str, Any] = field(default_factory=dict)
 
     @property
     def tts_ready(self) -> bool:
@@ -62,6 +64,10 @@ class SpeechHealth:
     @property
     def asr_ready(self) -> bool:
         return bool(self.asr.get("ready")) and str(self.asr.get("engine") or "none") != "none"
+
+    @property
+    def phoneme_ready(self) -> bool:
+        return bool(self.phoneme.get("ready")) and str(self.phoneme.get("engine") or "none") != "none"
 
 
 UNAVAILABLE = SpeechHealth(status="unavailable", tts={"engine": None, "ready": False}, asr={"engine": None, "ready": False})
@@ -135,6 +141,7 @@ class SpeechClient:
                 status=str(body.get("status") or "ok"),
                 tts=dict(body.get("tts") or {}),
                 asr=dict(body.get("asr") or {}),
+                phoneme=dict(body.get("phoneme") or {}),
             )
         except Exception:
             health = UNAVAILABLE
@@ -163,6 +170,33 @@ class SpeechClient:
         )
         return response.json()
 
+    def g2p(self, words: list[str], *, lang: str = "en-us") -> dict[str, str | None]:
+        """IPA per word (``/v1/g2p``, §2.6); ``None`` for a word the service could not convert."""
+        wanted = _g2p_words(words)
+        if not wanted:
+            return {}
+        response = self._request("POST", "/v1/g2p", json={"words": wanted, "lang": lang})
+        out: dict[str, str | None] = {word: None for word in wanted}
+        for item in (response.json() or {}).get("items") or []:
+            word = str(item.get("word") or "")
+            if word in out:
+                ipa = item.get("ipa")
+                out[word] = str(ipa) if ipa else None
+        return out
+
+
+G2P_MAX_WORDS = 50
+G2P_MAX_CHARS = 64
+
+
+def _g2p_words(words: list[str]) -> list[str]:
+    seen: list[str] = []
+    for word in words:
+        word = str(word or "").strip()
+        if word and len(word) <= G2P_MAX_CHARS and word not in seen:
+            seen.append(word)
+    return seen[:G2P_MAX_WORDS]
+
 
 # ---------------------------------------------------------------------------- fake
 _WORD_RE = re.compile(r"[\w'’-]+", re.UNICODE)
@@ -182,12 +216,69 @@ def _normalize(word: str) -> str:
     return re.sub(r"[^\w']", "", word.lower().replace("’", "'"))
 
 
+# Grapheme -> pseudo-IPA for the fake engines (deterministic, not linguistics).
+_FAKE_GRAPHEMES: tuple[tuple[str, str], ...] = (
+    ("tion", "ʃən"), ("th", "θ"), ("sh", "ʃ"), ("ch", "tʃ"), ("ph", "f"), ("ee", "iː"), ("oo", "uː"),
+    ("ck", "k"), ("ng", "ŋ"), ("a", "æ"), ("e", "ɛ"), ("i", "ɪ"), ("o", "ɑ"), ("u", "ʌ"), ("y", "i"),
+    ("c", "k"), ("q", "k"), ("x", "ks"), ("j", "dʒ"), ("r", "ɹ"),
+)
+
+
+def _fake_phonemes(word: str) -> list[str]:
+    text = re.sub(r"[^a-z]", "", _normalize(word))
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        for grapheme, phone in _FAKE_GRAPHEMES:
+            if text.startswith(grapheme, index):
+                out.append(phone)
+                index += len(grapheme)
+                break
+        else:
+            out.append(text[index])
+            index += 1
+    return out[:16]
+
+
+def _fake_ipa(word: str) -> str | None:
+    phones = _fake_phonemes(word)
+    return "ˈ" + "".join(phones) if phones else None
+
+
+# Transcript markers understood by the fake assessment (prefix of a word of the FAKE: payload).
+_FAKE_PHONEME_ERROR = "~"   # word heard but badly pronounced -> mispronounced, reason "phoneme"
+_FAKE_HESITATION = "?"      # word heard with low confidence -> weak, reason "low_confidence"
+_FAKE_WEIGHTS = {"accuracy": 0.5, "completeness": 0.2, "fluency": 0.15, "prosody": 0.15}
+
+
+def _fake_phoneme_detail(word: str, quality: str) -> tuple[list[dict[str, Any]], float | None]:
+    """Per-phoneme scores: all good, or the first phoneme ``bad`` and the rest ``fair``."""
+    phones = _fake_phonemes(word)
+    if not phones:
+        return [], None
+    detail = []
+    for index, phone in enumerate(phones):
+        if quality == "good":
+            score, heard, label = 0.92, phone, "good"
+        elif quality == "weak":
+            score, heard, label = 0.55, phone, "fair"
+        elif index == 0:
+            score, heard, label = 0.2, ("t" if phone != "t" else "d"), "bad"
+        else:
+            score, heard, label = 0.5, phone, "fair"
+        detail.append({"ipa": phone, "score": score, "heard": heard, "quality": label})
+    return detail, round(sum(item["score"] for item in detail) / len(detail), 3)
+
+
 class FakeSpeechClient:
     """Deterministic stand-in: evenly spaced word timings; assessment driven by a ``FAKE:`` payload.
 
     When the uploaded "audio" is UTF-8 text starting with ``FAKE:``, the remainder is the
     transcript (words missing from it are ``missed``, words not in the reference are ``extras``).
-    Any other payload is treated as a perfect reading.
+    A transcript word prefixed with ``~`` (``FAKE:security ~awareness``) comes back
+    ``mispronounced`` with ``reason: "phoneme"`` and a low ``phoneme_score``; with ``?`` it is
+    ``weak`` (``low_confidence``). Any other payload is treated as a perfect reading. The
+    response carries every Increment 2 field (§2.5) so the UI and the E2E can exercise them.
     """
 
     base_url = "fake://speech"
@@ -202,6 +293,7 @@ class FakeSpeechClient:
             status="ok",
             tts={"engine": "fake", "model": "fake", "ready": True, "voices": voices, "default_voice": "af_heart"},
             asr={"engine": "fake", "model": "fake", "ready": True},
+            phoneme={"engine": "fake", "model": "fake", "ready": True},
         )
 
     @staticmethod
@@ -241,52 +333,109 @@ class FakeSpeechClient:
             raise SpeechError(404, "audio_not_found", "Audio not found.")
         return entry[0], "audio/wav"
 
+    def g2p(self, words: list[str], *, lang: str = "en-us") -> dict[str, str | None]:
+        return {word: _fake_ipa(word) for word in _g2p_words(words)}
+
+    @staticmethod
+    def _transcript(audio: bytes) -> tuple[list[str], dict[str, str]] | None:
+        """Heard words (normalized) and the marker of each marked word, or ``None`` = perfect."""
+        if not audio.startswith(b"FAKE:"):
+            return None
+        heard: list[str] = []
+        marks: dict[str, str] = {}
+        for token in audio[5:].decode("utf-8", "ignore").split():
+            mark = token[0] if token[0] in (_FAKE_PHONEME_ERROR, _FAKE_HESITATION) else ""
+            for word in _WORD_RE.findall(token[1:] if mark else token):
+                norm = _normalize(word)
+                if not norm:
+                    continue
+                heard.append(norm)
+                if mark:
+                    marks[norm] = mark
+        return heard, marks
+
     def assess(self, audio: bytes, *, content_type: str, filename: str, reference_text: str) -> dict[str, Any]:
         reference = self._words(reference_text)
-        transcript_words: list[str] | None = None
-        if audio.startswith(b"FAKE:"):
-            transcript_words = [_normalize(w) for w in _WORD_RE.findall(audio[5:].decode("utf-8", "ignore"))]
-        heard_pool = list(transcript_words) if transcript_words is not None else None
+        parsed = self._transcript(audio)
+        heard_pool = list(parsed[0]) if parsed is not None else None
+        marks = parsed[1] if parsed is not None else {}
         words: list[dict[str, Any]] = []
-        ok = missed = 0
+        counts = {"ok": 0, "weak": 0, "mispronounced": 0, "missed": 0}
+        word_acc: list[float] = []
+        tips: list[dict[str, Any]] = []
         for index, word in enumerate(reference):
             norm = _normalize(word["text"])
-            if heard_pool is None or norm in heard_pool:
-                if heard_pool is not None:
-                    heard_pool.remove(norm)
-                status, heard, confidence = "ok", norm, 0.95
-                ok += 1
+            heard_it = heard_pool is None or norm in heard_pool
+            if heard_it and heard_pool is not None:
+                heard_pool.remove(norm)
+            mark = marks.get(norm) if heard_it else None
+            if not heard_it:
+                status, reason, confidence = "missed", None, None
+                phonemes, phoneme_score = None, None
+            elif mark == _FAKE_PHONEME_ERROR:
+                status, reason, confidence = "mispronounced", "phoneme", 0.9
+                phonemes, phoneme_score = _fake_phoneme_detail(word["text"], "bad")
+            elif mark == _FAKE_HESITATION:
+                status, reason, confidence = "weak", "low_confidence", 0.45
+                phonemes, phoneme_score = _fake_phoneme_detail(word["text"], "weak")
             else:
-                status, heard, confidence = "missed", None, None
-                missed += 1
+                status, reason, confidence = "ok", None, 0.95
+                phonemes, phoneme_score = _fake_phoneme_detail(word["text"], "good")
+            counts[status] += 1
+            word_acc.append(0.0 if status == "missed" else (phoneme_score if phoneme_score is not None else 1.0))
+            expected_ipa = _fake_ipa(word["text"])
+            heard_ipa = "".join(p["heard"] for p in phonemes) if phonemes else None
+            if status == "mispronounced" and phonemes:
+                # One tip per sound pair (like the real service), examples deduplicated.
+                bad = phonemes[0]
+                tip = next((t for t in tips if (t["expected"], t["heard"]) == (bad["ipa"], bad["heard"])), None)
+                if tip is None and len(tips) < 3:
+                    tips.append({"code": "phoneme_confusion", "expected": bad["ipa"], "heard": bad["heard"], "examples": [word["text"]]})
+                elif tip is not None and word["text"] not in tip["examples"] and len(tip["examples"]) < 3:
+                    tip["examples"].append(word["text"])
             words.append({
                 "index": index, "text": word["text"], "char_start": word["char_start"], "char_end": word["char_end"],
-                "status": status, "heard": heard, "confidence": confidence,
-                "start": word["start"] if status == "ok" else None, "end": word["end"] if status == "ok" else None,
-                "expected_ipa": None, "heard_ipa": None,
+                "status": status, "reason": reason, "heard": norm if heard_it else None, "confidence": confidence,
+                "start": word["start"] if heard_it else None, "end": word["end"] if heard_it else None,
+                "expected_ipa": expected_ipa, "heard_ipa": heard_ipa,
+                "phoneme_score": phoneme_score, "phonemes": phonemes or None, "break": None,
             })
         extras = [{"text": w, "after_index": len(reference) - 1, "start": None, "end": None} for w in (heard_pool or [])]
         total = max(len(reference), 1)
-        accuracy = ok / total
-        completeness = (total - missed) / total
+        heard_count = len(reference) - counts["missed"]
+        accuracy = sum(word_acc) / total
+        completeness = heard_count / total
         fluency = max(0.0, 1.0 - 0.05 * len(extras))
-        overall = 0.6 * accuracy + 0.2 * completeness + 0.2 * fluency
+        prosody = None
+        if heard_count >= 3:
+            prosody = {"score": 0.9, "pitch_range_semitones": 3.2, "monotone": False, "unexpected_breaks": 0, "missing_breaks": 0}
+        parts = {"accuracy": accuracy, "completeness": completeness, "fluency": fluency}
+        if prosody is not None:
+            parts["prosody"] = prosody["score"]
+        weight = sum(_FAKE_WEIGHTS[key] for key in parts)
+        overall = sum(_FAKE_WEIGHTS[key] * value for key, value in parts.items()) / weight
+        scores = {key: round(value, 3) for key, value in parts.items()}
+        scores.setdefault("prosody", None)
+        scores["overall"] = round(overall, 3)
         speech_seconds = round(len(reference) * 0.3, 3)
         return {
             "engine": "fake",
             "model": "fake",
+            "engines": {"asr": "fake", "phoneme": "fake"},
             "duration_seconds": speech_seconds + 0.5,
             "speech_seconds": speech_seconds,
-            "transcript": " ".join(transcript_words) if transcript_words is not None else reference_text,
+            "transcript": " ".join(parsed[0]) if parsed is not None else reference_text,
             "words": words,
             "extras": extras,
-            "scores": {k: round(v, 3) for k, v in {"accuracy": accuracy, "completeness": completeness, "fluency": fluency, "overall": overall}.items()},
+            "scores": scores,
+            "prosody": prosody,
             "metrics": {
-                "reference_words": len(reference), "ok": ok, "weak": 0, "mispronounced": 0, "missed": missed,
+                "reference_words": len(reference), "ok": counts["ok"], "weak": counts["weak"],
+                "mispronounced": counts["mispronounced"], "missed": counts["missed"],
                 "extra": len(extras), "wpm": round(len(reference) / max(speech_seconds, 0.1) * 60, 1),
                 "long_pauses": 0, "target_wpm": [120, 170],
             },
-            "tips": [],
+            "tips": tips,
         }
 
 

@@ -13,25 +13,35 @@ import { Meter } from "@/components/ui/meter";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Page } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ComprehensionCard } from "@/features/reading/components/comprehension-card";
+import { DrillPanel } from "@/features/reading/components/drill-panel";
+import { GlossaryPopover, type GlossaryTarget } from "@/features/reading/components/glossary-popover";
 import { PlayerBar, type ReaderEngine } from "@/features/reading/components/player-bar";
 import { ReadAlongBlock } from "@/features/reading/components/read-along-block";
 import { ShadowPanel } from "@/features/reading/components/shadow-panel";
-import { fetchTts, fetchTtsAudio, prefetchTts, useProgressReporter, useReadingCapabilitiesQuery, useReadingSectionQuery, type TtsParams } from "@/features/reading/hooks";
+import { useProgressReporter, useReadingCapabilitiesQuery, useReadingSectionQuery, type TtsParams } from "@/features/reading/hooks";
 import { findBlockIndex, flattenBlocks, type ReaderBlock } from "@/features/reading/lib/blocks";
 import { buildBookHref, buildReaderHref } from "@/features/reading/lib/hrefs";
 import { isTypingTarget } from "@/features/reading/lib/keyboard";
+import { bindMediaSession, setMediaPlaybackState, setMediaPosition, type MediaSessionHandlers } from "@/features/reading/lib/media-session";
+import { useOnlineStatus } from "@/features/reading/lib/online-status";
 import { DEFAULT_READING_PREFS, readReadingPrefs, writeReadingPrefs, type ReaderMode, type ReadingPrefs } from "@/features/reading/lib/prefs";
+import { createOnlineSource, type ReaderSource } from "@/features/reading/lib/reader-source";
+import { mapAssessedWordsToTokens, nextSentenceIndex, sentenceText, sentenceTokenRange } from "@/features/reading/lib/sentences";
 import { findTokenIndexAtChar, mapWordsToTokens, type WordTiming } from "@/features/reading/lib/tokenize";
 import { useAudioPlayer } from "@/features/reading/lib/use-audio-player";
+import { useSleepTimer } from "@/features/reading/lib/use-sleep-timer";
 import { isWebSpeechSupported, speak, type SpeechHandle } from "@/features/reading/lib/web-speech";
 import { ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
-import type { ReadingAssessedWord, ReadingCapabilities, ReadingSectionDetail, ReadingTtsResponse } from "@/types/api";
+import type { ReadingAssessedWord, ReadingAssessment, ReadingCapabilities, ReadingSectionDetail, ReadingTtsResponse } from "@/types/api";
 
 const DEFAULT_SPEEDS = [0.75, 0.9, 1, 1.1, 1.25];
 const AUDIO_CACHE_LIMIT = 6;
 const LISTEN_DRAIN_MS = 10_000;
+
+function noop() {}
 
 interface BlockAudio {
   tts: ReadingTtsResponse;
@@ -39,43 +49,73 @@ interface BlockAudio {
   timings: WordTiming[];
 }
 
-function SectionNav({ detail, t }: { detail: ReadingSectionDetail; t: (key: string) => string }) {
-  if (!detail.previous && !detail.next) {
-    return <p className="border-t border-line pt-5 text-sm text-fg-muted">{t("reading.reader.endOfBook")}</p>;
+/** How the reader moves between sections: routes online, in-page state offline. */
+export interface ReaderNavigation {
+  open(sectionId: string): void;
+  canOpen(sectionId: string): boolean;
+  /** Link (online) or callback (offline) back to the list the reader came from. */
+  back: { label: string; href?: string; onClick?: () => void };
+  /** Online navigation uses <Link>; offline uses buttons. */
+  useLinks: boolean;
+}
+
+function SectionNav({ detail, navigation, t }: { detail: ReadingSectionDetail; navigation: ReaderNavigation; t: (key: string) => string }) {
+  const previous = detail.previous && navigation.canOpen(detail.previous.id) ? detail.previous : null;
+  const next = detail.next && navigation.canOpen(detail.next.id) ? detail.next : null;
+  if (!previous && !next) {
+    return !detail.previous && !detail.next ? <p className="border-t border-line pt-5 text-sm text-fg-muted">{t("reading.reader.endOfBook")}</p> : null;
   }
   const card =
-    "focus-ring group flex min-w-0 flex-col gap-1 rounded-lg border border-line px-4 py-3 transition-colors hover:border-primary/50 hover:bg-surface-muted";
+    "focus-ring group flex min-w-0 flex-col gap-1 rounded-lg border border-line px-4 py-3 text-left transition-colors hover:border-primary/50 hover:bg-surface-muted";
+  const item = (link: { id: string; title: string }, direction: "previous" | "next") => {
+    const content = (
+      <>
+        <span className="flex items-center gap-1 text-xs text-fg-muted">
+          {direction === "previous" ? <ChevronLeftIcon size={14} /> : null}
+          {direction === "previous" ? t("reading.reader.previous") : t("reading.reader.next")}
+          {direction === "next" ? <ChevronRightIcon size={14} /> : null}
+        </span>
+        <span className="max-w-full truncate text-sm font-medium text-primary">{link.title}</span>
+      </>
+    );
+    const className = cn(card, direction === "next" && "sm:items-end sm:text-right");
+    return navigation.useLinks ? (
+      <Link href={buildReaderHref(link.id)} className={className}>
+        {content}
+      </Link>
+    ) : (
+      <button type="button" className={className} onClick={() => navigation.open(link.id)}>
+        {content}
+      </button>
+    );
+  };
   return (
     <nav aria-label={t("reading.reader.navigation")} className="grid gap-3 border-t border-line pt-5 sm:grid-cols-2">
-      {detail.previous ? (
-        <Link href={buildReaderHref(detail.previous.id)} className={card}>
-          <span className="flex items-center gap-1 text-xs text-fg-muted">
-            <ChevronLeftIcon size={14} />
-            {t("reading.reader.previous")}
-          </span>
-          <span className="truncate text-sm font-medium text-primary">{detail.previous.title}</span>
-        </Link>
-      ) : (
-        <span aria-hidden className="hidden sm:block" />
-      )}
-      {detail.next ? (
-        <Link href={buildReaderHref(detail.next.id)} className={cn(card, "sm:items-end sm:text-right")}>
-          <span className="flex items-center gap-1 text-xs text-fg-muted">
-            {t("reading.reader.next")}
-            <ChevronRightIcon size={14} />
-          </span>
-          <span className="max-w-full truncate text-sm font-medium text-primary">{detail.next.title}</span>
-        </Link>
-      ) : null}
+      {previous ? item(previous, "previous") : <span aria-hidden className="hidden sm:block" />}
+      {next ? item(next, "next") : null}
     </nav>
   );
 }
 
-/** The interactive reader once the section and the capabilities are known. */
-function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; capabilities: ReadingCapabilities | undefined }) {
+interface DrillState {
+  blockKey: string;
+  sentence: number;
+  result: ReadingAssessment | null;
+}
+
+export interface ReaderViewProps {
+  detail: ReadingSectionDetail;
+  capabilities: ReadingCapabilities | undefined;
+  /** Audio and timings: the API or the offline store. */
+  source: ReaderSource;
+  navigation: ReaderNavigation;
+}
+
+/** The interactive reader once the section and the capabilities are known (online or offline). */
+export function ReaderView({ detail, capabilities, source, navigation }: ReaderViewProps) {
   const { t } = useI18n();
-  const router = useRouter();
-  const queryClient = useQueryClient();
+  const online = source.kind === "online";
+  const isOnline = useOnlineStatus();
   const blocks = useMemo(() => flattenBlocks(detail), [detail]);
 
   // Preferences: defaults on the server render, the stored values after mount.
@@ -99,12 +139,16 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
 
   const ttsCapability = capabilities?.tts;
   const ttsAvailable = Boolean(ttsCapability?.available);
-  const assessAvailable = Boolean(capabilities?.assess?.available);
+  const assessAvailable = online && Boolean(capabilities?.assess?.available);
+  const aiAvailable = online && Boolean(capabilities?.ai?.available);
+  // The glossary works without AI too (IPA + audio); it needs an Increment 2 API (`ai` in capabilities).
+  const glossaryAvailable = online && capabilities?.ai !== undefined;
   const voices = ttsCapability?.voices ?? [];
   const speeds = ttsCapability?.speeds?.length ? ttsCapability.speeds : DEFAULT_SPEEDS;
   const voice = prefs.voice && voices.some((item) => item.id === prefs.voice) ? prefs.voice : (ttsCapability?.default_voice ?? voices[0]?.id ?? null);
-  const speed = speeds.includes(prefs.speed) ? prefs.speed : 1;
-  const mode: ReaderMode = prefs.mode === "shadow" && assessAvailable ? "shadow" : "listen";
+  const speed = speeds.includes(prefs.speed) ? prefs.speed : speeds.includes(1) ? 1 : (speeds[0] ?? 1);
+  const mode: ReaderMode = (prefs.mode === "shadow" || prefs.mode === "drill") && assessAvailable ? prefs.mode : "listen";
+  const glossaryTap = glossaryAvailable && prefs.glossaryTap;
 
   const [engineOverride, setEngineOverride] = useState<ReaderEngine | null>(null);
   const engine: ReaderEngine = engineOverride ?? (ttsAvailable ? "tts" : "browser");
@@ -118,8 +162,8 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
   const activeBlock: ReaderBlock | undefined = blocks[activeIndex];
 
   // Progress reporting.
-  const progress = useProgressReporter({ bookSlug: detail.book_slug, sectionId: detail.section_id });
-  const progressMode = mode === "shadow" ? "shadow" : "listen";
+  const progress = useProgressReporter({ bookSlug: detail.book_slug, sectionId: detail.section_id, enabled: online });
+  const progressMode = mode === "listen" ? "listen" : "shadow";
 
   // Neural audio cache keyed by block + voice + speed (blob URLs revoked on eviction and unmount).
   const audioCacheRef = useRef(new Map<string, BlockAudio>());
@@ -160,7 +204,7 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
       const params = ttsParamsFor(block);
       let tts: ReadingTtsResponse;
       try {
-        tts = await fetchTts(queryClient, params);
+        tts = await source.loadTts(params);
       } catch (error) {
         if (error instanceof ApiError && (error.code === "speech_unavailable" || error.code === "speech_warming" || error.status === 503)) {
           switchToBrowser(error.code);
@@ -170,11 +214,11 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
       }
       let blob: Blob;
       try {
-        blob = await fetchTtsAudio(tts.audio_url);
+        blob = await source.loadAudio(tts);
       } catch (error) {
-        if (error instanceof ApiError && error.status === 404) {
-          tts = await fetchTts(queryClient, params, { force: true });
-          blob = await fetchTtsAudio(tts.audio_url);
+        if (source.isStaleAudioError(error)) {
+          tts = await source.loadTts(params, { force: true });
+          blob = await source.loadAudio(tts);
         } else {
           throw error;
         }
@@ -198,7 +242,7 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
       cache.set(key, entry);
       return entry;
     },
-    [cacheKeyFor, loadedKey, queryClient, switchToBrowser, ttsParamsFor]
+    [cacheKeyFor, loadedKey, source, switchToBrowser, ttsParamsFor]
   );
 
   // Browser speech fallback state.
@@ -222,6 +266,13 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
   }, [prefs.autoAdvance]);
   const goToRef = useRef<(index: number, autoplay: boolean) => void>(() => {});
   const loadBlockRef = useRef<(index: number, autoplay: boolean) => Promise<void>>(async () => {});
+  const pauseAllRef = useRef<() => void>(() => {});
+
+  const sleep = useSleepTimer({
+    onVolume: (volume) => playerRef.current.setVolume(volume),
+    onExpire: () => pauseAllRef.current()
+  });
+  const { consumeEndOfSection } = sleep;
 
   const handleBlockEnded = useCallback(() => {
     const block = blocks[activeIndex];
@@ -234,10 +285,12 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
     const next = detail.next;
     if (activeIndex + 1 < blocks.length) {
       goToRef.current(activeIndex + 1, true);
-    } else if (next) {
-      void progress.flush().then(() => router.push(buildReaderHref(next.id)));
+    } else if (consumeEndOfSection()) {
+      // Sleep timer "end of section": stop here.
+    } else if (next && navigation.canOpen(next.id)) {
+      void progress.flush().then(() => navigation.open(next.id));
     }
-  }, [activeIndex, blocks, detail.next, progress, router]);
+  }, [activeIndex, blocks, consumeEndOfSection, detail.next, navigation, progress]);
 
   const player = useAudioPlayer({
     playbackRate: 1,
@@ -305,7 +358,7 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
         await playerRef.current.load(entry.url, entry.timings, { autoplay });
         const next = blocks[index + 1];
         if (next) {
-          void prefetchTts(queryClient, ttsParamsFor(next));
+          source.prefetch(ttsParamsFor(next));
         }
       } catch {
         setAudioError(t("reading.reader.audioFailed"));
@@ -313,7 +366,7 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
         setAudioLoading(false);
       }
     },
-    [blocks, cacheKeyFor, engine, ensureAudio, handleBlockEnded, progress, queryClient, speed, stopSpeech, t, ttsParamsFor, webSpeechSupported]
+    [blocks, cacheKeyFor, engine, ensureAudio, handleBlockEnded, progress, source, speed, stopSpeech, t, ttsParamsFor, webSpeechSupported]
   );
   useEffect(() => {
     loadBlockRef.current = loadBlock;
@@ -455,6 +508,101 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
     stopSpeech();
     playerRef.current.pause();
   }, [stopSpeech]);
+  useEffect(() => {
+    pauseAllRef.current = pauseAll;
+  }, [pauseAll]);
+
+  // Sentence drill: the current sentence of the active block and the last assessment (for marks).
+  const [drill, setDrill] = useState<DrillState | null>(null);
+  const drillSentence = activeBlock ? (drill && drill.blockKey === activeBlock.key ? drill.sentence : (activeBlock.sentences[0]?.index ?? 0)) : 0;
+  const drillResult = activeBlock && drill && drill.blockKey === activeBlock.key && drill.sentence === drillSentence ? drill.result : null;
+  const drillSentenceObject = activeBlock?.sentences.find((sentence) => sentence.index === drillSentence) ?? activeBlock?.sentences[0];
+  const drillRange = useMemo(
+    () => (mode === "drill" && activeBlock && drillSentenceObject ? sentenceTokenRange(activeBlock.tokens, drillSentenceObject) : null),
+    [activeBlock, drillSentenceObject, mode]
+  );
+  const drillMarks = useMemo(() => {
+    if (mode !== "drill" || !activeBlock || !drillResult) {
+      return null;
+    }
+    const offset = drillResult.char_offset ?? drillSentenceObject?.char_start ?? 0;
+    return mapAssessedWordsToTokens(drillResult.words, offset, activeBlock.tokens);
+  }, [activeBlock, drillResult, drillSentenceObject, mode]);
+
+  const advanceDrill = useCallback(() => {
+    if (!activeBlock) {
+      return;
+    }
+    const next = nextSentenceIndex(activeBlock.sentences, drillSentence);
+    if (next !== null) {
+      setDrill({ blockKey: activeBlock.key, sentence: next, result: null });
+    } else if (activeIndex + 1 < blocks.length) {
+      progress.addWords(activeBlock.tokens.length);
+      goTo(activeIndex + 1, false);
+    }
+  }, [activeBlock, activeIndex, blocks.length, drillSentence, goTo, progress]);
+
+  const playSentence = useCallback(async () => {
+    if (!activeBlock || !drillSentenceObject) {
+      return;
+    }
+    if (engine !== "tts") {
+      stopSpeech();
+      if (webSpeechSupported) {
+        speechRef.current = speak({ text: sentenceText(activeBlock.text, drillSentenceObject), rate: speed });
+      }
+      return;
+    }
+    setModelBusy(true);
+    try {
+      if (!activeLoaded) {
+        await loadBlock(activeIndex, false);
+      }
+      const entry = audioCacheRef.current.get(cacheKeyFor(activeBlock));
+      const range = sentenceTokenRange(activeBlock.tokens, drillSentenceObject);
+      const first = entry?.timings[range.first];
+      const last = entry?.timings[range.last];
+      if (first && last) {
+        playerRef.current.playRange(Math.max(0, first.start - 0.05), last.end + 0.15);
+      }
+    } finally {
+      setModelBusy(false);
+    }
+  }, [activeBlock, activeIndex, activeLoaded, cacheKeyFor, drillSentenceObject, engine, loadBlock, speed, stopSpeech, webSpeechSupported]);
+
+  // Glossary popover.
+  const [glossary, setGlossary] = useState<(GlossaryTarget & { blockKey: string; tokenIndex: number }) | null>(null);
+  const openGlossary = useCallback(
+    (blockIndex: number, tokenIndex: number) => {
+      const block = blocks[blockIndex];
+      const token = block?.tokens[tokenIndex];
+      if (!block || !token || !glossaryAvailable) {
+        return;
+      }
+      setGlossary({
+        blockKey: block.key,
+        tokenIndex,
+        word: token.text,
+        ref: { section_id: detail.section_id, part_id: block.partId, block_index: block.blockIndex, char_start: token.start, char_end: token.end }
+      });
+    },
+    [blocks, detail.section_id, glossaryAvailable]
+  );
+  const playGlossaryFromBlock = useCallback(() => {
+    if (!glossary || engine !== "tts") {
+      return false;
+    }
+    const block = blocks.find((item) => item.key === glossary.blockKey);
+    if (!block || loadedKey !== cacheKeyFor(block)) {
+      return false;
+    }
+    const timing = audioCacheRef.current.get(cacheKeyFor(block))?.timings[glossary.tokenIndex];
+    if (!timing || !timing.matched) {
+      return false;
+    }
+    playerRef.current.playRange(Math.max(0, timing.start - 0.05), timing.end + 0.12);
+    return true;
+  }, [blocks, cacheKeyFor, engine, glossary, loadedKey]);
 
   // Keyboard: space (play/pause), arrows (blocks). `R` belongs to the shadow panel.
   useEffect(() => {
@@ -481,19 +629,80 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
     return () => window.removeEventListener("keydown", handleKey);
   }, [activeIndex, blocks, goTo, isPlaying, progress, togglePlayback]);
 
+  // Media Session (lock screen, headset): handlers read the latest callbacks through a ref.
+  const mediaHandlersRef = useRef<MediaSessionHandlers>({ play: noop, pause: noop, previous: noop, next: noop, seekBy: noop });
+  useEffect(() => {
+    mediaHandlersRef.current = {
+      play: () => {
+        if (!isPlaying) {
+          togglePlayback();
+        }
+      },
+      pause: () => pauseAll(),
+      previous: () => goTo(activeIndex - 1, isPlaying),
+      next: () => {
+        if (activeBlock) {
+          progress.addWords(activeBlock.tokens.length);
+        }
+        goTo(activeIndex + 1, isPlaying);
+      },
+      seekBy: (seconds: number) => {
+        if (engine !== "tts" || !activeLoaded) {
+          return;
+        }
+        const times = playerRef.current.getTimes();
+        const target = Math.min(Math.max(0, times.currentTime + seconds), Math.max(0, times.duration - 0.05));
+        playerRef.current.seek(target);
+      }
+    };
+  });
+  const bookTitleText = detail.book_title;
+  const chapterTitleText = detail.chapter_title || detail.breadcrumb[0] || "";
+  useEffect(
+    () =>
+      bindMediaSession(
+        { title: detail.title, artist: bookTitleText, album: chapterTitleText },
+        {
+          play: () => mediaHandlersRef.current.play(),
+          pause: () => mediaHandlersRef.current.pause(),
+          previous: () => mediaHandlersRef.current.previous(),
+          next: () => mediaHandlersRef.current.next(),
+          seekBy: (seconds) => mediaHandlersRef.current.seekBy(seconds)
+        }
+      ),
+    [bookTitleText, chapterTitleText, detail.title]
+  );
+  useEffect(() => {
+    setMediaPlaybackState(isPlaying ? "playing" : "paused");
+  }, [isPlaying]);
+  useEffect(() => {
+    if (engine === "tts" && activeLoaded) {
+      const times = playerRef.current.getTimes();
+      setMediaPosition(times.duration, times.currentTime, times.playbackRate);
+    }
+  }, [activeLoaded, engine, player.state.currentTime, player.state.duration, player.state.status]);
+
   const currentWordIndex = engine === "browser" ? speechWordIndex : activeLoaded ? player.state.currentWordIndex : -1;
   const positionPercent = detail.position.total > 0 ? (detail.position.index / detail.position.total) * 100 : 0;
-  const bookTitle = detail.book_title;
-  const chapterTitle = detail.chapter_title || detail.breadcrumb[0] || "";
+  const bookTitle = bookTitleText;
+  const chapterTitle = chapterTitleText;
+  const backClass = "focus-ring -ml-1 inline-flex items-center gap-1.5 self-start rounded-sm px-1 text-sm text-fg-muted hover:text-fg";
 
   return (
     <>
       <Page width="reading" className="pb-8">
         <header className="flex flex-col gap-3">
-          <Link href={buildBookHref(detail.book_slug)} className="focus-ring -ml-1 inline-flex items-center gap-1.5 self-start rounded-sm px-1 text-sm text-fg-muted hover:text-fg">
-            <ArrowLeftIcon />
-            {t("reading.reader.backToBook")}
-          </Link>
+          {navigation.back.href ? (
+            <Link href={navigation.back.href} className={backClass}>
+              <ArrowLeftIcon />
+              {navigation.back.label}
+            </Link>
+          ) : (
+            <button type="button" onClick={navigation.back.onClick} className={backClass}>
+              <ArrowLeftIcon />
+              {navigation.back.label}
+            </button>
+          )}
           <p className="inline-flex flex-wrap items-center gap-1.5 text-[0.8125rem] text-fg-muted">
             <BookIcon size={13} className="text-fg-subtle" />
             <span>{bookTitle}</span>
@@ -511,6 +720,7 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
           </div>
         </header>
 
+        {!isOnline ? <Alert tone="neutral" message={online ? t("reading.reader.offlineIndicator") : t("reading.offline.readerNotice")} /> : null}
         {notice ? <Alert tone="warning" message={notice} /> : null}
         {audioError ? <Alert tone="danger" role="alert" message={audioError} /> : null}
         {resumed ? <Alert tone="neutral" message={t("reading.reader.resumeNotice")} /> : null}
@@ -533,7 +743,26 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
                   follow={prefs.follow}
                   onActivate={() => goTo(index, false)}
                   onWordClick={mode === "listen" && engine === "tts" ? seekToWord : undefined}
+                  onWordGlossary={glossaryAvailable ? (tokenIndex) => openGlossary(index, tokenIndex) : undefined}
+                  glossaryTap={glossaryTap}
+                  highlight={isActive ? drillRange : null}
+                  marks={isActive ? drillMarks : null}
                 />
+                {isActive && mode === "drill" && activeBlock ? (
+                  <DrillPanel
+                    sectionId={detail.section_id}
+                    block={activeBlock}
+                    sentenceIndex={drillSentence}
+                    assessAvailable={assessAvailable}
+                    maxSeconds={capabilities?.assess?.max_seconds || undefined}
+                    onListenSentence={() => void playSentence()}
+                    onPlayWord={(word) => void playModelWord(word)}
+                    modelBusy={modelBusy}
+                    onBeforeRecord={pauseAll}
+                    onResult={(assessment) => setDrill({ blockKey: activeBlock.key, sentence: drillSentence, result: assessment })}
+                    onAdvance={advanceDrill}
+                  />
+                ) : null}
                 {isActive && mode === "shadow" && activeBlock ? (
                   <ShadowPanel
                     sectionId={detail.section_id}
@@ -552,9 +781,15 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
           {detail.truncated ? <p className="text-sm text-fg-muted italic">{t("reading.reader.truncated")}</p> : null}
         </article>
 
+        <ComprehensionCard sectionId={detail.section_id} aiAvailable={aiAvailable} />
+
         <p className="sr-only">{t("reading.reader.shortcuts")}</p>
-        <SectionNav detail={detail} t={t} />
+        <SectionNav detail={detail} navigation={navigation} t={t} />
       </Page>
+
+      {glossaryAvailable ? (
+        <GlossaryPopover target={glossary} onClose={() => setGlossary(null)} playFromBlock={playGlossaryFromBlock} voice={voice} />
+      ) : null}
 
       <PlayerBar
         isPlaying={isPlaying}
@@ -584,12 +819,19 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
         onFollowChange={(value) => updatePrefs({ follow: value })}
         mode={mode}
         onModeChange={(value) => {
-          if (value === "shadow") {
+          if (value !== "listen") {
             pauseAll();
           }
           updatePrefs({ mode: value });
         }}
         shadowEnabled={assessAvailable}
+        drillEnabled={online ? assessAvailable : undefined}
+        glossaryAvailable={glossaryAvailable}
+        glossaryTap={glossaryTap}
+        onGlossaryTapChange={(value) => updatePrefs({ glossaryTap: value })}
+        sleepOption={sleep.option}
+        onSleepOptionChange={sleep.setOption}
+        sleepRemainingSeconds={sleep.remainingSeconds}
       />
     </>
   );
@@ -598,8 +840,21 @@ function ReaderView({ detail, capabilities }: { detail: ReadingSectionDetail; ca
 /** `/read/s/[sectionId]`: listen, read along and shadow one book section. */
 export function Reader({ sectionId }: { sectionId: string }) {
   const { t } = useI18n();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const section = useReadingSectionQuery(sectionId);
   const capabilities = useReadingCapabilitiesQuery();
+  const source = useMemo(() => createOnlineSource(queryClient), [queryClient]);
+  const bookSlug = section.data?.book_slug ?? "";
+  const navigation = useMemo<ReaderNavigation>(
+    () => ({
+      open: (id) => router.push(buildReaderHref(id)),
+      canOpen: () => true,
+      back: { label: t("reading.reader.backToBook"), href: buildBookHref(bookSlug) },
+      useLinks: true
+    }),
+    [bookSlug, router, t]
+  );
 
   if (section.isPending || (capabilities.isPending && !capabilities.isError)) {
     return (
@@ -629,5 +884,5 @@ export function Reader({ sectionId }: { sectionId: string }) {
     );
   }
 
-  return <ReaderView key={sectionId} detail={section.data} capabilities={capabilities.data} />;
+  return <ReaderView key={sectionId} detail={section.data} capabilities={capabilities.data} source={source} navigation={navigation} />;
 }

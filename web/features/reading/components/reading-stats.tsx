@@ -38,6 +38,16 @@ export function ReadingStats() {
         <Stat label={t("reading.stats.wordsRead")} value={formatCount(stats.words_read, locale)} />
         <Stat label={t("reading.stats.minutesListened")} value={formatCount(secondsToMinutes(stats.seconds_listened), locale)} />
         <Stat label={t("reading.stats.activeDays")} value={formatCount(stats.active_days_30, locale)} />
+        {stats.words ? (
+          <Stat
+            label={t("reading.stats.wordsLearned")}
+            value={formatCount(stats.words.learned, locale)}
+            meta={t("reading.stats.wordsTotal", { total: formatCount(stats.words.total, locale), due: formatCount(stats.words.due, locale) })}
+          />
+        ) : null}
+        {stats.quiz && stats.quiz.answered > 0 ? (
+          <Stat label={t("reading.stats.quiz")} value={t("reading.stats.quizValue", { correct: stats.quiz.correct, answered: stats.quiz.answered })} />
+        ) : null}
       </StatList>
     </Section>
   );

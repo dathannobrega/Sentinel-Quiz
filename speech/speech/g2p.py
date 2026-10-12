@@ -1,8 +1,9 @@
-"""IPA for single words via misaki (already a dependency of Kokoro).
+"""IPA for single words: espeak-ng when installed, misaki (Kokoro's G2P) otherwise.
 
-Only used to show "expected vs heard" for weak/mispronounced words, so any failure
-(missing espeak-ng fallback, odd token) degrades to ``None`` instead of failing the
-assessment.
+misaki writes diphthongs and a few consonants with single capital letters (``A`` = eɪ,
+``I`` = aɪ...); :func:`to_standard_ipa` turns them into standard IPA so the API never
+leaks misaki's private alphabet. Any failure degrades to ``None`` instead of failing
+the assessment.
 """
 from __future__ import annotations
 
@@ -11,6 +12,27 @@ import threading
 from typing import Any
 
 logger = logging.getLogger("speech.g2p")
+
+# misaki -> IPA (misaki EN_PHONES.md): diphthongs as capitals, affricates as ligatures,
+# T = American flap, ᵊ = small schwa. Everything else is already IPA.
+MISAKI_TO_IPA: dict[str, str] = {
+    "A": "eɪ",
+    "I": "aɪ",
+    "W": "aʊ",
+    "Y": "ɔɪ",
+    "O": "oʊ",
+    "Q": "əʊ",
+    "T": "ɾ",
+    "ʤ": "dʒ",
+    "ʧ": "tʃ",
+    "ᵊ": "ə",
+}
+
+
+def to_standard_ipa(misaki_ipa: str | None) -> str | None:
+    if not misaki_ipa:
+        return misaki_ipa
+    return "".join(MISAKI_TO_IPA.get(ch, ch) for ch in misaki_ipa)
 
 _lock = threading.Lock()
 _instances: dict[bool, Any] = {}
@@ -66,3 +88,16 @@ def ipa(word: str, lang: str = "en-us") -> str | None:
 def warm(lang: str = "en-us") -> None:
     """Instantiate the G2P so the first assess request does not pay for it."""
     _get(british=lang.lower().endswith("gb"))
+
+
+def standard_ipa(word: str, lang: str = "en-us") -> str | None:
+    """Standard IPA of ``word``: espeak-ng (stress kept, ties removed), else misaki."""
+    from .phonemes import display_ipa, espeak_path, espeak_words  # local: avoid import cycle
+
+    if not word or not word.strip():
+        return None
+    if espeak_path() is not None:
+        raw = espeak_words([word.strip()], lang)[0]
+        if raw:
+            return display_ipa(raw)
+    return to_standard_ipa(ipa(word, lang))

@@ -6,7 +6,21 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { apiClient, sendKeepaliveJson } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query/keys";
 import type {
+  ReadingAddWordRequest,
   ReadingAssessment,
+  ReadingCardKind,
+  ReadingDataDeleted,
+  ReadingDataExport,
+  ReadingGlossaryEntry,
+  ReadingGrade,
+  ReadingOfflineManifest,
+  ReadingQuiz,
+  ReadingQuizAnswerResult,
+  ReadingWordCard,
+  ReadingWordList,
+  ReadingWordRef,
+  ReadingWordReview,
+  ReadingWordSummary,
   ReadingAttemptList,
   ReadingCapabilities,
   ReadingChapterDetail,
@@ -159,6 +173,8 @@ export interface AssessInput {
   blockIndex: number;
   blob: Blob;
   filename: string;
+  /** Drill: assess only this sentence of the block. */
+  sentenceIndex?: number;
 }
 
 /** POST /api/reading/sections/{id}/assess (multipart). Invalidates attempts and stats on success. */
@@ -170,6 +186,9 @@ export function useAssessMutation(sectionId: string) {
       form.append("audio", input.blob, input.filename);
       form.append("part_id", input.partId);
       form.append("block_index", String(input.blockIndex));
+      if (input.sentenceIndex !== undefined) {
+        form.append("sentence_index", String(input.sentenceIndex));
+      }
       return apiClient.post<ReadingAssessment>(`${READING_BASE}/sections/${encodeURIComponent(sectionId)}/assess`, form, {
         timeoutMs: READING_TIMEOUTS.assess
       });
@@ -178,6 +197,7 @@ export function useAssessMutation(sectionId: string) {
       void client.invalidateQueries({ queryKey: queryKeys.readingAttempts(sectionId) });
       void client.invalidateQueries({ queryKey: queryKeys.readingStats });
       void client.invalidateQueries({ queryKey: queryKeys.readingCapabilities });
+      void client.invalidateQueries({ queryKey: queryKeys.readingWords });
     }
   });
 }
@@ -185,6 +205,8 @@ export function useAssessMutation(sectionId: string) {
 export interface ProgressReporterInput {
   bookSlug: string;
   sectionId: string;
+  /** False for the offline reader: nothing is sent (no network, no account context). */
+  enabled?: boolean;
 }
 
 export interface ProgressPosition {
@@ -200,7 +222,7 @@ const PROGRESS_DEBOUNCE_MS = 2_000;
  * records the current block and schedules a send 2 s later. Pending data is flushed with a
  * keepalive request on `pagehide` and on unmount.
  */
-export function useProgressReporter({ bookSlug, sectionId }: ProgressReporterInput) {
+export function useProgressReporter({ bookSlug, sectionId, enabled = true }: ProgressReporterInput) {
   const client = useQueryClient();
   const positionRef = useRef<ProgressPosition | null>(null);
   const wordsRef = useRef(0);
@@ -210,7 +232,7 @@ export function useProgressReporter({ bookSlug, sectionId }: ProgressReporterInp
 
   const buildPayload = useCallback((): ReadingProgressUpdate | null => {
     const position = positionRef.current;
-    if (!position || !bookSlug || !sectionId) {
+    if (!enabled || !position || !bookSlug || !sectionId) {
       return null;
     }
     return {
@@ -222,7 +244,7 @@ export function useProgressReporter({ bookSlug, sectionId }: ProgressReporterInp
       words_read: Math.max(0, Math.round(wordsRef.current)),
       seconds_listened: Math.max(0, Math.round(secondsRef.current))
     };
-  }, [bookSlug, sectionId]);
+  }, [bookSlug, enabled, sectionId]);
 
   const reset = useCallback(() => {
     wordsRef.current = 0;
@@ -317,4 +339,168 @@ export function useProgressReporter({ bookSlug, sectionId }: ProgressReporterInp
 
   // Stable identity: the reader keys effects on this object.
   return useMemo(() => ({ report, addWords, addSeconds, flush }), [report, addWords, addSeconds, flush]);
+}
+
+/* ------------------------------------------------------------------ words (spaced repetition) */
+
+function invalidateWords(client: QueryClient) {
+  void client.invalidateQueries({ queryKey: queryKeys.readingWords });
+  void client.invalidateQueries({ queryKey: queryKeys.readingCapabilities });
+  void client.invalidateQueries({ queryKey: queryKeys.readingStats });
+}
+
+/** GET /api/reading/words/summary */
+export function useWordSummaryQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.readingWordSummary,
+    queryFn: ({ signal }) => apiClient.get<ReadingWordSummary>(`${READING_BASE}/words/summary`, { signal }),
+    enabled
+  });
+}
+
+export type WordStatusFilter = "due" | "all";
+export type WordKindFilter = ReadingCardKind | "any";
+
+export function buildWordsPath(status: WordStatusFilter, kind: WordKindFilter, limit: number, offset = 0): string {
+  const params = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
+  if (kind !== "any") {
+    params.set("kind", kind);
+  }
+  return `${READING_BASE}/words?${params.toString()}`;
+}
+
+/** GET /api/reading/words (due first). `limit` grows with "show more". */
+export function useWordListQuery(status: WordStatusFilter, kind: WordKindFilter, limit = 50, enabled = true) {
+  return useQuery({
+    queryKey: [...queryKeys.readingWordList(status, kind), limit] as const,
+    queryFn: ({ signal }) => apiClient.get<ReadingWordList>(buildWordsPath(status, kind, limit), { signal }),
+    enabled
+  });
+}
+
+/** POST /api/reading/words (201 new, 200 when the card already existed). */
+export function useAddWordMutation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ReadingAddWordRequest) => apiClient.post<ReadingWordCard>(`${READING_BASE}/words`, body),
+    onSuccess: () => invalidateWords(client)
+  });
+}
+
+/** DELETE /api/reading/words/{id} */
+export function useDeleteWordMutation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<null>(`${READING_BASE}/words/${encodeURIComponent(id)}`),
+    onSuccess: () => invalidateWords(client)
+  });
+}
+
+/** POST /api/reading/words/{id}/review (multipart recording of the word). */
+export function useReviewWordMutation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; blob: Blob; filename: string }) => {
+      const form = new FormData();
+      form.append("audio", input.blob, input.filename);
+      return apiClient.post<ReadingWordReview>(`${READING_BASE}/words/${encodeURIComponent(input.id)}/review`, form, {
+        timeoutMs: READING_TIMEOUTS.assess
+      });
+    },
+    onSuccess: () => invalidateWords(client)
+  });
+}
+
+/** POST /api/reading/words/{id}/grade (vocabulary cards). */
+export function useGradeWordMutation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; grade: ReadingGrade }) =>
+      apiClient.post<ReadingWordCard>(`${READING_BASE}/words/${encodeURIComponent(input.id)}/grade`, { grade: input.grade }),
+    onSuccess: () => invalidateWords(client)
+  });
+}
+
+/** POST /api/reading/words/{id}/tts, then the audio blob. */
+export async function fetchWordAudio(cardId: string, options: { voice?: string | null; signal?: AbortSignal } = {}): Promise<Blob> {
+  const body: { voice?: string } = {};
+  if (options.voice) {
+    body.voice = options.voice;
+  }
+  const tts = await apiClient.post<ReadingTtsResponse>(`${READING_BASE}/words/${encodeURIComponent(cardId)}/tts`, body, {
+    signal: options.signal,
+    timeoutMs: READING_TIMEOUTS.tts
+  });
+  return fetchTtsAudio(tts.audio_url, options.signal);
+}
+
+/* ------------------------------------------------------------------ glossary and comprehension */
+
+/** Updates the cached glossary entry after the word was added to the deck. */
+export function markGlossaryInDeck(client: QueryClient, ref: ReadingWordRef, card: ReadingWordCard) {
+  client.setQueryData<ReadingGlossaryEntry>(
+    queryKeys.readingGlossary(ref.section_id, ref.part_id, ref.block_index, ref.char_start, ref.char_end),
+    (previous) => (previous ? { ...previous, in_deck: true, card_id: card.id } : previous)
+  );
+}
+
+/** POST /api/reading/sections/{id}/quiz: generates (or returns the cached) comprehension quiz. */
+export function useGenerateQuizMutation(sectionId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient.post<ReadingQuiz>(`${READING_BASE}/sections/${encodeURIComponent(sectionId)}/quiz`, undefined, {
+        timeoutMs: READING_TIMEOUTS.assess
+      }),
+    onSuccess: (quiz) => client.setQueryData(queryKeys.readingQuiz(sectionId), quiz)
+  });
+}
+
+/** POST /api/reading/sections/{id}/quiz/answer */
+export function useAnswerQuizMutation(sectionId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { questionIndex: number; choice: string }) =>
+      apiClient.post<ReadingQuizAnswerResult>(`${READING_BASE}/sections/${encodeURIComponent(sectionId)}/quiz/answer`, {
+        question_index: input.questionIndex,
+        choice: input.choice
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.readingStats })
+  });
+}
+
+/* ------------------------------------------------------------------ your data */
+
+/** GET /api/reading/me/export */
+export function exportReadingData(): Promise<ReadingDataExport> {
+  return apiClient.get<ReadingDataExport>(`${READING_BASE}/me/export`, { timeoutMs: READING_TIMEOUTS.assess });
+}
+
+/** DELETE /api/reading/me, then every reading query is refetched. */
+export function useDeleteReadingDataMutation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.delete<ReadingDataDeleted>(`${READING_BASE}/me`),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["reading"] })
+  });
+}
+
+/* ------------------------------------------------------------------ offline */
+
+export function offlineManifestPath(slug: string, file: string): string {
+  return `${READING_BASE}/books/${encodeURIComponent(slug)}/chapters/${encodeURIComponent(file)}/offline-manifest`;
+}
+
+export function sectionPath(sectionId: string): string {
+  return `${READING_BASE}/sections/${encodeURIComponent(sectionId)}`;
+}
+
+/** GET …/offline-manifest */
+export function fetchOfflineManifest(slug: string, file: string, signal?: AbortSignal): Promise<ReadingOfflineManifest> {
+  return apiClient.get<ReadingOfflineManifest>(offlineManifestPath(slug, file), { signal });
+}
+
+/** POST …/tts outside the query cache (offline downloads). */
+export function requestTts(params: TtsParams, signal?: AbortSignal): Promise<ReadingTtsResponse> {
+  return postTts(params, signal);
 }

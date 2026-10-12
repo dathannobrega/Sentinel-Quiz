@@ -7,11 +7,12 @@ import { AuthRequiredNotice } from "@/components/ui/auth-required-notice";
 import { Badge } from "@/components/ui/badge";
 import { buttonClassName } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ArrowRightIcon, BookIcon, HeadphonesIcon, PlayIcon } from "@/components/ui/icons";
+import { ArrowRightIcon, BookIcon, DownloadIcon, HeadphonesIcon, ListIcon, PlayIcon } from "@/components/ui/icons";
 import { Meter } from "@/components/ui/meter";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Page, PageHeader, Section } from "@/components/ui/section";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ReadingDataSection } from "@/features/reading/components/reading-data";
 import { ReadingStats } from "@/features/reading/components/reading-stats";
 import { useReadingCapabilitiesQuery, useReadingLibraryQuery } from "@/features/reading/hooks";
 import { formatCount } from "@/features/reading/lib/format";
@@ -86,6 +87,30 @@ function ContinueCard({ book }: { book: ReadingBook }) {
         {t("reading.library.continueButton")}
       </Link>
     </section>
+  );
+}
+
+/** "N words to review" + links to the words page and the offline chapters. */
+function PracticeLinks({ capabilities }: { capabilities: ReadingCapabilities | undefined }) {
+  const { t } = useI18n();
+  const due = capabilities?.words?.due;
+  // Increment 2 APIs report `words`; older ones have neither the deck nor the offline manifest.
+  if (!capabilities?.words && !capabilities?.offline) {
+    return null;
+  }
+  return (
+    <nav aria-label={t("reading.library.practiceNav")} className="flex flex-wrap items-center gap-2">
+      {capabilities.words ? (
+        <Link href="/read/words" className={buttonClassName(due ? "primary" : "secondary", "sm")}>
+          <ListIcon />
+          {due ? t("reading.words.libraryDue", { count: due }) : t("reading.words.libraryLink")}
+        </Link>
+      ) : null}
+      <Link href="/read/offline" className={buttonClassName("ghost", "sm")}>
+        <DownloadIcon />
+        {t("reading.offline.libraryLink")}
+      </Link>
+    </nav>
   );
 }
 
@@ -191,6 +216,7 @@ export function ReadingLibrary() {
     <Page>
       {header}
       <CapabilitiesBanner capabilities={capabilities.data} />
+      <PracticeLinks capabilities={capabilities.data} />
       {!booksAvailable ? (
         <EmptyState title={t("reading.library.emptyTitle")} description={t("reading.library.emptyMessage")}>
           <BookIcon className="text-fg-subtle" />
@@ -208,6 +234,7 @@ export function ReadingLibrary() {
         </>
       )}
       <ReadingStats />
+      {capabilities.data?.words ? <ReadingDataSection /> : null}
     </Page>
   );
 }

@@ -497,8 +497,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             limit=max(int(settings.rate_limit_ai_requests or 0), 1),
             window_seconds=max(int(settings.rate_limit_ai_window_seconds or 0), 1),
         )
-        # Sentinel Reader (POST /api/reading/...): synthesis and pronunciation scoring hit the
-        # speech service, so they get their own per-IP budget (reads stay in the public bucket).
+        # Sentinel Reader (POST/PUT/DELETE /api/reading/...): synthesis, pronunciation scoring and
+        # the AI glossary/quiz hit upstream services, and the DELETEs erase data, so writes get
+        # their own per-IP budget (reads stay in the public bucket).
         self._reading_policy = RateLimitPolicy(
             limit=max(int(settings.rate_limit_reading_requests or 0), 1),
             window_seconds=max(int(settings.rate_limit_reading_window_seconds or 0), 1),
@@ -699,7 +700,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return "live_ip", self._live_ip_policy, None
         if path.startswith("/api/ai/") and method == "POST" and not path.endswith(("/apply", "/suggest-format")):
             return "ai", self._ai_policy, None
-        if path.startswith("/api/reading/") and method in ("POST", "PUT"):
+        if path.startswith("/api/reading/") and method in ("POST", "PUT", "DELETE"):
             return "reading", self._reading_policy, None
         if path.startswith("/api/admin"):
             return "admin", self._admin_policy, None

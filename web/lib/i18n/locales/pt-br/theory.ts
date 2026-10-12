@@ -18,6 +18,7 @@ export const theory = {
     yourChoice: "Por que a alternativa {key} não é a resposta",
     explanation: "O conceito por trás da questão",
     readFull: "Ler seção completa",
+    listen: "Ouvir esta seção",
     newTab: "(abre em nova aba)",
     practice: "Praticar esta seção",
     practiceCount: "{count} questão(ões) ligadas a esta seção",

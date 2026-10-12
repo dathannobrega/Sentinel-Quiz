@@ -1,8 +1,11 @@
-/** Reader preferences persisted per device (mode, voice, speed, auto-advance, follow). */
+/** Reader preferences persisted per device (mode, voice, speed, auto-advance, follow, tap to translate). */
 
 export const READING_PREFS_STORAGE_KEY = "sentinel_reading_prefs";
 
-export type ReaderMode = "listen" | "shadow";
+/** Listen (read along), sentence drill, paragraph shadowing. */
+export type ReaderMode = "listen" | "drill" | "shadow";
+
+export const READER_MODES: readonly ReaderMode[] = ["listen", "drill", "shadow"];
 
 export interface ReadingPrefs {
   mode: ReaderMode;
@@ -10,6 +13,8 @@ export interface ReadingPrefs {
   speed: number;
   autoAdvance: boolean;
   follow: boolean;
+  /** "Tap to translate": a word click opens the glossary instead of seeking. */
+  glossaryTap: boolean;
 }
 
 export const DEFAULT_READING_PREFS: ReadingPrefs = {
@@ -17,7 +22,8 @@ export const DEFAULT_READING_PREFS: ReadingPrefs = {
   voice: null,
   speed: 1,
   autoAdvance: true,
-  follow: true
+  follow: true,
+  glossaryTap: false
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,8 +36,8 @@ export function parseReadingPrefs(raw: unknown): ReadingPrefs {
   if (!isRecord(raw)) {
     return prefs;
   }
-  if (raw.mode === "listen" || raw.mode === "shadow") {
-    prefs.mode = raw.mode;
+  if (typeof raw.mode === "string" && (READER_MODES as readonly string[]).includes(raw.mode)) {
+    prefs.mode = raw.mode as ReaderMode;
   }
   if (typeof raw.voice === "string" && raw.voice.trim()) {
     prefs.voice = raw.voice;
@@ -44,6 +50,9 @@ export function parseReadingPrefs(raw: unknown): ReadingPrefs {
   }
   if (typeof raw.follow === "boolean") {
     prefs.follow = raw.follow;
+  }
+  if (typeof raw.glossaryTap === "boolean") {
+    prefs.glossaryTap = raw.glossaryTap;
   }
   return prefs;
 }

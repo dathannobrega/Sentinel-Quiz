@@ -1,5 +1,5 @@
 import { tokenizeDisplay, type DisplayToken } from "@/features/reading/lib/tokenize";
-import type { ReadingSectionDetail } from "@/types/api";
+import type { ReadingSectionDetail, ReadingSentence } from "@/types/api";
 
 /** One paragraph of the section: the unit of TTS, shadowing and progress. */
 export interface ReaderBlock {
@@ -13,6 +13,8 @@ export interface ReaderBlock {
   text: string;
   label: string | null;
   tokens: DisplayToken[];
+  /** Sentences with offsets into `text` (from the API; one sentence = the whole block otherwise). */
+  sentences: ReadingSentence[];
 }
 
 export function blockKey(partId: string, blockIndex: number): string {
@@ -33,7 +35,8 @@ export function flattenBlocks(detail: ReadingSectionDetail): ReaderBlock[] {
         blockIndex,
         text: block.text,
         label: block.label ?? null,
-        tokens: tokenizeDisplay(block.text)
+        tokens: tokenizeDisplay(block.text),
+        sentences: block.sentences?.length ? block.sentences : [{ index: 0, char_start: 0, char_end: block.text.length }]
       });
     });
   });

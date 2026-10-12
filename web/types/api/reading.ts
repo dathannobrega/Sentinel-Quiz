@@ -1,6 +1,6 @@
 /** Sentinel Reader (`/api/reading`): library, read-along TTS, shadowing assessment, progress. */
 
-import type { StudySectionDetail } from "./study";
+import type { StudySectionBlock, StudySectionDetail, StudySectionPart } from "./study";
 
 export type ReadingMode = "listen" | "read" | "shadow";
 
@@ -39,6 +39,13 @@ export interface ReadingQuota {
   remaining: number;
 }
 
+/** AI-backed features (glossary, comprehension): off without a configured provider. */
+export interface ReadingAiCapability {
+  available: boolean;
+  reason: string | null;
+  provider: string | null;
+}
+
 /** GET /api/reading/capabilities. With `enabled: false` the other fields may be absent. */
 export interface ReadingCapabilities {
   enabled: boolean;
@@ -46,6 +53,11 @@ export interface ReadingCapabilities {
   tts?: ReadingTtsCapability;
   assess?: ReadingAssessCapability;
   quota?: ReadingQuota;
+  /** Increment 2. */
+  ai?: ReadingAiCapability;
+  phonemes?: { available: boolean };
+  words?: { due: number };
+  offline?: { max_chapters: number };
 }
 
 export interface ReadingChapterSummary {
@@ -118,8 +130,25 @@ export interface ReadingSectionProgress {
   updated_at: string;
 }
 
+/** One sentence of a block: offsets into the block `text` (same splitter as the corpus). */
+export interface ReadingSentence {
+  index: number;
+  char_start: number;
+  char_end: number;
+}
+
+export interface ReadingSectionBlock extends StudySectionBlock {
+  /** Increment 2 (drill). Absent on older APIs. */
+  sentences?: ReadingSentence[];
+}
+
+export interface ReadingSectionPart extends Omit<StudySectionPart, "blocks"> {
+  blocks: ReadingSectionBlock[];
+}
+
 /** GET /api/reading/sections/{id}: a StudySectionDetail plus its place in the book. */
-export interface ReadingSectionDetail extends StudySectionDetail {
+export interface ReadingSectionDetail extends Omit<StudySectionDetail, "parts"> {
+  parts: ReadingSectionPart[];
   book_slug: string;
   chapter_file: string;
   chapter_index: number;
@@ -159,6 +188,24 @@ export interface ReadingTtsResponse {
 
 export type ReadingWordStatus = "ok" | "weak" | "mispronounced" | "missed";
 
+/** Why a word is not `ok`: `substitution`/`phoneme` (mispronounced), `ending`/`low_confidence` (weak). */
+export type ReadingWordReason = "substitution" | "phoneme" | "ending" | "low_confidence";
+
+export type ReadingPhonemeQuality = "good" | "fair" | "bad";
+
+/** One expected phoneme of a word scored by the phoneme engine (GOP). */
+export interface ReadingPhoneme {
+  ipa: string;
+  /** (0, 1] */
+  score: number;
+  /** Most likely phoneme heard in that stretch (null when nothing was heard). */
+  heard: string | null;
+  quality: ReadingPhonemeQuality;
+}
+
+/** `unexpected`: a pause before this word mid-phrase; `missing`: no pause after this sentence end. */
+export type ReadingWordBreak = "unexpected" | "missing";
+
 export interface ReadingAssessedWord {
   index: number;
   text: string;
@@ -171,6 +218,11 @@ export interface ReadingAssessedWord {
   end: number | null;
   expected_ipa: string | null;
   heard_ipa: string | null;
+  /** Increment 2 fields (absent on older attempts). */
+  reason?: ReadingWordReason | null;
+  phoneme_score?: number | null;
+  phonemes?: ReadingPhoneme[] | null;
+  break?: ReadingWordBreak | null;
 }
 
 /** A spoken word that is not in the text, anchored after `after_index` (-1 = before the first). */
@@ -185,7 +237,29 @@ export interface ReadingScores {
   accuracy: number;
   completeness: number;
   fluency: number;
+  /** Null when the recording had fewer than 3 heard words; absent before Increment 2. */
+  prosody?: number | null;
   overall: number;
+}
+
+export interface ReadingProsody {
+  score: number | null;
+  pitch_range_semitones: number | null;
+  monotone: boolean;
+  unexpected_breaks: number;
+  missing_breaks: number;
+}
+
+/** Engines used by the assessment; `phoneme` is null while the phoneme model is off or warming. */
+export interface ReadingAssessEngines {
+  asr: string | null;
+  phoneme: string | null;
+}
+
+/** Spaced-repetition side effects of one assessment. */
+export interface ReadingDeckDelta {
+  added: number;
+  reviewed: number;
 }
 
 export interface ReadingMetrics {
@@ -224,6 +298,13 @@ export interface ReadingAssessment {
   tips: ReadingTip[];
   best_overall: number | null;
   attempts_for_block: number;
+  /** Increment 2. */
+  prosody?: ReadingProsody | null;
+  engines?: ReadingAssessEngines | null;
+  deck?: ReadingDeckDelta | null;
+  /** Drill: the assessed sentence and its start in the block (word offsets are sentence-relative). */
+  sentence_index?: number | null;
+  char_offset?: number | null;
 }
 
 /** GET /api/reading/sections/{id}/attempts */
@@ -237,6 +318,7 @@ export interface ReadingAttemptSummary {
   fluency: number;
   wpm: number | null;
   created_at: string;
+  sentence_index?: number | null;
 }
 
 export interface ReadingAttemptList {
@@ -258,6 +340,9 @@ export interface ReadingStats {
   seconds_listened: number;
   active_days_30: number;
   recent: ReadingStatsDay[];
+  /** Increment 2. */
+  words?: { total: number; due: number; learned: number };
+  quiz?: { answered: number; correct: number };
 }
 
 /** PUT /api/reading/progress body. `words_read` and `seconds_listened` are increments. */
@@ -274,4 +359,155 @@ export interface ReadingProgressUpdate {
 /** GET /api/reading/progress */
 export interface ReadingProgressList {
   items: ReadingProgress[];
+}
+
+/* ------------------------------------------------------------------ Increment 2 */
+
+export type ReadingCardKind = "pronunciation" | "vocabulary";
+export type ReadingCardSource = "assessment" | "glossary" | "manual";
+export type ReadingGrade = "again" | "hard" | "good" | "easy";
+
+/** A word in the spaced-repetition deck (scheduling happens on the server). */
+export interface ReadingWordCard {
+  id: string;
+  word: string;
+  kind: ReadingCardKind;
+  ipa: string | null;
+  meaning_pt: string | null;
+  context: string | null;
+  section_id: string | null;
+  source: ReadingCardSource;
+  reps: number;
+  lapses: number;
+  ease: number;
+  interval_days: number;
+  due_at: string;
+  last_score: number | null;
+  last_reviewed_at: string | null;
+  created_at: string;
+}
+
+/** GET /api/reading/words */
+export interface ReadingWordList {
+  items: ReadingWordCard[];
+  total: number;
+  due: number;
+}
+
+/** GET /api/reading/words/summary */
+export interface ReadingWordSummary {
+  total: number;
+  due: number;
+  learned: number;
+  by_kind: Partial<Record<ReadingCardKind, number>>;
+}
+
+/** A word inside a block, by character offsets (the server reads the text from the corpus). */
+export interface ReadingWordRef {
+  section_id: string;
+  part_id: string;
+  block_index: number;
+  char_start: number;
+  char_end: number;
+}
+
+/** POST /api/reading/words */
+export interface ReadingAddWordRequest extends ReadingWordRef {
+  kind: ReadingCardKind;
+}
+
+/** POST /api/reading/words/{id}/review */
+export interface ReadingWordReview {
+  assessment: ReadingAssessment;
+  grade: ReadingGrade;
+  card: ReadingWordCard;
+}
+
+export type ReadingGlossarySource = "ai" | "cache" | "none";
+
+/** POST /api/reading/glossary */
+export interface ReadingGlossaryEntry {
+  word: string;
+  word_norm: string;
+  lemma: string | null;
+  part_of_speech: string | null;
+  ipa: string | null;
+  translation_pt: string | null;
+  definition_en: string | null;
+  context_explanation_pt: string | null;
+  examples: string[];
+  source: ReadingGlossarySource;
+  in_deck: boolean;
+  card_id: string | null;
+}
+
+export interface ReadingQuizOption {
+  key: string;
+  text: string;
+}
+
+export interface ReadingQuizQuestion {
+  index: number;
+  prompt: string;
+  options: ReadingQuizOption[];
+}
+
+export interface ReadingQuizAnswerState {
+  question_index: number;
+  choice: string;
+  correct: boolean;
+}
+
+/** POST /api/reading/sections/{id}/quiz (no answer key). */
+export interface ReadingQuiz {
+  quiz_id: string;
+  section_id: string;
+  source: "ai" | "cache";
+  questions: ReadingQuizQuestion[];
+  answers: ReadingQuizAnswerState[];
+}
+
+/** POST /api/reading/sections/{id}/quiz/answer */
+export interface ReadingQuizAnswerResult {
+  correct: boolean;
+  correct_key: string;
+  explanation: string;
+  evidence: string;
+  answered: number;
+  correct_count: number;
+}
+
+/** GET /api/reading/me/export */
+export interface ReadingDataExport {
+  exported_at: string;
+  progress: unknown[];
+  attempts: unknown[];
+  words: unknown[];
+  quiz_answers: unknown[];
+}
+
+/** DELETE /api/reading/me */
+export interface ReadingDataDeleted {
+  deleted: { progress: number; attempts: number; words: number; quiz_answers: number };
+}
+
+export interface ReadingOfflineBlock {
+  part_id: string;
+  block_index: number;
+  words: number;
+}
+
+export interface ReadingOfflineSection {
+  id: string;
+  title: string;
+  blocks: ReadingOfflineBlock[];
+}
+
+/** GET /api/reading/books/{slug}/chapters/{file}/offline-manifest */
+export interface ReadingOfflineManifest {
+  book: { slug: string; title: string; certification?: string | null };
+  chapter: { file: string; index: number; title: string; words?: number; minutes?: number };
+  sections: ReadingOfflineSection[];
+  total_blocks: number;
+  estimated_audio_mb: number;
 }

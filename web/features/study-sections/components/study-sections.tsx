@@ -1,7 +1,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { BookIcon, ExternalIcon, PlayCircleIcon } from "@/components/ui/icons";
+import { BookIcon, ExternalIcon, HeadphonesIcon, PlayCircleIcon } from "@/components/ui/icons";
+import { buildReaderHref } from "@/features/reading/lib/hrefs";
 import { usePracticeSectionMutation } from "@/features/study-sections/hooks";
 import { readErrorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils/cn";
@@ -88,6 +89,16 @@ export function StudySections({ sections, t, allowPractice = false, headingLevel
                 >
                   {t("theory.sections.readFull")}
                   <ExternalIcon size={13} />
+                  <span className="sr-only">{t("theory.sections.newTab")}</span>
+                </a>
+                <a
+                  href={buildReaderHref(section.section_id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="focus-ring inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  <HeadphonesIcon size={13} />
+                  {t("theory.sections.listen")}
                   <span className="sr-only">{t("theory.sections.newTab")}</span>
                 </a>
                 {allowPractice ? (

@@ -63,9 +63,13 @@ describe("StudySections", () => {
 
   it("opens the full section in a new tab and offers no practice inside a session", () => {
     render(wrap(<StudySections sections={SECTIONS} t={t} />));
-    const link = within(screen.getAllByRole("listitem")[1]).getByRole("link");
+    const link = within(screen.getAllByRole("listitem")[1]).getByRole("link", { name: new RegExp(t("theory.sections.readFull")) });
     expect(link.getAttribute("href")).toBe(`/theory?section=${encodeURIComponent("book:c04:head-3-30")}`);
     expect(link.getAttribute("target")).toBe("_blank");
+    const listen = within(screen.getAllByRole("listitem")[1]).getByRole("link", { name: new RegExp(t("theory.sections.listen")) });
+    expect(listen.getAttribute("href")).toBe(`/read/s/${encodeURIComponent("book:c04:head-3-30")}`);
+    expect(listen.getAttribute("target")).toBe("_blank");
+    expect(listen.getAttribute("rel")).toContain("noopener");
     expect(screen.queryByRole("button", { name: new RegExp(t("theory.sections.practice")) })).toBeNull();
   });
 

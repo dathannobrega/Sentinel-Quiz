@@ -35,6 +35,26 @@ class HeardWord:
     start: float
     end: float
     probability: float
+    # Test hook only: the fake phoneme engine "hears" these letters instead of ``text``
+    # (lets tests model "Whisper wrote the right word but the sounds were wrong").
+    phones: str | None = None
+
+
+@dataclass
+class Posteriors:
+    """Frame-level CTC log-posteriors of a phoneme recognizer over a whole recording."""
+
+    logp: np.ndarray  # [frames, vocab] log-softmax
+    frame_rate: float  # frames per second (50 for wav2vec2)
+    vocab: list[str]  # id -> token
+    blank_id: int
+    special_ids: frozenset[int] = frozenset()  # never "heard" (<s>, </s>, <unk>)
+
+    def __post_init__(self) -> None:
+        self._index = {tok: i for i, tok in enumerate(self.vocab)}
+
+    def token_id(self, token: str) -> int | None:
+        return self._index.get(token)
 
 
 class EngineError(RuntimeError):
@@ -73,6 +93,31 @@ class ASREngine(Protocol):
     def transcribe(
         self, audio_f32_16k: np.ndarray, *, reference_text: str | None = None, raw_bytes: bytes | None = None
     ) -> list[HeardWord]: ...
+
+
+@dataclass(slots=True)
+class ExpectedPhonemes:
+    """Expected pronunciation of one reference word, already in the model's tokens."""
+
+    ipa: str  # display IPA (stress marks kept, tie characters removed)
+    tokens: list[str]
+
+
+@runtime_checkable
+class PhonemeEngine(Protocol):
+    name: str
+    model: str
+
+    @property
+    def ready(self) -> bool: ...
+
+    def load(self) -> None: ...
+
+    def posteriors(self, audio_f32_16k: np.ndarray, heard: list[HeardWord]) -> Posteriors: ...
+
+    def expected(self, words: list[str]) -> list[list[ExpectedPhonemes]]:
+        """Pronunciation variants per normalized reference word (empty list = unknown)."""
+        ...
 
 
 class LazyLoader:
@@ -175,3 +220,33 @@ class DisabledASR:
 
     def transcribe(self, audio_f32_16k: np.ndarray, *, reference_text: str | None = None, raw_bytes: bytes | None = None) -> list[HeardWord]:
         raise EngineDisabled("ASR engine is disabled")
+
+
+class DisabledPhoneme:
+    """``SPEECH_PHONEME_ENGINE=none``: assessments carry no phoneme scores."""
+
+    name = "none"
+
+    def __init__(self, model: str = "") -> None:
+        self.model = model
+
+    @property
+    def ready(self) -> bool:
+        return False
+
+    @property
+    def loading(self) -> bool:
+        return False
+
+    @property
+    def error(self) -> str | None:
+        return None
+
+    def load(self) -> None:
+        return None
+
+    def posteriors(self, audio_f32_16k: np.ndarray, heard: list[HeardWord]) -> Posteriors:
+        raise EngineDisabled("phoneme engine is disabled")
+
+    def expected(self, words: list[str]) -> list[list[ExpectedPhonemes]]:
+        return [[] for _ in words]

@@ -1,0 +1,61 @@
+{
+  "chapter_index": 1,
+  "file_name": "c01.xhtml",
+  "title": "Chapter 1: Everyday Security Habits",
+  "page_start": 1,
+  "page_end": 4,
+  "sections_count": 4,
+  "total_words": 185,
+  "sections": [
+    {
+      "anchor": "c01_1",
+      "id": "c01_1",
+      "level": 1,
+      "title": "Chapter 1 Everyday Security Habits",
+      "parent_titles": [],
+      "page_start": 1,
+      "page_end": 1,
+      "content_text": "Chapter 1 Everyday Security Habits This chapter explains simple habits that protect people and organizations from common attacks. You will learn how to recognize phishing, how pretexting works, and how to report a suspicious message quickly. Recognizing Phishing Phishing is a message that pretends to come from someone you trust. The sender wants you to click a link, open a file, or share a password. Look closely at the address of the sender. Check whether the link really points to the website it names. A sense of urgency is a common warning sign. Pretexting on the Phone Pretexting means inventing a believable story to get information. A caller may claim to work for the help desk and ask for your account details. Always confirm the identity of the caller through a known number. Never share a one-time code with anyone who calls you. Reporting Suspicious Messages Reporting a suspicious message helps the whole team. Forward the message to the security team and then delete it. Do not reply to the sender. Fast reports allow defenders to block the attack before other people fall for it.",
+      "word_count": 185
+    },
+    {
+      "anchor": "head-2-1",
+      "id": "head-2-1",
+      "level": 2,
+      "title": "Recognizing Phishing",
+      "parent_titles": [
+        "Chapter 1 Everyday Security Habits"
+      ],
+      "page_start": 2,
+      "page_end": 2,
+      "content_text": "Recognizing Phishing Phishing is a message that pretends to come from someone you trust. The sender wants you to click a link, open a file, or share a password. Look closely at the address of the sender. Check whether the link really points to the website it names. A sense of urgency is a common warning sign.",
+      "word_count": 57
+    },
+    {
+      "anchor": "head-2-2",
+      "id": "head-2-2",
+      "level": 2,
+      "title": "Pretexting on the Phone",
+      "parent_titles": [
+        "Chapter 1 Everyday Security Habits"
+      ],
+      "page_start": 3,
+      "page_end": 3,
+      "content_text": "Pretexting on the Phone Pretexting means inventing a believable story to get information. A caller may claim to work for the help desk and ask for your account details. Always confirm the identity of the caller through a known number. Never share a one-time code with anyone who calls you.",
+      "word_count": 50
+    },
+    {
+      "anchor": "head-2-3",
+      "id": "head-2-3",
+      "level": 2,
+      "title": "Reporting Suspicious Messages",
+      "parent_titles": [
+        "Chapter 1 Everyday Security Habits"
+      ],
+      "page_start": 4,
+      "page_end": 4,
+      "content_text": "Reporting Suspicious Messages Reporting a suspicious message helps the whole team. Forward the message to the security team and then delete it. Do not reply to the sender. Fast reports allow defenders to block the attack before other people fall for it.",
+      "word_count": 42
+    }
+  ]
+}

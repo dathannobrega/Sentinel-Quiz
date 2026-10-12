@@ -16,8 +16,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.clock import utcnow
-from app.models import ReadingAttempt, ReadingProgress, User
-from app.services.material_corpus import CorpusBook, CorpusSection, MaterialCorpus, get_corpus
+from app.models import ReadingAiCall, ReadingAttempt, ReadingProgress, User
+from app.services.material_corpus import CorpusBook, CorpusSection, MaterialCorpus, get_corpus, sentence_spans
 from app.services.study_links import section_detail
 
 READABLE_KINDS = frozenset({"teach", "summary"})
@@ -191,6 +191,9 @@ def build_section(db: Session, user: User, section_id: str) -> dict[str, Any] | 
     progress = None
     if row is not None and row.section_id == section.id:
         progress = {"part_id": row.part_id, "block_index": row.block_index, "mode": row.mode, "updated_at": _iso(row.updated_at)}
+    for part in detail.get("parts") or []:
+        for block in part.get("blocks") or []:
+            block["sentences"] = sentences_of(str(block.get("text") or ""))
     detail.update({
         "book_slug": section.book_slug,
         "chapter_file": chapter_stem(section.chapter_file),
@@ -199,6 +202,49 @@ def build_section(db: Session, user: User, section_id: str) -> dict[str, Any] | 
         "progress": progress,
     })
     return detail
+
+
+# ---------------------------------------------------------------------------- offline
+# Estimated audio size: 64 kb/s ≈ 0.45 MB per minute (contract §3.6).
+OFFLINE_MB_PER_MINUTE = 0.45
+
+
+def build_offline_manifest(slug: str, chapter_file: str) -> dict[str, Any] | None:
+    """What the PWA downloads to listen to a chapter offline (§3.6).
+
+    One entry per readable section of the chapter with its *own* blocks only (a parent section's
+    reader page also renders its children, which are listed as sections of their own), so every
+    paragraph is synthesized once; ``(id, part_id, block_index)`` is what ``POST …/tts`` takes.
+    """
+    corpus = get_corpus()
+    book = corpus.books.get(slug) if corpus else None
+    if corpus is None or book is None:
+        return None
+    stem = chapter_stem(chapter_file)
+    in_chapter = [section for section in readable_sections(corpus, book) if chapter_stem(section.chapter_file) == stem]
+    if not in_chapter:
+        return None
+    sections = []
+    total_blocks = total_words = 0
+    for section in in_chapter:
+        blocks = []
+        for index, block in enumerate(section.blocks):
+            words = len(block.text.split())
+            if not words:
+                continue
+            blocks.append({"part_id": section.id, "block_index": index, "words": words})
+            total_words += words
+        total_blocks += len(blocks)
+        sections.append({"id": section.id, "title": section.title, "blocks": blocks})
+    first = in_chapter[0]
+    minutes = total_words / WORDS_PER_MINUTE
+    return {
+        "book": {"slug": book.slug, "title": book.title, "certification": book.certification},
+        "chapter": {"file": stem, "index": first.chapter_index, "title": first.chapter_title},
+        "sections": sections,
+        "total_blocks": total_blocks,
+        "estimated_audio_mb": round(minutes * OFFLINE_MB_PER_MINUTE, 1),
+    }
 
 
 # ---------------------------------------------------------------------------- blocks
@@ -226,6 +272,20 @@ def resolve_block(section_id: str, part_id: str, block_index: int) -> tuple[Corp
     if not text:
         return None
     return section, part, text
+
+
+def sentences_of(text: str) -> list[dict[str, int]]:
+    """Sentence offsets of a block for the drill (§3.1), on the same text the reader shows."""
+    return [{"index": index, "char_start": start, "char_end": end} for index, (start, end) in enumerate(sentence_spans(text))]
+
+
+def resolve_sentence(text: str, sentence_index: int) -> tuple[int, str] | None:
+    """``(char_offset, sentence_text)`` of one sentence of a block, ``None`` when out of range."""
+    spans = sentence_spans(text)
+    if sentence_index < 0 or sentence_index >= len(spans):
+        return None
+    start, end = spans[sentence_index]
+    return start, text[start:end]
 
 
 # ---------------------------------------------------------------------------- progress
@@ -270,14 +330,52 @@ def attempts_today(db: Session, user: User) -> int:
     return int(value or 0)
 
 
+# ---------------------------------------------------------------------------- usage ledger
+# ``reading_ai_call`` rows: one per metered upstream call, no content (Increment 2, §3.3).
+CALL_GLOSSARY = "glossary"
+CALL_QUIZ = "quiz"
+CALL_WORD_REVIEW = "word_review"
+AI_CALL_KINDS = (CALL_GLOSSARY, CALL_QUIZ)
+
+
+def calls_today(db: Session, user: User, kinds: tuple[str, ...]) -> int:
+    value = db.execute(
+        select(func.count(ReadingAiCall.id)).where(
+            ReadingAiCall.user_id == user.id, ReadingAiCall.kind.in_(kinds), ReadingAiCall.created_at >= _today_start()
+        )
+    ).scalar()
+    return int(value or 0)
+
+
+def record_call(db: Session, user: User, kind: str) -> None:
+    """Count a metered call (committed right away: the quota must hold even if the call fails)."""
+    db.add(ReadingAiCall(user_id=user.id, kind=kind, created_at=utcnow()))
+    db.commit()
+
+
+def assess_used_today(db: Session, user: User) -> int:
+    """Recordings scored today: paragraph/sentence attempts plus word reviews (one daily quota)."""
+    return attempts_today(db, user) + calls_today(db, user, (CALL_WORD_REVIEW,))
+
+
 def record_attempt(
-    db: Session, user: User, *, section: CorpusSection, part_id: str, block_index: int, assessment: dict[str, Any]
+    db: Session,
+    user: User,
+    *,
+    section: CorpusSection,
+    part_id: str,
+    block_index: int,
+    assessment: dict[str, Any],
+    sentence_index: int | None = None,
 ) -> ReadingAttempt:
     scores = dict(assessment.get("scores") or {})
     metrics = dict(assessment.get("metrics") or {})
     kept = {
         key: assessment.get(key)
-        for key in ("transcript", "words", "extras", "scores", "metrics", "tips", "speech_seconds", "duration_seconds")
+        for key in (
+            "transcript", "words", "extras", "scores", "metrics", "tips", "speech_seconds", "duration_seconds",
+            "prosody", "engines",
+        )
     }
     row = ReadingAttempt(
         user_id=user.id,
@@ -295,6 +393,7 @@ def record_attempt(
         engine=str(assessment.get("engine") or "")[:32] or None,
         model=str(assessment.get("model") or "")[:64] or None,
         result_json=json.dumps(kept, ensure_ascii=False),
+        sentence_index=sentence_index,
         created_at=utcnow(),
     )
     db.add(row)
@@ -316,6 +415,7 @@ def serialize_attempt(row: ReadingAttempt) -> dict[str, Any]:
         "section_id": row.section_id,
         "part_id": row.part_id,
         "block_index": row.block_index,
+        "sentence_index": row.sentence_index,
         "overall": round(row.overall, 3),
         "accuracy": round(row.accuracy, 3),
         "completeness": round(row.completeness, 3),
@@ -336,13 +436,19 @@ def list_attempts(db: Session, user: User, section_id: str, *, limit: int = 20) 
     return [serialize_attempt(row) for row in rows]
 
 
-def block_summary(db: Session, user: User, section_id: str, part_id: str, block_index: int) -> dict[str, Any]:
+def block_summary(
+    db: Session, user: User, section_id: str, part_id: str, block_index: int, sentence_index: int | None = None
+) -> dict[str, Any]:
+    """Best score and attempt count of the unit just read: the paragraph, or one sentence of it
+    in the drill (a sentence score is not comparable with a paragraph score)."""
+    unit = ReadingAttempt.sentence_index.is_(None) if sentence_index is None else ReadingAttempt.sentence_index == int(sentence_index)
     best, count = db.execute(
         select(func.max(ReadingAttempt.overall), func.count(ReadingAttempt.id)).where(
             ReadingAttempt.user_id == user.id,
             ReadingAttempt.section_id == section_id,
             ReadingAttempt.part_id == part_id,
             ReadingAttempt.block_index == int(block_index),
+            unit,
         )
     ).one()
     return {"best_overall": round(float(best), 3) if best is not None else None, "attempts_for_block": int(count or 0)}

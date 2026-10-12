@@ -57,6 +57,11 @@ class AlignedWord:
     end: float | None
     expected_ipa: str | None = None
     heard_ipa: str | None = None
+    # null | substitution | phoneme (mispronounced) | ending | low_confidence (weak)
+    reason: str | None = None
+    phoneme_score: float | None = None
+    phonemes: list[dict] | None = None
+    brk: str | None = None  # prosody break: null | unexpected | missing
 
 
 @dataclass(slots=True)
@@ -91,12 +96,44 @@ def _substitution_cost(ref_norm: str, hyp_norm: str) -> float:
     return 1.0
 
 
+_ENDING_SUFFIXES = ("'s", "s'", "'", "es", "s")
+
+
+def _ending_stems(key: str) -> set[str]:
+    stems = {key}
+    for suffix in _ENDING_SUFFIXES:
+        if key.endswith(suffix) and len(key) - len(suffix) >= 3:
+            stems.add(key[: -len(suffix)])
+    return stems
+
+
+def is_ending_variant(ref_norm: str, hyp_norm: str) -> bool:
+    """True when two different words only differ in a possessive/plural ending.
+
+    ``organization's`` / ``organizations`` / ``organizations'`` vs ``organization`` (and
+    apostrophe-only differences such as ``its`` / ``it's``, which sound the same).
+    """
+    ref, hyp = compare_key(ref_norm), compare_key(hyp_norm)
+    if not ref or not hyp or ref == hyp:
+        return False
+    if ref.replace("'", "") == hyp.replace("'", ""):
+        return True
+    return bool(_ending_stems(ref) & _ending_stems(hyp))
+
+
 def _round(value: float | None) -> float | None:
     return None if value is None else round(float(value), 3)
 
 
-def align(reference: list[RefWord], heard: list[HeardWord]) -> tuple[list[AlignedWord], list[Extra]]:
-    """Align reference words with heard words; returns per-word status and extras."""
+def align(
+    reference: list[RefWord], heard: list[HeardWord], weak_confidence: float = OK_CONFIDENCE
+) -> tuple[list[AlignedWord], list[Extra]]:
+    """Align reference words with heard words; returns per-word status and extras.
+
+    Status/reason: same word -> ``ok`` (``weak`` + ``low_confidence`` under
+    ``weak_confidence``); only the possessive/plural ending differs -> ``weak`` +
+    ``ending``; any other word -> ``mispronounced`` + ``substitution``.
+    """
     hyp_norm = [normalize_word(w.text) for w in heard]
     n, m = len(reference), len(heard)
     INF = float("inf")
@@ -158,17 +195,21 @@ def align(reference: list[RefWord], heard: list[HeardWord]) -> tuple[list[Aligne
         chunk = [heard[k] for k in hyp_indices]
         heard_text = " ".join(hyp_norm[k] or heard[k].text for k in hyp_indices)
         confidence = sum(w.probability for w in chunk) / len(chunk)
+        reason: str | None = None
         if compare_key(ref.norm) == compare_key(heard_text):
-            status = "ok" if confidence >= OK_CONFIDENCE else "weak"
+            status = "ok" if confidence >= weak_confidence else "weak"
+            reason = None if status == "ok" else "low_confidence"
+        elif is_ending_variant(ref.norm, heard_text):
+            status, reason = "weak", "ending"
         else:
-            status = "mispronounced"
+            status, reason = "mispronounced", "substitution"
         words.append(
             AlignedWord(
                 ref.index, ref.text, ref.char_start, ref.char_end, status, heard_text,
-                _round(confidence), _round(chunk[0].start), _round(chunk[-1].end),
+                _round(confidence), _round(chunk[0].start), _round(chunk[-1].end), reason=reason,
             )
         )
     return words, extras
 
 
-__all__ = ["AlignedWord", "Extra", "RefWord", "DisplayToken", "align", "reference_words", "OK_CONFIDENCE"]
+__all__ = ["AlignedWord", "Extra", "RefWord", "DisplayToken", "align", "is_ending_variant", "reference_words", "OK_CONFIDENCE"]

@@ -1,15 +1,20 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { AlertIcon, CircleCheckIcon, CircleXIcon, GaugeIcon, PlusSquareIcon, RepeatIcon, StrikeIcon, WaveIcon } from "@/components/ui/icons";
+import { AlertIcon, CircleCheckIcon, CircleXIcon, GaugeIcon, InfoIcon, PlusSquareIcon, RepeatIcon, StrikeIcon, WaveIcon, XIcon } from "@/components/ui/icons";
 import { Meter } from "@/components/ui/meter";
 import { formatSpeed, scoreToPercent } from "@/features/reading/lib/format";
+import { PHONEME_QUALITY_CLASS, PHONEME_QUALITY_KEY, reasonLabelKey, STATUS_CLASS, STATUS_LABEL_KEY } from "@/features/reading/lib/word-status";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 import { formatDateTime } from "@/lib/utils/format";
-import type { ReadingAssessedWord, ReadingAssessment, ReadingAttemptSummary, ReadingTip, ReadingWordStatus } from "@/types/api";
+import type { ReadingAssessedWord, ReadingAssessment, ReadingAttemptSummary, ReadingScores, ReadingTip, ReadingWordStatus } from "@/types/api";
+
+type Translate = (key: string, values?: Record<string, string | number>) => string;
 
 export interface AssessmentResultProps {
   assessment: ReadingAssessment;
@@ -22,6 +27,8 @@ export interface AssessmentResultProps {
   /** Recent attempts for this block (most recent first). */
   attempts?: ReadingAttemptSummary[];
   isNewBest?: boolean;
+  /** Compact layout (word review): no legend, transcript or attempt history. */
+  compact?: boolean;
 }
 
 type IconComponent = typeof CircleCheckIcon;
@@ -33,23 +40,14 @@ const STATUS_ICON: Record<ReadingWordStatus, IconComponent> = {
   missed: StrikeIcon
 };
 
-const STATUS_LABEL_KEY: Record<ReadingWordStatus, string> = {
-  ok: "reading.result.statusOk",
-  weak: "reading.result.statusWeak",
-  mispronounced: "reading.result.statusMispronounced",
-  missed: "reading.result.statusMissed"
-};
+const BREAK_MARK = "‖";
 
-/** Visual treatment per status: never color alone (underline style, strikethrough, icon in legend). */
-const STATUS_CLASS: Record<ReadingWordStatus, string> = {
-  ok: "",
-  weak: "underline decoration-warning decoration-dotted decoration-2 underline-offset-4",
-  mispronounced: "text-danger underline decoration-danger decoration-2 underline-offset-4",
-  missed: "text-fg-muted line-through decoration-fg-muted"
-};
-
-function wordTitle(word: ReadingAssessedWord, t: (key: string, values?: Record<string, string | number>) => string): string {
+function wordTitle(word: ReadingAssessedWord, t: Translate): string {
   const parts = [t(STATUS_LABEL_KEY[word.status])];
+  const reason = reasonLabelKey(word.reason);
+  if (reason) {
+    parts.push(t(reason));
+  }
   if (word.heard && word.status !== "ok") {
     parts.push(t("reading.result.heard", { heard: word.heard }));
   }
@@ -59,10 +57,20 @@ function wordTitle(word: ReadingAssessedWord, t: (key: string, values?: Record<s
   if (word.heard_ipa) {
     parts.push(t("reading.result.heardIpa", { ipa: `/${word.heard_ipa}/` }));
   }
+  if (word.break === "unexpected") {
+    parts.push(t("reading.result.breakUnexpected"));
+  } else if (word.break === "missing") {
+    parts.push(t("reading.result.breakMissing"));
+  }
   return parts.join(" · ");
 }
 
-function Legend() {
+/** A word deserves a detail panel when it is not plain `ok` or carries phoneme / pause data. */
+function hasDetails(word: ReadingAssessedWord): boolean {
+  return word.status !== "ok" || Boolean(word.phonemes?.length) || Boolean(word.break) || Boolean(word.reason);
+}
+
+function Legend({ withBreaks }: { withBreaks: boolean }) {
   const { t } = useI18n();
   const items: Array<{ status: ReadingWordStatus | "extra"; icon: IconComponent; sample: string }> = [
     { status: "ok", icon: CircleCheckIcon, sample: "" },
@@ -79,11 +87,19 @@ function Legend() {
           <span className={cn("font-serif text-sm", sample)}>{status === "extra" ? t("reading.result.statusExtra") : t(STATUS_LABEL_KEY[status])}</span>
         </li>
       ))}
+      {withBreaks ? (
+        <li className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="font-semibold text-warning">
+            {BREAK_MARK}
+          </span>
+          <span>{t("reading.result.legendBreak")}</span>
+        </li>
+      ) : null}
     </ul>
   );
 }
 
-function tipText(tip: ReadingTip, t: (key: string, values?: Record<string, string | number>) => string, target: [number, number]): string {
+function tipText(tip: ReadingTip, t: Translate, target: [number, number]): string {
   const key = `reading.result.tips.${tip.code}`;
   const values = {
     expected: tip.expected ? `/${tip.expected}/` : "",
@@ -97,11 +113,148 @@ function tipText(tip: ReadingTip, t: (key: string, values?: Record<string, strin
   return text === key ? t("reading.result.tips.generic", values) : text;
 }
 
+/** Detail of one word: status, reason, phonemes (quality in text), expected × heard IPA, model audio. */
+export function WordDetail({ word, onPlayWord, onClose }: { word: ReadingAssessedWord; onPlayWord?: (word: ReadingAssessedWord) => void; onClose?: () => void }) {
+  const { t } = useI18n();
+  const reason = reasonLabelKey(word.reason);
+  const phonemes = word.phonemes ?? [];
+  return (
+    <div role="region" aria-label={t("reading.result.wordDetails")} className="flex flex-col gap-3 rounded-md border border-line bg-surface-muted px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="font-serif text-base font-semibold text-fg">{word.text}</span>
+        <span className="text-fg-muted">{t(STATUS_LABEL_KEY[word.status])}</span>
+        {reason ? <span className="text-fg-muted">· {t(reason)}</span> : null}
+        {typeof word.phoneme_score === "number" ? (
+          <span className="nums text-fg-muted">· {t("reading.result.phonemeScore", { percent: scoreToPercent(word.phoneme_score) })}</span>
+        ) : null}
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="focus-ring ml-auto inline-grid size-7 place-items-center rounded-md text-fg-muted hover:bg-surface hover:text-fg"
+            aria-label={t("reading.result.closeDetails")}
+          >
+            <XIcon size={14} />
+          </button>
+        ) : null}
+      </div>
+      {word.heard && word.status !== "ok" ? <p className="text-fg-muted">{t("reading.result.heard", { heard: word.heard })}</p> : null}
+      {word.expected_ipa || word.heard_ipa ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          {word.expected_ipa ? (
+            <>
+              <dt className="text-fg-muted">{t("reading.result.expected")}</dt>
+              <dd className="font-ipa text-fg">/{word.expected_ipa}/</dd>
+            </>
+          ) : null}
+          {word.heard_ipa ? (
+            <>
+              <dt className="text-fg-muted">{t("reading.result.heardLabel")}</dt>
+              <dd className="font-ipa text-fg">/{word.heard_ipa}/</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+      {phonemes.length ? (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-xs font-semibold text-fg">{t("reading.result.phonemesTitle")}</p>
+          <ul aria-label={t("reading.result.phonemesTitle")} className="flex flex-wrap gap-1.5">
+            {phonemes.map((phoneme, index) => {
+              const differs = phoneme.heard !== null && phoneme.heard !== phoneme.ipa;
+              return (
+                <li key={`${phoneme.ipa}-${index}`} className={cn("inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs", PHONEME_QUALITY_CLASS[phoneme.quality])}>
+                  <span className="font-ipa text-[0.8125rem] font-semibold">/{phoneme.ipa}/</span>
+                  <span>{t(PHONEME_QUALITY_KEY[phoneme.quality])}</span>
+                  {differs ? <span className="font-ipa">{t("reading.result.phonemeHeard", { heard: `/${phoneme.heard}/` })}</span> : null}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+      {word.break ? <p className="text-fg-muted">{word.break === "unexpected" ? t("reading.result.breakUnexpected") : t("reading.result.breakMissing")}</p> : null}
+      {onPlayWord ? (
+        <div>
+          <Button variant="secondary" size="sm" onClick={() => onPlayWord(word)} aria-label={t("reading.result.playWord", { word: word.text })}>
+            <WaveIcon />
+            {t("reading.shadow.listenModel")}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Notices from the prosody analysis and the engines (monotone, pauses, phoneme analysis off). */
+function ProsodyNotices({ assessment }: { assessment: ReadingAssessment }) {
+  const { t } = useI18n();
+  const prosody = assessment.prosody;
+  const notices: string[] = [];
+  if (prosody?.monotone) {
+    notices.push(
+      prosody.pitch_range_semitones !== null && prosody.pitch_range_semitones !== undefined
+        ? t("reading.result.monotone", { semitones: prosody.pitch_range_semitones.toFixed(1) })
+        : t("reading.result.monotoneShort")
+    );
+  }
+  if (prosody && prosody.unexpected_breaks > 0) {
+    notices.push(t("reading.result.unexpectedBreaks", { count: prosody.unexpected_breaks }));
+  }
+  if (prosody && prosody.missing_breaks > 0) {
+    notices.push(t("reading.result.missingBreaks", { count: prosody.missing_breaks }));
+  }
+  if (!notices.length) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[0.8125rem] font-semibold text-fg">{t("reading.result.prosodyTitle")}</p>
+      <ul className="flex flex-col gap-1 text-sm text-fg">
+        {notices.map((notice) => (
+          <li key={notice} className="inline-flex items-start gap-2">
+            <AlertIcon size={14} className="mt-0.5 shrink-0 text-warning" />
+            <span>{notice}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** "2 words went to your review" with a link to /read/words. */
+export function DeckNotice({ added }: { added: number | undefined }) {
+  const { t } = useI18n();
+  if (!added || added <= 0) {
+    return null;
+  }
+  return (
+    <Alert
+      tone="neutral"
+      message={added === 1 ? t("reading.result.deckAddedOne") : t("reading.result.deckAddedOther", { count: added })}
+      action={
+        <Link href="/read/words" className="focus-ring rounded-sm text-sm font-medium text-primary underline-offset-2 hover:underline">
+          {t("reading.result.deckLink")}
+        </Link>
+      }
+    />
+  );
+}
+
 /**
- * Shadowing result: the block re-rendered with each word marked by status, legend, four scores,
- * pace metrics, tips and the block's recent attempts.
+ * Shadowing result: the text re-rendered with each word marked by status (tap/Enter opens the
+ * phoneme detail), legend, scores (prosody when available), pace, prosody notices, tips and the
+ * block's recent attempts.
  */
-export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryAgain, modelBusy = false, attempts = [], isNewBest = false }: AssessmentResultProps) {
+export function AssessmentResult({
+  assessment,
+  onListenModel,
+  onPlayWord,
+  onTryAgain,
+  modelBusy = false,
+  attempts = [],
+  isNewBest = false,
+  compact = false
+}: AssessmentResultProps) {
   const { t, locale } = useI18n();
   const [selected, setSelected] = useState<number | null>(null);
 
@@ -124,7 +277,14 @@ export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryA
     ));
   };
 
-  // Rebuild the paragraph from the reference text, so punctuation and spacing are preserved.
+  const breakMark = (key: string, label: string) => (
+    <span key={key} className="mx-0.5 font-sans font-semibold text-warning" title={label}>
+      <span aria-hidden="true">{BREAK_MARK}</span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+
+  // Rebuild the text from the reference, so punctuation and spacing are preserved.
   const nodes: ReactNode[] = [renderExtras(-1)];
   let cursor = 0;
   const sortedWords = [...assessment.words].sort((a, b) => a.char_start - b.char_start);
@@ -132,9 +292,12 @@ export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryA
     if (word.char_start > cursor) {
       nodes.push(assessment.text.slice(cursor, word.char_start));
     }
+    if (word.break === "unexpected") {
+      nodes.push(breakMark(`b-${word.index}`, t("reading.result.breakUnexpected")));
+    }
     const surface = assessment.text.slice(word.char_start, word.char_end) || word.text;
     const WordIcon = STATUS_ICON[word.status];
-    if (word.status === "ok") {
+    if (!hasDetails(word)) {
       nodes.push(<span key={`w-${word.index}`}>{surface}</span>);
     } else {
       nodes.push(
@@ -142,17 +305,20 @@ export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryA
           key={`w-${word.index}`}
           type="button"
           title={wordTitle(word, t)}
-          aria-pressed={selected === word.index}
+          aria-expanded={selected === word.index}
           onClick={() => setSelected((previous) => (previous === word.index ? null : word.index))}
           className={cn("focus-ring inline rounded-sm px-0.5 text-left font-serif", STATUS_CLASS[word.status], selected === word.index && "bg-primary-soft")}
         >
-          <WordIcon size={11} className="mr-0.5 inline -translate-y-px" />
+          {word.status !== "ok" ? <WordIcon size={11} className="mr-0.5 inline -translate-y-px" /> : null}
           {surface}
-          {word.status === "mispronounced" && word.heard ? (
+          {word.status === "mispronounced" && word.heard && word.reason !== "phoneme" ? (
             <span className="ml-1 font-sans text-[0.6875rem] text-danger">({t("reading.result.heard", { heard: word.heard })})</span>
           ) : null}
         </button>
       );
+    }
+    if (word.break === "missing") {
+      nodes.push(breakMark(`m-${word.index}`, t("reading.result.breakMissing")));
     }
     nodes.push(renderExtras(word.index));
     cursor = Math.max(cursor, word.char_end);
@@ -162,14 +328,19 @@ export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryA
   }
 
   const selectedWord = selected === null ? null : (assessment.words.find((word) => word.index === selected) ?? null);
-  const scores: Array<{ key: keyof ReadingAssessment["scores"]; label: string }> = [
+  const scores: Array<{ key: keyof ReadingScores; label: string }> = [
     { key: "overall", label: t("reading.result.scores.overall") },
     { key: "accuracy", label: t("reading.result.scores.accuracy") },
     { key: "completeness", label: t("reading.result.scores.completeness") },
     { key: "fluency", label: t("reading.result.scores.fluency") }
   ];
+  if (typeof assessment.scores.prosody === "number") {
+    scores.push({ key: "prosody", label: t("reading.result.scores.prosody") });
+  }
   const metrics = assessment.metrics;
-  const bestPercent = assessment.best_overall === null ? null : scoreToPercent(assessment.best_overall);
+  const bestPercent = assessment.best_overall === null || assessment.best_overall === undefined ? null : scoreToPercent(assessment.best_overall);
+  const withBreaks = assessment.words.some((word) => Boolean(word.break));
+  const phonemesOff = !assessment.engines?.phoneme;
 
   return (
     <section aria-label={t("reading.result.title")} className="flex flex-col gap-5">
@@ -182,24 +353,9 @@ export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryA
 
       <p className="font-serif text-[1.0625rem] leading-[1.9] text-fg">{nodes}</p>
 
-      {selectedWord ? (
-        <div role="status" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-line bg-surface-muted px-3 py-2 text-sm">
-          <span className="sr-only">{t("reading.result.wordDetails")}</span>
-          <span className="font-serif font-semibold text-fg">{selectedWord.text}</span>
-          <span className="text-fg-muted">{t(STATUS_LABEL_KEY[selectedWord.status])}</span>
-          {selectedWord.heard && selectedWord.status !== "ok" ? <span className="text-fg-muted">{t("reading.result.heard", { heard: selectedWord.heard })}</span> : null}
-          {selectedWord.expected_ipa ? <span className="nums text-fg-muted">{t("reading.result.expectedIpa", { ipa: `/${selectedWord.expected_ipa}/` })}</span> : null}
-          {selectedWord.heard_ipa ? <span className="nums text-fg-muted">{t("reading.result.heardIpa", { ipa: `/${selectedWord.heard_ipa}/` })}</span> : null}
-          {onPlayWord ? (
-            <Button variant="ghost" size="sm" onClick={() => onPlayWord(selectedWord)} aria-label={t("reading.result.playWord", { word: selectedWord.text })}>
-              <WaveIcon />
-              {t("reading.shadow.listenModel")}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+      {selectedWord ? <WordDetail word={selectedWord} onPlayWord={onPlayWord} onClose={() => setSelected(null)} /> : null}
 
-      <Legend />
+      {compact ? null : <Legend withBreaks={withBreaks} />}
 
       <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
         {scores.map(({ key, label }) => {
@@ -216,17 +372,21 @@ export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryA
         })}
       </dl>
 
-      <ul className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-fg-muted">
-        {metrics.wpm !== null ? (
-          <li className="inline-flex items-center gap-1.5">
-            <GaugeIcon size={14} />
-            <span className="nums">{t("reading.result.wpm", { wpm: Math.round(metrics.wpm) })}</span>
-            <span className="text-fg-subtle">({t("reading.result.wpmTarget", { min: metrics.target_wpm[0], max: metrics.target_wpm[1] })})</span>
-          </li>
-        ) : null}
-        <li className="nums">{t("reading.result.pauses", { count: metrics.long_pauses })}</li>
-        {metrics.extra > 0 ? <li className="nums">{t("reading.result.extras", { count: metrics.extra })}</li> : null}
-      </ul>
+      {compact ? null : (
+        <ul className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-fg-muted">
+          {metrics.wpm !== null ? (
+            <li className="inline-flex items-center gap-1.5">
+              <GaugeIcon size={14} />
+              <span className="nums">{t("reading.result.wpm", { wpm: Math.round(metrics.wpm) })}</span>
+              <span className="text-fg-subtle">({t("reading.result.wpmTarget", { min: metrics.target_wpm[0], max: metrics.target_wpm[1] })})</span>
+            </li>
+          ) : null}
+          <li className="nums">{t("reading.result.pauses", { count: metrics.long_pauses })}</li>
+          {metrics.extra > 0 ? <li className="nums">{t("reading.result.extras", { count: metrics.extra })}</li> : null}
+        </ul>
+      )}
+
+      <ProsodyNotices assessment={assessment} />
 
       {assessment.tips.length ? (
         <div className="flex flex-col gap-1.5">
@@ -239,32 +399,43 @@ export function AssessmentResult({ assessment, onListenModel, onPlayWord, onTryA
         </div>
       ) : null}
 
-      {assessment.transcript ? (
+      <DeckNotice added={assessment.deck?.added} />
+
+      {phonemesOff ? (
+        <p className="inline-flex items-start gap-1.5 text-xs text-fg-muted">
+          <InfoIcon size={13} className="mt-px shrink-0" />
+          {t("reading.result.phonemesOff")}
+        </p>
+      ) : null}
+
+      {assessment.transcript && !compact ? (
         <details className="text-sm">
           <summary className="focus-ring cursor-pointer rounded-sm text-fg-muted">{t("reading.result.transcript")}</summary>
           <p className="mt-1 font-serif text-fg-muted italic">{assessment.transcript}</p>
         </details>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {onListenModel ? (
-          <Button variant="secondary" size="sm" busy={modelBusy} onClick={onListenModel}>
-            <WaveIcon />
-            {t("reading.shadow.listenModel")}
-          </Button>
-        ) : null}
-        {onTryAgain ? (
-          <Button size="sm" onClick={onTryAgain}>
-            <RepeatIcon />
-            {t("reading.shadow.tryAgain")}
-          </Button>
-        ) : null}
-        {bestPercent !== null ? (
-          <span className="nums text-xs text-fg-muted">{t("reading.shadow.attemptsCount", { count: assessment.attempts_for_block, best: bestPercent })}</span>
-        ) : null}
-      </div>
+      {onListenModel || onTryAgain || bestPercent !== null ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {onListenModel ? (
+            <Button variant="secondary" size="sm" busy={modelBusy} onClick={onListenModel}>
+              <WaveIcon />
+              {t("reading.shadow.listenModel")}
+            </Button>
+          ) : null}
+          {onTryAgain ? (
+            <Button size="sm" onClick={onTryAgain}>
+              <RepeatIcon />
+              {t("reading.shadow.tryAgain")}
+            </Button>
+          ) : null}
+          {bestPercent !== null && !compact ? (
+            <span className="nums text-xs text-fg-muted">{t("reading.shadow.attemptsCount", { count: assessment.attempts_for_block, best: bestPercent })}</span>
+          ) : null}
+        </div>
+      ) : null}
 
-      {attempts.length ? (
+      {attempts.length && !compact ? (
         <div className="flex flex-col gap-1.5">
           <p className="text-[0.8125rem] font-semibold text-fg">{t("reading.shadow.attemptsTitle")}</p>
           <ol className="flex flex-col divide-y divide-line text-sm text-fg-muted">

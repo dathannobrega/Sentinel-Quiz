@@ -1,0 +1,21 @@
+{
+  "slug": "e2e_security_handbook",
+  "title": "E2E Security Handbook",
+  "source_file": "E2E Security Handbook.epub",
+  "certification": "CompTIA Security+ (SY0-701)",
+  "total_chapters": 1,
+  "total_sections": 4,
+  "total_words": 185,
+  "chapters": [
+    {
+      "chapter_index": 1,
+      "file_name": "c01.xhtml",
+      "title": "Chapter 1: Everyday Security Habits",
+      "page_start": 1,
+      "page_end": 4,
+      "sections_count": 4,
+      "total_words": 185,
+      "json_file": "chapters/c01.json"
+    }
+  ]
+}

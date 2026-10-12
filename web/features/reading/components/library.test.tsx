@@ -174,4 +174,23 @@ describe("ReadingLibrary", () => {
     await screen.findByText(t("reading.library.emptyTitle"));
     expect(screen.queryByRole("region", { name: t("reading.library.continueTitle") })).toBeNull();
   });
+
+  it("links to the due words and offline chapters and offers export/delete on Increment 2 APIs", async () => {
+    respond({ ...CAPABILITIES_OK, words: { due: 3 }, offline: { max_chapters: 5 }, ai: { available: true, reason: null, provider: "fake" } });
+    render(wrap(<ReadingLibrary />));
+    const due = await screen.findByRole("link", { name: new RegExp(t("reading.words.libraryDue", { count: 3 }).replace(/[()]/g, "\\$&")) });
+    expect(due.getAttribute("href")).toBe("/read/words");
+    expect(screen.getByRole("link", { name: new RegExp(t("reading.offline.libraryLink")) }).getAttribute("href")).toBe("/read/offline");
+    expect(screen.getByRole("heading", { name: t("reading.data.title") })).toBeTruthy();
+    expect(screen.getByRole("button", { name: new RegExp(t("reading.data.export").replace(/[()]/g, "\\$&")) })).toBeTruthy();
+    expect(screen.getByRole("button", { name: t("reading.data.delete") })).toBeTruthy();
+  });
+
+  it("hides the Increment 2 links on older APIs", async () => {
+    respond();
+    render(wrap(<ReadingLibrary />));
+    await screen.findByRole("heading", { level: 3, name: "CompTIA Security+ Study Guide Exam SY0-701" });
+    expect(screen.queryByRole("link", { name: new RegExp(t("reading.offline.libraryLink")) })).toBeNull();
+    expect(screen.queryByRole("heading", { name: t("reading.data.title") })).toBeNull();
+  });
 });

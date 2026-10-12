@@ -228,7 +228,51 @@ class FakeProvider:
             return self._critic(request), Usage(len(user) // 4, 200)
         if task == "improve":
             return self._improve(request), Usage(len(user) // 4, 300)
+        if task == "reading_glossary":
+            return self._reading_glossary(request), Usage(len(user) // 4, 120)
+        if task == "reading_quiz":
+            return self._reading_quiz(request), Usage(len(user) // 4, 600)
         raise ProviderError("invalid_task", task)
+
+    # Sentinel Reader (docs/reading/CONTRATO-INCREMENTO-2.md §3.3-3.4) ------------------------
+    @staticmethod
+    def _reading_glossary(request: dict) -> dict:
+        word = str(request.get("word") or "").strip() or "word"
+        lemma = word.lower()
+        return {
+            "lemma": lemma,
+            "part_of_speech": "noun",
+            "translation_pt": f"{lemma} (tradução)",
+            "definition_en": f"The meaning of '{lemma}' in security texts.",
+            "context_explanation_pt": f"Neste trecho, “{word}” se refere ao conceito discutido na frase.",
+            "examples": [f"The team reviewed the {lemma} carefully."],
+        }
+
+    @staticmethod
+    def _reading_quiz(request: dict) -> dict:
+        """Questions whose evidence is a literal sentence of the text sent (passes validation)."""
+        text = str(request.get("text") or "")
+        n = int(request.get("n") or 3)
+        sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if len(part.split()) >= 6]
+        questions = []
+        for index, sentence in enumerate(sentences[:n]):
+            evidence = sentence if len(sentence) <= 300 else sentence[:300].rsplit(" ", 1)[0]
+            keys = ["A", "B", "C", "D"]
+            correct = keys[index % 4]
+            claim = " ".join(sentence.split()[:10]).rstrip(".,;:") + "."
+            wrong = iter((
+                "The text says the opposite of this.",
+                "The text does not discuss this topic.",
+                "Only attackers are concerned with this.",
+            ))
+            questions.append({
+                "prompt": f"According to the text, which statement is true? ({index + 1})",
+                "options": [{"key": key, "text": claim if key == correct else next(wrong)} for key in keys],
+                "correct_key": correct,
+                "explanation": "O trecho citado do texto confirma esta alternativa.",
+                "evidence": evidence,
+            })
+        return {"questions": questions}
 
     @staticmethod
     def _request(user: str) -> dict:

@@ -26,7 +26,8 @@ export const reading = {
     percentRead: "{percent}% do livro",
     notStarted: "Ainda não iniciado",
     lastRead: "Última leitura {date}",
-    progressLabel: "Progresso em {book}"
+    progressLabel: "Progresso em {book}",
+    practiceNav: "Prática"
   },
   capabilities: {
     ttsUnavailableTitle: "Voz neural indisponível",
@@ -43,7 +44,11 @@ export const reading = {
     wordsRead: "Palavras lidas",
     minutesListened: "Minutos ouvidos",
     activeDays: "Dias ativos (30d)",
-    bestOverall: "Melhor nota {percent}%"
+    bestOverall: "Melhor nota {percent}%",
+    wordsLearned: "Palavras aprendidas",
+    wordsTotal: "{total} no baralho · {due} para revisar",
+    quiz: "Compreensão",
+    quizValue: "{correct}/{answered} corretas"
   },
   book: {
     back: "Biblioteca",
@@ -81,7 +86,8 @@ export const reading = {
     fallbackNotice: "Usando a voz do navegador: o destaque pode ficar fora de sincronia.",
     fallbackUnsupported: "Este navegador não tem síntese de voz. Leia em silêncio ou tente outro navegador.",
     audioFailed: "Não foi possível carregar o áudio deste parágrafo.",
-    shortcuts: "Atalhos: espaço toca ou pausa, ← e → mudam de parágrafo, R grava no shadowing."
+    shortcuts: "Atalhos: espaço toca ou pausa, ← e → mudam de parágrafo, R grava no shadowing e no frase a frase.",
+    offlineIndicator: "Você está sem conexão. O que já foi carregado continua tocando; capítulos baixados ficam em Ouvir offline."
   },
   player: {
     label: "Controles de leitura",
@@ -98,6 +104,14 @@ export const reading = {
     mode: "Modo",
     modeListen: "Ouvir",
     modeShadow: "Shadowing",
+    modeDrill: "Frase a frase",
+    glossaryTap: "Toque para traduzir",
+    sleep: "Timer de sono",
+    sleepOff: "Sem timer",
+    sleepMinutes: "{minutes} min",
+    sleepSection: "Fim da seção",
+    sleepRemaining: "O áudio para em {time}",
+    sleepAtSectionEnd: "para no fim da seção",
     settings: "Opções do leitor",
     browserVoice: "Voz do navegador"
   },
@@ -149,12 +163,42 @@ export const reading = {
     expectedIpa: "esperado {ipa}",
     heardIpa: "ouvido {ipa}",
     wordDetails: "Detalhes da palavra",
+    closeDetails: "Fechar detalhes",
     playWord: "Ouvir “{word}” no modelo",
+    expected: "Esperado",
+    heardLabel: "Ouvido",
+    phonemesTitle: "Fonemas",
+    phonemeHeard: "ouviu {heard}",
+    phonemeScore: "pronúncia {percent}%",
+    phonemeQuality: {
+      good: "bom",
+      fair: "razoável",
+      bad: "ruim"
+    },
+    reasons: {
+      phoneme: "som diferente",
+      substitution: "troca de palavra",
+      ending: "final da palavra",
+      low_confidence: "hesitação"
+    },
+    phonemesOff: "A análise por fonema está desligada agora: as notas consideram só as palavras reconhecidas.",
+    legendBreak: "Pausa fora do lugar",
+    breakUnexpected: "Pausa inesperada antes desta palavra",
+    breakMissing: "Faltou uma pausa depois desta palavra",
+    prosodyTitle: "Ritmo e entonação",
+    monotone: "Sua leitura ficou monótona (variação de {semitones} semitons). Varie mais a entonação.",
+    monotoneShort: "Sua leitura ficou monótona. Varie mais a entonação.",
+    unexpectedBreaks: "{count} pausa(s) no meio de uma frase",
+    missingBreaks: "{count} fim(ns) de frase sem pausa",
+    deckAddedOne: "1 palavra foi para sua revisão",
+    deckAddedOther: "{count} palavras foram para sua revisão",
+    deckLink: "Ver palavras",
     scores: {
       overall: "Geral",
       accuracy: "Precisão",
       completeness: "Completude",
-      fluency: "Fluência"
+      fluency: "Fluência",
+      prosody: "Prosódia"
     },
     wpm: "{wpm} palavras por minuto",
     wpmTarget: "alvo {min}–{max}",
@@ -172,5 +216,166 @@ export const reading = {
       generic: "{code}"
     },
     newBest: "Nova melhor nota neste parágrafo!"
+  },
+  drill: {
+    title: "Frase a frase",
+    sentence: "Frase {index} de {total}",
+    record: "Gravar a frase",
+    listenSentence: "Ouvir a frase",
+    tries: "Tentativa {count} (sugestão: até {max})",
+    passed: "Boa! Indo para a próxima frase.",
+    offerNextHint: "Essa frase está difícil. Você pode seguir e voltar a ela depois.",
+    offerNext: "Seguir para a próxima frase",
+    hint: "Ouça a frase e grave a sua leitura. Com nota geral de 85% ou mais, o treino avança sozinho."
+  },
+  glossary: {
+    openFor: "Glossário de “{word}”",
+    loading: "Buscando a palavra...",
+    play: "Ouvir",
+    playWord: "Ouvir “{word}”",
+    playFailed: "Não foi possível tocar a palavra.",
+    ipa: "Pronúncia",
+    lemma: "forma base: {lemma}",
+    translation: "Tradução",
+    definition: "Definição (inglês)",
+    context: "Neste trecho",
+    examples: "Exemplos",
+    add: "Adicionar às palavras",
+    added: "A palavra entrou no seu baralho de revisão.",
+    inDeck: "Nas suas palavras",
+    aiOff: "A tradução por IA está desligada neste servidor. Você ainda pode ouvir a palavra, ver a pronúncia e adicioná-la às suas palavras.",
+    errors: {
+      quota: "Você atingiu o limite diário de consultas de IA da Leitura. Volte amanhã.",
+      aiFailed: "A IA não respondeu agora. Tente de novo em instantes.",
+      generic: "Não foi possível buscar esta palavra."
+    }
+  },
+  quiz: {
+    title: "Teste sua compreensão",
+    intro: "Três perguntas sobre esta seção, com a resposta comprovada por um trecho do texto.",
+    generate: "Gerar perguntas",
+    generating: "Gerando perguntas...",
+    question: "Pergunta {index} de {total}",
+    answer: "Responder",
+    correct: "Correta!",
+    incorrect: "Incorreta. A resposta certa é a {key}.",
+    correctShort: "correta",
+    incorrectShort: "incorreta",
+    correctOption: "Alternativa correta",
+    yourChoice: "Sua escolha",
+    previousAnswer: "Da última vez você respondeu {choice} ({result}).",
+    explanation: "Explicação",
+    evidence: "No texto",
+    score: "{correct} de {total} corretas",
+    errors: {
+      disabled: "As perguntas de compreensão estão desligadas neste servidor.",
+      quota: "Você atingiu o limite diário de consultas de IA da Leitura. Volte amanhã.",
+      failed: "Não foi possível gerar as perguntas desta seção. Tente de novo mais tarde.",
+      generic: "Não foi possível carregar as perguntas."
+    }
+  },
+  words: {
+    title: "Palavras",
+    subtitle: "As palavras que você pronunciou com dificuldade e as que adicionou pelo glossário, em revisão espaçada.",
+    back: "Biblioteca",
+    loadFailed: "Não foi possível carregar as suas palavras.",
+    libraryDue: "{count} palavra(s) para revisar",
+    libraryLink: "Suas palavras",
+    reviewNow: "Revisar agora",
+    reviewEmpty: "Nada para revisar agora. As palavras voltam aqui quando vencem.",
+    summary: {
+      title: "Resumo",
+      total: "No baralho",
+      due: "Para revisar",
+      learned: "Aprendidas"
+    },
+    kinds: {
+      pronunciation: "Pronúncia",
+      vocabulary: "Vocabulário"
+    },
+    grades: {
+      again: "De novo",
+      hard: "Difícil",
+      good: "Bom",
+      easy: "Fácil"
+    },
+    filter: {
+      label: "Tipo",
+      any: "Todas"
+    },
+    list: {
+      title: "Todas as palavras",
+      emptyTitle: "Nenhuma palavra ainda",
+      empty: "Palavras com problema no shadowing entram aqui sozinhas. Você também pode adicionar palavras pelo glossário.",
+      due: "Revisão em {date}",
+      dueNow: "Para revisar",
+      lastScore: "última nota {percent}%",
+      delete: "Remover",
+      deleteWord: "Remover “{word}”",
+      deleteTitle: "Remover palavra",
+      deleteMessage: "Remover “{word}” do seu baralho? O histórico de revisão dela será perdido.",
+      showMore: "Mostrar mais ({shown} de {total})"
+    },
+    session: {
+      title: "Revisão",
+      progress: "Cartão {index} de {total}",
+      progressLabel: "Progresso da revisão",
+      stop: "Encerrar",
+      playWord: "Ouvir a palavra",
+      record: "Gravar",
+      gradeResult: "Avaliação: {grade}",
+      next: "Próximo",
+      reveal: "Mostrar significado",
+      meaning: "Significado",
+      noMeaning: "Sem tradução salva para esta palavra.",
+      gradeLabel: "Como foi lembrar desta palavra?",
+      gradeFailed: "Não foi possível registrar a avaliação.",
+      doneTitle: "Revisão concluída",
+      done: "Você revisou {count} cartão(ões). Bom trabalho!",
+      finish: "Voltar às palavras"
+    }
+  },
+  data: {
+    title: "Seus dados",
+    description: "Baixe tudo o que a Leitura guardou sobre você ou apague esses dados. As gravações de voz nunca são guardadas.",
+    export: "Exportar (JSON)",
+    exportFailed: "Não foi possível exportar os seus dados.",
+    delete: "Apagar meus dados da Leitura",
+    deleteTitle: "Apagar os dados da Leitura",
+    deleteMessage: "Isso apaga o progresso, as tentativas, as palavras e as respostas de compreensão. Não dá para desfazer.",
+    deleteConfirm: "Apagar tudo",
+    deleteFailed: "Não foi possível apagar os seus dados.",
+    deleted: "Dados apagados: {attempts} tentativa(s), {words} palavra(s), {progress} progresso(s) e {answers} resposta(s)."
+  },
+  offline: {
+    download: "Baixar para ouvir offline",
+    downloading: "Baixando {done} de {total} parágrafos",
+    waiting: "Pausa de {seconds} s para não sobrecarregar o servidor; o download continua sozinho.",
+    cancel: "Cancelar",
+    resume: "Continuar download",
+    remove: "Remover download",
+    removeTitle: "Remover capítulo offline",
+    removeMessage: "Remover “{chapter}” deste dispositivo? Você pode baixá-lo de novo depois.",
+    downloaded: "Disponível offline",
+    partial: "Download incompleto ({done} de {total})",
+    estimate: "≈ {mb} MB",
+    size: "{mb} MB",
+    progressLabel: "Download de {chapter}",
+    limitReached: "Limite de {max} capítulos offline atingido. Remova um para baixar outro.",
+    failed: "O download falhou. Tente de novo: o que já foi baixado é aproveitado.",
+    unsupported: "Este navegador não permite guardar capítulos para ouvir offline.",
+    libraryLink: "Ouvir offline",
+    pageTitle: "Ouvir offline",
+    pageSubtitle: "Capítulos baixados neste dispositivo. Tocam sem conexão, com o mesmo destaque palavra a palavra.",
+    chaptersTitle: "Capítulos baixados",
+    chapterMeta: "{sections} seções · {mb} MB",
+    emptyTitle: "Nenhum capítulo baixado",
+    emptyMessage: "Abra um livro e use “Baixar para ouvir offline” em um capítulo.",
+    openLibrary: "Ir para a biblioteca",
+    play: "Ouvir",
+    playSection: "Ouvir “{section}”",
+    back: "Capítulos baixados",
+    sectionUnavailable: "Esta seção não está disponível offline. Baixe o capítulo de novo.",
+    readerNotice: "Modo offline: shadowing, glossário e compreensão precisam de conexão."
   }
 } as const;

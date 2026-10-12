@@ -1,4 +1,4 @@
-# Sentinel Speech: Kokoro TTS + faster-whisper ASR, CPU only.
+# Sentinel Speech: Kokoro TTS + faster-whisper ASR + wav2vec2 phoneme scoring, CPU only.
 # Model weights are NOT baked in: they download on first start into the HF_HOME volume.
 #
 # Stage 1 builds the virtualenv with uv (CPU-only torch from the PyTorch index keeps the
@@ -25,16 +25,17 @@ RUN uv venv /opt/venv --python 3.12 \
  && uv pip install --python /opt/venv/bin/python --no-deps . \
  && uv pip install --python /opt/venv/bin/python \
       fastapi "uvicorn[standard]" pydantic pydantic-settings python-multipart numpy soundfile rapidfuzz httpx \
-      "kokoro>=0.9.4" "faster-whisper>=1.2" \
+      "kokoro>=0.9.4" "faster-whisper>=1.2" "transformers>=4.48" "prometheus-client>=0.20" \
       "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
- && /opt/venv/bin/python -c "import en_core_web_sm, misaki.en" \
+ && /opt/venv/bin/python -c "import en_core_web_sm, misaki.en, prometheus_client; from transformers import Wav2Vec2ForCTC" \
  && find /opt/venv -name "*.pyc" -path "*/tests/*" -delete \
  && find /opt/venv -type d -name "tests" -prune -exec rm -rf {} + 2>/dev/null || true
 
 
 FROM ${PYTHON_IMAGE} AS runtime
 
-# ffmpeg: decode browser uploads + mp3 encode; espeak-ng: misaki fallback for OOV words;
+# ffmpeg: decode browser uploads + mp3 encode; espeak-ng: expected phonemes (GOP), /v1/g2p
+# and misaki's fallback for OOV words;
 # libsndfile1: soundfile (wav); libgomp1: CTranslate2/torch OpenMP runtime.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg espeak-ng libsndfile1 libgomp1 curl \

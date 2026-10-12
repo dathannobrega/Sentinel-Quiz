@@ -26,7 +26,8 @@ export const reading = {
     percentRead: "{percent}% of the book",
     notStarted: "Not started yet",
     lastRead: "Last read {date}",
-    progressLabel: "Progress in {book}"
+    progressLabel: "Progress in {book}",
+    practiceNav: "Practice"
   },
   capabilities: {
     ttsUnavailableTitle: "Neural voice unavailable",
@@ -43,7 +44,11 @@ export const reading = {
     wordsRead: "Words read",
     minutesListened: "Minutes listened",
     activeDays: "Active days (30d)",
-    bestOverall: "Best score {percent}%"
+    bestOverall: "Best score {percent}%",
+    wordsLearned: "Words learned",
+    wordsTotal: "{total} in the deck · {due} due",
+    quiz: "Comprehension",
+    quizValue: "{correct}/{answered} correct"
   },
   book: {
     back: "Library",
@@ -81,7 +86,8 @@ export const reading = {
     fallbackNotice: "Using the browser voice: highlighting may drift out of sync.",
     fallbackUnsupported: "This browser has no speech synthesis. Read silently or try another browser.",
     audioFailed: "Could not load the audio for this paragraph.",
-    shortcuts: "Shortcuts: space plays or pauses, ← and → change paragraph, R records in shadowing."
+    shortcuts: "Shortcuts: space plays or pauses, ← and → change paragraph, R records in shadowing and in the sentence drill.",
+    offlineIndicator: "You are offline. What is already loaded keeps playing; downloaded chapters are under Listen offline."
   },
   player: {
     label: "Reading controls",
@@ -98,6 +104,14 @@ export const reading = {
     mode: "Mode",
     modeListen: "Listen",
     modeShadow: "Shadowing",
+    modeDrill: "Sentence drill",
+    glossaryTap: "Tap to translate",
+    sleep: "Sleep timer",
+    sleepOff: "No timer",
+    sleepMinutes: "{minutes} min",
+    sleepSection: "End of section",
+    sleepRemaining: "Audio stops in {time}",
+    sleepAtSectionEnd: "stops at the end of the section",
     settings: "Reader options",
     browserVoice: "Browser voice"
   },
@@ -149,12 +163,42 @@ export const reading = {
     expectedIpa: "expected {ipa}",
     heardIpa: "heard {ipa}",
     wordDetails: "Word details",
+    closeDetails: "Close details",
     playWord: "Hear “{word}” in the model",
+    expected: "Expected",
+    heardLabel: "Heard",
+    phonemesTitle: "Phonemes",
+    phonemeHeard: "heard {heard}",
+    phonemeScore: "pronunciation {percent}%",
+    phonemeQuality: {
+      good: "good",
+      fair: "fair",
+      bad: "poor"
+    },
+    reasons: {
+      phoneme: "different sound",
+      substitution: "word swapped",
+      ending: "word ending",
+      low_confidence: "hesitation"
+    },
+    phonemesOff: "Phoneme analysis is off right now: scores only consider the recognized words.",
+    legendBreak: "Misplaced pause",
+    breakUnexpected: "Unexpected pause before this word",
+    breakMissing: "Missing pause after this word",
+    prosodyTitle: "Rhythm and intonation",
+    monotone: "Your reading was monotone (range of {semitones} semitones). Vary your intonation more.",
+    monotoneShort: "Your reading was monotone. Vary your intonation more.",
+    unexpectedBreaks: "{count} pause(s) in the middle of a sentence",
+    missingBreaks: "{count} sentence end(s) without a pause",
+    deckAddedOne: "1 word went to your review",
+    deckAddedOther: "{count} words went to your review",
+    deckLink: "See words",
     scores: {
       overall: "Overall",
       accuracy: "Accuracy",
       completeness: "Completeness",
-      fluency: "Fluency"
+      fluency: "Fluency",
+      prosody: "Prosody"
     },
     wpm: "{wpm} words per minute",
     wpmTarget: "target {min}–{max}",
@@ -172,5 +216,166 @@ export const reading = {
       generic: "{code}"
     },
     newBest: "New best score on this paragraph!"
+  },
+  drill: {
+    title: "Sentence drill",
+    sentence: "Sentence {index} of {total}",
+    record: "Record the sentence",
+    listenSentence: "Hear the sentence",
+    tries: "Attempt {count} (suggested: up to {max})",
+    passed: "Nice! Moving to the next sentence.",
+    offerNextHint: "This sentence is tough. You can move on and come back to it later.",
+    offerNext: "Move to the next sentence",
+    hint: "Listen to the sentence and record your reading. With an overall score of 85% or more, the drill moves on by itself."
+  },
+  glossary: {
+    openFor: "Glossary for “{word}”",
+    loading: "Looking up the word...",
+    play: "Listen",
+    playWord: "Hear “{word}”",
+    playFailed: "Could not play the word.",
+    ipa: "Pronunciation",
+    lemma: "base form: {lemma}",
+    translation: "Translation (pt-BR)",
+    definition: "Definition",
+    context: "In this passage",
+    examples: "Examples",
+    add: "Add to my words",
+    added: "The word is now in your review deck.",
+    inDeck: "In my words",
+    aiOff: "AI translation is turned off on this server. You can still hear the word, see its pronunciation and add it to your words.",
+    errors: {
+      quota: "You reached today's limit of Reading AI lookups. Come back tomorrow.",
+      aiFailed: "The AI did not answer right now. Try again in a moment.",
+      generic: "Could not look up this word."
+    }
+  },
+  quiz: {
+    title: "Test your comprehension",
+    intro: "Three questions about this section, each answer backed by a quote from the text.",
+    generate: "Generate questions",
+    generating: "Generating questions...",
+    question: "Question {index} of {total}",
+    answer: "Answer",
+    correct: "Correct!",
+    incorrect: "Incorrect. The right answer is {key}.",
+    correctShort: "correct",
+    incorrectShort: "incorrect",
+    correctOption: "Correct option",
+    yourChoice: "Your choice",
+    previousAnswer: "Last time you answered {choice} ({result}).",
+    explanation: "Explanation",
+    evidence: "In the text",
+    score: "{correct} of {total} correct",
+    errors: {
+      disabled: "Comprehension questions are turned off on this server.",
+      quota: "You reached today's limit of Reading AI lookups. Come back tomorrow.",
+      failed: "Could not generate questions for this section. Try again later.",
+      generic: "Could not load the questions."
+    }
+  },
+  words: {
+    title: "Words",
+    subtitle: "Words you struggled to pronounce and the ones you added from the glossary, in spaced repetition.",
+    back: "Library",
+    loadFailed: "Could not load your words.",
+    libraryDue: "{count} word(s) to review",
+    libraryLink: "My words",
+    reviewNow: "Review now",
+    reviewEmpty: "Nothing to review right now. Words come back here when they are due.",
+    summary: {
+      title: "Summary",
+      total: "In the deck",
+      due: "Due",
+      learned: "Learned"
+    },
+    kinds: {
+      pronunciation: "Pronunciation",
+      vocabulary: "Vocabulary"
+    },
+    grades: {
+      again: "Again",
+      hard: "Hard",
+      good: "Good",
+      easy: "Easy"
+    },
+    filter: {
+      label: "Type",
+      any: "All"
+    },
+    list: {
+      title: "All words",
+      emptyTitle: "No words yet",
+      empty: "Words you struggle with in shadowing land here on their own. You can also add words from the glossary.",
+      due: "Review on {date}",
+      dueNow: "Due",
+      lastScore: "last score {percent}%",
+      delete: "Remove",
+      deleteWord: "Remove “{word}”",
+      deleteTitle: "Remove word",
+      deleteMessage: "Remove “{word}” from your deck? Its review history will be lost.",
+      showMore: "Show more ({shown} of {total})"
+    },
+    session: {
+      title: "Review",
+      progress: "Card {index} of {total}",
+      progressLabel: "Review progress",
+      stop: "End",
+      playWord: "Hear the word",
+      record: "Record",
+      gradeResult: "Grade: {grade}",
+      next: "Next",
+      reveal: "Show meaning",
+      meaning: "Meaning",
+      noMeaning: "No saved translation for this word.",
+      gradeLabel: "How well did you remember this word?",
+      gradeFailed: "Could not save the grade.",
+      doneTitle: "Review complete",
+      done: "You reviewed {count} card(s). Well done!",
+      finish: "Back to words"
+    }
+  },
+  data: {
+    title: "Your data",
+    description: "Download everything Reading stored about you, or delete it. Voice recordings are never stored.",
+    export: "Export (JSON)",
+    exportFailed: "Could not export your data.",
+    delete: "Delete my Reading data",
+    deleteTitle: "Delete Reading data",
+    deleteMessage: "This deletes your progress, attempts, words and comprehension answers. It cannot be undone.",
+    deleteConfirm: "Delete everything",
+    deleteFailed: "Could not delete your data.",
+    deleted: "Data deleted: {attempts} attempt(s), {words} word(s), {progress} progress row(s) and {answers} answer(s)."
+  },
+  offline: {
+    download: "Download to listen offline",
+    downloading: "Downloading {done} of {total} paragraphs",
+    waiting: "Pausing {seconds} s so the server is not overloaded; the download resumes on its own.",
+    cancel: "Cancel",
+    resume: "Resume download",
+    remove: "Remove download",
+    removeTitle: "Remove offline chapter",
+    removeMessage: "Remove “{chapter}” from this device? You can download it again later.",
+    downloaded: "Available offline",
+    partial: "Incomplete download ({done} of {total})",
+    estimate: "≈ {mb} MB",
+    size: "{mb} MB",
+    progressLabel: "Download of {chapter}",
+    limitReached: "You reached the limit of {max} offline chapters. Remove one to download another.",
+    failed: "The download failed. Try again: what was already downloaded is kept.",
+    unsupported: "This browser cannot store chapters to listen offline.",
+    libraryLink: "Listen offline",
+    pageTitle: "Listen offline",
+    pageSubtitle: "Chapters downloaded to this device. They play without a connection, with the same word-by-word highlighting.",
+    chaptersTitle: "Downloaded chapters",
+    chapterMeta: "{sections} sections · {mb} MB",
+    emptyTitle: "No downloaded chapters",
+    emptyMessage: "Open a book and use “Download to listen offline” on a chapter.",
+    openLibrary: "Go to the library",
+    play: "Listen",
+    playSection: "Listen to “{section}”",
+    back: "Downloaded chapters",
+    sectionUnavailable: "This section is not available offline. Download the chapter again.",
+    readerNotice: "Offline mode: shadowing, glossary and comprehension need a connection."
   }
 } as const;

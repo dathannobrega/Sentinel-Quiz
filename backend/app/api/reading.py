@@ -1,27 +1,46 @@
-"""Sentinel Reader API (``/api/reading/*``, docs/reading/CONTRATO-INCREMENTO-1.md §4).
+"""Sentinel Reader API (``/api/reading/*``, docs/reading/CONTRATO-INCREMENTO-1.md §4 and
+CONTRATO-INCREMENTO-2.md §3).
 
 Signed-in users only (the books are licensed, like ``/api/materials/*``). Text is always resolved
-server-side from the corpus: the client names a block, never sends text. The speech service is
-optional; its absence degrades ``capabilities`` instead of failing the reader.
+server-side from the corpus (or from a stored word card): the client names a block, a sentence or
+a character range, never sends text. The speech service and the AI are optional; their absence
+degrades ``capabilities`` instead of failing the reader.
 """
 from __future__ import annotations
 
+import json
+import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_user_required
 from app.core.config import settings
 from app.core.errors import api_error
 from app.db.session import get_db
 from app.models import User
-from app.schemas_reading import MAX_BLOCK_INDEX, READING_SPEEDS, ProgressIn, TtsIn
-from app.services import reading
+from app.schemas_reading import (
+    MAX_BLOCK_INDEX,
+    MAX_SENTENCE_INDEX,
+    READING_SPEEDS,
+    GlossaryIn,
+    GradeIn,
+    ProgressIn,
+    QuizAnswerIn,
+    TtsIn,
+    WordIn,
+    WordTtsIn,
+)
+from app.services import reading, reading_ai, reading_data, reading_words
 from app.services.material_corpus import get_corpus
 from app.services.speech_client import AUDIO_ID_RE, DEFAULT_VOICES, SpeechError, get_speech_client
 
 router = APIRouter(prefix="/api/reading", tags=["reading"])
+logger = logging.getLogger("app.reading")
 
 ACCEPTED_AUDIO_TYPES = ("audio/webm", "audio/ogg", "audio/mp4", "audio/wav", "audio/x-wav", "audio/wave", "audio/mpeg", "video/webm")
 MAX_ID_LENGTH = 256
@@ -42,6 +61,14 @@ def _check_id(value: str, code: str) -> str:
 
 def _raise_speech(exc: SpeechError) -> None:
     raise api_error(exc.status_code, exc.code, exc.message)
+
+
+def _log_upstream(event: str, started: float, *, cached: bool | None = None, code: str | None = None, **fields: Any) -> None:
+    """One structured line per speech-service call (``reading_tts`` / ``reading_assess``)."""
+    logger.info(
+        "Reading upstream call",
+        extra={"event": event, "duration_ms": round((time.perf_counter() - started) * 1000, 2), "cached": cached, "code": code, **fields},
+    )
 
 
 def _speech_or_503():
@@ -82,13 +109,18 @@ def capabilities(db: Session = Depends(get_db), current_user: User = Depends(get
             "model": health.asr.get("model"),
         })
     limit = max(int(settings.reading_daily_assess_quota or 0), 0)
-    used = reading.attempts_today(db, current_user)
+    used = reading.assess_used_today(db, current_user)
+    phonemes_ready = bool(health is not None and health.status != "unavailable" and health.phoneme_ready)
     return {
         "enabled": True,
         "books_available": bool(get_corpus() and get_corpus().books),
         "tts": tts,
         "assess": assess,
         "quota": {"daily_limit": limit, "used_today": used, "remaining": max(limit - used, 0)},
+        "ai": reading_ai.ai_status(),
+        "phonemes": {"available": phonemes_ready},
+        "words": {"due": reading_words.due_count(db, current_user)},
+        "offline": {"max_chapters": max(int(settings.reading_max_offline_chapters or 0), 0)},
     }
 
 
@@ -109,6 +141,19 @@ def chapter(slug: str, chapter_file: str, db: Session = Depends(get_db), user: U
     if detail is None:
         raise api_error(404, "chapter_not_found", "Chapter not found.")
     return detail
+
+
+@router.get("/books/{slug}/chapters/{chapter_file}/offline-manifest")
+def offline_manifest(slug: str, chapter_file: str, user: User = Depends(reading_user)) -> dict[str, Any]:
+    _check_id(slug, "book_not_found")
+    _check_id(chapter_file, "chapter_not_found")
+    corpus = get_corpus()
+    if corpus is None or slug not in corpus.books:
+        raise api_error(404, "book_not_found", "Book not found.")
+    manifest = reading.build_offline_manifest(slug, chapter_file)
+    if manifest is None:
+        raise api_error(404, "chapter_not_found", "Chapter not found.")
+    return manifest
 
 
 # Registered before the generic section route: ``{section_id:path}`` is greedy and would swallow
@@ -141,17 +186,25 @@ def tts(section_id: str, body: TtsIn, user: User = Depends(reading_user)) -> dic
     if resolved is None:
         raise api_error(404, "block_not_found", "Block not found.")
     _section, _part, text = resolved
+    return _synthesize(text, body.voice, body.speed, kind="block")
+
+
+def _synthesize(text: str, voice: str | None, speed: float | None, *, kind: str) -> dict[str, Any]:
+    """TTS of server-resolved text (a block or a stored word), same response for both."""
     client = _speech_or_503()
     health = client.health()
     voices = {str(v.get("id")) for v in (health.tts.get("voices") or DEFAULT_VOICES)}
-    voice = body.voice or str(health.tts.get("default_voice") or "af_heart")
+    voice = voice or str(health.tts.get("default_voice") or "af_heart")
     if voice not in voices:
         raise api_error(400, "voice_invalid", "Unknown voice.")
-    speed = float(body.speed if body.speed is not None else 1.0)
+    speed = float(speed if speed is not None else 1.0)
+    started = time.perf_counter()
     try:
         result = client.tts(text, voice=voice, speed=speed)
     except SpeechError as exc:
+        _log_upstream("reading_tts", started, code=exc.code, kind=kind)
         _raise_speech(exc)
+    _log_upstream("reading_tts", started, cached=bool(result.get("cached")), kind=kind)
     result["text"] = text
     result["audio_url"] = f"/api/reading/audio/{result.get('audio_id', '')}"
     return result
@@ -196,12 +249,30 @@ async def _read_upload(upload: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+def _check_assess_quota(db: Session, user: User) -> None:
+    limit = max(int(settings.reading_daily_assess_quota or 0), 0)
+    if limit and reading.assess_used_today(db, user) >= limit:
+        raise api_error(429, "reading_quota_exceeded", "Daily assessment quota reached.")
+
+
+async def _score(client: Any, payload: bytes, *, content_type: str, filename: str, reference_text: str, kind: str) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        result = await run_in_threadpool(client.assess, payload, content_type=content_type, filename=filename, reference_text=reference_text)
+    except SpeechError as exc:
+        _log_upstream("reading_assess", started, code=exc.code, kind=kind)
+        _raise_speech(exc)
+    _log_upstream("reading_assess", started, kind=kind)
+    return result
+
+
 @router.post("/sections/{section_id:path}/assess")
 async def assess(
     section_id: str,
     audio: UploadFile = File(...),
     part_id: str = Form(..., min_length=1, max_length=MAX_ID_LENGTH),
     block_index: int = Form(..., ge=0, le=MAX_BLOCK_INDEX),
+    sentence_index: int | None = Form(default=None, ge=0, le=MAX_SENTENCE_INDEX),
     db: Session = Depends(get_db),
     user: User = Depends(reading_user),
 ) -> dict[str, Any]:
@@ -209,25 +280,36 @@ async def assess(
     resolved = reading.resolve_block(section_id, part_id, block_index)
     if resolved is None:
         raise api_error(404, "block_not_found", "Block not found.")
-    section_obj, _part, text = resolved
+    section_obj, _part, block_text = resolved
+    # Drill (§3.1): the reference is one sentence of the block; offsets in the answer are
+    # relative to it and ``char_offset`` places it in the block.
+    char_offset, text = 0, block_text
+    if sentence_index is not None:
+        sentence = reading.resolve_sentence(block_text, sentence_index)
+        if sentence is None:
+            raise api_error(404, "sentence_not_found", "Sentence not found.")
+        char_offset, text = sentence
     content_type = _audio_type(audio)
     client = _speech_or_503()
-    limit = max(int(settings.reading_daily_assess_quota or 0), 0)
-    if limit and reading.attempts_today(db, user) >= limit:
-        raise api_error(429, "reading_quota_exceeded", "Daily assessment quota reached.")
+    _check_assess_quota(db, user)
     payload = await _read_upload(audio, int(settings.speech_max_audio_bytes))
-    filename = audio.filename or "recording"
-    try:
-        from starlette.concurrency import run_in_threadpool
-
-        result = await run_in_threadpool(client.assess, payload, content_type=content_type, filename=filename, reference_text=text)
-    except SpeechError as exc:
-        _raise_speech(exc)
-    row = reading.record_attempt(db, user, section=section_obj, part_id=part_id, block_index=block_index, assessment=result)
+    result = await _score(
+        client, payload, content_type=content_type, filename=audio.filename or "recording", reference_text=text,
+        kind="sentence" if sentence_index is not None else "block",
+    )
+    row = reading.record_attempt(
+        db, user, section=section_obj, part_id=part_id, block_index=block_index, assessment=result, sentence_index=sentence_index
+    )
+    deck = reading_words.apply_assessment(
+        db, user, result, reference_text=text, section_id=section_obj.id, part_id=part_id, block_index=block_index
+    )
     result["text"] = text
+    result["sentence_index"] = sentence_index
+    result["char_offset"] = char_offset
     result["attempt_id"] = row.id
     result["created_at"] = reading._iso(row.created_at)
-    result.update(reading.block_summary(db, user, section_id, part_id, block_index))
+    result["deck"] = deck
+    result.update(reading.block_summary(db, user, section_id, part_id, block_index, sentence_index))
     return result
 
 
@@ -251,4 +333,125 @@ def get_progress(db: Session = Depends(get_db), user: User = Depends(reading_use
 
 @router.get("/stats")
 def stats(db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
-    return reading.build_stats(db, user)
+    body = reading.build_stats(db, user)
+    words = reading_words.summary(db, user)
+    body["words"] = {"total": words["total"], "due": words["due"], "learned": words["learned"]}
+    body["quiz"] = reading_ai.quiz_stats(db, user)
+    return body
+
+
+# ---------------------------------------------------------------------------- words (§3.2)
+@router.get("/words")
+def list_words(
+    status: str = Query(default="all", pattern="^(due|all)$"),
+    kind: str | None = Query(default=None, pattern="^(pronunciation|vocabulary)$"),
+    limit: int = Query(default=50, ge=1, le=reading_words.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+    user: User = Depends(reading_user),
+) -> dict[str, Any]:
+    return reading_words.list_cards(db, user, status=status, kind=kind, limit=limit, offset=offset)
+
+
+@router.get("/words/summary")
+def words_summary(db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    return reading_words.summary(db, user)
+
+
+@router.post("/words", status_code=201)
+def add_word(body: WordIn, response: Response, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    _check_id(body.section_id, "section_not_found")
+    spot = reading_words.locate_word(body.section_id, body.part_id, body.block_index, body.char_start, body.char_end)
+    # A word looked up in the glossary keeps its translation and counts as a glossary card.
+    meaning = reading_ai.cached_meaning(spot.norm, spot.context, db)
+    card, created = reading_words.add_card(
+        db, user, spot, kind=body.kind, source="glossary" if meaning else "manual", meaning_pt=meaning,
+    )
+    if created and not card.ipa:
+        ipa = reading_ai.ipa_for(card.display)
+        if ipa:
+            card.ipa = ipa[: reading_words.IPA_MAX]
+            db.commit()
+            db.refresh(card)
+    if not created:
+        response.status_code = 200
+    return reading_words.serialize_card(card)
+
+
+@router.delete("/words/{word_id}", status_code=204)
+def delete_word(word_id: str, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> Response:
+    reading_words.delete_card(db, user, word_id)
+    return Response(status_code=204)
+
+
+@router.post("/words/{word_id}/tts")
+def word_tts(word_id: str, body: WordTtsIn, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    card = reading_words.get_card(db, user, word_id)
+    return _synthesize(card.display, body.voice, body.speed, kind="word")
+
+
+@router.post("/words/{word_id}/review")
+async def review_word(
+    word_id: str,
+    audio: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(reading_user),
+) -> dict[str, Any]:
+    card = reading_words.get_card(db, user, word_id)
+    content_type = _audio_type(audio)
+    client = _speech_or_503()
+    _check_assess_quota(db, user)
+    payload = await _read_upload(audio, int(settings.speech_max_audio_bytes))
+    reference = card.display
+    result = await _score(client, payload, content_type=content_type, filename=audio.filename or "recording", reference_text=reference, kind="word")
+    reading.record_call(db, user, reading.CALL_WORD_REVIEW)
+    overall = float((result.get("scores") or {}).get("overall") or 0.0)
+    grade = reading_words.grade_for_overall(overall)
+    card = reading_words.grade_card(db, user, card.id, grade, score=overall)
+    result["text"] = reference
+    return {"assessment": result, "grade": grade, "card": reading_words.serialize_card(card)}
+
+
+@router.post("/words/{word_id}/grade")
+def grade_word(word_id: str, body: GradeIn, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    card = reading_words.grade_card(db, user, word_id, body.grade)
+    return reading_words.serialize_card(card)
+
+
+# ---------------------------------------------------------------------------- glossary (§3.3)
+@router.post("/glossary")
+def glossary(body: GlossaryIn, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    _check_id(body.section_id, "section_not_found")
+    spot = reading_words.locate_word(body.section_id, body.part_id, body.block_index, body.char_start, body.char_end)
+    return reading_ai.glossary(db, user, spot)
+
+
+# ---------------------------------------------------------------------------- comprehension (§3.4)
+@router.post("/sections/{section_id:path}/quiz/answer")
+def quiz_answer(section_id: str, body: QuizAnswerIn, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    _check_id(section_id, "section_not_found")
+    return reading_ai.answer_quiz(db, user, section_id, body.question_index, body.choice)
+
+
+@router.post("/sections/{section_id:path}/quiz")
+def quiz(section_id: str, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    _check_id(section_id, "section_not_found")
+    return reading_ai.get_or_create_quiz(db, user, section_id)
+
+
+# ---------------------------------------------------------------------------- your data (§3.5)
+@router.get("/me/export")
+def export_data(db: Session = Depends(get_db), user: User = Depends(reading_user)) -> JSONResponse:
+    body = reading_data.export_user_data(db, user)
+    return JSONResponse(
+        content=json.loads(json.dumps(body, ensure_ascii=False, default=str)),
+        headers={
+            "Content-Disposition": 'attachment; filename="sentinel-reader-dados.json"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.delete("/me")
+def delete_data(db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
+    return {"deleted": reading_data.delete_user_data(db, user)}

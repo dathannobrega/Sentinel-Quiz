@@ -197,6 +197,10 @@ class Settings(BaseSettings):
     # http = real speech service; fake = deterministic in-process stand-in (development/tests only).
     speech_provider: str = Field(default="http", alias="SPEECH_PROVIDER")
     reading_daily_assess_quota: int = Field(default=400, alias="READING_DAILY_ASSESS_QUOTA")
+    # Increment 2 (docs/reading/CONTRATO-INCREMENTO-2.md §6): AI calls (glossary + comprehension,
+    # cache hits excluded) per user and UTC day; offline chapters is informative for the PWA.
+    reading_ai_daily_quota: int = Field(default=300, alias="READING_AI_DAILY_QUOTA")
+    reading_max_offline_chapters: int = Field(default=5, alias="READING_MAX_OFFLINE_CHAPTERS")
     rate_limit_reading_requests: int = Field(default=60, alias="RATE_LIMIT_READING_REQUESTS")
     rate_limit_reading_window_seconds: int = Field(default=60, alias="RATE_LIMIT_READING_WINDOW_SECONDS")
     # Live participants (DC-22, RNF-205): a whole auditorium may share one NAT IP, so the

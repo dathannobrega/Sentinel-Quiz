@@ -290,9 +290,24 @@ export function useAudioPlayer({ playbackRate, onEnded, onError }: UseAudioPlaye
 
   const hasSource = useCallback(() => Boolean(audioRef.current?.src), []);
 
+  /** Element volume 0–1 (the sleep timer fades with it). */
+  const setVolume = useCallback((volume: number) => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = Math.max(0, Math.min(1, volume));
+    }
+  }, []);
+
+  /** Precise position and duration of the loaded source (state rounds the time). */
+  const getTimes = useCallback(() => {
+    const audio = audioRef.current;
+    const duration = audio && Number.isFinite(audio.duration) ? audio.duration : 0;
+    return { currentTime: audio?.currentTime ?? 0, duration, playbackRate: audio?.playbackRate ?? 1 };
+  }, []);
+
   return useMemo(
-    () => ({ state, load, play, pause, toggle, seek, playRange, stop, drainListenedSeconds, hasSource }),
-    [state, load, play, pause, toggle, seek, playRange, stop, drainListenedSeconds, hasSource]
+    () => ({ state, load, play, pause, toggle, seek, playRange, stop, drainListenedSeconds, hasSource, setVolume, getTimes }),
+    [state, load, play, pause, toggle, seek, playRange, stop, drainListenedSeconds, hasSource, setVolume, getTimes]
   );
 }
 

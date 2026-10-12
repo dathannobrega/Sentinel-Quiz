@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     # Intra-op threads for torch (Kokoro TTS). 0 = leave torch's default (all cores).
     torch_threads: int = Field(default=4, alias="SPEECH_TORCH_THREADS")
 
+    # Phoneme recognizer for GOP scoring (contract 2 §2.2).
+    phoneme_engine: str = Field(default="wav2vec2", alias="SPEECH_PHONEME_ENGINE")  # wav2vec2|fake|none
+    phoneme_model: str = Field(default="facebook/wav2vec2-lv-60-espeak-cv-ft", alias="SPEECH_PHONEME_MODEL")
+    phoneme_threads: int = Field(default=4, alias="SPEECH_PHONEME_THREADS")
+    # Below this word phoneme_score an ok/weak word becomes mispronounced (reason "phoneme").
+    phoneme_word_threshold: float = Field(default=0.6, alias="SPEECH_PHONEME_WORD_THRESHOLD")
+    # ASR word probability below which a correctly read word is "weak" (low_confidence).
+    weak_confidence: float = Field(default=0.6, alias="SPEECH_WEAK_CONFIDENCE")
+    # accuracy, completeness, fluency, prosody (prosody's weight is redistributed when absent).
+    score_weights: str = Field(default="0.5,0.2,0.15,0.15", alias="SPEECH_SCORE_WEIGHTS")
+
     audio_format: str = Field(default="mp3", alias="SPEECH_AUDIO_FORMAT")  # mp3|wav
 
     cache_dir: str = Field(default="/var/cache/speech", alias="SPEECH_CACHE_DIR")

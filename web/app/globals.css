@@ -181,3 +181,14 @@
     var(--color-surface) 70%
   );
 }
+
+/*
+ * Phonetic transcriptions (Sentinel Reader). The bundled fonts ship only the `latin` subset, which has
+ * no IPA glyphs (ɑ ɛ ɪ ʊ θ ð ŋ ˈ …), so their fallbacks drew wrong shapes. System fonts with IPA
+ * coverage on every platform: SF (macOS/iOS), Segoe UI (Windows), Roboto/Noto (Android), DejaVu (Linux).
+ */
+@utility font-ipa {
+  font-family: "Charis SIL", "Doulos SIL", "Gentium Plus", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Noto Sans", "DejaVu Sans", "Lucida Grande", sans-serif;
+  font-variant-ligatures: none;
+}
