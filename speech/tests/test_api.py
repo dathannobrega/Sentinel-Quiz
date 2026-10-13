@@ -47,6 +47,10 @@ def test_healthz_shape(client: TestClient) -> None:
     assert {"id", "label", "lang", "gender"} <= set(body["tts"]["voices"][0])
     assert "ready" in body["tts"] and "ready" in body["asr"]
     assert body["phoneme"] == {"engine": "none", "model": body["phoneme"]["model"], "ready": False, "error": None}
+    runtime = body["runtime"]
+    assert set(runtime) == {"effective_cpus", "threads", "max_concurrency", "parallel_phonemes"}
+    assert set(runtime["threads"]) == {"asr", "torch", "phoneme"}
+    assert runtime["effective_cpus"] >= 1 and runtime["max_concurrency"] in {1, 2}
 
 
 def test_tts_words_offsets_and_cache(client: TestClient) -> None:
@@ -322,7 +326,7 @@ def test_metrics_endpoint(client: TestClient) -> None:
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/plain")
     text = res.text
-    assert 'speech_requests_total{route="/v1/tts",status="200"} 2.0' in text
+    assert 'speech_requests_total{priority="normal",route="/v1/tts",status="200"} 2.0' in text
     assert "speech_tts_cache_hits_total 1.0" in text
     assert "speech_tts_cache_misses_total 1.0" in text
     assert 'speech_inference_seconds_count{engine="fake"}' in text

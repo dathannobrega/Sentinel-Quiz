@@ -132,6 +132,7 @@ def build_library(db: Session, user: User) -> dict[str, Any]:
             "slug": book.slug,
             "title": book.title,
             "certification": book.certification,
+            "language": book.language,
             "words": words,
             "minutes": minutes_for(words),
             "sections": len(sections),
@@ -196,6 +197,7 @@ def build_section(db: Session, user: User, section_id: str) -> dict[str, Any] | 
             block["sentences"] = sentences_of(str(block.get("text") or ""))
     detail.update({
         "book_slug": section.book_slug,
+        "language": book.language if book else "unknown",
         "chapter_file": chapter_stem(section.chapter_file),
         "chapter_index": section.chapter_index,
         "position": {"index": index, "total": len(order)},
@@ -239,7 +241,7 @@ def build_offline_manifest(slug: str, chapter_file: str) -> dict[str, Any] | Non
     first = in_chapter[0]
     minutes = total_words / WORDS_PER_MINUTE
     return {
-        "book": {"slug": book.slug, "title": book.title, "certification": book.certification},
+        "book": {"slug": book.slug, "title": book.title, "certification": book.certification, "language": book.language},
         "chapter": {"file": stem, "index": first.chapter_index, "title": first.chapter_title},
         "sections": sections,
         "total_blocks": total_blocks,
@@ -272,6 +274,58 @@ def resolve_block(section_id: str, part_id: str, block_index: int) -> tuple[Corp
     if not text:
         return None
     return section, part, text
+
+
+SPEECH_LANGUAGE = "en"
+
+
+def book_language(section: CorpusSection) -> str:
+    """Language of the book a section belongs to (``unknown`` when the corpus is gone)."""
+    corpus = get_corpus()
+    book = corpus.books.get(section.book_slug) if corpus else None
+    return book.language if book else "unknown"
+
+
+def speech_supported(section: CorpusSection) -> bool:
+    """Increment 3 (§3.3): the neural voice and the assessment exist for English only; other
+    books get the browser voice in their own language and no scoring."""
+    return book_language(section) == SPEECH_LANGUAGE
+
+
+def blocks_ahead(section_id: str, part_id: str, block_index: int, count: int) -> list[tuple[str, str, int, str]]:
+    """The next ``count`` blocks the reader will reach from a position (Increment 3 §3.2).
+
+    Walks the section as the reader renders it (``section_detail`` parts and blocks, so the
+    subsections shown on the same page are included) starting *at* the given block, then adds the
+    first block of the next section in reading order (``detail.next``, the one the UI navigates
+    to). Returns ``(section_id, part_id, block_index, text)`` tuples; empty when the position is
+    unknown, so a caller never synthesizes text a client made up.
+    """
+    if count <= 0 or resolve_block(section_id, part_id, block_index) is None:
+        return []
+    detail = section_detail(section_id)
+    if detail is None:
+        return []
+    positions: list[tuple[str, int, str]] = []
+    for part in detail.get("parts") or []:
+        for index, block in enumerate(part.get("blocks") or []):
+            text = str(block.get("text") or "").strip()
+            if text:
+                positions.append((str(part["id"]), index, text))
+    start = next((i for i, (pid, idx, _text) in enumerate(positions) if pid == part_id and idx == block_index), None)
+    if start is None:
+        return []
+    out = [(section_id, pid, idx, text) for pid, idx, text in positions[start:start + count]]
+    following = (detail.get("next") or {}).get("id")
+    if following:
+        corpus = get_corpus()
+        next_section = corpus.get(str(following)) if corpus else None
+        for index, block in enumerate(next_section.blocks if next_section else []):
+            text = block.text.strip()
+            if text:
+                out.append((next_section.id, next_section.id, index, text))
+                break
+    return out
 
 
 def sentences_of(text: str) -> list[dict[str, int]]:

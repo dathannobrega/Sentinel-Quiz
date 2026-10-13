@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ComprehensionCard } from "@/features/reading/components/comprehension-card";
 import { DrillPanel } from "@/features/reading/components/drill-panel";
 import { GlossaryPopover, type GlossaryTarget } from "@/features/reading/components/glossary-popover";
+import { ListenRepeatPanel } from "@/features/reading/components/listen-repeat-panel";
 import { PlayerBar, type ReaderEngine } from "@/features/reading/components/player-bar";
 import { ReadAlongBlock } from "@/features/reading/components/read-along-block";
 import { ShadowPanel } from "@/features/reading/components/shadow-panel";
@@ -26,27 +27,94 @@ import { isTypingTarget } from "@/features/reading/lib/keyboard";
 import { bindMediaSession, setMediaPlaybackState, setMediaPosition, type MediaSessionHandlers } from "@/features/reading/lib/media-session";
 import { useOnlineStatus } from "@/features/reading/lib/online-status";
 import { DEFAULT_READING_PREFS, readReadingPrefs, writeReadingPrefs, type ReaderMode, type ReadingPrefs } from "@/features/reading/lib/prefs";
+import { createWarmScheduler, planPrefetch } from "@/features/reading/lib/prefetch-policy";
 import { createOnlineSource, type ReaderSource } from "@/features/reading/lib/reader-source";
-import { mapAssessedWordsToTokens, nextSentenceIndex, sentenceText, sentenceTokenRange } from "@/features/reading/lib/sentences";
+import { createSegmentFeed, type MutableSegmentFeed } from "@/features/reading/lib/segment-player";
+import { buildSegmentTimings, nextSegmentOffset, shiftSegmentWords, type ReceivedSegment } from "@/features/reading/lib/segments";
+import { mapAssessedWordsToTokens, nextSentenceIndex, sentenceText, sentenceTokenRange, type TokenRange } from "@/features/reading/lib/sentences";
 import { findTokenIndexAtChar, mapWordsToTokens, type WordTiming } from "@/features/reading/lib/tokenize";
+import { isAbortError, isStreamUnsupported, isStreamUnsupportedError, markStreamUnsupported } from "@/features/reading/lib/tts-stream";
 import { useAudioPlayer } from "@/features/reading/lib/use-audio-player";
 import { useSleepTimer } from "@/features/reading/lib/use-sleep-timer";
-import { isWebSpeechSupported, speak, type SpeechHandle } from "@/features/reading/lib/web-speech";
+import { isWebSpeechSupported, speak, speechLangFor, type SpeechHandle } from "@/features/reading/lib/web-speech";
 import { ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
-import type { ReadingAssessedWord, ReadingAssessment, ReadingCapabilities, ReadingSectionDetail, ReadingTtsResponse } from "@/types/api";
+import type {
+  ReadingAssessedWord,
+  ReadingAssessment,
+  ReadingCapabilities,
+  ReadingLanguage,
+  ReadingSectionDetail,
+  ReadingSentence,
+  ReadingTtsResponse,
+  ReadingTtsWord,
+  ReadingWarmRequest
+} from "@/types/api";
 
-const DEFAULT_SPEEDS = [0.75, 0.9, 1, 1.1, 1.25];
+const DEFAULT_SPEEDS = [0.5, 0.6, 0.75, 0.9, 1, 1.1, 1.25];
 const AUDIO_CACHE_LIMIT = 6;
 const LISTEN_DRAIN_MS = 10_000;
 
 function noop() {}
 
-interface BlockAudio {
+/** Whole-block audio (offline, or the fallback for servers without the stream). */
+interface BlockFileAudio {
+  kind: "file";
   tts: ReadingTtsResponse;
   url: string;
   timings: WordTiming[];
+}
+
+/** Streamed audio: sentence segments that keep arriving while the block plays. */
+interface BlockStreamAudio {
+  kind: "stream";
+  feed: MutableSegmentFeed;
+  received: ReceivedSegment[];
+  /** Words of the received segments, on the block timeline. */
+  words: ReadingTtsWord[];
+  timings: WordTiming[];
+  urls: string[];
+  controller: AbortController;
+}
+
+type BlockAudio = BlockFileAudio | BlockStreamAudio;
+
+function entryWords(entry: BlockAudio): readonly ReadingTtsWord[] {
+  return entry.kind === "file" ? entry.tts.words : entry.words;
+}
+
+/** Frees the blob URLs of an entry and aborts its stream when still running. */
+function releaseEntry(entry: BlockAudio) {
+  if (entry.kind === "file") {
+    URL.revokeObjectURL(entry.url);
+    return;
+  }
+  entry.controller.abort();
+  entry.urls.forEach((url) => URL.revokeObjectURL(url));
+}
+
+/** Resolves once the sentence's last word has a time (its segment arrived) or the feed is over. */
+function waitForTimings(entry: BlockAudio, range: TokenRange): Promise<void> {
+  if (entry.kind === "file" || range.last < 0) {
+    return Promise.resolve();
+  }
+  const ready = () => Number.isFinite(entry.timings[range.last]?.end ?? Number.POSITIVE_INFINITY) || entry.feed.complete;
+  if (ready()) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const unsubscribe = entry.feed.subscribe(() => {
+      if (ready()) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
+function isLanguageError(error: unknown): boolean {
+  return error instanceof ApiError && (error.code === "language_unsupported" || error.status === 409);
 }
 
 /** How the reader moves between sections: routes online, in-page state offline. */
@@ -97,6 +165,7 @@ function SectionNav({ detail, navigation, t }: { detail: ReadingSectionDetail; n
   );
 }
 
+/** Current sentence (by `ReadingSentence.index`) and last assessment of the drill / listen-and-repeat. */
 interface DrillState {
   blockKey: string;
   sentence: number;
@@ -139,7 +208,12 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
 
   const ttsCapability = capabilities?.tts;
   const ttsAvailable = Boolean(ttsCapability?.available);
-  const assessAvailable = online && Boolean(capabilities?.assess?.available);
+  // Book language: the neural voice and the assessment only exist for English (409 otherwise).
+  const [languageRejected, setLanguageRejected] = useState(false);
+  const language: ReadingLanguage = detail.language ?? (languageRejected ? "unknown" : "en");
+  const englishBook = language === "en" && !languageRejected;
+  const speechLang = speechLangFor(language);
+  const assessAvailable = online && englishBook && Boolean(capabilities?.assess?.available);
   const aiAvailable = online && Boolean(capabilities?.ai?.available);
   // The glossary works without AI too (IPA + audio); it needs an Increment 2 API (`ai` in capabilities).
   const glossaryAvailable = online && capabilities?.ai !== undefined;
@@ -147,11 +221,13 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
   const speeds = ttsCapability?.speeds?.length ? ttsCapability.speeds : DEFAULT_SPEEDS;
   const voice = prefs.voice && voices.some((item) => item.id === prefs.voice) ? prefs.voice : (ttsCapability?.default_voice ?? voices[0]?.id ?? null);
   const speed = speeds.includes(prefs.speed) ? prefs.speed : speeds.includes(1) ? 1 : (speeds[0] ?? 1);
-  const mode: ReaderMode = (prefs.mode === "shadow" || prefs.mode === "drill") && assessAvailable ? prefs.mode : "listen";
+  const mode: ReaderMode = (prefs.mode === "shadow" || prefs.mode === "drill" || prefs.mode === "repeat") && assessAvailable ? prefs.mode : "listen";
   const glossaryTap = glossaryAvailable && prefs.glossaryTap;
 
   const [engineOverride, setEngineOverride] = useState<ReaderEngine | null>(null);
-  const engine: ReaderEngine = engineOverride ?? (ttsAvailable ? "tts" : "browser");
+  const engine: ReaderEngine = englishBook ? (engineOverride ?? (ttsAvailable ? "tts" : "browser")) : "browser";
+  // Streamed TTS unless the server says no (or answered 404/405 earlier in this session).
+  const streamingAllowed = online && Boolean(source.loadStream) && ttsCapability?.streaming !== false && !isStreamUnsupported();
   const webSpeechSupported = typeof window !== "undefined" && isWebSpeechSupported();
   const [notice, setNotice] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
@@ -165,25 +241,34 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
   const progress = useProgressReporter({ bookSlug: detail.book_slug, sectionId: detail.section_id, enabled: online });
   const progressMode = mode === "listen" ? "listen" : "shadow";
 
-  // Neural audio cache keyed by block + voice + speed (blob URLs revoked on eviction and unmount).
+  // Neural audio cache keyed by section + block + voice + speed (blob URLs revoked on eviction and
+  // unmount; running streams aborted). Streamed segments are also kept by the stream module in the
+  // react-query cache, so the next section's first block survives the navigation.
   const audioCacheRef = useRef(new Map<string, BlockAudio>());
   /** Cache key of the entry currently loaded in the player. */
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const loadedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    loadedKeyRef.current = loadedKey;
+  }, [loadedKey]);
   const [audioLoading, setAudioLoading] = useState(false);
+  /** Pushes refreshed word timings into the player (bound once the player exists). */
+  const timingsSinkRef = useRef<(timings: WordTiming[]) => void>(noop);
 
   useEffect(() => {
     const cache = audioCacheRef.current;
     return () => {
-      cache.forEach((entry) => URL.revokeObjectURL(entry.url));
+      cache.forEach((entry) => releaseEntry(entry));
       cache.clear();
     };
   }, []);
 
   const ttsParamsFor = useCallback(
-    (block: ReaderBlock): TtsParams => ({ sectionId: detail.section_id, partId: block.partId, blockIndex: block.blockIndex, voice, speed }),
+    (block: ReaderBlock, sectionId: string = detail.section_id): TtsParams => ({ sectionId, partId: block.partId, blockIndex: block.blockIndex, voice, speed }),
     [detail.section_id, speed, voice]
   );
-  const cacheKeyFor = useCallback((block: ReaderBlock) => `${block.key}|${voice ?? ""}|${speed}`, [speed, voice]);
+  const settingsSuffix = `|${voice ?? ""}|${speed}`;
+  const cacheKeyFor = useCallback((block: ReaderBlock, sectionId: string = detail.section_id) => `${sectionId}|${block.key}${settingsSuffix}`, [detail.section_id, settingsSuffix]);
 
   const switchToBrowser = useCallback(
     (reason: string | null) => {
@@ -193,25 +278,25 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
     [t, webSpeechSupported]
   );
 
-  /** Resolves (and caches) the TTS + audio blob for a block; retries the TTS once on `audio_not_found`. */
-  const ensureAudio = useCallback(
-    async (block: ReaderBlock): Promise<BlockAudio | null> => {
-      const key = cacheKeyFor(block);
-      const cached = audioCacheRef.current.get(key);
-      if (cached) {
-        return cached;
-      }
-      const params = ttsParamsFor(block);
-      let tts: ReadingTtsResponse;
-      try {
-        tts = await source.loadTts(params);
-      } catch (error) {
-        if (error instanceof ApiError && (error.code === "speech_unavailable" || error.code === "speech_warming" || error.status === 503)) {
-          switchToBrowser(error.code);
-          return null;
+  const storeEntry = useCallback((key: string, entry: BlockAudio) => {
+    const cache = audioCacheRef.current;
+    if (cache.size >= AUDIO_CACHE_LIMIT) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) {
+        const evicted = cache.get(oldest);
+        cache.delete(oldest);
+        if (evicted && oldest !== loadedKeyRef.current) {
+          releaseEntry(evicted);
         }
-        throw error;
       }
+    }
+    cache.set(key, entry);
+  }, []);
+
+  /** Whole-block path: TTS + audio blob; retries the TTS once on `audio_not_found`. */
+  const loadBlockFile = useCallback(
+    async (params: TtsParams, block: ReaderBlock): Promise<BlockFileAudio> => {
+      let tts = await source.loadTts(params);
       let blob: Blob;
       try {
         blob = await source.loadAudio(tts);
@@ -223,26 +308,128 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
           throw error;
         }
       }
-      const entry: BlockAudio = {
-        tts,
-        url: URL.createObjectURL(blob),
-        timings: mapWordsToTokens(tts.words, block.tokens)
+      return { kind: "file", tts, url: URL.createObjectURL(blob), timings: mapWordsToTokens(tts.words, block.tokens) };
+    },
+    [source]
+  );
+
+  /**
+   * Streamed path: resolves once the stream started (its `meta` line arrived); the segments keep
+   * filling the entry's feed and timings afterwards. Rejects like the HTTP request does.
+   */
+  const loadBlockStream = useCallback(
+    async (params: TtsParams, block: ReaderBlock, key: string): Promise<BlockStreamAudio> => {
+      const loadStream = source.loadStream;
+      if (!loadStream) {
+        throw new Error("stream unavailable");
+      }
+      const entry: BlockStreamAudio = {
+        kind: "stream",
+        feed: createSegmentFeed(),
+        received: [],
+        words: [],
+        timings: buildSegmentTimings([], block.tokens),
+        urls: [],
+        controller: new AbortController()
       };
-      const cache = audioCacheRef.current;
-      if (cache.size >= AUDIO_CACHE_LIMIT) {
-        const oldest = cache.keys().next().value;
-        if (oldest !== undefined) {
-          const evicted = cache.get(oldest);
-          cache.delete(oldest);
-          if (evicted && oldest !== loadedKey) {
-            URL.revokeObjectURL(evicted.url);
+      let resolveMeta: () => void = noop;
+      const metaReady = new Promise<void>((resolve) => {
+        resolveMeta = resolve;
+      });
+      const run = loadStream(params, {
+        signal: entry.controller.signal,
+        onMeta: () => resolveMeta(),
+        onSegment: (segment, blob) => {
+          const url = URL.createObjectURL(blob);
+          const offset = nextSegmentOffset(entry.feed.segments);
+          const received: ReceivedSegment = {
+            url,
+            duration: segment.duration_seconds,
+            offset,
+            index: segment.index,
+            charStart: segment.char_start,
+            charEnd: segment.char_end,
+            words: shiftSegmentWords(segment, offset)
+          };
+          entry.urls.push(url);
+          entry.received.push(received);
+          entry.words.push(...received.words);
+          entry.timings = buildSegmentTimings(entry.received, block.tokens);
+          if (loadedKeyRef.current === key) {
+            timingsSinkRef.current(entry.timings);
+          }
+          entry.feed.push({ url, duration: segment.duration_seconds, offset });
+        }
+      });
+      run.then(
+        () => entry.feed.finish(),
+        (error: unknown) => {
+          entry.feed.fail(error);
+          // Forget a failed stream so the next attempt starts over.
+          if (audioCacheRef.current.get(key) === entry) {
+            audioCacheRef.current.delete(key);
+            if (loadedKeyRef.current !== key) {
+              releaseEntry(entry);
+            }
           }
         }
-      }
-      cache.set(key, entry);
+      );
+      await Promise.race([metaReady, run]);
       return entry;
     },
-    [cacheKeyFor, loadedKey, source, switchToBrowser, ttsParamsFor]
+    [source]
+  );
+
+  /**
+   * Resolves (and caches) the audio of a block: streamed when possible, whole file otherwise.
+   * `background` (prefetch) never changes the engine or shows notices; it just gives up.
+   */
+  const ensureAudio = useCallback(
+    async (block: ReaderBlock, options: { sectionId?: string; background?: boolean } = {}): Promise<BlockAudio | null> => {
+      const sectionId = options.sectionId ?? detail.section_id;
+      const key = cacheKeyFor(block, sectionId);
+      const cached = audioCacheRef.current.get(key);
+      if (cached) {
+        return cached;
+      }
+      const params = ttsParamsFor(block, sectionId);
+      try {
+        let entry: BlockAudio;
+        if (streamingAllowed) {
+          try {
+            entry = await loadBlockStream(params, block, key);
+          } catch (error) {
+            if (!isStreamUnsupportedError(error)) {
+              throw error;
+            }
+            // Older server without the stream route: block mode for the rest of the session.
+            markStreamUnsupported();
+            entry = await loadBlockFile(params, block);
+          }
+        } else {
+          entry = await loadBlockFile(params, block);
+        }
+        storeEntry(key, entry);
+        return entry;
+      } catch (error) {
+        if (isAbortError(error)) {
+          return null;
+        }
+        if (options.background) {
+          return null;
+        }
+        if (isLanguageError(error)) {
+          setLanguageRejected(true);
+          return null;
+        }
+        if (error instanceof ApiError && (error.code === "speech_unavailable" || error.code === "speech_warming" || error.status === 503)) {
+          switchToBrowser(error.code);
+          return null;
+        }
+        throw error;
+      }
+    },
+    [cacheKeyFor, detail.section_id, loadBlockFile, loadBlockStream, storeEntry, streamingAllowed, switchToBrowser, ttsParamsFor]
   );
 
   // Browser speech fallback state.
@@ -300,6 +487,7 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
   const playerRef = useRef(player);
   useEffect(() => {
     playerRef.current = player;
+    timingsSinkRef.current = player.setTimings;
   }, [player]);
 
   // Whether the player holds the audio of the active block for the current voice/speed.
@@ -323,6 +511,7 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
           speechRef.current = speak({
             text: block.text,
             rate: speed,
+            lang: speechLang,
             onBoundary: (charIndex) => setSpeechWordIndex(findTokenIndexAtChar(block.tokens, charIndex)),
             onEnd: () => {
               speechRef.current = null;
@@ -354,11 +543,13 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
           }
           return;
         }
-        setLoadedKey(cacheKeyFor(block));
-        await playerRef.current.load(entry.url, entry.timings, { autoplay });
-        const next = blocks[index + 1];
-        if (next) {
-          source.prefetch(ttsParamsFor(next));
+        const key = cacheKeyFor(block);
+        loadedKeyRef.current = key;
+        setLoadedKey(key);
+        if (entry.kind === "file") {
+          await playerRef.current.load(entry.url, entry.timings, { autoplay });
+        } else {
+          playerRef.current.loadSegments(entry.feed, entry.timings, { autoplay });
         }
       } catch {
         setAudioError(t("reading.reader.audioFailed"));
@@ -366,7 +557,7 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
         setAudioLoading(false);
       }
     },
-    [blocks, cacheKeyFor, engine, ensureAudio, handleBlockEnded, progress, source, speed, stopSpeech, t, ttsParamsFor, webSpeechSupported]
+    [blocks, cacheKeyFor, engine, ensureAudio, handleBlockEnded, progress, speechLang, speed, stopSpeech, t, webSpeechSupported]
   );
   useEffect(() => {
     loadBlockRef.current = loadBlock;
@@ -419,14 +610,95 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
       return;
     }
     settingsKeyRef.current = key;
-    const wasPlaying = playerRef.current.state.status === "playing" || speechPlaying;
+    // Streams still running for the previous voice/speed are no longer wanted.
+    audioCacheRef.current.forEach((entry, entryKey) => {
+      if (entry.kind === "stream" && !entry.feed.complete && !entryKey.endsWith(settingsSuffix)) {
+        audioCacheRef.current.delete(entryKey);
+        releaseEntry(entry);
+      }
+    });
+    const wasPlaying = playerRef.current.state.status === "playing" || playerRef.current.state.status === "buffering" || speechPlaying;
     goTo(activeIndex, wasPlaying);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the settings key
   }, [voice, speed, engine]);
 
-  const isPlaying = engine === "browser" ? speechPlaying : player.state.status === "playing";
-  const isLoading = audioLoading || (engine === "tts" && player.state.status === "loading");
+  const playerStatus = player.state.status;
+  const isPlaying = engine === "browser" ? speechPlaying : playerStatus === "playing" || playerStatus === "buffering";
+  // The very first sentence still on its way counts as loading; later gaps are the discreet indicator.
+  const firstSegmentPending = playerStatus === "buffering" && player.state.segmentIndex < 0 && player.state.currentTime === 0;
+  const isLoading = audioLoading || (engine === "tts" && (playerStatus === "loading" || firstSegmentPending));
+  const isBuffering = engine === "tts" && playerStatus === "buffering" && !firstSegmentPending;
   const canPlay = engine === "tts" || webSpeechSupported;
+
+  // Anticipation: while a block plays, stream the next one (one ahead); on the last block, the next
+  // section and its first block, so the navigation finds everything in the caches.
+  const prefetchedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!online || engine !== "tts" || playerStatus !== "playing") {
+      return;
+    }
+    const plan = planPrefetch({ activeIndex, blockCount: blocks.length, nextSectionId: detail.next?.id ?? null });
+    if (!plan) {
+      return;
+    }
+    const planKey = plan.kind === "block" ? cacheKeyFor(blocks[plan.index]) : `${plan.sectionId}${settingsSuffix}`;
+    if (prefetchedRef.current === planKey) {
+      return;
+    }
+    prefetchedRef.current = planKey;
+    // Deferred: a status flip back and forth within the same tick must not start a stream.
+    const timer = globalThis.setTimeout(() => {
+      if (plan.kind === "block") {
+        void ensureAudio(blocks[plan.index], { background: true }).catch(noop);
+        return;
+      }
+      const loadSection = source.loadSection;
+      if (!loadSection || !navigation.canOpen(plan.sectionId)) {
+        return;
+      }
+      void loadSection(plan.sectionId)
+        .then((next) => {
+          const first = flattenBlocks(next)[0];
+          if (first && (next.language ?? "en") === "en") {
+            return ensureAudio(first, { sectionId: next.section_id, background: true });
+          }
+          return null;
+        })
+        .catch(noop);
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
+  }, [activeIndex, blocks, cacheKeyFor, detail.next?.id, engine, ensureAudio, navigation, online, playerStatus, settingsSuffix, source.loadSection]);
+
+  // Warm-up: on open and on each voice/speed change, ask the server to synthesise the next blocks
+  // (debounced 2 s, at most once a minute per section; errors ignored).
+  const warmRef = useRef(createWarmScheduler<ReadingWarmRequest>(noop));
+  const activeIndexRef = useRef(activeIndex);
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+  const warmSend = source.warm;
+  useEffect(() => {
+    const scheduler = createWarmScheduler<ReadingWarmRequest>((sectionId, body) => {
+      warmSend?.(sectionId, body).catch(noop);
+    });
+    warmRef.current = scheduler;
+    return () => scheduler.cancel();
+  }, [warmSend]);
+  const warmEnabled = online && Boolean(warmSend) && Boolean(capabilities?.warm?.enabled) && englishBook && engine === "tts";
+  useEffect(() => {
+    if (!warmEnabled) {
+      return;
+    }
+    const block = blocks[activeIndexRef.current];
+    if (!block) {
+      return;
+    }
+    const body: ReadingWarmRequest = { part_id: block.partId, block_index: block.blockIndex, speed };
+    if (voice) {
+      body.voice = voice;
+    }
+    warmRef.current.request(detail.section_id, body);
+  }, [blocks, detail.section_id, speed, voice, warmEnabled]);
 
   const togglePlayback = useCallback(() => {
     if (engine === "browser") {
@@ -455,7 +727,7 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
         }
         const entry = activeBlock ? audioCacheRef.current.get(cacheKeyFor(activeBlock)) : undefined;
         const timing = entry?.timings[tokenIndex];
-        if (timing) {
+        if (timing && Number.isFinite(timing.start)) {
           playerRef.current.seek(timing.start, { play: true });
         }
       };
@@ -493,9 +765,9 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
           await loadBlock(activeIndex, false);
         }
         const entry = audioCacheRef.current.get(cacheKeyFor(activeBlock));
-        const match = entry?.tts.words.find((item) => item.char_start < word.char_end && word.char_start < item.char_end);
+        const match = entry ? entryWords(entry).find((item) => item.char_start < word.char_end && word.char_start < item.char_end) : undefined;
         if (match) {
-          playerRef.current.playRange(Math.max(0, match.start - 0.05), match.end + 0.12);
+          void playerRef.current.playRange(Math.max(0, match.start - 0.05), match.end + 0.12);
         }
       } finally {
         setModelBusy(false);
@@ -512,22 +784,24 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
     pauseAllRef.current = pauseAll;
   }, [pauseAll]);
 
-  // Sentence drill: the current sentence of the active block and the last assessment (for marks).
+  // Sentence drill / listen and repeat: the current sentence of the active block and the last
+  // assessment (for the marks in the text).
   const [drill, setDrill] = useState<DrillState | null>(null);
+  const practiceMode = mode === "drill" || mode === "repeat";
   const drillSentence = activeBlock ? (drill && drill.blockKey === activeBlock.key ? drill.sentence : (activeBlock.sentences[0]?.index ?? 0)) : 0;
   const drillResult = activeBlock && drill && drill.blockKey === activeBlock.key && drill.sentence === drillSentence ? drill.result : null;
   const drillSentenceObject = activeBlock?.sentences.find((sentence) => sentence.index === drillSentence) ?? activeBlock?.sentences[0];
   const drillRange = useMemo(
-    () => (mode === "drill" && activeBlock && drillSentenceObject ? sentenceTokenRange(activeBlock.tokens, drillSentenceObject) : null),
-    [activeBlock, drillSentenceObject, mode]
+    () => (practiceMode && activeBlock && drillSentenceObject ? sentenceTokenRange(activeBlock.tokens, drillSentenceObject) : null),
+    [activeBlock, drillSentenceObject, practiceMode]
   );
   const drillMarks = useMemo(() => {
-    if (mode !== "drill" || !activeBlock || !drillResult) {
+    if (!practiceMode || !activeBlock || !drillResult) {
       return null;
     }
     const offset = drillResult.char_offset ?? drillSentenceObject?.char_start ?? 0;
     return mapAssessedWordsToTokens(drillResult.words, offset, activeBlock.tokens);
-  }, [activeBlock, drillResult, drillSentenceObject, mode]);
+  }, [activeBlock, drillResult, drillSentenceObject, practiceMode]);
 
   const advanceDrill = useCallback(() => {
     if (!activeBlock) {
@@ -542,33 +816,87 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
     }
   }, [activeBlock, activeIndex, blocks.length, drillSentence, goTo, progress]);
 
-  const playSentence = useCallback(async () => {
-    if (!activeBlock || !drillSentenceObject) {
-      return;
-    }
-    if (engine !== "tts") {
-      stopSpeech();
-      if (webSpeechSupported) {
-        speechRef.current = speak({ text: sentenceText(activeBlock.text, drillSentenceObject), rate: speed });
+  /** Plays the model audio of one sentence of the active block; resolves when it ends. */
+  const playSentenceOf = useCallback(
+    async (sentence: ReadingSentence | undefined): Promise<void> => {
+      if (!activeBlock || !sentence) {
+        return;
       }
-      return;
-    }
-    setModelBusy(true);
-    try {
-      if (!activeLoaded) {
-        await loadBlock(activeIndex, false);
+      if (engine !== "tts") {
+        stopSpeech();
+        if (!webSpeechSupported) {
+          return;
+        }
+        await new Promise<void>((resolve, reject) => {
+          speechRef.current = speak({
+            text: sentenceText(activeBlock.text, sentence),
+            rate: speed,
+            lang: speechLang,
+            onEnd: resolve,
+            onError: (event) => reject(event)
+          });
+        });
+        return;
+      }
+      setModelBusy(true);
+      try {
+        if (!activeLoaded) {
+          await loadBlock(activeIndex, false);
+        }
+        const entry = audioCacheRef.current.get(cacheKeyFor(activeBlock));
+        if (!entry) {
+          return;
+        }
+        const range = sentenceTokenRange(activeBlock.tokens, sentence);
+        await waitForTimings(entry, range);
+        const first = entry.timings[range.first];
+        const last = entry.timings[range.last];
+        if (first && last && Number.isFinite(first.start) && Number.isFinite(last.end)) {
+          setModelBusy(false);
+          await playerRef.current.playRange(Math.max(0, first.start - 0.05), last.end + 0.15);
+        }
+      } finally {
+        setModelBusy(false);
+      }
+    },
+    [activeBlock, activeIndex, activeLoaded, cacheKeyFor, engine, loadBlock, speechLang, speed, stopSpeech, webSpeechSupported]
+  );
+  const playSentence = useCallback(() => playSentenceOf(drillSentenceObject), [drillSentenceObject, playSentenceOf]);
+
+  /** Model duration of a sentence (seconds) from the loaded timings, when known. */
+  const sentenceDuration = useCallback(
+    (position: number): number | null => {
+      const sentence = activeBlock?.sentences[position];
+      if (!activeBlock || !sentence) {
+        return null;
       }
       const entry = audioCacheRef.current.get(cacheKeyFor(activeBlock));
-      const range = sentenceTokenRange(activeBlock.tokens, drillSentenceObject);
+      const range = sentenceTokenRange(activeBlock.tokens, sentence);
       const first = entry?.timings[range.first];
       const last = entry?.timings[range.last];
-      if (first && last) {
-        playerRef.current.playRange(Math.max(0, first.start - 0.05), last.end + 0.15);
+      if (!first || !last || !Number.isFinite(first.start) || !Number.isFinite(last.end)) {
+        return null;
       }
-    } finally {
-      setModelBusy(false);
+      return Math.max(0, last.end - first.start);
+    },
+    [activeBlock, cacheKeyFor]
+  );
+
+  // Listen and repeat continues into the next block by itself once a block is complete.
+  const [repeatContinuing, setRepeatContinuing] = useState(false);
+  const finishRepeatBlock = useCallback(() => {
+    if (!activeBlock || activeIndex + 1 >= blocks.length) {
+      return;
     }
-  }, [activeBlock, activeIndex, activeLoaded, cacheKeyFor, drillSentenceObject, engine, loadBlock, speed, stopSpeech, webSpeechSupported]);
+    progress.addWords(activeBlock.tokens.length);
+    setRepeatContinuing(true);
+    goTo(activeIndex + 1, false);
+  }, [activeBlock, activeIndex, blocks.length, goTo, progress]);
+  const exitRepeat = useCallback(() => {
+    setRepeatContinuing(false);
+    pauseAll();
+    updatePrefs({ mode: "listen" });
+  }, [pauseAll, updatePrefs]);
 
   // Glossary popover.
   const [glossary, setGlossary] = useState<(GlossaryTarget & { blockKey: string; tokenIndex: number }) | null>(null);
@@ -597,10 +925,10 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
       return false;
     }
     const timing = audioCacheRef.current.get(cacheKeyFor(block))?.timings[glossary.tokenIndex];
-    if (!timing || !timing.matched) {
+    if (!timing || !timing.matched || !Number.isFinite(timing.start)) {
       return false;
     }
-    playerRef.current.playRange(Math.max(0, timing.start - 0.05), timing.end + 0.12);
+    void playerRef.current.playRange(Math.max(0, timing.start - 0.05), timing.end + 0.12);
     return true;
   }, [blocks, cacheKeyFor, engine, glossary, loadedKey]);
 
@@ -611,6 +939,10 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
         return;
       }
       if (event.key === " " || event.code === "Space") {
+        if (mode === "repeat") {
+          // The listen-and-repeat panel owns Space (pause/resume the loop).
+          return;
+        }
         event.preventDefault();
         togglePlayback();
       } else if (event.key === "ArrowLeft") {
@@ -627,7 +959,7 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [activeIndex, blocks, goTo, isPlaying, progress, togglePlayback]);
+  }, [activeIndex, blocks, goTo, isPlaying, mode, progress, togglePlayback]);
 
   // Media Session (lock screen, headset): handlers read the latest callbacks through a ref.
   const mediaHandlersRef = useRef<MediaSessionHandlers>({ play: noop, pause: noop, previous: noop, next: noop, seekBy: noop });
@@ -721,7 +1053,14 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
         </header>
 
         {!isOnline ? <Alert tone="neutral" message={online ? t("reading.reader.offlineIndicator") : t("reading.offline.readerNotice")} /> : null}
-        {notice ? <Alert tone="warning" message={notice} /> : null}
+        {!englishBook ? (
+          <Alert
+            tone="warning"
+            title={t("reading.capabilities.languageTitle", { language: t(`reading.capabilities.languages.${language}`) })}
+            message={t("reading.capabilities.languageNotice")}
+          />
+        ) : null}
+        {notice && englishBook ? <Alert tone="warning" message={notice} /> : null}
         {audioError ? <Alert tone="danger" role="alert" message={audioError} /> : null}
         {resumed ? <Alert tone="neutral" message={t("reading.reader.resumeNotice")} /> : null}
 
@@ -761,6 +1100,23 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
                     onBeforeRecord={pauseAll}
                     onResult={(assessment) => setDrill({ blockKey: activeBlock.key, sentence: drillSentence, result: assessment })}
                     onAdvance={advanceDrill}
+                  />
+                ) : null}
+                {isActive && mode === "repeat" && activeBlock ? (
+                  <ListenRepeatPanel
+                    sectionId={detail.section_id}
+                    block={activeBlock}
+                    hasNextBlock={activeIndex + 1 < blocks.length}
+                    assessAvailable={assessAvailable}
+                    playSentence={(position) => playSentenceOf(activeBlock.sentences[position])}
+                    stopModel={pauseAll}
+                    sentenceDuration={sentenceDuration}
+                    onPlayWord={(word) => void playModelWord(word)}
+                    modelBusy={modelBusy}
+                    onSentenceChange={(sentenceIndex, assessment) => setDrill({ blockKey: activeBlock.key, sentence: sentenceIndex, result: assessment })}
+                    onBlockDone={finishRepeatBlock}
+                    onExit={exitRepeat}
+                    autoStart={repeatContinuing}
                   />
                 ) : null}
                 {isActive && mode === "shadow" && activeBlock ? (
@@ -822,10 +1178,16 @@ export function ReaderView({ detail, capabilities, source, navigation }: ReaderV
           if (value !== "listen") {
             pauseAll();
           }
+          if (value !== "repeat") {
+            setRepeatContinuing(false);
+          }
           updatePrefs({ mode: value });
         }}
         shadowEnabled={assessAvailable}
         drillEnabled={online ? assessAvailable : undefined}
+        repeatEnabled={online ? assessAvailable : undefined}
+        modesDisabledReason={!englishBook ? t("reading.player.modeNeedsEnglish") : undefined}
+        buffering={isBuffering}
         glossaryAvailable={glossaryAvailable}
         glossaryTap={glossaryTap}
         onGlossaryTapChange={(value) => updatePrefs({ glossaryTap: value })}

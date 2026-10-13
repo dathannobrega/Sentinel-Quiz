@@ -107,6 +107,9 @@ class ExpectedPhonemes:
 class PhonemeEngine(Protocol):
     name: str
     model: str
+    # True when ``posteriors`` needs the ASR words (only the fake engine): then the forward
+    # cannot overlap the ASR and the service keeps the sequential path.
+    needs_heard_words: bool
 
     @property
     def ready(self) -> bool: ...
@@ -226,6 +229,7 @@ class DisabledPhoneme:
     """``SPEECH_PHONEME_ENGINE=none``: assessments carry no phoneme scores."""
 
     name = "none"
+    needs_heard_words = False
 
     def __init__(self, model: str = "") -> None:
         self.model = model

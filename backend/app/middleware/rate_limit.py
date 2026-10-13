@@ -700,7 +700,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return "live_ip", self._live_ip_policy, None
         if path.startswith("/api/ai/") and method == "POST" and not path.endswith(("/apply", "/suggest-format")):
             return "ai", self._ai_policy, None
-        if path.startswith("/api/reading/") and method in ("POST", "PUT", "DELETE"):
+        if path.startswith("/api/reading/") and (
+            method in ("POST", "PUT", "DELETE") or (method == "GET" and path.endswith("/tts/stream"))
+        ):
+            # Writes and speech synthesis share one bucket; the sentence stream (Increment 3 §3.1)
+            # costs the speech service as much as the POST, so it is not a public GET.
             return "reading", self._reading_policy, None
         if path.startswith("/api/admin"):
             return "admin", self._admin_policy, None

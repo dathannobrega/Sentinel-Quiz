@@ -19,10 +19,12 @@ export interface UseRecordingOptions {
   /** Bind the `R` key (toggle) while mounted and enabled. */
   shortcut?: boolean;
   enabled?: boolean;
+  /** Stop by itself after silence (listen and repeat). */
+  stopOnSilence?: boolean;
 }
 
 /** Microphone capture shared by shadowing, the sentence drill and the word review. */
-export function useRecording({ maxSeconds = MAX_RECORDING_SECONDS, onBeforeRecord, onCaptured, shortcut = false, enabled = true }: UseRecordingOptions) {
+export function useRecording({ maxSeconds = MAX_RECORDING_SECONDS, onBeforeRecord, onCaptured, shortcut = false, enabled = true, stopOnSilence = false }: UseRecordingOptions) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [hitLimit, setHitLimit] = useState(false);
@@ -44,42 +46,46 @@ export function useRecording({ maxSeconds = MAX_RECORDING_SECONDS, onBeforeRecor
     activeRef.current = null;
   }, []);
 
-  const start = useCallback(async () => {
-    if (!enabled || activeRef.current) {
-      return;
-    }
-    setError(null);
-    setHitLimit(false);
-    setElapsed(0);
-    callbacksRef.current.onBeforeRecord?.();
-    try {
-      const active = await startRecording({ maxSeconds, onElapsed: (seconds) => setElapsed(seconds) });
-      activeRef.current = active;
-      setRecording(true);
-      active.result
-        .then((captured) => {
-          activeRef.current = null;
-          setRecording(false);
-          setHitLimit(captured.hitLimit);
-          if (captured.durationSeconds < MIN_RECORDING_SECONDS || captured.blob.size === 0) {
-            setError("too_short");
-            return;
-          }
-          callbacksRef.current.onCaptured(captured.blob, captured.filename, captured.hitLimit);
-        })
-        .catch((reason: unknown) => {
-          activeRef.current = null;
-          setRecording(false);
-          if (reason instanceof RecorderError && reason.message === "cancelled") {
-            return;
-          }
-          setError(reason instanceof RecorderError ? reason.code : "failed");
-        });
-    } catch (reason) {
-      setRecording(false);
-      setError(reason instanceof RecorderError ? reason.code : "failed");
-    }
-  }, [enabled, maxSeconds]);
+  /** Starts recording; `overrides.maxSeconds` replaces the hook's limit for this take (per-sentence caps). */
+  const start = useCallback(
+    async (overrides: { maxSeconds?: number } = {}) => {
+      if (!enabled || activeRef.current) {
+        return;
+      }
+      setError(null);
+      setHitLimit(false);
+      setElapsed(0);
+      callbacksRef.current.onBeforeRecord?.();
+      try {
+        const active = await startRecording({ maxSeconds: overrides.maxSeconds ?? maxSeconds, stopOnSilence, onElapsed: (seconds) => setElapsed(seconds) });
+        activeRef.current = active;
+        setRecording(true);
+        active.result
+          .then((captured) => {
+            activeRef.current = null;
+            setRecording(false);
+            setHitLimit(captured.hitLimit);
+            if (captured.durationSeconds < MIN_RECORDING_SECONDS || captured.blob.size === 0) {
+              setError("too_short");
+              return;
+            }
+            callbacksRef.current.onCaptured(captured.blob, captured.filename, captured.hitLimit);
+          })
+          .catch((reason: unknown) => {
+            activeRef.current = null;
+            setRecording(false);
+            if (reason instanceof RecorderError && reason.message === "cancelled") {
+              return;
+            }
+            setError(reason instanceof RecorderError ? reason.code : "failed");
+          });
+      } catch (reason) {
+        setRecording(false);
+        setError(reason instanceof RecorderError ? reason.code : "failed");
+      }
+    },
+    [enabled, maxSeconds, stopOnSilence]
+  );
 
   const stop = useCallback(() => {
     activeRef.current?.stop();

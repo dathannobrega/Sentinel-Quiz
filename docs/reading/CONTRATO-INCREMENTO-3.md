@@ -102,3 +102,12 @@ Máquina de estados por frase: `model` (toca a frase) → `cue` (300 ms, sinal v
 ## 5. Compose e operação
 - `APP_SPEECH_*_THREADS` e `APP_SPEECH_MAX_CONCURRENCY` default `0` (automático); `APP_SPEECH_PARALLEL_PHONEMES=auto`; `APP_SPEECH_CACHE_MAX_MB=8192`.
 - `APP_SPEECH_CPUS` default `2.0` (cabe em qualquer máquina; suba conforme os núcleos). README: tabela por tamanho de máquina (4 vCPU, 8, 16).
+
+## 6. Desvios da implementação (medidos, ver `speech/README.md`)
+
+| Contrato | Implementado | Por quê |
+|---|---|---|
+| Threads automáticas = `effective_cpus` em cada engine (§2.4) | Teto de 8 threads; com fonemas em paralelo, o wav2vec2 fica com metade e o Whisper com o resto | Medido no M1 Pro: faster-whisper com 10 threads é 3,4× mais lento que com 4 (7,1 s × 2,1 s); a regra literal com paralelo ligado foi a pior configuração (16 s × 4,8 s num clipe de 43 s). Numa VM de 3 a 4 vCPUs nada muda. Valores explícitos continuam valendo |
+| Bloco a partir de frases em cache "não sintetiza nada" (§2.1) | O PCM das últimas 64 frases fica em memória; fora disso, o arquivo MP3 da frase é **decodificado** e concatenado (um único encode do bloco) | Zero inferência mesmo; o custo é um MP3 de segunda geração a 64 kb/s, inaudível |
+| Slot do limitador por frase | Um stream segura um slot de TTS do primeiro trecho não cacheado até o fim | Simplicidade; frases em cache saem sem slot |
+| `X-Speech-Priority` inválido | tratado como `normal` | não especificado |

@@ -37,6 +37,7 @@ _torch_threads_lock = threading.Lock()
 
 class Wav2Vec2Phoneme(LazyLoader):
     name = "wav2vec2"
+    needs_heard_words = False  # the forward only needs PCM: may run in parallel with the ASR
 
     def __init__(self, model: str, threads: int = 4, lang: str = "en-us") -> None:
         self.model = model

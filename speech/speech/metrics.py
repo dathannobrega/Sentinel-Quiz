@@ -1,7 +1,8 @@
-"""Prometheus metrics (contract 2 §2.6), one registry per service instance.
+"""Prometheus metrics (contract 2 §2.6, contract 3 §2.3), one registry per service instance.
 
-``speech_requests_total{route,status}``, ``speech_inference_seconds{engine}``,
-``speech_tts_cache_hits_total``, ``speech_tts_cache_misses_total``,
+``speech_requests_total{route,status,priority}``, ``speech_inference_seconds{engine}``,
+``speech_queue_wait_seconds{engine,priority}`` (time spent waiting for an inference
+slot), ``speech_tts_cache_hits_total``, ``speech_tts_cache_misses_total``,
 ``speech_tts_cache_bytes`` and ``speech_model_ready{engine}``. Gauges are refreshed at
 scrape time.
 """
@@ -15,6 +16,7 @@ from typing import Any
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
 INFERENCE_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0)
+QUEUE_BUCKETS = (0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0)
 
 
 class Metrics:
@@ -23,10 +25,15 @@ class Metrics:
     def __init__(self) -> None:
         self.registry = CollectorRegistry(auto_describe=True)
         self.requests = Counter(
-            "speech_requests", "HTTP requests by route template and status code", ["route", "status"], registry=self.registry
+            "speech_requests", "HTTP requests by route template, status code and priority",
+            ["route", "status", "priority"], registry=self.registry,
         )
         self.inference = Histogram(
             "speech_inference_seconds", "Model inference time", ["engine"], buckets=INFERENCE_BUCKETS, registry=self.registry
+        )
+        self.queue_wait = Histogram(
+            "speech_queue_wait_seconds", "Time a request waited for an inference slot",
+            ["engine", "priority"], buckets=QUEUE_BUCKETS, registry=self.registry,
         )
         self.cache_hits = Counter("speech_tts_cache_hits", "TTS requests served from the audio cache", registry=self.registry)
         self.cache_misses = Counter("speech_tts_cache_misses", "TTS requests that needed synthesis", registry=self.registry)

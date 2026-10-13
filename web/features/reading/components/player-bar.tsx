@@ -12,6 +12,7 @@ import {
   MicIcon,
   PauseIcon,
   PlayIcon,
+  RepeatIcon,
   SkipBackIcon,
   SkipForwardIcon,
   SpinnerIcon,
@@ -53,6 +54,12 @@ export interface PlayerBarProps {
   shadowEnabled: boolean;
   /** Sentence drill (needs the assessment too); hidden when undefined. */
   drillEnabled?: boolean;
+  /** Listen and repeat (needs the assessment too); hidden when undefined. */
+  repeatEnabled?: boolean;
+  /** Why the practice modes are disabled (default: the assessment is unavailable). */
+  modesDisabledReason?: string;
+  /** Streamed audio: the next sentence has not arrived yet. */
+  buffering?: boolean;
   /** "Tap to translate" switch; hidden when the glossary is not available (offline). */
   glossaryAvailable?: boolean;
   glossaryTap?: boolean;
@@ -97,8 +104,12 @@ export function PlayerBar(props: PlayerBarProps) {
     ...(props.drillEnabled === undefined
       ? []
       : [{ value: "drill" as const, label: t("reading.player.modeDrill"), icon: ListIcon, disabled: !props.drillEnabled }]),
-    { value: "shadow", label: t("reading.player.modeShadow"), icon: MicIcon, disabled: !props.shadowEnabled }
+    { value: "shadow", label: t("reading.player.modeShadow"), icon: MicIcon, disabled: !props.shadowEnabled },
+    ...(props.repeatEnabled === undefined
+      ? []
+      : [{ value: "repeat" as const, label: t("reading.player.modeRepeat"), icon: RepeatIcon, disabled: !props.repeatEnabled }])
   ];
+  const disabledReason = props.modesDisabledReason ?? t("reading.capabilities.assessUnavailableTitle");
   const sleepLabel = (option: SleepTimerOption) =>
     option === "off" ? t("reading.player.sleepOff") : option === "section" ? t("reading.player.sleepSection") : t("reading.player.sleepMinutes", { minutes: option });
 
@@ -131,6 +142,12 @@ export function PlayerBar(props: PlayerBarProps) {
             <span className="nums ml-2 hidden text-xs text-fg-muted sm:inline" aria-live="polite">
               {props.blockLabel}
             </span>
+            {props.buffering ? (
+              <span role="status" className="ml-2 inline-flex items-center gap-1.5 text-xs text-fg-muted">
+                <SpinnerIcon size={12} />
+                {t("reading.reader.buffering")}
+              </span>
+            ) : null}
           </div>
 
           <div role="group" aria-label={t("reading.player.mode")} className="inline-flex rounded-md bg-surface-muted p-0.5">
@@ -143,7 +160,7 @@ export function PlayerBar(props: PlayerBarProps) {
                   aria-pressed={active}
                   disabled={disabled}
                   onClick={() => props.onModeChange(value)}
-                  title={disabled ? t("reading.capabilities.assessUnavailableTitle") : label}
+                  title={disabled ? disabledReason : label}
                   className={cn(
                     "focus-ring inline-flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:text-fg-subtle",
                     active ? "bg-surface text-fg shadow-raised" : "text-fg-muted hover:text-fg"

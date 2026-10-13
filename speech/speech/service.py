@@ -1,14 +1,29 @@
 """Orchestration: TTS with cache, and assessment (decode -> ASR -> align -> score).
 
 Blocking by design: the API layer runs these in a thread pool under per-engine
-semaphores. Keeping the service synchronous makes it trivially testable and keeps
-all torch/CTranslate2 work off the event loop.
+limiters. Keeping the service synchronous makes it trivially testable and keeps all
+torch/CTranslate2 work off the event loop.
+
+Contract 3 §2.1 makes the *sentence* the synthesis and cache unit: a block is split
+with :func:`speech.textnorm.split_sentences`, each sentence is synthesized and cached
+under its own ``audio_id`` and the block audio is the concatenation of the sentence
+PCM, encoded once and cached under the same block ``audio_id`` as before. The disk cache
+holds encoded audio, so block assembly needs the sentence PCM back: a small in-memory
+LRU keeps the most recent sentences (the common case: a stream followed by the block
+download) and otherwise the cached file is decoded (ffmpeg/soundfile, milliseconds).
+Trade-off of decoding instead of re-synthesizing: a cached sentence is lossy MP3 at
+64 kb/s mono, so the block carries a second generation of MP3 encoding (inaudible for
+speech at this bitrate) but never costs a synthesis, which is what the contract
+demands ("a block whose sentences are cached synthesizes nothing").
 """
 from __future__ import annotations
 
 import hashlib
 import logging
 import threading
+from collections import OrderedDict
+from collections.abc import Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,12 +37,14 @@ from .alignment import AlignedWord, align, reference_words
 from .cache import AudioCache, CachedAudio
 from .config import Settings
 from .engines.base import (
-    ASREngine, DisabledASR, DisabledPhoneme, DisabledTTS, EngineDisabled, HeardWord, PhonemeEngine, TTSEngine,
+    ASREngine, DisabledASR, DisabledPhoneme, DisabledTTS, EngineDisabled, EngineError, HeardWord, PhonemeEngine, TTSEngine,
 )
+from .engines.base import Posteriors
 from .engines.fake import FakeASR, FakePhoneme, FakeTTS
 from .metrics import Metrics
+from .runtime import RuntimeConfig, resolve_runtime
 from .scoring import compute, parse_weights, phoneme_tips, phoneme_tips_from_scores, speech_window
-from .textnorm import compare_key, display_tokens, normalize_word
+from .textnorm import compare_key, display_tokens, normalize_word, split_sentences
 
 logger = logging.getLogger("speech.service")
 
@@ -58,12 +75,73 @@ class TTSOutput:
     text: str
 
 
-def build_tts_engine(settings: Settings) -> TTSEngine:
+@dataclass(slots=True)
+class SentenceOutput:
+    """One sentence of a block (contract 3 §2.1/§2.2).
+
+    ``words[*].char_start/char_end`` index the *block* text; ``words[*].start/end`` are
+    seconds into the sentence audio.
+    """
+
+    index: int
+    audio_id: str
+    char_start: int
+    char_end: int
+    text: str
+    duration_seconds: float
+    sample_rate: int
+    cached: bool
+    content_type: str
+    words: list[dict[str, Any]]
+
+    def as_segment(self) -> dict[str, Any]:
+        return {
+            "type": "segment",
+            "index": self.index,
+            "audio_id": self.audio_id,
+            "char_start": self.char_start,
+            "char_end": self.char_end,
+            "duration_seconds": self.duration_seconds,
+            "cached": self.cached,
+            "words": self.words,
+        }
+
+
+class _PcmLRU:
+    """Most recent sentence PCM by audio_id (thread-safe, bounded)."""
+
+    def __init__(self, size: int) -> None:
+        self.size = max(0, int(size))
+        self._items: OrderedDict[str, tuple[np.ndarray, int]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, audio_id: str) -> tuple[np.ndarray, int] | None:
+        with self._lock:
+            item = self._items.get(audio_id)
+            if item is not None:
+                self._items.move_to_end(audio_id)
+            return item
+
+    def put(self, audio_id: str, pcm: np.ndarray, sample_rate: int) -> None:
+        if self.size <= 0:
+            return
+        with self._lock:
+            self._items[audio_id] = (pcm, sample_rate)
+            self._items.move_to_end(audio_id)
+            while len(self._items) > self.size:
+                self._items.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+
+def build_tts_engine(settings: Settings, runtime: RuntimeConfig | None = None) -> TTSEngine:
+    runtime = runtime or resolve_runtime_from(settings)
     engine = settings.tts_engine.lower()
     if engine == "kokoro":
         from .engines.kokoro_tts import KokoroTTS
 
-        return KokoroTTS(settings.tts_model, settings.tts_default_voice, settings.torch_threads)
+        return KokoroTTS(settings.tts_model, settings.tts_default_voice, runtime.torch_threads)
     if engine == "fake":
         return FakeTTS(settings.tts_model)
     if engine == "none":
@@ -71,12 +149,13 @@ def build_tts_engine(settings: Settings) -> TTSEngine:
     raise ValueError(f"unknown SPEECH_TTS_ENGINE: {settings.tts_engine}")
 
 
-def build_asr_engine(settings: Settings) -> ASREngine:
+def build_asr_engine(settings: Settings, runtime: RuntimeConfig | None = None) -> ASREngine:
+    runtime = runtime or resolve_runtime_from(settings)
     engine = settings.asr_engine.lower()
     if engine == "faster-whisper":
         from .engines.faster_whisper_asr import FasterWhisperASR
 
-        return FasterWhisperASR(settings.asr_model, settings.asr_compute_type, settings.asr_threads)
+        return FasterWhisperASR(settings.asr_model, settings.asr_compute_type, runtime.asr_threads)
     if engine == "mlx-whisper":
         from .engines.mlx_whisper_asr import MlxWhisperASR
 
@@ -88,12 +167,13 @@ def build_asr_engine(settings: Settings) -> ASREngine:
     raise ValueError(f"unknown SPEECH_ASR_ENGINE: {settings.asr_engine}")
 
 
-def build_phoneme_engine(settings: Settings) -> PhonemeEngine:
+def build_phoneme_engine(settings: Settings, runtime: RuntimeConfig | None = None) -> PhonemeEngine:
+    runtime = runtime or resolve_runtime_from(settings)
     engine = settings.phoneme_engine.lower()
     if engine == "wav2vec2":
         from .engines.wav2vec2_phoneme import Wav2Vec2Phoneme
 
-        return Wav2Vec2Phoneme(settings.phoneme_model, settings.phoneme_threads)
+        return Wav2Vec2Phoneme(settings.phoneme_model, runtime.phoneme_threads)
     if engine == "fake":
         return FakePhoneme("fake")
     if engine == "none":
@@ -108,6 +188,18 @@ def _sound_key(ipa: str | None) -> str:
     return "".join(ch for ch in ipa if ch not in "ˈˌ \u200d^-")
 
 
+def resolve_runtime_from(settings: Settings, cpus: int | None = None) -> RuntimeConfig:
+    """Settings (``0`` = automatic) -> the threads/concurrency the engines really use."""
+    return resolve_runtime(
+        cpus=cpus,
+        asr_threads=settings.asr_threads,
+        torch_threads=settings.torch_threads,
+        phoneme_threads=settings.phoneme_threads,
+        max_concurrency=settings.max_concurrency,
+        parallel_phonemes=settings.parallel_phonemes,
+    )
+
+
 def audio_id_for(engine: str, model: str, voice: str, speed: float, lang: str, text: str) -> str:
     """Stable id: the same request never synthesizes twice (contract §5.1)."""
     key = "\x1f".join([engine, model, voice, f"{speed:.3f}", lang.lower(), text])
@@ -117,19 +209,32 @@ def audio_id_for(engine: str, model: str, voice: str, speed: float, lang: str, t
 class SpeechService:
     def __init__(
         self, settings: Settings, tts: TTSEngine | None = None, asr: ASREngine | None = None,
-        phoneme: PhonemeEngine | None = None,
+        phoneme: PhonemeEngine | None = None, runtime: RuntimeConfig | None = None,
     ) -> None:
         self.settings = settings
-        self.tts = tts or build_tts_engine(settings)
-        self.asr = asr or build_asr_engine(settings)
-        self.phoneme = phoneme or build_phoneme_engine(settings)
+        self.runtime = runtime or resolve_runtime_from(settings)
+        logger.info(
+            "runtime: effective_cpus=%d threads(asr=%d torch=%d phoneme=%d) max_concurrency=%d parallel_phonemes=%s (%s)",
+            self.runtime.effective_cpus, self.runtime.asr_threads, self.runtime.torch_threads,
+            self.runtime.phoneme_threads, self.runtime.max_concurrency, self.runtime.parallel_phonemes,
+            self.runtime.parallel_mode,
+        )
+        self.tts = tts or build_tts_engine(settings, self.runtime)
+        self.asr = asr or build_asr_engine(settings, self.runtime)
+        self.phoneme = phoneme or build_phoneme_engine(settings, self.runtime)
         self.cache = AudioCache(settings.cache_path, settings.cache_max_mb * 1024 * 1024)
         self.metrics = Metrics()
         self.weights = parse_weights(settings.score_weights)
         # The phoneme pass runs inside an assess call (already holding an ASR slot); its
         # own semaphore bounds concurrent wav2vec2 forwards. On timeout the assessment
         # goes out without phonemes instead of failing.
-        self._phoneme_slots = threading.BoundedSemaphore(max(1, settings.max_concurrency))
+        self._phoneme_slots = threading.BoundedSemaphore(max(1, self.runtime.max_concurrency))
+        # Parallel phonemes (§2.4): the wav2vec2 forward runs here while Whisper transcribes.
+        self._phoneme_pool = ThreadPoolExecutor(
+            max_workers=max(1, self.runtime.max_concurrency), thread_name_prefix="speech-phoneme"
+        )
+        self.last_assess_parallel = False  # observability hook for tests and logs
+        self._pcm_lru = _PcmLRU(settings.sentence_pcm_lru)
         self._preload_thread: threading.Thread | None = None
         self.audio_format = settings.audio_format.lower()
         if self.audio_format == "mp3" and not audio_tools.ffmpeg_available():
@@ -198,6 +303,7 @@ class SpeechService:
                 "ready": bool(self.phoneme.ready),
                 "error": getattr(self.phoneme, "error", None),
             },
+            "runtime": self.runtime.as_health(),
         }
 
     def metrics_payload(self) -> bytes:
@@ -243,23 +349,111 @@ class SpeechService:
         hit = self.cache.get(audio_id)
         return None if hit is None else self._output_from_cache(hit, cached=True)
 
-    def synthesize(self, text: str, voice: str, speed: float, lang: str) -> TTSOutput:
-        """Blocking synthesis + encode + cache. Caller checked the cache already."""
-        audio_id = self.tts_audio_id(text, voice, speed, lang)
+    def ensure_tts_ready(self) -> None:
+        """Raise the 503 ``ServiceError`` the API returns when the TTS engine cannot serve."""
+        self._ensure_ready(self.tts)
+
+    def sentence_spans(self, text: str) -> list[tuple[int, int]]:
+        return split_sentences(text)
+
+    def sentence_audio_id(self, text: str, span: tuple[int, int], voice: str, speed: float, lang: str) -> str:
+        return self.tts_audio_id(text[span[0]:span[1]], voice, speed, lang)
+
+    def cached_sentence(
+        self, text: str, span: tuple[int, int], voice: str, speed: float, lang: str, index: int = 0
+    ) -> SentenceOutput | None:
+        """Sentence output from the disk cache only (never synthesizes)."""
+        hit = self.cache.get(self.sentence_audio_id(text, span, voice, speed, lang))
+        return None if hit is None else self._sentence_from_cache(hit, index, span, cached=True)
+
+    def synthesize_sentence(
+        self, text: str, span: tuple[int, int], voice: str, speed: float, lang: str, index: int = 0
+    ) -> SentenceOutput:
+        """One sentence of ``text`` (cache hit or blocking synthesis + encode + cache)."""
+        start, end = span
+        sentence = text[start:end]
+        audio_id = self.tts_audio_id(sentence, voice, speed, lang)
+        hit = self.cache.get(audio_id)
+        if hit is not None:
+            return self._sentence_from_cache(hit, index, span, cached=True)
         self._ensure_ready(self.tts)
         try:
             with self.metrics.time_inference(self.tts.name):
-                result = self.tts.synthesize(text, voice, speed, lang)
+                result = self.tts.synthesize(sentence, voice, speed, lang)
         except EngineDisabled as exc:
             raise ServiceError(503, "engine_disabled", str(exc)) from exc
-        if self.audio_format == "mp3":
-            payload = audio_tools.encode_mp3(result.audio_f32, result.sample_rate)
-        else:
-            payload = audio_tools.encode_wav(result.audio_f32, result.sample_rate)
-        words = [
-            {"text": w.text, "start": round(w.start, 3), "end": round(w.end, 3), "char_start": w.char_start, "char_end": w.char_end}
-            for w in result.words
-        ]
+        pcm = np.ascontiguousarray(np.asarray(result.audio_f32, dtype=np.float32).reshape(-1))
+        payload = self._encode(pcm, result.sample_rate)
+        # Cached words are relative to the sentence text: the same sentence in another
+        # block (or at another position) hits the same cache entry.
+        words = []
+        for w in result.words:
+            if sentence[w.char_start:w.char_end] != w.text:
+                logger.warning("tts word %r does not round-trip to its offsets; dropped", w.text)
+                continue
+            words.append(
+                {"text": w.text, "start": round(w.start, 3), "end": round(w.end, 3), "char_start": w.char_start, "char_end": w.char_end}
+            )
+        meta = {
+            "audio_id": audio_id,
+            "engine": self.tts.name,
+            "model": self.tts.model,
+            "voice": voice,
+            "speed": speed,
+            "lang": lang,
+            "text": sentence,
+            "duration_seconds": audio_tools.duration_seconds(pcm, result.sample_rate),
+            "sample_rate": result.sample_rate,
+            "words": words,
+        }
+        hit = self.cache.put(audio_id, payload, self.audio_format, meta)
+        self._pcm_lru.put(audio_id, pcm, result.sample_rate)
+        return self._sentence_from_cache(hit, index, span, cached=False)
+
+    def synthesize_sentences(self, text: str, voice: str, speed: float, lang: str) -> Iterator[SentenceOutput]:
+        """Yield each sentence of ``text`` as soon as it is ready (cache hit or synthesis)."""
+        self._ensure_ready(self.tts)
+        for index, span in enumerate(split_sentences(text)):
+            yield self.synthesize_sentence(text, span, voice, speed, lang, index)
+
+    def synthesize(self, text: str, voice: str, speed: float, lang: str) -> TTSOutput:
+        """Blocking block synthesis: sentences (cached or new) -> PCM concat -> one encode -> cache.
+
+        The block ``audio_id`` is the same as before contract 3, so offline clients that
+        stored it keep working. Caller checked the block cache already.
+        """
+        audio_id = self.tts_audio_id(text, voice, speed, lang)
+        spans = split_sentences(text)
+        if not spans:
+            raise ServiceError(400, "text_required", "text is required")
+        self._ensure_ready(self.tts)
+        parts: list[np.ndarray] = []
+        words: list[dict[str, Any]] = []
+        sample_rate: int | None = None
+        offset_samples = 0
+        single: SentenceOutput | None = None
+        for index, span in enumerate(spans):
+            sentence = self.synthesize_sentence(text, span, voice, speed, lang, index)
+            if len(spans) == 1 and sentence.audio_id == audio_id:
+                single = sentence  # the block *is* the sentence: nothing to concatenate or re-encode
+                break
+            pcm, sr = self._sentence_pcm(sentence, voice, speed, lang)
+            if sample_rate is None:
+                sample_rate = sr
+            elif sr != sample_rate:
+                raise EngineError(f"sentence sample rate {sr} differs from {sample_rate}")
+            offset = offset_samples / sr
+            for w in sentence.words:
+                words.append({**w, "start": round(w["start"] + offset, 3), "end": round(w["end"] + offset, 3)})
+            parts.append(pcm)
+            offset_samples += len(pcm)
+        if single is not None:
+            hit = self.cache.get(single.audio_id)
+            if hit is not None:
+                return self._output_from_cache(hit, cached=single.cached)
+        assert sample_rate is not None
+        pcm = np.concatenate(parts) if len(parts) > 1 else parts[0]
+        payload = self._encode(pcm, sample_rate)
         meta = {
             "audio_id": audio_id,
             "engine": self.tts.name,
@@ -268,12 +462,63 @@ class SpeechService:
             "speed": speed,
             "lang": lang,
             "text": text,
-            "duration_seconds": round(result.duration, 3),
-            "sample_rate": result.sample_rate,
+            "duration_seconds": audio_tools.duration_seconds(pcm, sample_rate),
+            "sample_rate": sample_rate,
             "words": words,
+            "sentences": [[a, b] for a, b in spans],
         }
         hit = self.cache.put(audio_id, payload, self.audio_format, meta)
         return self._output_from_cache(hit, cached=False)
+
+    def _encode(self, pcm: np.ndarray, sample_rate: int) -> bytes:
+        if self.audio_format == "mp3":
+            return audio_tools.encode_mp3(pcm, sample_rate)
+        return audio_tools.encode_wav(pcm, sample_rate)
+
+    def _sentence_pcm(self, sentence: SentenceOutput, voice: str, speed: float, lang: str) -> tuple[np.ndarray, int]:
+        """PCM of a sentence: the in-memory LRU first, else the cached file decoded and
+        fitted to the cached duration (so block offsets equal the sum of sentence durations)."""
+        item = self._pcm_lru.get(sentence.audio_id)
+        if item is not None:
+            return item
+        hit = self.cache.get(sentence.audio_id)
+        if hit is None:
+            # Evicted between synthesis and assembly (tiny cache budget): synthesize again,
+            # which refills both the disk cache and the PCM LRU.
+            fresh = self.synthesize_sentence(sentence.text, (0, len(sentence.text)), voice, speed, lang, sentence.index)
+            item = self._pcm_lru.get(fresh.audio_id)
+            if item is not None:
+                return item
+            hit = self.cache.get(fresh.audio_id)
+            if hit is None:
+                raise EngineError("sentence audio vanished from the cache before block assembly")
+        sr = int(hit.meta.get("sample_rate", 24_000))
+        try:
+            pcm = audio_tools.decode_file_to_f32(hit.audio_path, sr)
+        except (audio_tools.AudioDecodeError, RuntimeError) as exc:
+            raise EngineError(f"could not decode cached sentence audio: {exc}") from exc
+        pcm = audio_tools.fit_length(pcm, int(round(float(hit.meta.get("duration_seconds", 0.0)) * sr)))
+        self._pcm_lru.put(sentence.audio_id, pcm, sr)
+        return pcm, sr
+
+    def _sentence_from_cache(self, hit: CachedAudio, index: int, span: tuple[int, int], cached: bool) -> SentenceOutput:
+        m = hit.meta
+        shift = span[0]
+        return SentenceOutput(
+            index=index,
+            audio_id=hit.audio_id,
+            char_start=span[0],
+            char_end=span[1],
+            text=str(m.get("text", "")),
+            duration_seconds=float(m.get("duration_seconds", 0.0)),
+            sample_rate=int(m.get("sample_rate", 24_000)),
+            cached=cached,
+            content_type=hit.content_type,
+            words=[
+                {**w, "char_start": int(w["char_start"]) + shift, "char_end": int(w["char_end"]) + shift}
+                for w in m.get("words", [])
+            ],
+        )
 
     @staticmethod
     def _output_from_cache(hit: CachedAudio, cached: bool) -> TTSOutput:
@@ -314,6 +559,12 @@ class SpeechService:
             except audio_tools.AudioDecodeError as exc:
                 raise ServiceError(400, "audio_invalid", f"could not decode audio ({content_type or 'unknown type'}): {exc}") from exc
             duration = audio_tools.duration_seconds(pcm, audio_tools.ASR_SAMPLE_RATE)
+        # Parallel phonemes (§2.4): both models only need the PCM, so the wav2vec2 forward
+        # starts now in its own thread; the phonetic alignment still waits for Whisper.
+        future: Future[Posteriors | None] | None = None
+        if self._parallel_phonemes_possible(pcm):
+            future = self._phoneme_pool.submit(self._phoneme_posteriors, pcm, [])
+        self.last_assess_parallel = future is not None
         try:
             with self.metrics.time_inference(self.asr.name):
                 heard = self.asr.transcribe(pcm, reference_text=reference_text, raw_bytes=audio_bytes)
@@ -323,7 +574,10 @@ class SpeechService:
         refs = reference_words(reference_text)
         words, extras = align(refs, heard, weak_confidence=self.settings.weak_confidence)
         self._rescue_homophones(words, lang)
-        phoneme_active = self._phoneme_pass(pcm, heard, words)
+        post: Posteriors | None = None
+        if future is not None:
+            post = future.result()  # already finished or finishing: wait for the forward
+        phoneme_active = self._phoneme_pass(pcm, heard, words, post=post, precomputed=future is not None)
         if not phoneme_active:
             for word in words:
                 if word.status in {"weak", "mispronounced"}:
@@ -424,22 +678,51 @@ class SpeechService:
             return False
         return engine.ready
 
-    def _phoneme_pass(self, pcm: np.ndarray, heard: list[HeardWord], words: list[AlignedWord]) -> bool:
-        """Fill phonemes/phoneme_score/IPA and apply the ``phoneme`` status override."""
-        if not heard or not self._phoneme_ready():
+    def _parallel_phonemes_possible(self, pcm: np.ndarray) -> bool:
+        """Parallel only when configured and the recognizer does not depend on the ASR
+        words (the fake engine does). Too-short PCM is the engine's own error (-> no phonemes)."""
+        if not self.runtime.parallel_phonemes:
             return False
+        if getattr(self.phoneme, "needs_heard_words", False):
+            return False
+        return self._phoneme_ready()
+
+    def _phoneme_posteriors(self, pcm: np.ndarray, heard: list[HeardWord]) -> Posteriors | None:
+        """The wav2vec2 forward under its own slot; ``None`` means "assess without phonemes"."""
+        if not self._phoneme_ready():
+            return None
         if not self._phoneme_slots.acquire(timeout=self.settings.busy_wait_seconds):
             logger.warning("phoneme slots busy; assessment goes out without phonemes")
-            return False
+            return None
         try:
             with self.metrics.time_inference(self.phoneme.name):
-                post = self.phoneme.posteriors(pcm, heard)
+                return self.phoneme.posteriors(pcm, heard)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("phoneme scoring skipped: %s", exc)
+            return None
+        finally:
+            self._phoneme_slots.release()
+
+    def _phoneme_pass(
+        self, pcm: np.ndarray, heard: list[HeardWord], words: list[AlignedWord], *,
+        post: Posteriors | None = None, precomputed: bool = False,
+    ) -> bool:
+        """Fill phonemes/phoneme_score/IPA and apply the ``phoneme`` status override.
+
+        ``post`` may come from the parallel forward (``precomputed=True``); otherwise the
+        forward runs here, after the ASR, as in the sequential path.
+        """
+        if not heard:
+            return False
+        if not precomputed:
+            post = self._phoneme_posteriors(pcm, heard)
+        if post is None:
+            return False
+        try:
             expected = self.phoneme.expected([normalize_word(w.text) for w in words])
         except Exception as exc:  # noqa: BLE001
             logger.warning("phoneme scoring skipped: %s", exc)
             return False
-        finally:
-            self._phoneme_slots.release()
         targets = [k for k, w in enumerate(words) if w.status != "missed" and w.start is not None and expected[k]]
         results = phoneme_tools.score_words(
             post, [(float(words[k].start), float(words[k].end), expected[k]) for k in targets]  # type: ignore[arg-type]
@@ -477,4 +760,4 @@ class SpeechService:
         return out
 
 
-__all__ = ["SpeechService", "ServiceError", "TTSOutput", "audio_id_for", "display_tokens"]
+__all__ = ["SentenceOutput", "SpeechService", "ServiceError", "TTSOutput", "audio_id_for", "display_tokens", "resolve_runtime_from"]

@@ -1,0 +1,44 @@
+{
+  "chapter_index": 1,
+  "file_name": "c01.xhtml",
+  "title": "Capítulo 1: Hábitos de Segurança no Dia a Dia",
+  "page_start": 1,
+  "page_end": 3,
+  "sections_count": 3,
+  "total_words": 214,
+  "sections": [
+    {
+      "anchor": "c01_1",
+      "id": "c01_1",
+      "level": 1,
+      "title": "Capítulo 1 Hábitos de Segurança no Dia a Dia",
+      "parent_titles": [],
+      "page_start": 1,
+      "page_end": 1,
+      "content_text": "Capítulo 1 Hábitos de Segurança no Dia a Dia Este capítulo explica os hábitos simples que protegem as pessoas e as organizações dos ataques mais comuns. Você vai aprender a reconhecer uma mensagem de phishing, a entender como funciona o pretexto por telefone e a avisar a equipe de segurança com rapidez. Reconhecendo o Phishing O phishing é uma mensagem que finge vir de alguém em quem você confia. O remetente quer que você clique em um link, abra um arquivo ou compartilhe uma senha. Olhe com atenção para o endereço de quem enviou a mensagem. Confira se o link aponta mesmo para o site que ele diz representar. Um tom de urgência é um sinal de alerta muito comum. Pretexto por Telefone O pretexto é a invenção de uma história convincente para obter informações. Quem liga pode dizer que trabalha no suporte e pedir os dados da sua conta. Confirme sempre a identidade de quem ligou por um número que você já conhece. Nunca compartilhe um código de uso único com alguém que liga para você.",
+      "word_count": 214
+    },
+    {
+      "anchor": "head-2-1",
+      "id": "head-2-1",
+      "level": 2,
+      "title": "Reconhecendo o Phishing",
+      "parent_titles": ["Capítulo 1 Hábitos de Segurança no Dia a Dia"],
+      "page_start": 2,
+      "page_end": 2,
+      "content_text": "Reconhecendo o Phishing O phishing é uma mensagem que finge vir de alguém em quem você confia. O remetente quer que você clique em um link, abra um arquivo ou compartilhe uma senha. Olhe com atenção para o endereço de quem enviou a mensagem. Confira se o link aponta mesmo para o site que ele diz representar. Um tom de urgência é um sinal de alerta muito comum.",
+      "word_count": 66
+    },
+    {
+      "anchor": "head-2-2",
+      "id": "head-2-2",
+      "level": 2,
+      "title": "Pretexto por Telefone",
+      "parent_titles": ["Capítulo 1 Hábitos de Segurança no Dia a Dia"],
+      "page_start": 3,
+      "page_end": 3,
+      "content_text": "Pretexto por Telefone O pretexto é a invenção de uma história convincente para obter informações. Quem liga pode dizer que trabalha no suporte e pedir os dados da sua conta. Confirme sempre a identidade de quem ligou por um número que você já conhece. Nunca compartilhe um código de uso único com alguém que liga para você.",
+      "word_count": 57
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-"""Runtime settings for the speech service (contract §5.3).
+"""Runtime settings for the speech service (contract 1 §5.3, contract 3 §2.4).
 
 Every knob is an ``SPEECH_*`` environment variable so the same image runs under
 compose, natively on a Mac, and inside tests (which point ``SPEECH_CACHE_DIR`` at a
@@ -43,14 +43,17 @@ class Settings(BaseSettings):
     asr_engine: str = Field(default="faster-whisper", alias="SPEECH_ASR_ENGINE")  # faster-whisper|mlx-whisper|fake|none
     asr_model: str = Field(default="small.en", alias="SPEECH_ASR_MODEL")
     asr_compute_type: str = Field(default="int8", alias="SPEECH_ASR_COMPUTE_TYPE")
-    asr_threads: int = Field(default=4, alias="SPEECH_ASR_THREADS")
-    # Intra-op threads for torch (Kokoro TTS). 0 = leave torch's default (all cores).
-    torch_threads: int = Field(default=4, alias="SPEECH_TORCH_THREADS")
+    # Thread counts: 0 = automatic = max(1, effective_cpus) (contract 3 §2.4, speech/runtime.py).
+    asr_threads: int = Field(default=0, alias="SPEECH_ASR_THREADS")
+    # Intra-op threads for torch (Kokoro TTS).
+    torch_threads: int = Field(default=0, alias="SPEECH_TORCH_THREADS")
 
     # Phoneme recognizer for GOP scoring (contract 2 §2.2).
     phoneme_engine: str = Field(default="wav2vec2", alias="SPEECH_PHONEME_ENGINE")  # wav2vec2|fake|none
     phoneme_model: str = Field(default="facebook/wav2vec2-lv-60-espeak-cv-ft", alias="SPEECH_PHONEME_MODEL")
-    phoneme_threads: int = Field(default=4, alias="SPEECH_PHONEME_THREADS")
+    phoneme_threads: int = Field(default=0, alias="SPEECH_PHONEME_THREADS")
+    # auto|on|off: run the wav2vec2 forward in a thread while Whisper transcribes.
+    parallel_phonemes: str = Field(default="auto", alias="SPEECH_PARALLEL_PHONEMES")
     # Below this word phoneme_score an ok/weak word becomes mispronounced (reason "phoneme").
     phoneme_word_threshold: float = Field(default=0.6, alias="SPEECH_PHONEME_WORD_THRESHOLD")
     # ASR word probability below which a correctly read word is "weak" (low_confidence).
@@ -61,13 +64,18 @@ class Settings(BaseSettings):
     audio_format: str = Field(default="mp3", alias="SPEECH_AUDIO_FORMAT")  # mp3|wav
 
     cache_dir: str = Field(default="/var/cache/speech", alias="SPEECH_CACHE_DIR")
-    cache_max_mb: int = Field(default=2048, alias="SPEECH_CACHE_MAX_MB")
+    cache_max_mb: int = Field(default=8192, alias="SPEECH_CACHE_MAX_MB")
 
     max_audio_bytes: int = Field(default=8_000_000, alias="SPEECH_MAX_AUDIO_BYTES")
     max_text_chars: int = Field(default=2000, alias="SPEECH_MAX_TEXT_CHARS")
-    max_concurrency: int = Field(default=2, alias="SPEECH_MAX_CONCURRENCY")
+    # 0 = automatic = 1 below 6 effective CPUs, otherwise 2.
+    max_concurrency: int = Field(default=0, alias="SPEECH_MAX_CONCURRENCY")
     # How long a request waits for an inference slot before 503 busy.
     busy_wait_seconds: float = Field(default=60.0, alias="SPEECH_BUSY_WAIT_SECONDS")
+    # Same, for X-Speech-Priority: low requests (warm-up jobs).
+    low_priority_wait_seconds: float = Field(default=20.0, alias="SPEECH_LOW_PRIORITY_WAIT_SECONDS")
+    # Recently synthesized sentence PCM kept in memory for block concatenation.
+    sentence_pcm_lru: int = Field(default=64, alias="SPEECH_SENTENCE_PCM_LRU")
 
     preload: bool = Field(default=True, alias="SPEECH_PRELOAD")
     api_token: str = Field(default="", alias="SPEECH_API_TOKEN")

@@ -27,7 +27,9 @@ export const reading = {
     notStarted: "Ainda não iniciado",
     lastRead: "Última leitura {date}",
     progressLabel: "Progresso em {book}",
-    practiceNav: "Prática"
+    practiceNav: "Prática",
+    languageBadge: "Em {language}",
+    languageNotice: "Voz do navegador; sem avaliação de pronúncia."
   },
   capabilities: {
     ttsUnavailableTitle: "Voz neural indisponível",
@@ -35,7 +37,16 @@ export const reading = {
     ttsWarming: "O serviço de voz está carregando os modelos. Até terminar, o leitor usa a voz do navegador.",
     assessUnavailableTitle: "Shadowing indisponível",
     assessUnavailable: "A avaliação de pronúncia está desligada por enquanto. Você ainda pode ouvir e ler junto.",
-    quota: "{remaining} de {limit} avaliações restantes hoje"
+    quota: "{remaining} de {limit} avaliações restantes hoje",
+    languageTitle: "Livro em {language}",
+    languageNotice:
+      "A voz neural e a avaliação de pronúncia só existem para livros em inglês. Este livro usa a voz do navegador; Shadowing, Frase a frase e Ouvir e repetir ficam desativados.",
+    languages: {
+      en: "inglês",
+      pt: "português",
+      es: "espanhol",
+      unknown: "idioma não identificado"
+    }
   },
   stats: {
     title: "Seu progresso",
@@ -87,7 +98,8 @@ export const reading = {
     fallbackUnsupported: "Este navegador não tem síntese de voz. Leia em silêncio ou tente outro navegador.",
     audioFailed: "Não foi possível carregar o áudio deste parágrafo.",
     shortcuts: "Atalhos: espaço toca ou pausa, ← e → mudam de parágrafo, R grava no shadowing e no frase a frase.",
-    offlineIndicator: "Você está sem conexão. O que já foi carregado continua tocando; capítulos baixados ficam em Ouvir offline."
+    offlineIndicator: "Você está sem conexão. O que já foi carregado continua tocando; capítulos baixados ficam em Ouvir offline.",
+    buffering: "Carregando a próxima frase..."
   },
   player: {
     label: "Controles de leitura",
@@ -105,6 +117,8 @@ export const reading = {
     modeListen: "Ouvir",
     modeShadow: "Shadowing",
     modeDrill: "Frase a frase",
+    modeRepeat: "Ouvir e repetir",
+    modeNeedsEnglish: "Disponível apenas para livros em inglês.",
     glossaryTap: "Toque para traduzir",
     sleep: "Timer de sono",
     sleepOff: "Sem timer",
@@ -143,6 +157,7 @@ export const reading = {
       speech_warming: "O serviço de voz ainda está carregando. Tente novamente em alguns minutos.",
       speech_timeout: "A avaliação demorou demais. Tente novamente.",
       block_not_found: "Este parágrafo não foi encontrado no livro.",
+      language_unsupported: "A avaliação de pronúncia só funciona com livros em inglês.",
       generic: "Não foi possível avaliar a gravação."
     },
     attemptsTitle: "Tentativas neste parágrafo",
@@ -227,6 +242,30 @@ export const reading = {
     offerNextHint: "Essa frase está difícil. Você pode seguir e voltar a ela depois.",
     offerNext: "Seguir para a próxima frase",
     hint: "Ouça a frase e grave a sua leitura. Com nota geral de 85% ou mais, o treino avança sozinho."
+  },
+  repeat: {
+    title: "Ouvir e repetir",
+    intro: "Ouça cada frase e repita em seguida. A gravação para sozinha quando você termina de falar; com nota de 85% ou mais, a próxima frase toca.",
+    sentence: "Frase {index} de {total}",
+    start: "Começar",
+    pause: "Pausar",
+    resume: "Continuar",
+    exit: "Sair",
+    restart: "Recomeçar",
+    phaseModel: "Ouça a frase...",
+    phaseCue: "Sua vez!",
+    phaseRecording: "Repita a frase. Gravando... {seconds}s",
+    phaseAssessing: "Avaliando...",
+    phaseResult: "Nota geral {percent}%",
+    phasePaused: "Pausado. Pressione Continuar (ou espaço) para retomar a frase.",
+    phaseDone: "Parágrafo concluído! Indo para o próximo.",
+    phaseDoneLast: "Parágrafo concluído! Esta seção terminou.",
+    passed: "Boa! Próxima frase em instantes.",
+    retry: "Vamos repetir esta frase (tentativa {count} de {max}).",
+    movingOn: "Seguindo para a próxima frase mesmo assim.",
+    tries: "Tentativa {count} de {max}",
+    shortcuts: "Espaço pausa ou continua; Esc sai do modo.",
+    silenceUnsupported: "Este navegador não detecta silêncio: a gravação para no tempo limite de cada frase."
   },
   glossary: {
     openFor: "Glossário de “{word}”",

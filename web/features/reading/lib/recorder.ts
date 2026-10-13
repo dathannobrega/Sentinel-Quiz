@@ -3,6 +3,8 @@
  * 32 kb/s, and a hard stop at `maxSeconds`. The audio never leaves memory except for the upload.
  */
 
+import { repeatRecordingCapSeconds, startSilenceDetector, type SilenceDetectorHandle } from "@/features/reading/lib/silence-detector";
+
 export const RECORDER_MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"] as const;
 export const RECORDER_BITS_PER_SECOND = 32_000;
 export const MAX_RECORDING_SECONDS = 90;
@@ -27,6 +29,8 @@ export interface RecordingResult {
   durationSeconds: number;
   /** True when the recorder hit the hard limit. */
   hitLimit: boolean;
+  /** True when the silence detector ended the recording. */
+  stoppedBySilence: boolean;
 }
 
 export interface ActiveRecording {
@@ -42,7 +46,14 @@ export interface StartRecordingOptions {
   maxSeconds?: number;
   /** Called about every 250 ms with the elapsed seconds. */
   onElapsed?: (seconds: number) => void;
+  /**
+   * Stop by itself after 1.2 s of silence once voice was heard ("listen and repeat"). Without the
+   * Web Audio API the recording only stops at `maxSeconds`.
+   */
+  stopOnSilence?: boolean;
 }
+
+export { repeatRecordingCapSeconds };
 
 type IsTypeSupported = (mimeType: string) => boolean;
 
@@ -141,8 +152,10 @@ export async function startRecording(options: StartRecordingOptions = {}): Promi
   const chunks: Blob[] = [];
   const startedAt = performance.now();
   let hitLimit = false;
+  let stoppedBySilence = false;
   let cancelled = false;
   let settled = false;
+  let silence: SilenceDetectorHandle | null = null;
 
   let resolveResult: (value: RecordingResult) => void = () => {};
   let rejectResult: (reason: RecorderError) => void = () => {};
@@ -164,6 +177,8 @@ export async function startRecording(options: StartRecordingOptions = {}): Promi
 
   const finish = () => {
     globalThis.clearInterval(ticker);
+    silence?.stop();
+    silence = null;
     releaseTracks();
   };
 
@@ -196,7 +211,8 @@ export async function startRecording(options: StartRecordingOptions = {}): Promi
       mimeType: type,
       filename: `recording.${fileExtensionForMime(type)}`,
       durationSeconds: Math.min(elapsedSeconds(), maxSeconds),
-      hitLimit
+      hitLimit,
+      stoppedBySilence
     });
   });
 
@@ -205,6 +221,15 @@ export async function startRecording(options: StartRecordingOptions = {}): Promi
   } catch (error) {
     finish();
     throw toRecorderError(error);
+  }
+
+  if (options.stopOnSilence) {
+    silence = startSilenceDetector(stream, { maxMs: maxSeconds * 1000 }, () => {
+      if (recorder.state === "recording") {
+        stoppedBySilence = true;
+        recorder.stop();
+      }
+    });
   }
 
   return {

@@ -1,0 +1,21 @@
+{
+  "slug": "e2e_manual_seguranca",
+  "title": "E2E Manual de Segurança",
+  "source_file": "E2E Manual de Seguranca.epub",
+  "certification": null,
+  "total_chapters": 1,
+  "total_sections": 3,
+  "total_words": 214,
+  "chapters": [
+    {
+      "chapter_index": 1,
+      "file_name": "c01.xhtml",
+      "title": "Capítulo 1: Hábitos de Segurança no Dia a Dia",
+      "page_start": 1,
+      "page_end": 3,
+      "sections_count": 3,
+      "total_words": 214,
+      "json_file": "chapters/c01.json"
+    }
+  ]
+}

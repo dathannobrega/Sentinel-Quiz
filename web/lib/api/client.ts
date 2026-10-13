@@ -349,5 +349,17 @@ export const apiClient = {
   },
   download(path: string, options?: MethodOptions & { method?: string; body?: unknown }) {
     return downloadFile(path, { ...options, method: options?.method ?? "GET" });
+  },
+  /**
+   * GET whose body is read by the caller (NDJSON streams). Same URL, auth headers, credentials and
+   * error handling as the JSON methods; `timeoutMs` only covers the response headers. Aborting
+   * `signal` after the headers arrived must be handled by the caller (cancel the body reader).
+   */
+  stream(path: string, options?: MethodOptions): Promise<Response> {
+    return performRequest(path, {
+      ...options,
+      method: "GET",
+      headers: { Accept: "application/x-ndjson", ...(options?.headers as Record<string, string> | undefined) }
+    });
   }
 };

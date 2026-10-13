@@ -118,10 +118,17 @@ function BookCard({ book }: { book: ReadingBook }) {
   const { t, locale } = useI18n();
   const progress = book.progress;
   const percent = progress ? Math.round(progress.percent) : 0;
+  // Increment 3: books not in English get the browser voice and no assessment.
+  const foreign = book.language !== undefined && book.language !== "en";
   return (
     <li className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-5">
       <div className="flex flex-col gap-2">
-        {book.certification ? <Badge tone="primary">{book.certification}</Badge> : null}
+        {book.certification || foreign ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {book.certification ? <Badge tone="primary">{book.certification}</Badge> : null}
+            {foreign ? <Badge tone="warning">{t("reading.library.languageBadge", { language: t(`reading.capabilities.languages.${book.language}`) })}</Badge> : null}
+          </div>
+        ) : null}
         <h3 className="text-base font-semibold text-fg">
           <Link href={buildBookHref(book.slug)} className="focus-ring rounded-sm hover:underline">
             {book.title}
@@ -133,6 +140,7 @@ function BookCard({ book }: { book: ReadingBook }) {
           {t("reading.library.words", { count: formatCount(book.words, locale) })} ·{" "}
           {t("reading.library.minutes", { count: formatCount(book.minutes, locale) })}
         </p>
+        {foreign ? <p className="text-[0.8125rem] text-warning">{t("reading.library.languageNotice")}</p> : null}
       </div>
       <div className="flex flex-col gap-1.5">
         <Meter value={percent} label={t("reading.library.progressLabel", { book: book.title })} />
