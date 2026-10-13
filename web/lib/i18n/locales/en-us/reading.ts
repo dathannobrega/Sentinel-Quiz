@@ -27,7 +27,9 @@ export const reading = {
     notStarted: "Not started yet",
     lastRead: "Last read {date}",
     progressLabel: "Progress in {book}",
-    practiceNav: "Practice"
+    practiceNav: "Practice",
+    languageBadge: "In {language}",
+    languageNotice: "Browser voice; no pronunciation assessment."
   },
   capabilities: {
     ttsUnavailableTitle: "Neural voice unavailable",
@@ -35,7 +37,16 @@ export const reading = {
     ttsWarming: "The speech service is loading its models. Until it is ready, the reader uses the browser voice.",
     assessUnavailableTitle: "Shadowing unavailable",
     assessUnavailable: "Pronunciation assessment is off for now. You can still listen and read along.",
-    quota: "{remaining} of {limit} assessments left today"
+    quota: "{remaining} of {limit} assessments left today",
+    languageTitle: "Book in {language}",
+    languageNotice:
+      "The neural voice and the pronunciation assessment only exist for books in English. This book uses the browser voice; Shadowing, Sentence drill and Listen and repeat are disabled.",
+    languages: {
+      en: "English",
+      pt: "Portuguese",
+      es: "Spanish",
+      unknown: "an unidentified language"
+    }
   },
   stats: {
     title: "Your progress",
@@ -87,7 +98,8 @@ export const reading = {
     fallbackUnsupported: "This browser has no speech synthesis. Read silently or try another browser.",
     audioFailed: "Could not load the audio for this paragraph.",
     shortcuts: "Shortcuts: space plays or pauses, ← and → change paragraph, R records in shadowing and in the sentence drill.",
-    offlineIndicator: "You are offline. What is already loaded keeps playing; downloaded chapters are under Listen offline."
+    offlineIndicator: "You are offline. What is already loaded keeps playing; downloaded chapters are under Listen offline.",
+    buffering: "Loading the next sentence..."
   },
   player: {
     label: "Reading controls",
@@ -105,6 +117,8 @@ export const reading = {
     modeListen: "Listen",
     modeShadow: "Shadowing",
     modeDrill: "Sentence drill",
+    modeRepeat: "Listen and repeat",
+    modeNeedsEnglish: "Only available for books in English.",
     glossaryTap: "Tap to translate",
     sleep: "Sleep timer",
     sleepOff: "No timer",
@@ -143,6 +157,7 @@ export const reading = {
       speech_warming: "The speech service is still loading. Try again in a few minutes.",
       speech_timeout: "The assessment took too long. Try again.",
       block_not_found: "This paragraph was not found in the book.",
+      language_unsupported: "Pronunciation assessment only works with books in English.",
       generic: "Could not assess the recording."
     },
     attemptsTitle: "Attempts on this paragraph",
@@ -227,6 +242,30 @@ export const reading = {
     offerNextHint: "This sentence is tough. You can move on and come back to it later.",
     offerNext: "Move to the next sentence",
     hint: "Listen to the sentence and record your reading. With an overall score of 85% or more, the drill moves on by itself."
+  },
+  repeat: {
+    title: "Listen and repeat",
+    intro: "Listen to each sentence, then repeat it. The recording stops by itself when you finish speaking; with a score of 85% or more, the next sentence plays.",
+    sentence: "Sentence {index} of {total}",
+    start: "Start",
+    pause: "Pause",
+    resume: "Resume",
+    exit: "Exit",
+    restart: "Start over",
+    phaseModel: "Listen to the sentence...",
+    phaseCue: "Your turn!",
+    phaseRecording: "Repeat the sentence. Recording... {seconds}s",
+    phaseAssessing: "Assessing...",
+    phaseResult: "Overall score {percent}%",
+    phasePaused: "Paused. Press Resume (or space) to retry the sentence.",
+    phaseDone: "Paragraph complete! Moving to the next one.",
+    phaseDoneLast: "Paragraph complete! This section is finished.",
+    passed: "Nice! Next sentence in a moment.",
+    retry: "Let's repeat this sentence (attempt {count} of {max}).",
+    movingOn: "Moving to the next sentence anyway.",
+    tries: "Attempt {count} of {max}",
+    shortcuts: "Space pauses or resumes; Esc leaves the mode.",
+    silenceUnsupported: "This browser cannot detect silence: the recording stops at each sentence's time limit."
   },
   glossary: {
     openFor: "Glossary for “{word}”",

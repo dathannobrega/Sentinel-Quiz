@@ -6,10 +6,11 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import { fetchTts, fetchTtsAudio, prefetchTts, type TtsParams } from "@/features/reading/hooks";
+import { fetchTts, fetchTtsAudio, postWarm, prefetchSection, prefetchTts, type TtsParams } from "@/features/reading/hooks";
 import { OfflineMissError, offlineKeys, type OfflineStore } from "@/features/reading/lib/offline-store";
+import { fetchTtsStream, hasCachedStream, type StreamHandlers, type StreamResult } from "@/features/reading/lib/tts-stream";
 import { ApiError } from "@/lib/api/client";
-import type { ReadingTtsResponse } from "@/types/api";
+import type { ReadingSectionDetail, ReadingTtsResponse, ReadingWarmRequest } from "@/types/api";
 
 export interface ReaderSource {
   kind: "online" | "offline";
@@ -21,6 +22,17 @@ export interface ReaderSource {
   prefetch(params: TtsParams): void;
   /** True when a failed audio fetch is worth re-synthesising (server cache expired). */
   isStaleAudioError(error: unknown): boolean;
+  /**
+   * Increment 3: the block one sentence at a time (`GET …/tts/stream`), each segment delivered
+   * with its audio as soon as it exists. Absent offline (the block audio is used instead).
+   */
+  loadStream?(params: TtsParams, handlers: StreamHandlers): Promise<StreamResult>;
+  /** True when a completed stream of the block is already in memory. */
+  hasStream?(params: TtsParams): boolean;
+  /** `POST …/warm` (best effort; absent offline). */
+  warm?(sectionId: string, body: ReadingWarmRequest, signal?: AbortSignal): Promise<void>;
+  /** `GET /sections/{id}` into the query cache (absent offline). */
+  loadSection?(sectionId: string): Promise<ReadingSectionDetail>;
 }
 
 export function createOnlineSource(client: QueryClient): ReaderSource {
@@ -31,7 +43,13 @@ export function createOnlineSource(client: QueryClient): ReaderSource {
     prefetch: (params) => {
       void prefetchTts(client, params);
     },
-    isStaleAudioError: (error) => error instanceof ApiError && error.status === 404
+    isStaleAudioError: (error) => error instanceof ApiError && error.status === 404,
+    loadStream: (params, handlers) => fetchTtsStream(client, params, handlers),
+    hasStream: (params) => hasCachedStream(client, params),
+    warm: async (sectionId, body, signal) => {
+      await postWarm(sectionId, body, signal);
+    },
+    loadSection: (sectionId) => prefetchSection(client, sectionId)
   };
 }
 

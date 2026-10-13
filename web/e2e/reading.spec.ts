@@ -10,12 +10,17 @@ import { t } from "./i18n";
  * The microphone is faked in the page: MediaRecorder yields a Blob whose bytes are
  * `FAKE:<transcript>` (the fake speech service reads it as the transcript; a word prefixed with
  * `~` is heard but badly pronounced). Set the transcript with `setTranscript` before recording.
+ * The Web Audio API is faked too: the analyser reports the level in `window.__fakeMicLevel`, so the
+ * silence detector of "listen and repeat" runs its real logic (`setMicLevel(page, 0)` = silence).
  */
 
 const BOOK_SLUG = "e2e_security_handbook";
 const BOOK_TITLE = "E2E Security Handbook";
 const PHISHING_SECTION = `${BOOK_SLUG}:c01:head-2-1`;
 const READER_URL = `/read/s/${encodeURIComponent(PHISHING_SECTION)}`;
+/** Second synthetic book, written in Portuguese (Increment 3: language detection). */
+const PT_BOOK_TITLE = "E2E Manual de Segurança";
+const PT_SECTION = "e2e_manual_seguranca:c01:head-2-1";
 const WORD_PATTERN = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
 
 const FAKE_MICROPHONE = `(() => {
@@ -44,12 +49,33 @@ const FAKE_MICROPHONE = `(() => {
     configurable: true,
     value: { getUserMedia: async () => new FakeStream() }
   });
+  class FakeAnalyser {
+    constructor() { this.fftSize = 2048; }
+    getFloatTimeDomainData(array) {
+      const level = typeof window.__fakeMicLevel === "number" ? window.__fakeMicLevel : 0;
+      for (let i = 0; i < array.length; i += 1) { array[i] = i % 2 ? level : -level; }
+    }
+  }
+  class FakeSourceNode { connect() {} disconnect() {} }
+  class FakeAudioContext {
+    createMediaStreamSource() { return new FakeSourceNode(); }
+    createAnalyser() { return new FakeAnalyser(); }
+    close() { return Promise.resolve(); }
+  }
+  window.AudioContext = FakeAudioContext;
 })();`;
 
 async function setTranscript(page: Page, transcript: string) {
   await page.evaluate((value) => {
     (window as unknown as { __fakeTranscript: string }).__fakeTranscript = value;
   }, transcript);
+}
+
+/** Microphone level seen by the silence detector (0 = silence; 0.2 = voice). */
+async function setMicLevel(page: Page, level: number) {
+  await page.evaluate((value) => {
+    (window as unknown as { __fakeMicLevel: number }).__fakeMicLevel = value;
+  }, level);
 }
 
 /** Records for a bit over the minimum duration (0.8 s) and stops. */
@@ -86,11 +112,66 @@ test("library → chapter → section, then play the neural TTS", async ({ page 
   await page.waitForURL(`**${READER_URL}`);
   await expect(page.getByRole("heading", { level: 1, name: "Recognizing Phishing" })).toBeVisible();
 
-  const tts = page.waitForResponse((response) => response.url().includes("/api/reading/sections/") && response.url().endsWith("/tts") && response.request().method() === "POST");
+  // Increment 3 servers stream (`GET …/tts/stream`); older ones answer the block POST.
+  const tts = page.waitForResponse((response) => response.url().includes("/api/reading/sections/") && /\/tts(\/stream)?(\?|$)/.test(response.url()));
   await page.getByRole("button", { name: t("reading.player.play"), exact: true }).click();
   expect((await tts).ok()).toBe(true);
   await expect(page.getByRole("button", { name: t("reading.player.pause"), exact: true })).toBeVisible();
   await expectNoSeriousA11yViolations(page, "reader");
+});
+
+test("streaming: the block plays sentence by sentence from /tts/stream", async ({ page }) => {
+  await registerViaUi(page);
+  await openReader(page);
+  const stream = page.waitForResponse((response) => response.url().includes("/tts/stream") && response.request().method() === "GET");
+  const firstSegment = page.waitForResponse((response) => response.url().includes("/api/reading/audio/"));
+  await page.getByRole("button", { name: t("reading.player.play"), exact: true }).click();
+  const response = await stream;
+  expect(response.ok()).toBe(true);
+  expect(response.headers()["content-type"] ?? "").toContain("ndjson");
+  expect((await firstSegment).ok()).toBe(true);
+  // Playing (the Pause control) means the first segment arrived and the element started.
+  await expect(page.getByRole("button", { name: t("reading.player.pause"), exact: true })).toBeVisible({ timeout: 20_000 });
+});
+
+test("listen and repeat: one hands-free cycle passes and moves to the next sentence", async ({ page }) => {
+  await registerViaUi(page);
+  await openReader(page);
+  await setMicLevel(page, 0.2);
+  await page.getByRole("button", { name: t("reading.player.modeRepeat"), exact: true }).click();
+  const panel = page.getByRole("region", { name: t("reading.repeat.title") });
+  await expect(panel.getByText(/^Frase 1 de \d+$/)).toBeVisible();
+  const sentence = await panel.locator("blockquote").innerText();
+  await setTranscript(page, (sentence.match(WORD_PATTERN) ?? []).join(" "));
+
+  await panel.getByRole("button", { name: t("reading.repeat.start"), exact: true }).click();
+  const status = panel.getByRole("status").first();
+  // model → cue → recording (the microphone opened).
+  await expect(status).toContainText(/Gravando/, { timeout: 30_000 });
+  // Voice for a moment, then silence: the detector ends the recording by itself.
+  await page.waitForTimeout(600);
+  await setMicLevel(page, 0);
+  await expect(status).toContainText(/Nota geral/, { timeout: 30_000 });
+  await expect(panel.getByText(/^Frase 2 de \d+$/)).toBeVisible({ timeout: 10_000 });
+  // Esc leaves the mode.
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  await expect(page.getByRole("button", { name: t("reading.player.modeListen"), exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("a book in Portuguese shows the language notice and disables the practice modes", async ({ page }) => {
+  await registerViaUi(page);
+  await page.goto(`/read/s/${encodeURIComponent(PT_SECTION)}`);
+  await expect(page.getByRole("heading", { level: 1, name: "Reconhecendo o Phishing" })).toBeVisible();
+  const languageName = t("reading.capabilities.languages.pt");
+  await expect(page.getByText(t("reading.capabilities.languageTitle", { language: languageName }))).toBeVisible();
+  await expect(page.getByRole("button", { name: t("reading.player.modeShadow"), exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: t("reading.player.modeRepeat"), exact: true })).toBeDisabled();
+  await expect(page.getByText(t("reading.player.browserVoice"), { exact: true })).toBeVisible();
+
+  await page.goto("/read");
+  const card = page.getByRole("listitem").filter({ hasText: PT_BOOK_TITLE });
+  await expect(card.getByText(t("reading.library.languageBadge", { language: languageName }))).toBeVisible();
 });
 
 test("shadowing marks a skipped and a mispronounced word, and the words review works", async ({ page }) => {

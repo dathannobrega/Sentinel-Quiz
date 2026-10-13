@@ -203,6 +203,13 @@ class Settings(BaseSettings):
     reading_max_offline_chapters: int = Field(default=5, alias="READING_MAX_OFFLINE_CHAPTERS")
     rate_limit_reading_requests: int = Field(default=60, alias="RATE_LIMIT_READING_REQUESTS")
     rate_limit_reading_window_seconds: int = Field(default=60, alias="RATE_LIMIT_READING_WINDOW_SECONDS")
+    # Increment 3 (docs/reading/CONTRATO-INCREMENTO-3.md §3.2, §3.5): sentence streaming and the
+    # server-side warm-up of the next paragraphs (low-priority TTS in a per-process thread).
+    speech_stream_timeout_seconds: float = Field(default=300.0, alias="SPEECH_STREAM_TIMEOUT_SECONDS")
+    reading_warm_enabled: bool = Field(default=True, alias="READING_WARM_ENABLED")
+    reading_warm_blocks_ahead: int = Field(default=6, alias="READING_WARM_BLOCKS_AHEAD")
+    reading_warm_workers: int = Field(default=1, alias="READING_WARM_WORKERS")
+    reading_warm_queue_max: int = Field(default=200, alias="READING_WARM_QUEUE_MAX")
     # Live participants (DC-22, RNF-205): a whole auditorium may share one NAT IP, so the
     # public room endpoints are limited per room code and /api/live/me/* per participant
     # token, never per IP. Code guessing is limited per IP by counting invalid codes.

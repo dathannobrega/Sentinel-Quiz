@@ -32,7 +32,9 @@ import type {
   ReadingSectionDetail,
   ReadingStats,
   ReadingTtsRequest,
-  ReadingTtsResponse
+  ReadingTtsResponse,
+  ReadingWarmRequest,
+  ReadingWarmResponse
 } from "@/types/api";
 
 const READING_BASE = "/reading";
@@ -75,14 +77,34 @@ export function useReadingChapterQuery(slug: string, file: string, enabled = tru
   });
 }
 
+const SECTION_STALE_MS = 10 * 60_000;
+
+function fetchSection(sectionId: string, signal?: AbortSignal): Promise<ReadingSectionDetail> {
+  return apiClient.get<ReadingSectionDetail>(`${READING_BASE}/sections/${encodeURIComponent(sectionId)}`, { signal });
+}
+
 /** GET /api/reading/sections/{id}: the section text plus its place in the book. */
 export function useReadingSectionQuery(sectionId: string) {
   return useQuery({
     queryKey: queryKeys.readingSection(sectionId),
-    queryFn: ({ signal }) => apiClient.get<ReadingSectionDetail>(`${READING_BASE}/sections/${encodeURIComponent(sectionId)}`, { signal }),
+    queryFn: ({ signal }) => fetchSection(sectionId, signal),
     enabled: Boolean(sectionId),
-    staleTime: 10 * 60_000
+    staleTime: SECTION_STALE_MS
   });
+}
+
+/** GET /sections/{id} into the query cache (the next section, so navigation finds it ready). */
+export function prefetchSection(client: QueryClient, sectionId: string): Promise<ReadingSectionDetail> {
+  return client.fetchQuery({
+    queryKey: queryKeys.readingSection(sectionId),
+    queryFn: ({ signal }) => fetchSection(sectionId, signal),
+    staleTime: SECTION_STALE_MS
+  });
+}
+
+/** POST /api/reading/sections/{id}/warm: server-side synthesis of the next blocks (best effort). */
+export function postWarm(sectionId: string, body: ReadingWarmRequest, signal?: AbortSignal): Promise<ReadingWarmResponse> {
+  return apiClient.post<ReadingWarmResponse>(`${READING_BASE}/sections/${encodeURIComponent(sectionId)}/warm`, body, { signal });
 }
 
 /** GET /api/reading/sections/{id}/attempts: the user's recent shadowing attempts in this section. */

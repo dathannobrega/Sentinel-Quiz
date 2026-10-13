@@ -74,6 +74,77 @@ CEH_WALKER_SLUG = "ceh_certified_ethical_hacker_study_guide"
 
 PARAGRAPH_TARGET_WORDS = 90
 
+# ---------------------------------------------------------------------------- language (Increment 3 §3.3)
+# The neural voice and the pronunciation assessment only exist for English, so the reader must
+# know a book's language before offering them. A stopword-ratio heuristic over the first
+# LANGUAGE_SAMPLE_WORDS readable words is enough to tell the three languages our books could come
+# in apart; anything else (or too little text) is ``unknown`` and gets the browser voice.
+LANGUAGE_SAMPLE_WORDS = 20_000
+LANGUAGE_MIN_RATIO = 0.02
+SUPPORTED_LANGUAGES = ("en", "pt", "es")
+_LANGUAGE_WORD = re.compile(r"[a-záàâãéêíóôõúüçñ]+")
+_STOPWORDS: dict[str, frozenset[str]] = {
+    "en": frozenset(
+        "the and of to in is that it for with as on are this be by was from or an not which you can at have "
+        "their has they will if when your all more one we each into than also its these such about other any "
+        "may should must been were would there what who how but his her them our between through most".split()
+    ),
+    "pt": frozenset(
+        "de a o que e do da em um para com não uma os no se na por mais as dos como mas ao ele das à seu sua ou "
+        "quando muito nos já também só pelo pela até isso ela entre depois sem mesmo aos seus quem nas esse eles "
+        "você essa num nem suas meu às minha numa pelos elas qual nós lhe deles essas esses pelas este dele "
+        "esta estes estas aquele aquela isto aquilo está são foi ser tem pode deve sobre onde porque então "
+        "cada ainda assim outros outras exemplo".split()
+    ),
+    "es": frozenset(
+        "de la que el en y a los del se las por un para con no una su al lo como más pero sus le ya este sí "
+        "porque esta entre cuando muy sin sobre también hasta hay donde quien desde todo nos durante todos uno "
+        "les ni contra otros ese eso ante ellos esto antes algunos qué unos otro otras otra él tanto esa estos "
+        "mucho quienes nada muchos cual poco ella estar estas algunas algo nosotros mi mis es son fue ser tiene "
+        "puede debe cada aún así ejemplo".split()
+    ),
+}
+
+
+def detect_language(text: str) -> str:
+    """``"en" | "pt" | "es" | "unknown"`` for a text sample (stopword ratio, see above).
+
+    Each language's list includes the function words it shares with the others ("a", "de",
+    "no"...): a Portuguese sample scores high in Portuguese *and* Spanish, and the higher ratio
+    wins because of the words only one of them uses ("não", "uma"; "el", "los"). Below
+    LANGUAGE_MIN_RATIO for every language the text is gibberish, code or too short: ``unknown``.
+    """
+    words = _LANGUAGE_WORD.findall((text or "").lower())
+    if not words:
+        return "unknown"
+    best, best_ratio = "unknown", 0.0
+    for language in SUPPORTED_LANGUAGES:
+        stopwords = _STOPWORDS[language]
+        ratio = sum(1 for word in words if word in stopwords) / len(words)
+        if ratio > best_ratio:
+            best, best_ratio = language, ratio
+    return best if best_ratio >= LANGUAGE_MIN_RATIO else "unknown"
+
+
+def _book_language(manifest: dict, sections: "list[CorpusSection]") -> str:
+    """The manifest may state the language; otherwise detect it from the readable text."""
+    declared = str(manifest.get("language") or "").strip().lower()[:2]
+    if declared in SUPPORTED_LANGUAGES:
+        return declared
+    sample: list[str] = []
+    count = 0
+    for section in sections:
+        if section.kind not in LINKABLE_KINDS:
+            continue
+        for block in section.blocks:
+            sample.append(block.text)
+            count += len(block.text.split())
+            if count >= LANGUAGE_SAMPLE_WORDS:
+                break
+        if count >= LANGUAGE_SAMPLE_WORDS:
+            break
+    return detect_language(" ".join(sample))
+
 
 @dataclass(frozen=True)
 class SectionBlock:
@@ -121,6 +192,8 @@ class CorpusBook:
     certification: str
     source_file: str
     section_ids: list[str] = field(default_factory=list)
+    # Increment 3 (§3.3): "en" | "pt" | "es" | "unknown", from the manifest or detected at build.
+    language: str = "unknown"
 
 
 @dataclass
@@ -367,6 +440,7 @@ def _load_book(book_dir: Path) -> tuple[CorpusBook, list[CorpusSection], dict[tu
                 locators.setdefault((source_key, chapter_file, ""), section.id)
             stack.append(section)
 
+    book.language = _book_language(manifest, sections_out)
     return book, sections_out, locators
 
 

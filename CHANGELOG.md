@@ -3,6 +3,15 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 As imagens são publicadas no GHCR com a versão (`1.0.0`, `1.0`) quando a tag `v*` é criada.
 
+## [1.1.0] - 2026-10-12
+
+### Adicionado
+- **Sentinel Reader:** áudio **frase a frase** (a primeira frase toca em 1 a 1,5 s no M1 Pro, antes 6 s para o parágrafo inteiro), antecipação do próximo parágrafo e da próxima seção, aquecimento dos parágrafos seguintes em segundo plano com prioridade baixa, modo **"ouvir e repetir"** mãos livres com parada por silêncio, velocidades 0,5× e 0,6×, detecção do idioma do livro (voz neural e avaliação só para inglês; voz do navegador no idioma certo). Veja `docs/reading/INCREMENTO-3.md`.
+- Serviço de voz: `POST /v1/tts/stream` (NDJSON), fila com prioridade (`X-Speech-Priority`), threads e concorrência automáticas pelos CPUs do container, fonemas em paralelo com o Whisper quando há 6 ou mais CPUs, métricas por prioridade e de espera na fila.
+
+### Alterado
+- Compose: `APP_SPEECH_CPUS` padrão 2.0 (cabe em qualquer máquina; ver a tabela de dimensionamento no README), threads/concorrência `0` = automático, cache de áudio de 8 GB.
+
 ## [1.0.0] - 2026-10-12
 
 Primeira versão marcada. Reúne tudo o que já estava em produção pela `main` e o Sentinel Reader.

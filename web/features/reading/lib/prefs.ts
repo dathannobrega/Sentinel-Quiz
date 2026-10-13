@@ -2,10 +2,10 @@
 
 export const READING_PREFS_STORAGE_KEY = "sentinel_reading_prefs";
 
-/** Listen (read along), sentence drill, paragraph shadowing. */
-export type ReaderMode = "listen" | "drill" | "shadow";
+/** Listen (read along), sentence drill, paragraph shadowing, hands-free listen and repeat. */
+export type ReaderMode = "listen" | "drill" | "shadow" | "repeat";
 
-export const READER_MODES: readonly ReaderMode[] = ["listen", "drill", "shadow"];
+export const READER_MODES: readonly ReaderMode[] = ["listen", "drill", "shadow", "repeat"];
 
 export interface ReadingPrefs {
   mode: ReaderMode;

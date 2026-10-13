@@ -25,6 +25,8 @@ export const queryKeys = {
   readingSection: (sectionId: string) => ["reading", "section", sectionId] as const,
   readingTts: (sectionId: string, partId: string, blockIndex: number, voice: string, speed: number) =>
     ["reading", "tts", sectionId, partId, blockIndex, voice, speed] as const,
+  readingTtsStream: (sectionId: string, partId: string, blockIndex: number, voice: string, speed: number) =>
+    ["reading", "tts-stream", sectionId, partId, blockIndex, voice, speed] as const,
   readingAttempts: (sectionId: string) => ["reading", "attempts", sectionId] as const,
   readingStats: ["reading", "stats"] as const,
   readingProgress: ["reading", "progress"] as const,

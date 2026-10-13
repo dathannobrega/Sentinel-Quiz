@@ -22,7 +22,18 @@ export interface ReadingTtsCapability {
   default_voice: string | null;
   voices: ReadingVoice[];
   speeds: number[];
+  /** Increment 3: `GET …/tts/stream` (one sentence at a time) is available. */
+  streaming?: boolean;
 }
+
+/** Increment 3: server-side warm-up of the next blocks (`POST …/warm`). */
+export interface ReadingWarmCapability {
+  enabled: boolean;
+  blocks_ahead: number;
+}
+
+/** Detected language of a book (stopword ratio); neural voice and assessment only for `en`. */
+export type ReadingLanguage = "en" | "pt" | "es" | "unknown";
 
 export interface ReadingAssessCapability {
   available: boolean;
@@ -58,6 +69,8 @@ export interface ReadingCapabilities {
   phonemes?: { available: boolean };
   words?: { due: number };
   offline?: { max_chapters: number };
+  /** Increment 3. */
+  warm?: ReadingWarmCapability;
 }
 
 export interface ReadingChapterSummary {
@@ -93,6 +106,8 @@ export interface ReadingBook {
   sections: number;
   chapters: ReadingChapterSummary[];
   progress: ReadingProgress | null;
+  /** Increment 3 (absent on older APIs = English). */
+  language?: ReadingLanguage;
 }
 
 /** GET /api/reading/library */
@@ -154,6 +169,8 @@ export interface ReadingSectionDetail extends Omit<StudySectionDetail, "parts"> 
   chapter_index: number;
   position: ReadingSectionPosition;
   progress: ReadingSectionProgress | null;
+  /** Increment 3 (absent on older APIs = English). */
+  language?: ReadingLanguage;
 }
 
 /** POST /api/reading/sections/{id}/tts body. */
@@ -184,6 +201,65 @@ export interface ReadingTtsResponse {
   cached: boolean;
   text: string;
   words: ReadingTtsWord[];
+}
+
+/* ------------------------------------------------------------------ Increment 3: streamed TTS */
+
+/** First NDJSON line of `GET …/tts/stream`: the block text and the synthesis settings. */
+export interface ReadingStreamMeta {
+  type: "meta";
+  block_audio_id: string;
+  sentences: number;
+  engine: string;
+  model: string;
+  voice: string;
+  speed: number;
+  lang: string;
+  content_type: string;
+  /** Block text (word offsets of every segment point into it). */
+  text: string;
+}
+
+/** One sentence of the block, ready to download. `words` carry block offsets and segment-relative times. */
+export interface ReadingStreamSegment {
+  type: "segment";
+  index: number;
+  audio_id: string;
+  audio_url: string;
+  char_start: number;
+  char_end: number;
+  duration_seconds: number;
+  cached: boolean;
+  words: ReadingTtsWord[];
+}
+
+export interface ReadingStreamDone {
+  type: "done";
+  duration_seconds: number;
+}
+
+/** Failure after the first line (the HTTP status was already 200). */
+export interface ReadingStreamError {
+  type: "error";
+  code: string;
+  message: string;
+}
+
+export type ReadingStreamLine = ReadingStreamMeta | ReadingStreamSegment | ReadingStreamDone | ReadingStreamError;
+
+/** POST /api/reading/sections/{id}/warm body. */
+export interface ReadingWarmRequest {
+  part_id: string;
+  block_index: number;
+  voice?: string;
+  speed?: number;
+}
+
+/** 202 from POST …/warm. */
+export interface ReadingWarmResponse {
+  queued: number;
+  skipped: number;
+  enabled?: boolean;
 }
 
 export type ReadingWordStatus = "ok" | "weak" | "mispronounced" | "missed";
@@ -505,7 +581,7 @@ export interface ReadingOfflineSection {
 
 /** GET /api/reading/books/{slug}/chapters/{file}/offline-manifest */
 export interface ReadingOfflineManifest {
-  book: { slug: string; title: string; certification?: string | null };
+  book: { slug: string; title: string; certification?: string | null; language?: ReadingLanguage };
   chapter: { file: string; index: number; title: string; words?: number; minutes?: number };
   sections: ReadingOfflineSection[];
   total_blocks: number;

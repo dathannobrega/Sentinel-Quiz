@@ -13,8 +13,9 @@ SectionId = Annotated[str, Field(min_length=1, max_length=256)]
 BookSlug = Annotated[str, Field(min_length=1, max_length=128)]
 ReadingMode = Literal["listen", "read", "shadow"]
 
-# Speeds offered by the UI; any value in [0.5, 1.5] is accepted by the API.
-READING_SPEEDS: tuple[float, ...] = (0.75, 0.9, 1.0, 1.1, 1.25)
+# Speeds offered by the UI; any value in [0.5, 1.5] is accepted by the API (Increment 3 §3.4 adds
+# 0.5 and 0.6 for learners who shadow slowly).
+READING_SPEEDS: tuple[float, ...] = (0.5, 0.6, 0.75, 0.9, 1.0, 1.1, 1.25)
 MAX_BLOCK_INDEX = 500
 
 
@@ -23,6 +24,15 @@ class _Strict(BaseModel):
 
 
 class TtsIn(_Strict):
+    part_id: SectionId
+    block_index: int = Field(ge=0, le=MAX_BLOCK_INDEX)
+    voice: Optional[Annotated[str, Field(max_length=32, pattern=r"^[a-z]{2}_[a-z]{2,24}$")]] = None
+    speed: Optional[float] = Field(default=None, ge=0.5, le=1.5)
+
+
+class WarmIn(_Strict):
+    """``POST /sections/{id}/warm`` (Increment 3 §3.2): the reader's current position."""
+
     part_id: SectionId
     block_index: int = Field(ge=0, le=MAX_BLOCK_INDEX)
     voice: Optional[Annotated[str, Field(max_length=32, pattern=r"^[a-z]{2}_[a-z]{2,24}$")]] = None

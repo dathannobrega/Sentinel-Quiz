@@ -1,8 +1,8 @@
 # Sentinel Speech (serviço de voz)
 
-Serviço interno do **Sentinel Reader** (contratos: `docs/reading/CONTRATO-INCREMENTO-1.md` §5 e
-`docs/reading/CONTRATO-INCREMENTO-2.md` §2). FastAPI + Python 3.12, só CPU, alcançado apenas pela API
-(`http://speech:8100` na rede `speech`).
+Serviço interno do **Sentinel Reader** (contratos: `docs/reading/CONTRATO-INCREMENTO-1.md` §5,
+`docs/reading/CONTRATO-INCREMENTO-2.md` §2 e `docs/reading/CONTRATO-INCREMENTO-3.md` §2). FastAPI + Python 3.12, só CPU,
+alcançado apenas pela API (`http://speech:8100` na rede `speech`).
 
 | Papel | Engine padrão | Alternativas |
 |---|---|---|
@@ -15,20 +15,80 @@ Serviço interno do **Sentinel Reader** (contratos: `docs/reading/CONTRATO-INCRE
 
 | Rota | Entrada | Saída |
 |---|---|---|
-| `GET /healthz` | — | `{"status": "ok\|warming\|degraded", "tts": {engine, model, ready, voices[], default_voice, format}, "asr": {engine, model, ready}, "phoneme": {engine, model, ready, error}}` — sempre 200; `ok` só depende de TTS e ASR |
-| `POST /v1/tts` | `{"text" (≤ 2000), "voice", "speed" (0.5–1.5), "lang": "en-us\|en-gb"}` | `{audio_id, content_type, duration_seconds, sample_rate, cached, engine, model, voice, speed, lang, words[{text,start,end,char_start,char_end}]}` |
+| `GET /healthz` | — | `{"status": "ok\|warming\|degraded", "tts": {engine, model, ready, voices[], default_voice, format}, "asr": {engine, model, ready}, "phoneme": {engine, model, ready, error}, "runtime": {effective_cpus, threads{asr,torch,phoneme}, max_concurrency, parallel_phonemes}}` — sempre 200; `ok` só depende de TTS e ASR |
+| `POST /v1/tts` | `{"text" (≤ 2000), "voice", "speed" (0.5–1.5), "lang": "en-us\|en-gb"}` | `{audio_id, content_type, duration_seconds, sample_rate, cached, engine, model, voice, speed, lang, words[{text,start,end,char_start,char_end}]}` — o bloco inteiro, montado a partir das frases (ver abaixo) |
+| `POST /v1/tts/stream` | mesmo corpo de `/v1/tts` | `application/x-ndjson`, uma linha por evento assim que cada frase fica pronta: `{"type":"meta", block_audio_id, sentences, engine, model, voice, speed, lang, content_type}` → `{"type":"segment", index, audio_id, char_start, char_end, duration_seconds, cached, words[]}`… → `{"type":"done", duration_seconds}`. Erro depois de `meta`: `{"type":"error", code, message}` e fim do corpo (status já era 200); antes: JSON normal (400/503). `Cache-Control: no-store`, `X-Accel-Buffering: no` |
 | `GET /v1/audio/{audio_id}` | — | bytes (`audio/mpeg` com ffmpeg, senão `audio/wav`), `Cache-Control: private, max-age=86400`; 404 `audio_not_found` |
 | `POST /v1/assess` | multipart: `audio` (webm/ogg/mp4/wav…), `reference_text` (≤ 2000), `lang` (`en`) | corpo do §4.7 do contrato 1 sem `attempt_id`/`created_at`/`best_overall`/`attempts_for_block`, mais os campos do contrato 2 §2.5 (`reason`, `phoneme_score`, `phonemes`, `break` por palavra; `scores.prosody`, `prosody`, `engines`) |
 | `POST /v1/g2p` | `{"words": [...] (1–50, ≤ 64 chars), "lang": "en-us\|en-gb"}` | `{"items": [{"word", "ipa"}]}` (IPA padrão com acento; `null` se falhar) |
-| `GET /metrics` | — (Bearer quando `SPEECH_API_TOKEN` está definido) | Prometheus: `speech_requests_total{route,status}`, `speech_inference_seconds{engine}`, `speech_tts_cache_hits_total`, `speech_tts_cache_misses_total`, `speech_tts_cache_bytes`, `speech_model_ready{engine}` |
+| `GET /metrics` | — (Bearer quando `SPEECH_API_TOKEN` está definido) | Prometheus: `speech_requests_total{route,status,priority}`, `speech_inference_seconds{engine}`, `speech_queue_wait_seconds{engine,priority}` (histograma da espera por slot), `speech_tts_cache_hits_total`, `speech_tts_cache_misses_total`, `speech_tts_cache_bytes`, `speech_model_ready{engine}` |
 
 Erros: `{code, message}` — 400 `text_required` / `text_too_long` / `voice_invalid` / `lang_invalid` / `audio_invalid`,
 401 `unauthorized` (quando `SPEECH_API_TOKEN` está definido; `/healthz` fica aberto), 413 `audio_too_large`,
 503 `model_not_ready` / `engine_disabled` / `busy` (com `Retry-After: 5`).
 
-- `audio_id` = sha256(engine, model, voice, speed, lang, text). Cache em disco em `SPEECH_CACHE_DIR/tts/<id>.mp3|wav` + `<id>.json` (palavras), LRU por tamanho (`SPEECH_CACHE_MAX_MB`). **Só o áudio sintetizado é cacheado; a gravação enviada nunca toca o disco** (passa por um arquivo temporário do ffmpeg apagado na mesma chamada).
-- Inferência em thread pool com um `asyncio.Semaphore` por engine (`SPEECH_MAX_CONCURRENCY`); espera até 60 s e responde 503 `busy`. Hit de cache não passa pelo semáforo.
+- `audio_id` = sha256(engine, model, voice, speed, lang, text) — vale para frases e para blocos. Cache em disco em `SPEECH_CACHE_DIR/tts/<id>.mp3|wav` + `<id>.json` (palavras), LRU por tamanho (`SPEECH_CACHE_MAX_MB`, 8 GB por padrão). **Só o áudio sintetizado é cacheado; a gravação enviada nunca toca o disco** (passa por um arquivo temporário do ffmpeg apagado na mesma chamada).
+- Inferência em thread pool atrás de uma **fila com duas classes por engine** (`SPEECH_MAX_CONCURRENCY` slots; cabeçalho `X-Speech-Priority: low|normal`, default `normal`; valores desconhecidos contam como `normal`). Um pedido `low` (aquecimento) só pega um slot quando **nenhum** `normal` está esperando; `normal` nunca espera por `low` além do slot já em uso. `normal` espera até `SPEECH_BUSY_WAIT_SECONDS` (60 s) e `low` até `SPEECH_LOW_PRIORITY_WAIT_SECONDS` (20 s) antes do 503 `busy`. Hit de cache não passa pela fila. Vale para `/v1/tts`, `/v1/tts/stream` e `/v1/assess`.
 - Sem `initial_prompt` no Whisper (o texto de referência enviesaria o modelo a "corrigir" a pronúncia).
+
+## Frases, stream e prioridade (Incremento 3)
+
+**Frase = unidade de síntese e de cache.** `textnorm.split_sentences(text)` devolve `(char_start, char_end)` de cada frase com a
+**mesma regex do corpus** (`backend/app/services/material_corpus.py::_SENTENCE_BREAK`, `(?<=[.!?:])\s+(?=[A-Z0-9“"(•])`), depois
+junta frases com menos de 3 palavras à anterior (ou à seguinte, quando abrem o bloco) e corta qualquer frase acima de 400
+caracteres na vírgula mais próxima do meio (dentro de 25 % do comprimento), senão no espaço mais próximo do meio. Os offsets
+indexam o texto do bloco e nunca se sobrepõem.
+
+Cada frase é sintetizada e cacheada com `audio_id` próprio (`audio_id_for(engine, model, voice, speed, lang, texto_da_frase)`); o
+`.json` da frase guarda as palavras relativas à própria frase, de modo que a mesma frase em outro bloco (ou em outra posição) acerta
+o mesmo cache. Na saída (`segment` do stream e `service.synthesize_sentences`) as palavras saem com `char_start/char_end`
+**relativos ao bloco** e `start/end` relativos ao áudio da frase.
+
+**Bloco.** `POST /v1/tts` continua devolvendo o bloco inteiro com o **mesmo `audio_id` de antes** (clientes offline que guardaram
+o id seguem funcionando): o serviço pega o PCM de cada frase, concatena (sem silêncio inserido — o Kokoro já fecha cada frase com
+a pausa natural; a soma das durações das frases é exatamente a duração do bloco) e codifica **uma vez**. Um bloco cujas frases já
+estão em cache **não sintetiza nada** (0 chamadas ao Kokoro, medido). Como o cache em disco guarda o áudio codificado, o PCM vem
+de um LRU em memória com as últimas `SPEECH_SENTENCE_PCM_LRU` (64) frases — o caso comum é o stream seguido do download do bloco —
+e, fora dele, da **decodificação do arquivo cacheado** (ffmpeg para mp3, soundfile para wav; milissegundos), ajustada ao número
+exato de amostras da duração registrada. Trade-off assumido: um bloco montado a partir de frases decodificadas carrega uma
+segunda geração de MP3 (64 kb/s mono, inaudível para fala) em troca de nunca gastar CPU de síntese, que é o que o contrato
+pede; o `words` do bloco é exatamente o das frases deslocado pela soma das durações (igualdade verificada no smoke test). Um bloco
+de uma única frase é a própria frase (mesmo id, sem recodificar).
+
+**Stream.** `POST /v1/tts/stream` valida como `/v1/tts` (erros 400/503 em JSON normal, inclusive `model_not_ready`), emite
+`meta` e então uma linha `segment` por frase. Frases em cache saem imediatamente, sem slot; a primeira frase não cacheada pega
+**um** slot da fila do TTS e o mantém até o fim do stream (liberar entre frases deixaria outro bloco se intercalar e travar este
+leitor no meio do parágrafo; a fila de prioridade já segura o aquecimento atrás dos leitores). A síntese roda no thread pool do
+Starlette (o event loop nunca bloqueia) e o laço verifica `request.is_disconnected()` antes de cada frase: cliente que fechou a
+aba não gasta mais CPU. Erro depois de `meta` (inclusive `busy` ao pedir o slot) vira a linha `{"type":"error",…}`. O stream não
+gera o bloco; quem precisar dele (download offline) chama `/v1/tts`, que reaproveita as frases.
+
+**Threads e concorrência automáticas** (`speech/runtime.py`). `effective_cpus()` lê a cota do cgroup v2
+(`/sys/fs/cgroup/cpu.max`, arredondada para cima) ou v1 (`cpu.cfs_quota_us/cpu.cfs_period_us`), limitada aos núcleos que o host
+expõe (`sched_getaffinity`, senão `os.cpu_count()`). Com `SPEECH_ASR_THREADS`/`SPEECH_TORCH_THREADS`/`SPEECH_PHONEME_THREADS` em
+`0` (default) cada engine usa `max(1, effective_cpus)` **limitado a 8**; `SPEECH_MAX_CONCURRENCY=0` vira `1` abaixo de 6 CPUs e
+`2` a partir daí; `SPEECH_PARALLEL_PHONEMES=auto` liga o paralelo só com 6+ CPUs. Com o paralelo ligado (por `auto` ou `on`), o
+forward do wav2vec2 começa numa thread própria assim que o PCM existe, enquanto o Whisper transcreve (os dois só precisam do PCM);
+o alinhamento fonético continua depois do Whisper, com o resultado idêntico ao sequencial (testado). Nesse caso o orçamento de
+threads é **dividido**: wav2vec2 `max(1, threads // 2)`, Whisper o resto. O runtime resolvido aparece em `/healthz.runtime` e no
+log de start (`runtime: effective_cpus=… threads(asr=… torch=… phoneme=…) max_concurrency=… parallel_phonemes=…`). Valores
+explícitos (> 0) sempre vencem.
+
+| `effective_cpus` | threads asr / torch / phoneme | `max_concurrency` | fonemas em paralelo |
+|---:|---|---:|---|
+| 2 | 2 / 2 / 2 | 1 | não |
+| 3–4 (VM alvo) | 3 / 3 / 3 · 4 / 4 / 4 | 1 | não |
+| 6 | 3 / 6 / 3 | 2 | sim |
+| 8 | 4 / 8 / 4 | 2 | sim |
+| 16 | 4 / 8 / 4 (`off`: 8 / 8 / 8) | 2 | sim |
+
+Desvios do contrato 3 §2.4, decididos com medição (tabela em "Incremento 3" abaixo): o contrato manda `threads = effective_cpus`
+para cada engine e só reduz as do wav2vec2 quando o paralelo é forçado em máquina pequena. Neste M1 Pro (10 CPUs lógicas), o
+faster-whisper `small.en` int8 com 10 threads ficou **3,4× mais lento** do que com 4 (7,1 s × 2,1 s num clipe de 27 s) e os dois
+modelos juntos com 10 + 5 threads foram a pior configuração medida (16 s para o clipe de 43 s contra 4,8 s). Por isso o
+automático **limita as threads a 8** e **divide** o orçamento entre Whisper e wav2vec2 sempre que rodam ao mesmo tempo. Na VM alvo
+de 3–4 vCPUs nada muda (threads = CPUs, paralelo desligado). Em Apple Silicon, se quiser o melhor absoluto, fixe
+`SPEECH_ASR_THREADS=4` (núcleos de desempenho).
 
 ## Como funciona a avaliação
 
@@ -92,18 +152,21 @@ A API local aponta `SPEECH_SERVICE_URL=http://127.0.0.1:8100`.
 | `SPEECH_TTS_ENGINE` / `SPEECH_TTS_MODEL` | `kokoro` / `hexgrad/Kokoro-82M` | `kokoro\|fake\|none` |
 | `SPEECH_TTS_DEFAULT_VOICE` / `SPEECH_TTS_VOICES` | `af_heart` / `af_heart,af_bella,af_nicole,am_michael,am_adam,bf_emma,bm_george` | vozes oferecidas (ids desconhecidos → 400 `voice_invalid`) |
 | `SPEECH_ASR_ENGINE` / `SPEECH_ASR_MODEL` | `faster-whisper` / `small.en` | `faster-whisper\|mlx-whisper\|fake\|none` |
-| `SPEECH_ASR_COMPUTE_TYPE` / `SPEECH_ASR_THREADS` | `int8` / `4` | CTranslate2 |
-| `SPEECH_TORCH_THREADS` | `4` | threads do torch (Kokoro); `0` = todos os núcleos. Num servidor de 16 núcleos (ex.: Xeon E5-2682 v4) use 8 aqui e em `SPEECH_ASR_THREADS` |
+| `SPEECH_ASR_COMPUTE_TYPE` / `SPEECH_ASR_THREADS` | `int8` / `0` | CTranslate2; `0` = automático (`effective_cpus`, máx. 8; metade quando os fonemas rodam em paralelo) |
+| `SPEECH_TORCH_THREADS` | `0` | threads do torch (Kokoro); `0` = automático (`effective_cpus`, máx. 8) |
 | `SPEECH_PHONEME_ENGINE` | `wav2vec2` | `wav2vec2\|fake\|none`; sem ela a avaliação sai sem fonemas (`engines.phoneme = null`) |
 | `SPEECH_PHONEME_MODEL` | `facebook/wav2vec2-lv-60-espeak-cv-ft` | checkpoint CTC de fonemas do espeak (Apache-2.0); alternativa leve na mesma licença: `facebook/wav2vec2-xlsr-53-espeak-cv-ft` |
-| `SPEECH_PHONEME_THREADS` | `4` | threads do torch durante o forward do wav2vec2 (ajustadas e restauradas a cada chamada; os forwards são serializados) |
+| `SPEECH_PHONEME_THREADS` | `0` | threads do torch durante o forward do wav2vec2 (ajustadas e restauradas a cada chamada; os forwards são serializados); `0` = automático (`effective_cpus`, máx. 8; `max(1, threads // 2)` com paralelo ligado) |
+| `SPEECH_PARALLEL_PHONEMES` | `auto` | `auto` (paralelo só com 6+ CPUs) \| `on` \| `off`: forward do wav2vec2 em thread própria enquanto o Whisper transcreve |
 | `SPEECH_PHONEME_WORD_THRESHOLD` | `0.6` | `phoneme_score` abaixo disso rebaixa `ok`/`weak` para `mispronounced` (`reason: "phoneme"`) |
 | `SPEECH_WEAK_CONFIDENCE` | `0.6` | probabilidade do Whisper abaixo da qual uma palavra certa vira `weak` (`low_confidence`) |
 | `SPEECH_SCORE_WEIGHTS` | `0.5,0.2,0.15,0.15` | pesos de accuracy, completeness, fluency, prosody no `overall` |
 | `SPEECH_AUDIO_FORMAT` | `mp3` | `mp3` (ffmpeg, 64 kb/s mono) ou `wav`; sem ffmpeg cai para `wav` |
-| `SPEECH_CACHE_DIR` / `SPEECH_CACHE_MAX_MB` | `/var/cache/speech` / `2048` | cache do áudio sintetizado (`0` = sem limite) |
+| `SPEECH_CACHE_DIR` / `SPEECH_CACHE_MAX_MB` | `/var/cache/speech` / `8192` | cache do áudio sintetizado, frases e blocos (`0` = sem limite). Disco: ~8 kB por segundo de áudio em mp3 64 kb/s; um livro de 12 h de leitura ≈ 350 MB por voz e velocidade (frases + blocos ≈ 2×) |
+| `SPEECH_SENTENCE_PCM_LRU` | `64` | frases recentes mantidas em PCM na memória para montar blocos (~0,1 MB por segundo de áudio; 64 frases ≈ 40 MB); fora do LRU o arquivo cacheado é decodificado |
 | `SPEECH_MAX_AUDIO_BYTES` / `SPEECH_MAX_TEXT_CHARS` | `8000000` / `2000` | limites |
-| `SPEECH_MAX_CONCURRENCY` / `SPEECH_BUSY_WAIT_SECONDS` | `2` / `60` | inferências simultâneas por engine e espera antes de 503 `busy` |
+| `SPEECH_MAX_CONCURRENCY` / `SPEECH_BUSY_WAIT_SECONDS` | `0` / `60` | inferências simultâneas por engine (`0` = automático: 1 abaixo de 6 CPUs, senão 2) e espera de um pedido `normal` antes de 503 `busy` |
+| `SPEECH_LOW_PRIORITY_WAIT_SECONDS` | `20` | espera de um pedido `X-Speech-Priority: low` por um slot antes de 503 `busy` |
 | `SPEECH_PRELOAD` | `true` | carrega os modelos no start em thread de fundo (`/healthz` = `warming`); `false` = carrega no primeiro uso |
 | `SPEECH_API_TOKEN` | vazio | `Authorization: Bearer …` exigido em `/v1/*` quando definido |
 | `SPEECH_LOG_LEVEL` | `INFO` | nível de log |
@@ -112,11 +175,13 @@ A API local aponta `SPEECH_SERVICE_URL=http://127.0.0.1:8100`.
 ## Testes
 
 ```bash
-cd speech && uv run pytest      # 68 testes, ~15 s (engines fake; não baixam modelos)
+cd speech && uv run pytest      # 100 testes, ~20 s (engines fake; não baixam modelos)
 ```
 
 Os testes de API usam `SPEECH_TTS_ENGINE=fake SPEECH_ASR_ENGINE=fake` e `SPEECH_PHONEME_ENGINE=none|fake`. O ASR fake lê a "transcrição" do próprio upload:
 bytes UTF-8 começando com `FAKE:` (tokens podem levar `@prob`, ex.: `FAKE:security awareness@0.3 training`, e `#letras` com o que a engine de fonemas fake "ouve", ex.: `threat#tret`; `...` é uma pausa de 1,2 s); qualquer outro conteúdo é "ouvido" igual ao texto de referência. A engine de fonemas fake usa letras como fonemas e monta posteriors sintéticas a partir das palavras ouvidas. O alinhamento CTC, o GOP e a prosódia são testados com matrizes de posteriors montadas à mão e senoides sintéticas; o teste de tokenização com o `espeak-ng` real é pulado se o binário não existir.
+
+Incremento 3 (`tests/test_sentences.py`, `tests/test_runtime.py`, `tests/test_stream.py`): paridade da divisão de frases com a regex do corpus, junção de fragmentos curtos, teto de 400 caracteres, ida e volta dos offsets; palavras das frases × palavras do bloco (deslocadas pelas durações) e bloco sem nenhuma síntese quando as frases estão em cache; stream (ordem das linhas, `cached=true` na segunda chamada, linha `error` depois de `meta`, parada quando o cliente desconecta — o gerador recebe um `is_disconnected` falso); fila de prioridade (`low` espera enquanto há `normal` na fila, `normal` nunca espera por `low`, `low` expira → 503 `busy` via `httpx.ASGITransport` com um TTS fake lento); `effective_cpus` com arquivos de cgroup falsos (v2, v1, afinidade, `cpu_count`); defaults automáticos (3 CPUs → concorrência 1 e 3 threads; 8 → concorrência 2 e paralelo); caminho paralelo de fonemas idêntico ao sequencial (engine fake com script que não depende do ASR) e bloco `runtime` do `/healthz`.
 
 ## Calibração
 
@@ -185,6 +250,42 @@ Exemplo real (TTS de "Every **tret** must be reported…" avaliado contra "Every
 ```
 
 com `tips[0] = {"code": "phoneme_confusion", "expected": "θ", "heard": "t", "examples": ["threat"]}`. Já "**wirtual** private network" (voz `am_michael`) ficou `ok` para o Whisper e para a palavra (`phoneme_score` 0,80 ≥ 0,6), mas o fonema `v` saiu `bad` com `heard: "w"` e virou a primeira dica (`v` × `w`).
+
+### Incremento 3: frases, stream e paralelo (mesma máquina, 2026-10-12)
+
+Servidor nativo, Kokoro + faster-whisper `small.en` int8 + wav2vec2 `lv-60-espeak-cv-ft`, modelos em cache
+(`SPEECH_CACHE_DIR` apontando para o cache local), `af_heart`, parágrafos de ~80–90 palavras (5 frases, 34–37 s de áudio).
+
+**TTS: bloco × stream** (4 threads de torch, `SPEECH_PARALLEL_PHONEMES=off`; os números com o automático estão logo abaixo):
+
+| Métrica | Valor |
+|---|---|
+| `POST /v1/tts` a frio, parágrafo de 77 palavras (33,7 s de áudio) | **6,24 s até o primeiro byte útil** |
+| `POST /v1/tts/stream` a frio, parágrafo de 87 palavras (35,1 s de áudio, 5 frases) | **1,06 s até a primeira frase** (`segment` 0, 6,7 s de áudio); 5,87 s até `done` |
+| `POST /v1/tts` do mesmo parágrafo depois do stream | 0,32 s, **0 chamadas ao Kokoro** (`speech_inference_seconds_count{engine="kokoro"}` inalterado) |
+| `words` do bloco × `words` das frases deslocadas pelas durações | **idênticos** (desvio máximo 0,000 s); `text[char_start:char_end] == text` em 100 % das palavras, nas frases e no bloco |
+| soma das durações das frases × duração do bloco | 35,050 s × 35,050 s (diferença 0,0 ms); menor frase 6,72 s (nenhuma abaixo de 0,4 s) |
+| stream com tudo em cache | 6 ms até a primeira frase, 14 ms até `done` |
+| automático (`torch` 8 threads): bloco a frio 36,3 s de áudio / stream a frio 37,4 s de áudio | 5,10 s / **0,98 s até a primeira frase**, 5,16 s até `done`; bloco depois do stream 0,21 s |
+
+Na VM alvo (3–4 vCPUs, onde o bloco levava 15–25 s) a proporção é a mesma: o leitor começa a ouvir depois de ~1/5 do tempo
+do bloco, e o resto chega enquanto a primeira frase toca (cada frase de ~7 s leva ~1,2 s para sintetizar aqui).
+
+**Assess: sequencial × paralelo** (clipes mp3 do próprio Kokoro; 4 avaliações por clipe: 1ª / mediana das 3 seguintes):
+
+| Configuração (`/healthz.runtime`) | clipe 26,6 s (60 palavras) | clipe 42,9 s (103 palavras) |
+|---|---:|---:|
+| A. `off`, threads 4 / 4 / 4 | 3,92 s / **3,85 s** | 6,78 s / **7,11 s** |
+| B. `on`, threads 4 / 4 / 4 | 4,01 s / **3,03 s** (−21 %) | 5,85 s / **5,26 s** (−26 %) |
+| F. **automático** nesta máquina (10 CPUs → `on`, asr 4 / torch 8 / phoneme 4, concorrência 2) | 3,28 s / **2,76 s** (−28 %) | 4,95 s / **4,78 s** (−33 %) |
+| D. `off`, threads 10 / 10 / 10 (regra literal do contrato, sem paralelo) | 12,74 s / 8,59 s | 15,73 s / 16,23 s |
+| E. `off`, threads 8 / 8 / 8 | 5,17 s / 4,77 s | 9,05 s / 8,76 s |
+| C. `on`, threads 10 / 10 / 5 (regra literal do contrato, com paralelo) | 6,05 s / 7,22 s | 25,38 s / 16,22 s |
+
+Tempo de inferência isolado no clipe de 26,6 s: faster-whisper 2,1 s com 4 threads, 3,2 s com 8, 7,1 s com 10; wav2vec2 1,4 s
+com 4 threads e 1,3 s com 8–10. As notas foram idênticas em todas as configurações (`overall` 0,99 e 0,981), o que confirma que o
+caminho paralelo não muda o resultado. Em paralelo, cada forward fica um pouco mais lento (Whisper 2,1 → 2,6 s; wav2vec2 1,4 → 1,7 s)
+mas o total cai porque os dois se sobrepõem.
 
 ## Limitações conhecidas
 

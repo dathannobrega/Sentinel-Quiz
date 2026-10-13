@@ -27,6 +27,7 @@ from app.middleware.observability import ObservabilityMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware, build_rate_limit_store
 from app.services.ingest import ingest_questions_from_dir
 from app.services.materials import resolve_material_dir
+from app.services.reading_warm import shutdown as shutdown_reading_warm
 
 
 logger = logging.getLogger("app.bootstrap")
@@ -107,13 +108,14 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            shutdown_reading_warm()
             await rate_limit_store.close()
             await live_hub.close()
 
     docs_enabled = app_settings.api_docs_enabled()
     app = FastAPI(
         title="Sentinel Quiz API",
-        version="1.0.0",
+        version="1.1.0",
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,

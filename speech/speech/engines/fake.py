@@ -132,6 +132,9 @@ class FakePhoneme:
     """Letters-as-phonemes recognizer driven by the heard words (no audio needed)."""
 
     name = "fake"
+    # The posteriors are built from the ASR words, so this engine cannot run in parallel
+    # with the ASR (contract 3 §2.4); the service falls back to the sequential path.
+    needs_heard_words = True
 
     def __init__(self, model: str = "fake") -> None:
         self.model = model

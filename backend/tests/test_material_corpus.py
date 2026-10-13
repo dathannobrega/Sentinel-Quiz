@@ -42,11 +42,14 @@ def _flatten(nodes):
     return out
 
 
-def _write_book(root: Path, slug="fake_security_guide", chapters=None):
+def _write_book(root: Path, slug="fake_security_guide", chapters=None, language="en", title="Fake Security Guide"):
+    """``language=None`` leaves it out of the manifest so the corpus detects it from the text."""
     book = root / slug
     (book / "chapters").mkdir(parents=True)
     chapters = chapters or {}
-    manifest = {"slug": slug, "title": "Fake Security Guide", "source_file": SOURCE, "certification": "CompTIA Security+ (SY0-701)", "chapters": []}
+    manifest = {"slug": slug, "title": title, "source_file": SOURCE, "certification": "CompTIA Security+ (SY0-701)", "chapters": []}
+    if language is not None:
+        manifest["language"] = language
     for index, (file_name, (title, nodes)) in enumerate(chapters.items(), start=1):
         stem = file_name.split(".")[0]
         (book / "chapters" / f"{stem}.json").write_text(

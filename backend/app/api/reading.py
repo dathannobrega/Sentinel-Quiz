@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -32,11 +32,12 @@ from app.schemas_reading import (
     ProgressIn,
     QuizAnswerIn,
     TtsIn,
+    WarmIn,
     WordIn,
     WordTtsIn,
 )
-from app.services import reading, reading_ai, reading_data, reading_words
-from app.services.material_corpus import get_corpus
+from app.services import reading, reading_ai, reading_data, reading_warm, reading_words
+from app.services.material_corpus import CorpusSection, get_corpus
 from app.services.speech_client import AUDIO_ID_RE, DEFAULT_VOICES, SpeechError, get_speech_client
 
 router = APIRouter(prefix="/api/reading", tags=["reading"])
@@ -78,6 +79,26 @@ def _speech_or_503():
     return client
 
 
+def _check_language(section: CorpusSection) -> None:
+    """Increment 3 (§3.3): speech features exist for English books only; the 409 carries the
+    detected language so the reader can pick the browser voice for it."""
+    if reading.speech_supported(section):
+        return
+    exc = api_error(409, "language_unsupported", "Speech features are available for English books only.")
+    exc.detail["language"] = reading.book_language(section)  # type: ignore[index]
+    raise exc
+
+
+def _resolve_voice(client: Any, voice: str | None, speed: float | None) -> tuple[str, float]:
+    """Validated ``(voice, speed)`` against the service's voice list (shared by TTS, stream, warm)."""
+    health = client.health()
+    voices = {str(v.get("id")) for v in (health.tts.get("voices") or DEFAULT_VOICES)}
+    voice = voice or str(health.tts.get("default_voice") or "af_heart")
+    if voice not in voices:
+        raise api_error(400, "voice_invalid", "Unknown voice.")
+    return voice, float(speed if speed is not None else 1.0)
+
+
 # ---------------------------------------------------------------------------- capabilities
 @router.get("/capabilities")
 def capabilities(db: Session = Depends(get_db), current_user: User = Depends(get_current_user_required)) -> dict[str, Any]:
@@ -108,6 +129,8 @@ def capabilities(db: Session = Depends(get_db), current_user: User = Depends(get
             "engine": None if asr_engine == "none" else asr_engine,
             "model": health.asr.get("model"),
         })
+    # Increment 3 (§3.4): the sentence stream needs a TTS engine that is up (``tts.ready``).
+    tts["streaming"] = bool(tts["available"])
     limit = max(int(settings.reading_daily_assess_quota or 0), 0)
     used = reading.assess_used_today(db, current_user)
     phonemes_ready = bool(health is not None and health.status != "unavailable" and health.phoneme_ready)
@@ -121,6 +144,7 @@ def capabilities(db: Session = Depends(get_db), current_user: User = Depends(get
         "phonemes": {"available": phonemes_ready},
         "words": {"due": reading_words.due_count(db, current_user)},
         "offline": {"max_chapters": max(int(settings.reading_max_offline_chapters or 0), 0)},
+        "warm": {"enabled": bool(settings.reading_warm_enabled), "blocks_ahead": max(int(settings.reading_warm_blocks_ahead or 0), 0)},
     }
 
 
@@ -169,6 +193,78 @@ def attempts(
     return {"attempts": reading.list_attempts(db, user, section_id, limit=limit)}
 
 
+@router.get("/sections/{section_id:path}/tts/stream")
+async def tts_stream(
+    section_id: str,
+    part_id: str = Query(..., min_length=1, max_length=MAX_ID_LENGTH),
+    block_index: int = Query(..., ge=0, le=MAX_BLOCK_INDEX),
+    voice: str | None = Query(default=None, max_length=32, pattern=r"^[a-z]{2}_[a-z]{2,24}$"),
+    speed: float | None = Query(default=None, ge=0.5, le=1.5),
+    user: User = Depends(reading_user),
+) -> StreamingResponse:
+    """Sentence-by-sentence synthesis of a block (Increment 3 §3.1): the speech service's NDJSON,
+    forwarded line by line so the first sentence plays while the rest is still being synthesized.
+
+    Every ``segment`` gains ``audio_url`` and the ``meta`` line gains the block ``text``. Anything
+    that can fail before the first line (block, voice, language, service down) is a normal JSON
+    error; once the 200 is on the wire an upstream failure becomes an ``error`` line.
+    """
+    _check_id(section_id, "section_not_found")
+    resolved = reading.resolve_block(section_id, part_id, block_index)
+    if resolved is None:
+        raise api_error(404, "block_not_found", "Block not found.")
+    section_obj, _part, text = resolved
+    _check_language(section_obj)
+    client = _speech_or_503()
+    voice, speed = await run_in_threadpool(_resolve_voice, client, voice, speed)
+    started = time.perf_counter()
+    upstream = client.tts_stream(text, voice=voice, speed=speed)
+    try:
+        first = await upstream.__anext__()
+    except StopAsyncIteration:
+        raise api_error(502, "speech_error", "Speech service sent an empty stream.")
+    except SpeechError as exc:
+        _log_upstream("reading_tts_stream", started, code=exc.code, kind="block")
+        _raise_speech(exc)
+
+    async def body():
+        lines = 0
+        code: str | None = None
+        try:
+            yield _rewrite_stream_line(first, text) + "\n"
+            lines += 1
+            async for line in upstream:
+                yield _rewrite_stream_line(line, text) + "\n"
+                lines += 1
+        except SpeechError as exc:
+            code = exc.code
+            yield json.dumps({"type": "error", "code": exc.code, "message": exc.message}) + "\n"
+        finally:
+            _log_upstream("reading_tts_stream", started, code=code, kind="block", lines=lines)
+
+    return StreamingResponse(
+        body(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+def _rewrite_stream_line(line: str, text: str) -> str:
+    """Add what only this API knows: the audio URL of a segment and the text of the block."""
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return line
+    if not isinstance(event, dict):
+        return line
+    kind = event.get("type")
+    if kind == "segment":
+        event["audio_url"] = f"/api/reading/audio/{event.get('audio_id', '')}"
+    elif kind == "meta":
+        event["text"] = text
+    return json.dumps(event, ensure_ascii=False)
+
+
 @router.get("/sections/{section_id:path}")
 def section(section_id: str, db: Session = Depends(get_db), user: User = Depends(reading_user)) -> dict[str, Any]:
     _check_id(section_id, "section_not_found")
@@ -185,19 +281,31 @@ def tts(section_id: str, body: TtsIn, user: User = Depends(reading_user)) -> dic
     resolved = reading.resolve_block(section_id, body.part_id, body.block_index)
     if resolved is None:
         raise api_error(404, "block_not_found", "Block not found.")
-    _section, _part, text = resolved
+    section_obj, _part, text = resolved
+    _check_language(section_obj)
     return _synthesize(text, body.voice, body.speed, kind="block")
+
+
+@router.post("/sections/{section_id:path}/warm", status_code=202)
+def warm(section_id: str, body: WarmIn, user: User = Depends(reading_user)) -> dict[str, Any]:
+    """Queue the next paragraphs for low-priority synthesis (Increment 3 §3.2)."""
+    _check_id(section_id, "section_not_found")
+    resolved = reading.resolve_block(section_id, body.part_id, body.block_index)
+    if resolved is None:
+        raise api_error(404, "block_not_found", "Block not found.")
+    section_obj, _part, _text = resolved
+    _check_language(section_obj)
+    if not settings.reading_warm_enabled:
+        return {"queued": 0, "skipped": 0, "enabled": False}
+    client = _speech_or_503()
+    voice, speed = _resolve_voice(client, body.voice, body.speed)
+    return reading_warm.scheduler.schedule(section_id, body.part_id, body.block_index, voice=voice, speed=speed)
 
 
 def _synthesize(text: str, voice: str | None, speed: float | None, *, kind: str) -> dict[str, Any]:
     """TTS of server-resolved text (a block or a stored word), same response for both."""
     client = _speech_or_503()
-    health = client.health()
-    voices = {str(v.get("id")) for v in (health.tts.get("voices") or DEFAULT_VOICES)}
-    voice = voice or str(health.tts.get("default_voice") or "af_heart")
-    if voice not in voices:
-        raise api_error(400, "voice_invalid", "Unknown voice.")
-    speed = float(speed if speed is not None else 1.0)
+    voice, speed = _resolve_voice(client, voice, speed)
     started = time.perf_counter()
     try:
         result = client.tts(text, voice=voice, speed=speed)
@@ -281,6 +389,7 @@ async def assess(
     if resolved is None:
         raise api_error(404, "block_not_found", "Block not found.")
     section_obj, _part, block_text = resolved
+    _check_language(section_obj)
     # Drill (§3.1): the reference is one sentence of the block; offsets in the answer are
     # relative to it and ``char_offset`` places it in the block.
     char_offset, text = 0, block_text

@@ -203,6 +203,12 @@ services:
       APP_RATE_LIMIT_READING_REQUESTS: ${APP_RATE_LIMIT_READING_REQUESTS:-}
       APP_READING_AI_DAILY_QUOTA: ${APP_READING_AI_DAILY_QUOTA:-}
       APP_READING_MAX_OFFLINE_CHAPTERS: ${APP_READING_MAX_OFFLINE_CHAPTERS:-}
+      # Warm-up: the next paragraphs are synthesized in the background (low priority) while reading.
+      APP_READING_WARM_ENABLED: ${APP_READING_WARM_ENABLED:-}
+      APP_READING_WARM_BLOCKS_AHEAD: ${APP_READING_WARM_BLOCKS_AHEAD:-}
+      APP_READING_WARM_WORKERS: ${APP_READING_WARM_WORKERS:-}
+      APP_READING_WARM_QUEUE_MAX: ${APP_READING_WARM_QUEUE_MAX:-}
+      APP_SPEECH_STREAM_TIMEOUT_SECONDS: ${APP_SPEECH_STREAM_TIMEOUT_SECONDS:-}
     networks:
       - edge
       - data
@@ -231,18 +237,23 @@ services:
       SPEECH_ASR_ENGINE: ${APP_SPEECH_ASR_ENGINE:-faster-whisper}
       SPEECH_ASR_MODEL: ${APP_SPEECH_ASR_MODEL:-small.en}
       SPEECH_ASR_COMPUTE_TYPE: ${APP_SPEECH_ASR_COMPUTE_TYPE:-int8}
-      SPEECH_ASR_THREADS: ${APP_SPEECH_ASR_THREADS:-4}
-      # Torch threads for Kokoro TTS (0 = all cores). Raise both on big CPUs (e.g. 8 on a 16-core Xeon).
-      SPEECH_TORCH_THREADS: ${APP_SPEECH_TORCH_THREADS:-4}
+      # Threads and concurrency: 0 = automatic from the CPUs this container really has (cgroup
+      # quota, APP_SPEECH_CPUS). Set explicit values only to override.
+      SPEECH_ASR_THREADS: ${APP_SPEECH_ASR_THREADS:-0}
+      SPEECH_TORCH_THREADS: ${APP_SPEECH_TORCH_THREADS:-0}
       # Phoneme-level pronunciation scoring (wav2vec2, ~1.3 GB RAM). "none" turns it off.
       SPEECH_PHONEME_ENGINE: ${APP_SPEECH_PHONEME_ENGINE:-wav2vec2}
       SPEECH_PHONEME_MODEL: ${APP_SPEECH_PHONEME_MODEL:-}
-      SPEECH_PHONEME_THREADS: ${APP_SPEECH_PHONEME_THREADS:-4}
+      SPEECH_PHONEME_THREADS: ${APP_SPEECH_PHONEME_THREADS:-0}
+      # auto = phonemes run alongside Whisper only when there are >= 6 CPUs.
+      SPEECH_PARALLEL_PHONEMES: ${APP_SPEECH_PARALLEL_PHONEMES:-auto}
       SPEECH_AUDIO_FORMAT: ${APP_SPEECH_AUDIO_FORMAT:-mp3}
       SPEECH_CACHE_DIR: /var/cache/speech
-      SPEECH_CACHE_MAX_MB: ${APP_SPEECH_CACHE_MAX_MB:-2048}
+      # Synthesized audio (per sentence + per paragraph). One book in one voice is ~1.6 GB.
+      SPEECH_CACHE_MAX_MB: ${APP_SPEECH_CACHE_MAX_MB:-8192}
       SPEECH_MAX_AUDIO_BYTES: ${APP_SPEECH_MAX_AUDIO_BYTES:-8000000}
-      SPEECH_MAX_CONCURRENCY: ${APP_SPEECH_MAX_CONCURRENCY:-2}
+      SPEECH_MAX_CONCURRENCY: ${APP_SPEECH_MAX_CONCURRENCY:-0}
+      SPEECH_LOW_PRIORITY_WAIT_SECONDS: ${APP_SPEECH_LOW_PRIORITY_WAIT_SECONDS:-}
       SPEECH_PRELOAD: ${APP_SPEECH_PRELOAD:-true}
       SPEECH_API_TOKEN: ${APP_SPEECH_API_TOKEN:-}
       HF_HOME: /var/cache/speech/hf
@@ -253,7 +264,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${APP_SPEECH_CPUS:-4.0}"
+          # Fits any host; raise to the cores you can spare (see README "Serviço de voz").
+          cpus: "${APP_SPEECH_CPUS:-2.0}"
           memory: ${APP_SPEECH_MEMORY:-6g}
     logging: *default-logging
 
