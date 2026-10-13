@@ -134,7 +134,7 @@ test("streaming: the block plays sentence by sentence from /tts/stream", async (
   await expect(page.getByRole("button", { name: t("reading.player.pause"), exact: true })).toBeVisible({ timeout: 20_000 });
 });
 
-test("listen and repeat: one hands-free cycle passes and moves to the next sentence", async ({ page }) => {
+test("practice sentences: a cycle passes, the result waits, and 'Next sentence' moves on", async ({ page }) => {
   await registerViaUi(page);
   await openReader(page);
   await setMicLevel(page, 0.2);
@@ -152,6 +152,12 @@ test("listen and repeat: one hands-free cycle passes and moves to the next sente
   await page.waitForTimeout(600);
   await setMicLevel(page, 0);
   await expect(status).toContainText(/Nota geral/, { timeout: 30_000 });
+  // The result waits for the learner: review tools are offered, nothing moves on by itself.
+  await expect(panel.getByRole("button", { name: t("reading.repeat.retryNow"), exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: t("reading.repeat.listenMine"), exact: true })).toBeVisible();
+  await page.waitForTimeout(1500);
+  await expect(panel.getByText(/^Frase 1 de \d+$/)).toBeVisible();
+  await panel.getByRole("button", { name: t("reading.repeat.next"), exact: true }).click();
   await expect(panel.getByText(/^Frase 2 de \d+$/)).toBeVisible({ timeout: 10_000 });
   // Esc leaves the mode.
   await page.keyboard.press("Escape");

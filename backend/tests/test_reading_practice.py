@@ -464,7 +464,7 @@ def test_capabilities_and_stats_increment_2(login_client, practice_env):
     http, _user = login_client()
     caps = http.get("/api/reading/capabilities").json()
     assert caps["ai"] == {"available": True, "reason": None, "provider": "fake"}
-    assert caps["phonemes"] == {"available": True}
+    assert caps["phonemes"] == {"available": True, "reason": None}
     assert caps["words"] == {"due": 0} and caps["offline"] == {"max_chapters": 5}
     _assess(http, "~" + PARA_1)
     assert http.get("/api/reading/capabilities").json()["words"]["due"] == 1
@@ -483,7 +483,7 @@ def test_capabilities_phonemes_follow_speech_health(login_client, practice_env, 
 
     monkeypatch.setattr(FakeSpeechClient, "health", warming)
     http, _user = login_client()
-    assert http.get("/api/reading/capabilities").json()["phonemes"] == {"available": False}
+    assert http.get("/api/reading/capabilities").json()["phonemes"] == {"available": False, "reason": "warming"}
 
 
 def test_reading_writes_share_the_rate_limit_bucket():

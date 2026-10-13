@@ -12,6 +12,7 @@ import { useAssessMutation } from "@/features/reading/hooks";
 import type { ReaderBlock } from "@/features/reading/lib/blocks";
 import { isRecordingSupported, MAX_RECORDING_SECONDS } from "@/features/reading/lib/recorder";
 import { DRILL_MAX_TRIES, DRILL_PASS_SCORE, sentenceText, shiftWords } from "@/features/reading/lib/sentences";
+import { usePhonemesOffReason, useMyRecording } from "@/features/reading/lib/use-my-recording";
 import { describeRecordingError, useRecording } from "@/features/reading/lib/use-recording";
 import { useI18n } from "@/lib/i18n";
 import type { ReadingAssessedWord, ReadingAssessment } from "@/types/api";
@@ -55,6 +56,9 @@ export function DrillPanel({
   const { t } = useI18n();
   const assess = useAssessMutation(sectionId);
   const [result, setResult] = useState<ReadingAssessment | null>(null);
+  const mine = useMyRecording();
+  const { setRecording: keepRecording } = mine;
+  const phonemesOffReason = usePhonemesOffReason();
   const [tries, setTries] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [passed, setPassed] = useState(false);
@@ -72,6 +76,7 @@ export function DrillPanel({
 
   const upload = useCallback(
     (blob: Blob, filename: string) => {
+      keepRecording(blob);
       setUploading(true);
       assess.mutate(
         { partId: block.partId, blockIndex: block.blockIndex, blob, filename, sentenceIndex },
@@ -96,7 +101,7 @@ export function DrillPanel({
         }
       );
     },
-    [assess, block.blockIndex, block.partId, sentenceIndex, t]
+    [assess, block.blockIndex, block.partId, keepRecording, sentenceIndex, t]
   );
 
   const recorder = useRecording({
@@ -215,6 +220,8 @@ export function DrillPanel({
             const [shifted] = shiftWords([word], charOffset);
             onPlayWord(shifted);
           }}
+          onPlayMine={mine.playWord}
+          phonemesOffReason={phonemesOffReason}
           modelBusy={modelBusy}
         />
       ) : (

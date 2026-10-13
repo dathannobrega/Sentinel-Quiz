@@ -10,7 +10,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Kokoro voice catalogue exposed to the API (id -> label, lang, gender). Only the
@@ -31,6 +31,16 @@ DEFAULT_VOICES = "af_heart,af_bella,af_nicole,am_michael,am_adam,bf_emma,bm_geor
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # Compose passes every SPEECH_* variable, and an unset APP_SPEECH_* becomes an EMPTY string
+    # ("SPEECH_PHONEME_MODEL: ${APP_SPEECH_PHONEME_MODEL:-}"). An empty value must mean "use the
+    # default", never "load a model named ''": that silently disabled phoneme scoring in 1.1.0.
+    @model_validator(mode="after")
+    def _empty_strings_mean_default(self) -> "Settings":
+        for name, field in type(self).model_fields.items():
+            if isinstance(field.default, str) and field.default and getattr(self, name, None) == "":
+                setattr(self, name, field.default)
+        return self
 
     host: str = Field(default="0.0.0.0", alias="SPEECH_HOST")
     port: int = Field(default=8100, alias="SPEECH_PORT")

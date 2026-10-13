@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ListenRepeatMachine, REPEAT_CUE_MS, REPEAT_RESULT_MS, type RepeatEffect } from "@/features/reading/lib/listen-repeat";
 
-function create(sentenceCount = 2) {
+function create(sentenceCount = 2, options: { resultMs?: number | null } = {}) {
   const effects: RepeatEffect[] = [];
   const machine = new ListenRepeatMachine({
     sentenceCount,
-    onEffect: (effect) => effects.push(effect)
+    onEffect: (effect) => effects.push(effect),
+    ...options
   });
   return {
     machine,
@@ -55,7 +56,10 @@ describe("ListenRepeatMachine", () => {
       lastScore: 0.9,
       passed: true
     });
-    vi.advanceTimersByTime(REPEAT_RESULT_MS);
+    // The result waits for the learner: no timer moves on by itself.
+    vi.advanceTimersByTime(REPEAT_RESULT_MS * 2);
+    expect(machine.state.phase).toBe("result");
+    machine.next();
     expect(machine.state).toMatchObject({
       phase: "model",
       sentence: 1,
@@ -64,8 +68,29 @@ describe("ListenRepeatMachine", () => {
     expect(types()).toEqual(["play_model", "start_recording", "assess", "play_model"]);
   });
 
-  it("repeats a failed sentence up to three times, then moves on", () => {
-    const { machine, effects } = create(2);
+  it("retry replays the same sentence after a result, and auto-advance works when resultMs is set", () => {
+    const { machine } = create(2);
+    machine.start();
+    machine.modelEnded();
+    vi.advanceTimersByTime(REPEAT_CUE_MS);
+    machine.recordingCaptured(blob, "r.webm");
+    machine.assessed(0.95);
+    machine.retry();
+    expect(machine.state).toMatchObject({ phase: "model", sentence: 0, tries: 1 });
+
+    const auto = create(2, { resultMs: 500 });
+    auto.machine.start();
+    auto.machine.modelEnded();
+    vi.advanceTimersByTime(REPEAT_CUE_MS);
+    auto.machine.recordingCaptured(blob, "r.webm");
+    auto.machine.assessed(0.95);
+    expect(auto.machine.state.phase).toBe("result");
+    vi.advanceTimersByTime(500);
+    expect(auto.machine.state).toMatchObject({ phase: "model", sentence: 1 });
+  });
+
+  it("repeats a failed sentence up to three times, then moves on (auto-advance)", () => {
+    const { machine, effects } = create(2, { resultMs: REPEAT_RESULT_MS });
     machine.start();
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       machine.modelEnded();
@@ -95,7 +120,7 @@ describe("ListenRepeatMachine", () => {
     vi.advanceTimersByTime(REPEAT_CUE_MS);
     machine.recordingCaptured(blob, "r.webm");
     machine.assessed(1);
-    vi.advanceTimersByTime(REPEAT_RESULT_MS);
+    machine.next();
     expect(machine.state.phase).toBe("done");
     expect(types()).toContain("finished");
   });

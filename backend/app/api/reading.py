@@ -134,6 +134,17 @@ def capabilities(db: Session = Depends(get_db), current_user: User = Depends(get
     limit = max(int(settings.reading_daily_assess_quota or 0), 0)
     used = reading.assess_used_today(db, current_user)
     phonemes_ready = bool(health is not None and health.status != "unavailable" and health.phoneme_ready)
+    phonemes_reason: str | None = None
+    if not phonemes_ready:
+        # Precise reason so the UI can say "still loading" vs "failed" vs "turned off" (contract §2.4).
+        if health is None or health.status == "unavailable":
+            phonemes_reason = "speech_unavailable"
+        elif str(health.phoneme.get("engine") or "none") == "none":
+            phonemes_reason = "disabled"
+        elif health.phoneme.get("error"):
+            phonemes_reason = "failed"
+        else:
+            phonemes_reason = "warming"
     return {
         "enabled": True,
         "books_available": bool(get_corpus() and get_corpus().books),
@@ -141,7 +152,7 @@ def capabilities(db: Session = Depends(get_db), current_user: User = Depends(get
         "assess": assess,
         "quota": {"daily_limit": limit, "used_today": used, "remaining": max(limit - used, 0)},
         "ai": reading_ai.ai_status(),
-        "phonemes": {"available": phonemes_ready},
+        "phonemes": {"available": phonemes_ready, "reason": phonemes_reason},
         "words": {"due": reading_words.due_count(db, current_user)},
         "offline": {"max_chapters": max(int(settings.reading_max_offline_chapters or 0), 0)},
         "warm": {"enabled": bool(settings.reading_warm_enabled), "blocks_ahead": max(int(settings.reading_warm_blocks_ahead or 0), 0)},

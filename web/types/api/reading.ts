@@ -58,6 +58,9 @@ export interface ReadingAiCapability {
 }
 
 /** GET /api/reading/capabilities. With `enabled: false` the other fields may be absent. */
+/** Why phoneme-level scoring is off (capabilities.phonemes.reason). */
+export type ReadingPhonemesReason = "warming" | "failed" | "disabled" | "speech_unavailable";
+
 export interface ReadingCapabilities {
   enabled: boolean;
   books_available?: boolean;
@@ -66,7 +69,7 @@ export interface ReadingCapabilities {
   quota?: ReadingQuota;
   /** Increment 2. */
   ai?: ReadingAiCapability;
-  phonemes?: { available: boolean };
+  phonemes?: { available: boolean; reason?: ReadingPhonemesReason | null };
   words?: { due: number };
   offline?: { max_chapters: number };
   /** Increment 3. */

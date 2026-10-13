@@ -410,3 +410,23 @@ def test_capabilities_increment_3(login_client, reading_env, monkeypatch):
     monkeypatch.setattr(settings, "speech_provider", "http")
     speech_client.reset_speech_client()
     assert http.get("/api/reading/capabilities").json()["tts"]["streaming"] is False
+
+
+@pytest.mark.parametrize(
+    ("phoneme", "expected"),
+    [
+        ({"engine": "wav2vec2", "model": "m", "ready": True}, None),
+        ({"engine": "wav2vec2", "model": "m", "ready": False}, "warming"),
+        ({"engine": "wav2vec2", "model": "m", "ready": False, "error": "OOM"}, "failed"),
+        ({"engine": "none", "model": "", "ready": False}, "disabled"),
+    ],
+)
+def test_capabilities_phonemes_reason(login_client, reading_env, monkeypatch, phoneme, expected):
+    from app.services import speech_client
+
+    client = speech_client.get_speech_client()
+    base = client.health()
+    monkeypatch.setattr(client, "health", lambda force=False: speech_client.SpeechHealth(status=base.status, tts=base.tts, asr=base.asr, phoneme=phoneme))
+    http, _user = login_client()
+    body = http.get("/api/reading/capabilities").json()["phonemes"]
+    assert body["available"] is (expected is None) and body["reason"] == expected

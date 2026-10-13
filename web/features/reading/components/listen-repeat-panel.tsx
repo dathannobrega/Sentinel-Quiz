@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { PauseIcon, PlayIcon, RepeatIcon, SpinnerIcon, XIcon } from "@/components/ui/icons";
+import { ArrowRightIcon, MicIcon, PauseIcon, PlayIcon, RepeatIcon, SpinnerIcon, XIcon } from "@/components/ui/icons";
+import { Checkbox } from "@/components/ui/input";
 import { Panel } from "@/components/ui/section";
 import { AssessmentResult } from "@/features/reading/components/assessment-result";
 import { describeAssessError } from "@/features/reading/components/shadow-panel";
@@ -12,7 +13,9 @@ import { useAssessMutation } from "@/features/reading/hooks";
 import type { ReaderBlock } from "@/features/reading/lib/blocks";
 import { scoreToPercent } from "@/features/reading/lib/format";
 import { isTypingTarget } from "@/features/reading/lib/keyboard";
-import { ListenRepeatMachine, REPEAT_MAX_TRIES, type RepeatEffect, type RepeatState } from "@/features/reading/lib/listen-repeat";
+import { ListenRepeatMachine, REPEAT_MAX_TRIES, REPEAT_RESULT_MS, type RepeatEffect, type RepeatState } from "@/features/reading/lib/listen-repeat";
+import { readReadingPrefs, writeReadingPrefs } from "@/features/reading/lib/prefs";
+import { usePhonemesOffReason, useMyRecording } from "@/features/reading/lib/use-my-recording";
 import { isRecordingSupported } from "@/features/reading/lib/recorder";
 import { sentenceText, shiftWords } from "@/features/reading/lib/sentences";
 import { isSilenceDetectionSupported, repeatRecordingCapSeconds } from "@/features/reading/lib/silence-detector";
@@ -47,9 +50,10 @@ export interface ListenRepeatPanelProps {
 }
 
 /**
- * Hands-free sentence loop: the model sentence plays, a short cue, the microphone opens and
- * stops on silence, the assessment shows for 3 s, then the next sentence (or the same one again,
- * up to 3 times). Space pauses/resumes, Esc exits; every phase is announced through `role=status`.
+ * Sentence loop: the model sentence plays, a short cue, the microphone opens and stops on
+ * silence, then the assessment stays on screen until the learner repeats or moves on (with
+ * "auto-advance" on, it moves on by itself after a few seconds). Space pauses/resumes, Enter moves
+ * on from a result, Esc exits; every phase is announced through `role=status`.
  */
 export function ListenRepeatPanel({
   sectionId,
@@ -113,15 +117,34 @@ export function ListenRepeatPanel({
   const text = sentence ? sentenceText(block.text, sentence) : block.text;
   const enabled = assessAvailable && supported;
 
+  const mine = useMyRecording();
+  const phonemesOffReason = usePhonemesOffReason();
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- read once from localStorage on the client
+    setAutoAdvance(readReadingPrefs().repeatAutoAdvance);
+  }, []);
+  const autoAdvanceRef = useRef(autoAdvance);
+  useEffect(() => {
+    autoAdvanceRef.current = autoAdvance;
+  }, [autoAdvance]);
+
   const recorder = useRecording({
     stopOnSilence: true,
-    onCaptured: (blob, filename) => machineRef.current?.recordingCaptured(blob, filename),
+    onCaptured: (blob, filename) => {
+      mine.setRecording(blob);
+      machineRef.current?.recordingCaptured(blob, filename);
+    },
     enabled
   });
   const recorderRef = useRef(recorder);
   useEffect(() => {
     recorderRef.current = recorder;
   }, [recorder]);
+  const mineRef = useRef(mine);
+  useEffect(() => {
+    mineRef.current = mine;
+  }, [mine]);
 
   const runEffect = useCallback(
     (effect: RepeatEffect) => {
@@ -130,6 +153,7 @@ export function ListenRepeatPanel({
         case "play_model":
           setError(null);
           setResult(null);
+          mineRef.current.stop();
           callbacks.onSentenceChange(sentences[effect.sentence]?.index ?? 0, null);
           callbacks.playSentence(effect.sentence).then(
             () => machineRef.current?.modelEnded(),
@@ -171,6 +195,7 @@ export function ListenRepeatPanel({
         case "stop":
           callbacks.stopModel();
           recorderRef.current.cancel();
+          mineRef.current.stop();
           break;
         case "finished":
           if (callbacks.hasNextBlock) {
@@ -185,11 +210,15 @@ export function ListenRepeatPanel({
   // One machine per block: a new block starts over (hands-free when the previous one finished).
   const autoStartRef = useRef(autoStart);
   useEffect(() => {
-    const machine = new ListenRepeatMachine({
+    const options = {
       sentenceCount: sentences.length,
       onEffect: runEffect,
-      onChange: setState
-    });
+      onChange: setState,
+      get resultMs() {
+        return autoAdvanceRef.current ? REPEAT_RESULT_MS : null;
+      }
+    };
+    const machine = new ListenRepeatMachine(options);
     machineRef.current = machine;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the machine owns the phase; reset on block change
     setState(machine.state);
@@ -231,6 +260,9 @@ export function ListenRepeatPanel({
       } else if ((event.key === " " || event.code === "Space") && !isTypingTarget(event.target)) {
         event.preventDefault();
         machineRef.current?.toggle();
+      } else if (event.key === "Enter" && !isTypingTarget(event.target) && machineRef.current?.state.phase === "result") {
+        event.preventDefault();
+        machineRef.current.next();
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -249,17 +281,17 @@ export function ListenRepeatPanel({
         });
       case "assessing":
         return t("reading.repeat.phaseAssessing");
-      case "result":
-        return state.passed
-          ? `${t("reading.repeat.phaseResult", { percent: scoreToPercent(state.lastScore) })} · ${t("reading.repeat.passed")}`
-          : `${t("reading.repeat.phaseResult", { percent: scoreToPercent(state.lastScore) })} · ${
-              state.tries >= REPEAT_MAX_TRIES
-                ? t("reading.repeat.movingOn")
-                : t("reading.repeat.retry", {
-                    count: state.tries + 1,
-                    max: REPEAT_MAX_TRIES
-                  })
-            }`;
+      case "result": {
+        const score = t("reading.repeat.phaseResult", { percent: scoreToPercent(state.lastScore) });
+        const suffix = autoAdvance ? "Auto" : "";
+        if (state.passed) {
+          return `${score} · ${t(`reading.repeat.passed${suffix}`)}`;
+        }
+        if (state.tries >= REPEAT_MAX_TRIES) {
+          return `${score} · ${t(`reading.repeat.movingOn${suffix}`)}`;
+        }
+        return `${score} · ${t(`reading.repeat.retry${suffix}`, { count: state.tries + 1, max: REPEAT_MAX_TRIES })}`;
+      }
       case "paused":
         return t("reading.repeat.phasePaused");
       case "done":
@@ -267,7 +299,7 @@ export function ListenRepeatPanel({
       default:
         return t("reading.repeat.intro");
     }
-  }, [hasNextBlock, recorder.elapsed, state, t]);
+  }, [autoAdvance, hasNextBlock, recorder.elapsed, state, t]);
 
   if (!assessAvailable || !supported) {
     return (
@@ -316,6 +348,31 @@ export function ListenRepeatPanel({
             <PlayIcon />
             {t("reading.repeat.resume")}
           </Button>
+        ) : state.phase === "result" ? (
+          <>
+            <Button onClick={() => machineRef.current?.retry()}>
+              <RepeatIcon />
+              {t("reading.repeat.retryNow")}
+            </Button>
+            <Button variant="secondary" onClick={() => machineRef.current?.next()}>
+              <ArrowRightIcon />
+              {t("reading.repeat.next")}
+            </Button>
+            {result && mine.recording ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const heard = result.words.filter((word) => typeof word.start === "number" && typeof word.end === "number");
+                  if (heard.length) {
+                    mine.playRange(Math.min(...heard.map((word) => word.start as number)), Math.max(...heard.map((word) => word.end as number)));
+                  }
+                }}
+              >
+                <MicIcon />
+                {t("reading.repeat.listenMine")}
+              </Button>
+            ) : null}
+          </>
         ) : (
           <Button variant="secondary" onClick={() => machineRef.current?.pause()} disabled={!running}>
             <PauseIcon />
@@ -336,6 +393,18 @@ export function ListenRepeatPanel({
         ) : null}
       </div>
 
+      <Checkbox
+        id={`${block.key}-repeat-auto`}
+        label={t("reading.repeat.autoAdvance")}
+        description={t("reading.repeat.autoAdvanceHint")}
+        checked={autoAdvance}
+        onChange={(event) => {
+          const next = event.target.checked;
+          setAutoAdvance(next);
+          writeReadingPrefs({ ...readReadingPrefs(), repeatAutoAdvance: next });
+        }}
+      />
+
       {result ? (
         <AssessmentResult
           assessment={result}
@@ -344,6 +413,8 @@ export function ListenRepeatPanel({
             const [shifted] = shiftWords([word], charOffset);
             onPlayWord(shifted);
           }}
+          onPlayMine={mine.playWord}
+          phonemesOffReason={phonemesOffReason}
           modelBusy={modelBusy}
         />
       ) : (

@@ -10,6 +10,7 @@ import { AssessmentResult } from "@/features/reading/components/assessment-resul
 import { useAssessMutation, useReadingAttemptsQuery } from "@/features/reading/hooks";
 import type { ReaderBlock } from "@/features/reading/lib/blocks";
 import { isRecordingSupported, MAX_RECORDING_SECONDS } from "@/features/reading/lib/recorder";
+import { usePhonemesOffReason, useMyRecording } from "@/features/reading/lib/use-my-recording";
 import { describeRecordingError, useRecording } from "@/features/reading/lib/use-recording";
 import { ApiError, readErrorMessage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
@@ -60,6 +61,9 @@ export function ShadowPanel({ sectionId, block, assessAvailable, maxSeconds = MA
   const attemptsQuery = useReadingAttemptsQuery(sectionId, assessAvailable);
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<ReadingAssessment | null>(null);
+  const mine = useMyRecording();
+  const { setRecording: keepRecording } = mine;
+  const phonemesOffReason = usePhonemesOffReason();
   const [previousBest, setPreviousBest] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const supported = typeof window !== "undefined" ? isRecordingSupported() : true;
@@ -74,6 +78,7 @@ export function ShadowPanel({ sectionId, block, assessAvailable, maxSeconds = MA
 
   const upload = useCallback(
     (blob: Blob, filename: string) => {
+      keepRecording(blob);
       setPhase("uploading");
       const best = blockAttempts.reduce<number | null>((acc, attempt) => (acc === null || attempt.overall > acc ? attempt.overall : acc), null);
       setPreviousBest(best);
@@ -91,7 +96,7 @@ export function ShadowPanel({ sectionId, block, assessAvailable, maxSeconds = MA
         }
       );
     },
-    [assess, block.blockIndex, block.partId, blockAttempts, t]
+    [assess, block.blockIndex, block.partId, blockAttempts, keepRecording, t]
   );
 
   const recorder = useRecording({
@@ -154,6 +159,8 @@ export function ShadowPanel({ sectionId, block, assessAvailable, maxSeconds = MA
           isNewBest={isNewBest}
           onListenModel={onListenModel}
           onPlayWord={onPlayWord}
+          onPlayMine={mine.playWord}
+          phonemesOffReason={phonemesOffReason}
           modelBusy={modelBusy}
           onTryAgain={() => {
             setResult(null);
