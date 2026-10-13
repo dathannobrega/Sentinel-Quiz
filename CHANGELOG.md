@@ -5,8 +5,11 @@ As imagens são publicadas no GHCR com a versão (`1.0.0`, `1.0`) quando a tag `
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-13
+
 ### Adicionado
-- Serviço de voz: engine de reconhecimento **opcional** Parakeet TDT 0.6B v2 via sherpa-onnx (`uv sync --extra parakeet`, `SPEECH_ASR_ENGINE=parakeet`): 5× mais rápido e com tempos de palavra mais precisos que o Whisper `small.en`, mas detecta um pouco menos pronúncias erradas; o Whisper continua o padrão. Comparativo medido em `docs/reading/BAKEOFF-ASR.md` e ferramenta `speech/scripts/asr_bakeoff.py`.
+- Serviço de voz: engine de reconhecimento **opcional** Parakeet TDT 0.6B v2 via sherpa-onnx (`uv sync --extra parakeet`, `SPEECH_ASR_ENGINE=parakeet`): 5× mais rápido e com tempos de palavra mais precisos que o Whisper `small.en`, mas detecta um pouco menos pronúncias erradas; o Whisper continua o padrão. Comparativo medido em `docs/reading/BAKEOFF-ASR.md` e ferramenta `speech/scripts/asr_bakeoff.py` ([#39](https://github.com/dathannobrega/Sentinel-Quiz/pull/39)).
+- Recomendação de dimensionamento para 8 vCPU / 8 GB no comparativo: Whisper com valores automáticos (fonemas em paralelo, 2 inferências, ≈1 s por frase); Parakeet só quando a latência for requisito.
 
 ## [1.1.1] - 2026-10-13
 
