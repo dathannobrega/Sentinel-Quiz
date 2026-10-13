@@ -3,6 +3,14 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 As imagens são publicadas no GHCR com a versão (`1.0.0`, `1.0`) quando a tag `v*` é criada.
 
+## [1.1.1] - 2026-10-13
+
+### Alterado
+- **Praticar frases** (antes "Ouvir e repetir"): o resultado fica na tela até você escolher **Repetir esta frase** ou **Próxima frase** (Enter); "avançar sozinho" virou opção desligada por padrão. Novo **Ouvir a minha gravação** da frase e, em cada palavra, "ouvir o modelo" × "ouvir a minha gravação". A gravação fica só na memória do navegador.
+- Modos renomeados para deixar claro qual pausa a cada frase: **Praticar frases** (recomendado, primeiro da lista), **Ler por frase** e **Ler o parágrafo**.
+- A mensagem "análise por fonema desligada" agora diz o motivo: carregando no servidor, falhou ao carregar ou desligada na configuração (`capabilities.phonemes.reason`).
+- Plano da Fase 2 em `docs/reading/PLANO-FASE-2.md`: prática que ensina, configuração pela interface, ebooks dos alunos, progresso e qualidade da avaliação.
+
 ## [1.1.0] - 2026-10-12
 
 ### Adicionado

@@ -15,6 +15,8 @@ export interface ReadingPrefs {
   follow: boolean;
   /** "Tap to translate": a word click opens the glossary instead of seeking. */
   glossaryTap: boolean;
+  /** Listen-and-repeat: move on by itself a few seconds after a result (default: wait for the learner). */
+  repeatAutoAdvance: boolean;
 }
 
 export const DEFAULT_READING_PREFS: ReadingPrefs = {
@@ -23,7 +25,8 @@ export const DEFAULT_READING_PREFS: ReadingPrefs = {
   speed: 1,
   autoAdvance: true,
   follow: true,
-  glossaryTap: false
+  glossaryTap: false,
+  repeatAutoAdvance: false
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,6 +56,9 @@ export function parseReadingPrefs(raw: unknown): ReadingPrefs {
   }
   if (typeof raw.glossaryTap === "boolean") {
     prefs.glossaryTap = raw.glossaryTap;
+  }
+  if (typeof raw.repeatAutoAdvance === "boolean") {
+    prefs.repeatAutoAdvance = raw.repeatAutoAdvance;
   }
   return prefs;
 }

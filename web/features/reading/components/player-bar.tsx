@@ -101,13 +101,14 @@ export function PlayerBar(props: PlayerBarProps) {
 
   const modes: Array<{ value: ReaderMode; label: string; icon: typeof HeadphonesIcon; disabled?: boolean }> = [
     { value: "listen", label: t("reading.player.modeListen"), icon: HeadphonesIcon },
+    // The recommended practice (model → your turn → review at your pace) comes first.
+    ...(props.repeatEnabled === undefined
+      ? []
+      : [{ value: "repeat" as const, label: t("reading.player.modeRepeat"), icon: RepeatIcon, disabled: !props.repeatEnabled }]),
     ...(props.drillEnabled === undefined
       ? []
       : [{ value: "drill" as const, label: t("reading.player.modeDrill"), icon: ListIcon, disabled: !props.drillEnabled }]),
-    { value: "shadow", label: t("reading.player.modeShadow"), icon: MicIcon, disabled: !props.shadowEnabled },
-    ...(props.repeatEnabled === undefined
-      ? []
-      : [{ value: "repeat" as const, label: t("reading.player.modeRepeat"), icon: RepeatIcon, disabled: !props.repeatEnabled }])
+    { value: "shadow", label: t("reading.player.modeShadow"), icon: MicIcon, disabled: !props.shadowEnabled }
   ];
   const disabledReason = props.modesDisabledReason ?? t("reading.capabilities.assessUnavailableTitle");
   const sleepLabel = (option: SleepTimerOption) =>

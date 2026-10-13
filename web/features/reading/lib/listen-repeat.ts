@@ -1,8 +1,10 @@
 /**
  * "Listen and repeat" state machine, per sentence:
  * model (the sentence plays) → cue (300 ms) → recording (microphone, stops on silence) →
- * assessing → result (3 s) → next sentence when overall ≥ 0.85, otherwise the same sentence
- * again, up to 3 tries, then on. Pause restarts the current sentence at `model` on resume.
+ * assessing → result → next sentence when overall ≥ 0.85, otherwise the same sentence again, up
+ * to 3 tries, then on. The result phase waits for the learner (`next()` / `retry()`) so there is
+ * time to review each word; with `resultMs` set it moves on by itself after that delay instead.
+ * Pause restarts the current sentence at `model` on resume.
  * Framework-free (timers injectable through globalThis); the panel renders it.
  */
 
@@ -32,7 +34,8 @@ export interface RepeatMachineOptions {
   passScore?: number;
   maxTries?: number;
   cueMs?: number;
-  resultMs?: number;
+  /** Auto-advance delay after a result; `null`/absent = wait for `next()` or `retry()`. */
+  resultMs?: number | null;
   onEffect: (effect: RepeatEffect) => void;
   onChange?: (state: RepeatState) => void;
 }
@@ -40,7 +43,8 @@ export interface RepeatMachineOptions {
 export const REPEAT_PASS_SCORE = 0.85;
 export const REPEAT_MAX_TRIES = 3;
 export const REPEAT_CUE_MS = 300;
-export const REPEAT_RESULT_MS = 3_000;
+/** Delay used when auto-advance is on (the default is to wait for the learner). */
+export const REPEAT_RESULT_MS = 6_000;
 
 export class ListenRepeatMachine {
   private readonly options: RepeatMachineOptions;
@@ -151,21 +155,50 @@ export class ListenRepeatMachine {
     const tries = this.state.tries + 1;
     const passed = overall >= (this.options.passScore ?? REPEAT_PASS_SCORE);
     this.set({ phase: "result", tries, lastScore: overall, passed });
-    this.timer = globalThis.setTimeout(() => {
-      this.timer = null;
-      if (this.state.phase !== "result") {
-        return;
-      }
-      this.advance();
-    }, this.options.resultMs ?? REPEAT_RESULT_MS);
+    const delay = this.options.resultMs;
+    if (typeof delay === "number" && delay > 0) {
+      this.timer = globalThis.setTimeout(() => {
+        this.timer = null;
+        if (this.state.phase !== "result") {
+          return;
+        }
+        this.advance();
+      }, delay);
+    }
+  }
+
+  /** Learner's choice after a result: hear the model again and repeat the same sentence. */
+  retry() {
+    if (this.state.phase !== "result" && this.state.phase !== "paused") {
+      return;
+    }
+    this.clearTimer();
+    this.playModel();
+  }
+
+  /** Learner's choice after a result: move on regardless of the score. */
+  next() {
+    if (this.state.phase !== "result" && this.state.phase !== "paused") {
+      return;
+    }
+    this.clearTimer();
+    this.moveOn();
+  }
+
+  /** Whether the machine would move on by itself (passed, or out of tries). */
+  get wouldMoveOn(): boolean {
+    return this.state.passed || this.state.tries >= (this.options.maxTries ?? REPEAT_MAX_TRIES);
   }
 
   private advance() {
-    const moveOn = this.state.passed || this.state.tries >= (this.options.maxTries ?? REPEAT_MAX_TRIES);
-    if (!moveOn) {
+    if (!this.wouldMoveOn) {
       this.playModel();
       return;
     }
+    this.moveOn();
+  }
+
+  private moveOn() {
     const next = this.state.sentence + 1;
     if (next >= this.options.sentenceCount) {
       this.set({ phase: "done" });

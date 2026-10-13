@@ -5,14 +5,14 @@ import Link from "next/link";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { AlertIcon, CircleCheckIcon, CircleXIcon, GaugeIcon, InfoIcon, PlusSquareIcon, RepeatIcon, StrikeIcon, WaveIcon, XIcon } from "@/components/ui/icons";
+import { AlertIcon, CircleCheckIcon, CircleXIcon, GaugeIcon, InfoIcon, PlusSquareIcon, RepeatIcon, StrikeIcon, WaveIcon, XIcon, MicIcon } from "@/components/ui/icons";
 import { Meter } from "@/components/ui/meter";
 import { formatSpeed, scoreToPercent } from "@/features/reading/lib/format";
 import { PHONEME_QUALITY_CLASS, PHONEME_QUALITY_KEY, reasonLabelKey, STATUS_CLASS, STATUS_LABEL_KEY } from "@/features/reading/lib/word-status";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils/cn";
 import { formatDateTime } from "@/lib/utils/format";
-import type { ReadingAssessedWord, ReadingAssessment, ReadingAttemptSummary, ReadingScores, ReadingTip, ReadingWordStatus } from "@/types/api";
+import type { ReadingAssessedWord, ReadingAssessment, ReadingPhonemesReason, ReadingAttemptSummary, ReadingScores, ReadingTip, ReadingWordStatus } from "@/types/api";
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
@@ -22,6 +22,10 @@ export interface AssessmentResultProps {
   onListenModel?: () => void;
   /** Plays the model audio of one word. */
   onPlayWord?: (word: ReadingAssessedWord) => void;
+  /** Plays the learner's own recording of that word (kept only in the browser). */
+  onPlayMine?: (word: ReadingAssessedWord) => void;
+  /** Why phoneme analysis is off (from capabilities), for a precise notice. */
+  phonemesOffReason?: ReadingPhonemesReason | null;
   onTryAgain?: () => void;
   modelBusy?: boolean;
   /** Recent attempts for this block (most recent first). */
@@ -114,7 +118,17 @@ function tipText(tip: ReadingTip, t: Translate, target: [number, number]): strin
 }
 
 /** Detail of one word: status, reason, phonemes (quality in text), expected × heard IPA, model audio. */
-export function WordDetail({ word, onPlayWord, onClose }: { word: ReadingAssessedWord; onPlayWord?: (word: ReadingAssessedWord) => void; onClose?: () => void }) {
+export function WordDetail({
+  word,
+  onPlayWord,
+  onPlayMine,
+  onClose
+}: {
+  word: ReadingAssessedWord;
+  onPlayWord?: (word: ReadingAssessedWord) => void;
+  onPlayMine?: (word: ReadingAssessedWord) => void;
+  onClose?: () => void;
+}) {
   const { t } = useI18n();
   const reason = reasonLabelKey(word.reason);
   const phonemes = word.phonemes ?? [];
@@ -173,17 +187,34 @@ export function WordDetail({ word, onPlayWord, onClose }: { word: ReadingAssesse
         </div>
       ) : null}
       {word.break ? <p className="text-fg-muted">{word.break === "unexpected" ? t("reading.result.breakUnexpected") : t("reading.result.breakMissing")}</p> : null}
-      {onPlayWord ? (
-        <div>
-          <Button variant="secondary" size="sm" onClick={() => onPlayWord(word)} aria-label={t("reading.result.playWord", { word: word.text })}>
-            <WaveIcon />
-            {t("reading.shadow.listenModel")}
-          </Button>
+      {onPlayWord || (onPlayMine && word.start !== null && word.start !== undefined) ? (
+        <div className="flex flex-wrap gap-2">
+          {onPlayWord ? (
+            <Button variant="secondary" size="sm" onClick={() => onPlayWord(word)} aria-label={t("reading.result.playWord", { word: word.text })}>
+              <WaveIcon />
+              {t("reading.shadow.listenModel")}
+            </Button>
+          ) : null}
+          {onPlayMine && word.start !== null && word.start !== undefined ? (
+            <Button variant="secondary" size="sm" onClick={() => onPlayMine(word)} aria-label={t("reading.result.playMineWord", { word: word.text })}>
+              <MicIcon />
+              {t("reading.result.playMine")}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
+
+/** Message for "phoneme analysis off", by the reason the capabilities reported. */
+const PHONEMES_OFF_KEY: Record<ReadingPhonemesReason | "unknown", string> = {
+  warming: "reading.result.phonemesWarming",
+  failed: "reading.result.phonemesFailed",
+  disabled: "reading.result.phonemesDisabled",
+  speech_unavailable: "reading.result.phonemesOff",
+  unknown: "reading.result.phonemesOff"
+};
 
 /** Notices from the prosody analysis and the engines (monotone, pauses, phoneme analysis off). */
 function ProsodyNotices({ assessment }: { assessment: ReadingAssessment }) {
@@ -249,6 +280,8 @@ export function AssessmentResult({
   assessment,
   onListenModel,
   onPlayWord,
+  onPlayMine,
+  phonemesOffReason = null,
   onTryAgain,
   modelBusy = false,
   attempts = [],
@@ -353,7 +386,7 @@ export function AssessmentResult({
 
       <p className="font-serif text-[1.0625rem] leading-[1.9] text-fg">{nodes}</p>
 
-      {selectedWord ? <WordDetail word={selectedWord} onPlayWord={onPlayWord} onClose={() => setSelected(null)} /> : null}
+      {selectedWord ? <WordDetail word={selectedWord} onPlayWord={onPlayWord} onPlayMine={onPlayMine} onClose={() => setSelected(null)} /> : null}
 
       {compact ? null : <Legend withBreaks={withBreaks} />}
 
@@ -404,7 +437,7 @@ export function AssessmentResult({
       {phonemesOff ? (
         <p className="inline-flex items-start gap-1.5 text-xs text-fg-muted">
           <InfoIcon size={13} className="mt-px shrink-0" />
-          {t("reading.result.phonemesOff")}
+          {t(PHONEMES_OFF_KEY[phonemesOffReason ?? "unknown"])}
         </p>
       ) : null}
 
