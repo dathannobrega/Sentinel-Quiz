@@ -160,6 +160,10 @@ def build_asr_engine(settings: Settings, runtime: RuntimeConfig | None = None) -
         from .engines.mlx_whisper_asr import MlxWhisperASR
 
         return MlxWhisperASR(settings.asr_model)
+    if engine == "parakeet":
+        from .engines.parakeet_asr import ParakeetASR
+
+        return ParakeetASR(settings.asr_model, settings.asr_compute_type, runtime.asr_threads)
     if engine == "fake":
         return FakeASR(settings.asr_model)
     if engine == "none":

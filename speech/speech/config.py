@@ -50,7 +50,11 @@ class Settings(BaseSettings):
     tts_default_voice: str = Field(default="af_heart", alias="SPEECH_TTS_DEFAULT_VOICE")
     tts_voices: str = Field(default=DEFAULT_VOICES, alias="SPEECH_TTS_VOICES")
 
-    asr_engine: str = Field(default="faster-whisper", alias="SPEECH_ASR_ENGINE")  # faster-whisper|mlx-whisper|fake|none
+    # faster-whisper|mlx-whisper|parakeet|fake|none. ``parakeet`` = NVIDIA Parakeet TDT through
+    # sherpa-onnx (``uv sync --extra parakeet``); its SPEECH_ASR_MODEL is a directory with the
+    # onnx export or a k2-fsa release name (default sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8,
+    # also used when the model is left at the Whisper default ``small.en``).
+    asr_engine: str = Field(default="faster-whisper", alias="SPEECH_ASR_ENGINE")
     asr_model: str = Field(default="small.en", alias="SPEECH_ASR_MODEL")
     asr_compute_type: str = Field(default="int8", alias="SPEECH_ASR_COMPUTE_TYPE")
     # Thread counts: 0 = automatic = max(1, effective_cpus) (contract 3 §2.4, speech/runtime.py).

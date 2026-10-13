@@ -7,7 +7,7 @@ alcançado apenas pela API (`http://speech:8100` na rede `speech`).
 | Papel | Engine padrão | Alternativas |
 |---|---|---|
 | TTS com timestamps por palavra | **Kokoro-82M** (`hexgrad/Kokoro-82M`, `kokoro` 0.9.4 + `misaki[en]`, torch CPU) | `fake` (testes), `none` |
-| ASR com timestamps por palavra | **faster-whisper** `small.en` (`int8`, CTranslate2) | `mlx-whisper` (Apple Silicon), `fake`, `none` |
+| ASR com timestamps por palavra | **faster-whisper** `small.en` (`int8`, CTranslate2) | `mlx-whisper` (Apple Silicon), `parakeet` (NVIDIA Parakeet TDT 0.6B v2 via sherpa-onnx, extra opcional; ver `docs/reading/BAKEOFF-ASR.md`), `fake`, `none` |
 | Fonemas (GOP) | **wav2vec2** `facebook/wav2vec2-lv-60-espeak-cv-ft` (CTC sobre fonemas IPA do espeak; **Apache-2.0**, conferido no model card em 2026-10-12) | `fake` (testes), `none` |
 | G2P (IPA esperado) | binário `espeak-ng` (`-q --ipa=3 -v en-us`) | misaki `en` convertido para IPA padrão quando não há espeak-ng |
 
@@ -142,6 +142,17 @@ uv sync --extra mlx
 SPEECH_ASR_ENGINE=mlx-whisper SPEECH_ASR_MODEL=mlx-community/whisper-small.en-mlx uv run speech-server
 ```
 
+ASR alternativo **Parakeet TDT 0.6B v2** (NVIDIA/NeMo, CPU int8 via sherpa-onnx; opcional, *não* é o default — ver o bake-off em `docs/reading/BAKEOFF-ASR.md`):
+
+```bash
+uv sync --extra parakeet              # sherpa-onnx + sherpa-onnx-core (~30 MB); o modelo (~660 MB) baixa no primeiro start para $HF_HOME/sherpa-onnx/
+SPEECH_ASR_ENGINE=parakeet uv run speech-server
+# SPEECH_ASR_MODEL: diretório com encoder/decoder/joiner .onnx + tokens.txt, ou nome de release do k2-fsa
+# (default sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8; o `small.en` herdado da configuração do Whisper é ignorado)
+```
+
+Resumo do bake-off (450 clipes sintéticos, M1 Pro): Parakeet é ~5× mais rápido que o `small.en` (0,15 s vs 0,80 s por clipe de 4,5 s, 4 threads) e tem timestamps melhores, mas **detecta menos** pronúncias erradas (22/90 vs 28/90 respellings) e sua confiança quase não separa palavra certa de errada; por isso o Whisper continua default e o Parakeet fica como opção para máquinas em que a latência do ASR é o gargalo.
+
 A API local aponta `SPEECH_SERVICE_URL=http://127.0.0.1:8100`.
 
 ### Variáveis de ambiente (§5.3)
@@ -151,7 +162,7 @@ A API local aponta `SPEECH_SERVICE_URL=http://127.0.0.1:8100`.
 | `SPEECH_HOST` / `SPEECH_PORT` | `0.0.0.0` / `8100` | bind |
 | `SPEECH_TTS_ENGINE` / `SPEECH_TTS_MODEL` | `kokoro` / `hexgrad/Kokoro-82M` | `kokoro\|fake\|none` |
 | `SPEECH_TTS_DEFAULT_VOICE` / `SPEECH_TTS_VOICES` | `af_heart` / `af_heart,af_bella,af_nicole,am_michael,am_adam,bf_emma,bm_george` | vozes oferecidas (ids desconhecidos → 400 `voice_invalid`) |
-| `SPEECH_ASR_ENGINE` / `SPEECH_ASR_MODEL` | `faster-whisper` / `small.en` | `faster-whisper\|mlx-whisper\|fake\|none` |
+| `SPEECH_ASR_ENGINE` / `SPEECH_ASR_MODEL` | `faster-whisper` / `small.en` | `faster-whisper\|mlx-whisper\|parakeet\|fake\|none`; com `parakeet` o modelo é um diretório sherpa-onnx ou um nome de release do k2-fsa (default `sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8`) |
 | `SPEECH_ASR_COMPUTE_TYPE` / `SPEECH_ASR_THREADS` | `int8` / `0` | CTranslate2; `0` = automático (`effective_cpus`, máx. 8; metade quando os fonemas rodam em paralelo) |
 | `SPEECH_TORCH_THREADS` | `0` | threads do torch (Kokoro); `0` = automático (`effective_cpus`, máx. 8) |
 | `SPEECH_PHONEME_ENGINE` | `wav2vec2` | `wav2vec2\|fake\|none`; sem ela a avaliação sai sem fonemas (`engines.phoneme = null`) |
@@ -175,13 +186,15 @@ A API local aponta `SPEECH_SERVICE_URL=http://127.0.0.1:8100`.
 ## Testes
 
 ```bash
-cd speech && uv run pytest      # 100 testes, ~20 s (engines fake; não baixam modelos)
+cd speech && uv run pytest      # 109 testes, ~20 s (engines fake; não baixam modelos)
 ```
 
 Os testes de API usam `SPEECH_TTS_ENGINE=fake SPEECH_ASR_ENGINE=fake` e `SPEECH_PHONEME_ENGINE=none|fake`. O ASR fake lê a "transcrição" do próprio upload:
 bytes UTF-8 começando com `FAKE:` (tokens podem levar `@prob`, ex.: `FAKE:security awareness@0.3 training`, e `#letras` com o que a engine de fonemas fake "ouve", ex.: `threat#tret`; `...` é uma pausa de 1,2 s); qualquer outro conteúdo é "ouvido" igual ao texto de referência. A engine de fonemas fake usa letras como fonemas e monta posteriors sintéticas a partir das palavras ouvidas. O alinhamento CTC, o GOP e a prosódia são testados com matrizes de posteriors montadas à mão e senoides sintéticas; o teste de tokenização com o `espeak-ng` real é pulado se o binário não existir.
 
 Incremento 3 (`tests/test_sentences.py`, `tests/test_runtime.py`, `tests/test_stream.py`): paridade da divisão de frases com a regex do corpus, junção de fragmentos curtos, teto de 400 caracteres, ida e volta dos offsets; palavras das frases × palavras do bloco (deslocadas pelas durações) e bloco sem nenhuma síntese quando as frases estão em cache; stream (ordem das linhas, `cached=true` na segunda chamada, linha `error` depois de `meta`, parada quando o cliente desconecta — o gerador recebe um `is_disconnected` falso); fila de prioridade (`low` espera enquanto há `normal` na fila, `normal` nunca espera por `low`, `low` expira → 503 `busy` via `httpx.ASGITransport` com um TTS fake lento); `effective_cpus` com arquivos de cgroup falsos (v2, v1, afinidade, `cpu_count`); defaults automáticos (3 CPUs → concorrência 1 e 3 threads; 8 → concorrência 2 e paralelo); caminho paralelo de fonemas idêntico ao sequencial (engine fake com script que não depende do ASR) e bloco `runtime` do `/healthz`.
+
+Engine Parakeet (`tests/test_parakeet_words.py`, sem sherpa-onnx instalado): junção dos *pieces* do sentencepiece em palavras com tempos (início do primeiro piece, fim = último piece + duração TDT ou 0,15 s, limitado ao início da palavra seguinte), probabilidade = média das probabilidades dos pieces (1,0 quando a engine não expõe log-probs), pontuação solta colada à palavra, hífen entre pieces separando o composto (`fixed-length` → `fixed`, `length`), resolução do nome do modelo e `transcribe` com um reconhecedor falso.
 
 ## Calibração
 
@@ -195,6 +208,13 @@ uv run python scripts/calibrate.py --dataset ./gravacoes --token "$SPEECH_API_TO
 ```
 
 O relatório (Markdown) traz matriz de confusão, precisão/revocação/F1 por status, notas por variante e varreduras simuladas de `SPEECH_PHONEME_WORD_THRESHOLD` e da confiança de `weak`. Resultado da última rodada: `docs/reading/CALIBRACAO.md`.
+
+`scripts/asr_bakeoff.py` compara engines de ASR **em processo** (sem servidor) nos mesmos casos sintéticos: sintetiza cada clipe uma vez com o Kokoro (cache em MP3 no `--bakeoff-dir`), passa cada um pelo `SpeechService.assess` real com cada engine (fonemas desligados) e relata detecção por variante, falsos positivos, WER, erro dos timestamps contra os tempos do próprio Kokoro, confiança, latência por contagem de threads e RSS. Resultado: `docs/reading/BAKEOFF-ASR.md`.
+
+```bash
+uv sync --extra parakeet
+HF_HOME=/caminho/bakeoff/hf uv run python scripts/asr_bakeoff.py --bakeoff-dir /caminho/bakeoff --threads 4,8 --out bakeoff.md --dump bakeoff.json
+```
 
 ## Docker
 
