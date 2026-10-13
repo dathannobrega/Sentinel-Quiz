@@ -11,6 +11,9 @@ As imagens são publicadas no GHCR com a versão (`1.0.0`, `1.0`) quando a tag `
 - A mensagem "análise por fonema desligada" agora diz o motivo: carregando no servidor, falhou ao carregar ou desligada na configuração (`capabilities.phonemes.reason`).
 - Plano da Fase 2 em `docs/reading/PLANO-FASE-2.md`: prática que ensina, configuração pela interface, ebooks dos alunos, progresso e qualidade da avaliação.
 
+### Corrigido
+- **A análise por fonema nunca carregava no Docker** (1.1.0): o compose enviava `SPEECH_PHONEME_MODEL` vazio e o serviço tentava carregar um modelo chamado `""`. Valores vazios de `SPEECH_*` agora significam "padrão", e o compose passa o nome do modelo.
+
 ## [1.1.0] - 2026-10-12
 
 ### Adicionado
