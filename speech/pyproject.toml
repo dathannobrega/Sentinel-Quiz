@@ -1,6 +1,6 @@
 [project]
 name = "sentinel-speech"
-version = "1.1.1"
+version = "1.2.0"
 description = "Sentinel Reader speech service: neural TTS with word timestamps and read-aloud assessment (ASR + alignment + phoneme GOP + prosody)."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
