@@ -3,6 +3,11 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 As imagens são publicadas no GHCR com a versão (`1.0.0`, `1.0`) quando a tag `v*` é criada.
 
+## [Unreleased]
+
+### Adicionado
+- Serviço de voz: engine de reconhecimento **opcional** Parakeet TDT 0.6B v2 via sherpa-onnx (`uv sync --extra parakeet`, `SPEECH_ASR_ENGINE=parakeet`): 5× mais rápido e com tempos de palavra mais precisos que o Whisper `small.en`, mas detecta um pouco menos pronúncias erradas; o Whisper continua o padrão. Comparativo medido em `docs/reading/BAKEOFF-ASR.md` e ferramenta `speech/scripts/asr_bakeoff.py`.
+
 ## [1.1.1] - 2026-10-13
 
 ### Alterado

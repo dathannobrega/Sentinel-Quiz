@@ -87,7 +87,7 @@ Critérios: licença permissiva, CPU, qualidade, timestamps por palavra (TTS) ou
 |---|---|---|
 | **faster-whisper `small.en`** (em uso) | MIT, int8 CPU, palavras com confiança; aceita pronúncia ruim como certa (compensado pelo wav2vec2) | **Mantém como padrão em máquinas de 4 vCPUs.** |
 | faster-whisper `large-v3-turbo` / `distil-large-v3` | Melhor WER; 2 a 4× mais pesado **[estimativa]** | Opção no Épico B para máquinas de 8+ núcleos; medir latência na tabela de dimensionamento. |
-| **NVIDIA Parakeet TDT 0.6B v2** via sherpa-onnx (int8, CPU) | CC-BY-4.0; WER muito baixo em inglês e timestamps por palavra; CPU viável com sherpa-onnx **[a verificar]** | **Candidato principal a substituir o Whisper** na avaliação: menos "autocorreção" por não ter decodificador autoregressivo forte **[hipótese]**. Entra num **bake-off** (Épico E) com a ferramenta de calibração. |
+| **NVIDIA Parakeet TDT 0.6B v2** via sherpa-onnx (int8, CPU) | CC-BY-4.0; medido em 13/10 ([BAKEOFF-ASR](./BAKEOFF-ASR.md)): 5,4× mais rápido, tempos de palavra 2,7× mais precisos, WER menor, mas **pega menos pronúncias erradas** (24/90 × 29/90 com fonemas ligados) e a confiança por palavra não separa certo de errado | **Não substitui o Whisper** como padrão. Fica como **engine opcional** (`SPEECH_ASR_ENGINE=parakeet`) para quem precisa de latência abaixo de 0,5 s por frase. A hipótese da "autocorreção menor" foi refutada. |
 | whisper.cpp / CoreML | MIT | Útil só no Mac nativo; não entra no container. |
 
 ### 3.3 Fonemas e prosódia
@@ -155,7 +155,7 @@ Nível estimado por faixa (A2/B1/B2 **[hipótese]**: combinação de WPM, precis
 |---|---|
 | E1 **Doação de gravações (opt-in)** | Na primeira gravação, oferta clara: "guardar minhas gravações para melhorar a avaliação"; desligada por padrão; gravações ficam no volume, ligadas ao usuário, apagáveis em "Seus dados"; exportáveis pelo admin em lote anonimizado para `calibrate.py --dataset` |
 | E2 **Rotulagem** | Tela simples para rotular palavras (ok/erro) em gravações doadas; precisão/recall por status por versão de modelo |
-| E3 **Bake-off de ASR** | Parakeet (sherpa-onnx) × Whisper small/turbo na mesma máquina e no mesmo dataset; decisão por tabela (latência, revocação de erro, falsos "ok") |
+| E3 **Bake-off de ASR** | **Feito em 13/10** para Parakeet × Whisper `small.en` ([BAKEOFF-ASR](./BAKEOFF-ASR.md)); repetir com gravações humanas (E1) e incluir `large-v3-turbo` em máquinas de 8+ núcleos |
 | E4 **Limiares por aluno** | Limiar de `weak` e de fonema ajustáveis pelo nível (mais leniente no início) |
 
 ## 9. Arquitetura e dados

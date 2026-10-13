@@ -27,6 +27,10 @@ dependencies = [
 [project.optional-dependencies]
 # Apple Silicon only: native Metal ASR via mlx-whisper (SPEECH_ASR_ENGINE=mlx-whisper).
 mlx = ["mlx-whisper>=0.4"]
+# NVIDIA Parakeet TDT (NeMo transducer) on CPU via sherpa-onnx (SPEECH_ASR_ENGINE=parakeet).
+# sherpa-onnx-core carries the shared libraries (onnxruntime); the wheel metadata requires it
+# but uv resolves the sdist metadata, which does not, so it is listed explicitly.
+parakeet = ["sherpa-onnx>=1.13", "sherpa-onnx-core>=1.13"]
 
 [project.scripts]
 speech-server = "speech.main:run"
